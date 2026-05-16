@@ -223,3 +223,8 @@ dist/
 build/
 *.log
 .eslintcache
+
+# Local databases
+*.db
+*.db-journal
+*.sqlite

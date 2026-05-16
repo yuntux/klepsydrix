@@ -32,12 +32,12 @@
 
 **⚠️ CRITICAL**: Aucun travail sur les User Stories ne peut débuter tant que cette phase n'est pas intégralement achevée et validée.
 
-- [ ] T006 Créer la base déclarative et la connexion sessionmaker dans `backend/app/core/database.py`
-- [ ] T007 [P] Créer la base de modèles partagés dans `backend/app/models/base.py`
-- [ ] T008 [P] Implémenter les schémas de base SQLAlchemy dans `backend/app/models/teacher.py`, `backend/app/models/classroom.py` et `backend/app/models/division.py`
-- [ ] T009 [P] Implémenter les modèles restants dans `backend/app/models/timeslot.py` et `backend/app/models/course.py`
-- [ ] T010 Créer le script d'initialisation de la base de données et de chargement du jeu de données d'exemple mocké (10 enseignants, 5 classes, 5 salles, 30 cours non placés) dans `backend/app/core/init_db.py`
-- [ ] T011 Configurer le routeur principal de l'API FastAPI et le middleware de gestion CORS dans `backend/app/main.py`
+- [x] T006 Créer la base déclarative et la connexion sessionmaker dans `backend/app/core/database.py`
+- [x] T007 [P] Créer la base de modèles partagés dans `backend/app/models/base.py`
+- [x] T008 [P] Implémenter les schémas de base SQLAlchemy dans `backend/app/models/teacher.py`, `backend/app/models/classroom.py` et `backend/app/models/division.py`
+- [x] T009 [P] Implémenter les modèles restants dans `backend/app/models/timeslot.py` et `backend/app/models/course.py`
+- [x] T010 Créer le script d'initialisation de la base de données et de chargement du jeu de données d'exemple mocké (10 enseignants, 5 classes, 5 salles, 30 cours non placés) dans `backend/app/core/init_db.py`
+- [x] T011 Configurer le routeur principal de l'API FastAPI et le middleware de gestion CORS dans `backend/app/main.py`
 
 **Checkpoint** : Fondations de données validées. SQLite est opérationnel, le schéma est créé avec le mock de données de départ.
 
