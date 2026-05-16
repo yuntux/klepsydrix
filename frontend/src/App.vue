@@ -97,7 +97,7 @@ function showNotification(type: 'success' | 'error', message: string) {
   }, 4500);
 }
 
-const scoreData = ref<{ hard_score: number; soft_score: number; summary: string } | null>(null);
+const scoreData = ref<{ hard_score: number; soft_score: number; summary: string; matches: Record<string, { hard: number; soft: number; count: number }> } | null>(null);
 
 // Chargement initial des données
 async function loadData() {
@@ -143,6 +143,7 @@ watch(viewMode, () => {
 async function onMoveCourse(courseId: number, timeslotId: number, classroomId: number | null) {
   // Sauvegarde de l'état précédent en cas d'erreur de validation (Revert)
   const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
+  const oldScore = scoreData.value ? { ...scoreData.value } : null;
   
   // Appliquer le déplacement localement de manière optimiste
   const courseIndex = courses.value.findIndex(c => c.id === courseId);
@@ -163,6 +164,7 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
 
 async function onUnassignCourse(courseId: number) {
   const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
+  const oldScore = scoreData.value ? { ...scoreData.value } : null;
 
   // Retirer localement
   const courseIndex = courses.value.findIndex(c => c.id === courseId);
@@ -182,6 +184,7 @@ async function onUnassignCourse(courseId: number) {
 
 async function onTogglePinCourse(courseId: number) {
   const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
+  const oldScore = scoreData.value ? { ...scoreData.value } : null;
   const courseIndex = courses.value.findIndex(c => c.id === courseId);
   if (courseIndex === -1) return;
 

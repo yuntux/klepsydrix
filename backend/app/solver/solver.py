@@ -158,8 +158,17 @@ def explain_timetable_score(db: Session) -> dict:
     score_explanation = solution_manager.explain(problem)
     score = score_explanation.score
     
+    matches_detail = {}
+    for cmt in score_explanation.constraint_match_total_map.values():
+        matches_detail[cmt.constraint_ref.constraint_name] = {
+            "hard": cmt.score.hard_score if hasattr(cmt.score, 'hard_score') else 0,
+            "soft": cmt.score.soft_score if hasattr(cmt.score, 'soft_score') else 0,
+            "count": len(cmt.constraint_match_set)
+        }
+
     return {
         "hard_score": score.hard_score if score else 0,
         "soft_score": score.soft_score if score else 0,
         "summary": score_explanation.summary,
+        "matches": matches_detail
     }
