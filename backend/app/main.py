@@ -28,4 +28,5 @@ def read_root():
         "documentation": f"{settings.API_V1_STR}/docs"
     }
 
-# Dans la tâche T017, nous y inclurons l'import et le montage de backend/app/api/endpoints.py
+from backend.app.api.endpoints import router as api_router
+app.include_router(api_router)

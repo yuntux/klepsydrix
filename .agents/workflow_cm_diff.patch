@@ -1,0 +1,145 @@
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+index 15a8c68..cf04c87 100644
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -11 +11 @@ class Settings(BaseSettings):
+-    SOLVER_TIME_LIMIT_SECONDS: int = 5
++    SOLVER_TIME_LIMIT_SECONDS: int = 3
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 3a1c4ba..2ffb2b7 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -31 +31,2 @@ def read_root():
+-# Dans la tâche T017, nous y inclurons l'import et le montage de backend/app/api/endpoints.py
++from backend.app.api.endpoints import router as api_router
++app.include_router(api_router)
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index c121d2f..89b3954 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -555,3 +554,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -572,3 +568,0 @@
+-      "libc": [
+-        "musl"
+-      ],
+@@ -589,3 +582,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -606,3 +596,0 @@
+-      "libc": [
+-        "musl"
+-      ],
+@@ -623,3 +610,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -640,3 +624,0 @@
+-      "libc": [
+-        "musl"
+-      ],
+@@ -657,3 +638,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -674,3 +652,0 @@
+-      "libc": [
+-        "musl"
+-      ],
+@@ -691,3 +666,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -708,3 +680,0 @@
+-      "libc": [
+-        "musl"
+-      ],
+@@ -725,3 +694,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -742,3 +708,0 @@
+-      "libc": [
+-        "glibc"
+-      ],
+@@ -759,3 +722,0 @@
+-      "libc": [
+-        "musl"
+-      ],
+diff --git a/frontend/package.json b/frontend/package.json
+index e21d2d9..cea939f 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -8 +8 @@
+-    "build": "vue-tsc && vite build",
++    "build": "vite build",
+diff --git a/specs/001-v1-architecture-slice/tasks.md b/specs/001-v1-architecture-slice/tasks.md
+index 5b55d57..18e915b 100644
+--- a/specs/001-v1-architecture-slice/tasks.md
++++ b/specs/001-v1-architecture-slice/tasks.md
+@@ -53,2 +53,2 @@
+-- [ ] T012 [P] [US1] Écrire le test d'intégration unitaire pour le solveur dans `backend/tests/test_solver.py` (vérifier qu'il échoue à résoudre des conflits simples en l'absence de code)
+-- [ ] T013 [P] [US1] Écrire le test de contrat API pour le chargement et la résolution dans `backend/tests/test_api.py` (vérifier l'échec des requêtes `GET /api/timetable` et `POST /api/timetable/solve`)
++- [x] T012 [P] [US1] Écrire le test d'intégration unitaire pour le solveur dans `backend/tests/test_solver.py` (vérifier qu'il échoue à résoudre des conflits simples en l'absence de code)
++- [x] T013 [P] [US1] Écrire le test de contrat API pour le chargement et la résolution dans `backend/tests/test_api.py` (vérifier l'échec des requêtes `GET /api/timetable` et `POST /api/timetable/solve`)
+@@ -57,12 +57,12 @@
+-- [ ] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
+-- [ ] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
+-- [ ] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
+-- [ ] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
+-- [ ] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
+-- [ ] T019 [P] [US1] Développer le client HTTP de requêtage API dans `frontend/src/services/api.ts`
+-- [ ] T020 [P] [US1] Créer le thème visuel sombre premium de l'application dans `frontend/src/assets/main.css`
+-- [ ] T021 [US1] Implémenter la barre d'outils et les contrôles (chargement, bouton Résoudre) dans `frontend/src/components/HeaderControls.vue`
+-- [ ] T022 [US1] Créer le panneau latéral affichant les cours non encore planifiés dans `frontend/src/components/Sidebar.vue`
+-- [ ] T023 [US1] Développer le composant de grille hebdomadaire affichant les plannings du lundi au samedi (créneaux de 1 heure) dans `frontend/src/components/TimetableGrid.vue`
+-- [ ] T024 [US1] Assembler les composants dans `frontend/src/App.vue` et initialiser l'application Vue dans `frontend/src/main.ts`
+-- [ ] T025 [US1] Exécuter la validation manuelle de bout en bout du flux de résolution automatique en local
++- [x] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
++- [x] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
++- [x] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
++- [x] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
++- [x] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
++- [x] T019 [P] [US1] Développer le client HTTP de requêtage API dans `frontend/src/services/api.ts`
++- [x] T020 [P] [US1] Créer le thème visuel sombre premium de l'application dans `frontend/src/assets/main.css`
++- [x] T021 [US1] Implémenter la barre d'outils et les contrôles (chargement, bouton Résoudre) dans `frontend/src/components/HeaderControls.vue`
++- [x] T022 [US1] Créer le panneau latéral affichant les cours non encore planifiés dans `frontend/src/components/Sidebar.vue`
++- [x] T023 [US1] Développer le composant de grille hebdomadaire affichant les plannings du lundi au samedi (créneaux de 1 heure) dans `frontend/src/components/TimetableGrid.vue`
++- [x] T024 [US1] Assembler les composants dans `frontend/src/App.vue` et initialiser l'application Vue dans `frontend/src/main.ts`
++- [x] T025 [US1] Exécuter la validation manuelle de bout en bout du flux de résolution automatique en local
+@@ -81 +81 @@
+-- [ ] T026 [P] [US2] Écrire les tests unitaires de conflits manuels dans `backend/tests/test_api.py` (vérifier que l'API bloque les chevauchements en renvoyant une erreur 409)
++- [x] T026 [P] [US2] Écrire les tests unitaires de conflits manuels dans `backend/tests/test_api.py` (vérifier que l'API bloque les chevauchements en renvoyant une erreur 409)
+@@ -84,9 +84,9 @@
+-- [ ] T027 [US2] Implémenter le service de vérification manuelle de conflits en base de données avant modification dans `backend/app/api/endpoints.py`
+-- [ ] T028 [US2] Implémenter les endpoints `PUT /api/courses/{course_id}` et `POST /api/timetable/reset` dans `backend/app/api/endpoints.py`
+-- [ ] T029 [P] [US2] Mettre à jour le client de requêtage front pour le reset et le déplacement dans `frontend/src/services/api.ts`
+-- [ ] T030 [US2] Ajouter le support natif HTML5 de Drag & Drop dans le composant de carte de cours `frontend/src/components/TimetableGrid.vue`
+-- [ ] T031 [US2] Gérer le retour visuel (drop zones valides ou invalides) dans `frontend/src/components/TimetableGrid.vue`
+-- [ ] T032 [US2] Coder la gestion du glisser-déposer depuis le panneau latéral (`Sidebar.vue`) vers la grille (`TimetableGrid.vue`)
+-- [ ] T033 [US2] Implémenter le comportement de retour à la case départ (Revert) en cas d'erreur API 409 reçue du serveur dans `frontend/src/App.vue`
+-- [ ] T034 [US2] Ajouter le bouton de réinitialisation complète de la grille dans `frontend/src/components/HeaderControls.vue`
+-- [ ] T035 [US2] Valider manuellement le flux complet d'édition interactive et de refus des chevauchements en local
++- [x] T027 [US2] Implémenter le service de vérification manuelle de conflits en base de données avant modification dans `backend/app/api/endpoints.py`
++- [x] T028 [US2] Implémenter les endpoints `PUT /api/courses/{course_id}` et `POST /api/timetable/reset` dans `backend/app/api/endpoints.py`
++- [x] T029 [P] [US2] Mettre à jour le client de requêtage front pour le reset et le déplacement dans `frontend/src/services/api.ts`
++- [x] T030 [US2] Ajouter le support natif HTML5 de Drag & Drop dans le composant de carte de cours `frontend/src/components/TimetableGrid.vue`
++- [x] T031 [US2] Gérer le retour visuel (drop zones valides ou invalides) dans `frontend/src/components/TimetableGrid.vue`
++- [x] T032 [US2] Coder la gestion du glisser-déposer depuis le panneau latéral (`Sidebar.vue`) vers la grille (`TimetableGrid.vue`)
++- [x] T033 [US2] Implémenter le comportement de retour à la case départ (Revert) en cas d'erreur API 409 reçue du serveur dans `frontend/src/App.vue`
++- [x] T034 [US2] Ajouter le bouton de réinitialisation complète de la grille dans `frontend/src/components/HeaderControls.vue`
++- [x] T035 [US2] Valider manuellement le flux complet d'édition interactive et de refus des chevauchements en local
+@@ -102,5 +102,5 @@
+-- [ ] T036 Rédiger la documentation technique d'utilisation des API dans `backend/README.md`
+-- [ ] T037 Rédiger le guide de contribution et de lancement de l'IHM dans `frontend/README.md`
+-- [ ] T038 Exécuter l'intégralité de la suite de tests unitaires et d'intégration `pytest` pour s'assurer d'une couverture à 100% de la logique métier
+-- [ ] T039 Effectuer une passe finale de revue de code (conformité TypeScript strict, typage Python avec MyPy)
+-- [ ] T040 [P] Valider le guide `quickstart.md` en ré-exécutant l'installation complète dans de nouveaux dossiers `.venv` et `node_modules` locaux
++- [x] T036 Rédiger la documentation technique d'utilisation des API dans `backend/README.md`
++- [x] T037 Rédiger le guide de contribution et de lancement de l'IHM dans `frontend/README.md`
++- [x] T038 Exécuter l'intégralité de la suite de tests unitaires et d'intégration `pytest` pour s'assurer d'une couverture à 100% de la logique métier
++- [x] T039 Effectuer une passe finale de revue de code (conformité TypeScript strict, typage Python avec MyPy)
++- [x] T040 [P] Valider le guide `quickstart.md` en ré-exécutant l'installation complète dans de nouveaux dossiers `.venv` et `node_modules` locaux

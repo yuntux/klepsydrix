@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./timetable.db"
     
     # Limite de temps pour le solveur Timefold en secondes
-    SOLVER_TIME_LIMIT_SECONDS: int = 5
+    SOLVER_TIME_LIMIT_SECONDS: int = 3
 
     # Charger le fichier .env s'il existe
     model_config = SettingsConfigDict(
