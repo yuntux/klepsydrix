@@ -13,7 +13,7 @@ Ce plan d'implémentation structure la réalisation de la première **Tranche Ve
 - **Frontend** : Application monopage (SPA) fluide développée avec **Vue 3**, **Vite** et **TypeScript**. L'IHM utilisera du CSS Vanilla moderne, respectera une charte sombre minimaliste et performante, avec des transitions fluides et un support natif du Drag & Drop pour la grille hebdomadaire.
 - **Backend** : Service d'API REST robuste avec **FastAPI** (Python 3.11+). La configuration sera lue via **Pydantic Settings** depuis un fichier local `.env`.
 - **Persistance** : Couche d'accès aux données gérée par l'ORM **SQLAlchemy** sur une base locale légère **SQLite**, conçue pour être compatible avec **PostgreSQL** sans modification de code.
-- **Moteur d'Optimisation** : Intégration en mémoire vive de **Timefold Solver** (Python) pour résoudre les contraintes d'exclusion mutuelle (enseignants et salles) et optimiser les contraintes souples de "trous" dans les emplois du temps.
+- **Moteur d'Optimisation** : Intégration en mémoire vive de **Timefold Solver** (Python) pour résoudre les contraintes d'exclusion mutuelle (enseignants et salles) et optimiser les contraintes souples distinctes de "trous" dans les emplois du temps (pour les enseignants d'une part, et pour les divisions d'élèves d'autre part, avec des pondérations modulables).
 
 ---
 

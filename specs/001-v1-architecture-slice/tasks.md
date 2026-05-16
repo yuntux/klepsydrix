@@ -55,7 +55,7 @@
 
 ### Implémentation pour User Story 1
 - [ ] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
-- [ ] T015 [US1] Implémenter le service d'évaluation des contraintes (Teacher Overlap et Room Overlap) de Timefold dans `backend/app/solver/constraints.py`
+- [ ] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
 - [ ] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
 - [ ] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
 - [ ] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
