@@ -14,7 +14,7 @@ from backend.app.solver.constraints import (
     PlanningTimeslot,
     PlanningCourse,
     PlanningTimetable,
-    calculate_score,
+    define_constraints,
 )
 
 
@@ -71,14 +71,14 @@ def solve_timetable(db: Session):
         score=None,
     )
 
-    # 4. Configurer le solveur Timefold avec EasyScoreCalculator
+    # 4. Configurer le solveur Timefold avec le ConstraintProvider déclaratif
     limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
     solver_config = SolverConfig(
         environment_mode=EnvironmentMode.NO_ASSERT,
         solution_class=PlanningTimetable,
         entity_class_list=[PlanningCourse],
         score_director_factory_config=ScoreDirectorFactoryConfig(
-            easy_score_calculator_function=calculate_score
+            constraint_provider_function=define_constraints
         ),
         termination_config=TerminationConfig(
             spent_limit=Duration(seconds=limit_seconds)
@@ -92,46 +92,10 @@ def solve_timetable(db: Session):
     try:
         solution = solver.solve(problem)
     except Exception as e:
-        # En cas d'erreur ou timeout, on repart du problème initial pour le solveur glouton
+        # En cas d'erreur ou timeout, on conserve le problème initial
         solution = problem
 
-    # 6. Approche hybride / Heuristique gloutonne robuste pour compléter les cours non placés
-    placed = []
-    unplaced = []
-    for pc in solution.courses:
-        if pc.timeslot is not None and pc.classroom is not None:
-            placed.append(pc)
-        else:
-            unplaced.append(pc)
-
-    # Positionnement glouton sans conflit pour tous les cours restants
-    for pc in unplaced:
-        assigned = False
-        for ts in timeslots_list:
-            for cr in classrooms_list:
-                # Vérifier si (créneau, salle) est totalement libre de tout conflit
-                conflict = False
-                for p in placed:
-                    if p.timeslot.id == ts.id:
-                        if p.classroom.id == cr.id:
-                            conflict = True
-                            break
-                        if p.teacher.id == pc.teacher.id:
-                            conflict = True
-                            break
-                        if p.division.id == pc.division.id:
-                            conflict = True
-                            break
-                if not conflict:
-                    pc.timeslot = ts
-                    pc.classroom = cr
-                    placed.append(pc)
-                    assigned = True
-                    break
-            if assigned:
-                break
-
-    # 7. Mettre à jour les enregistrements en base de données avec la solution optimale complète
+    # 6. Mettre à jour les enregistrements en base de données avec la solution optimale trouvée par Timefold
     for pc in solution.courses:
         db_course = db.query(Course).filter(Course.id == pc.id).first()
         if db_course:

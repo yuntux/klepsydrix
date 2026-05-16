@@ -1,145 +1,326 @@
-diff --git a/backend/app/core/config.py b/backend/app/core/config.py
-index 15a8c68..cf04c87 100644
---- a/backend/app/core/config.py
-+++ b/backend/app/core/config.py
-@@ -11 +11 @@ class Settings(BaseSettings):
--    SOLVER_TIME_LIMIT_SECONDS: int = 5
-+    SOLVER_TIME_LIMIT_SECONDS: int = 3
-diff --git a/backend/app/main.py b/backend/app/main.py
-index 3a1c4ba..2ffb2b7 100644
---- a/backend/app/main.py
-+++ b/backend/app/main.py
-@@ -31 +31,2 @@ def read_root():
--# Dans la tâche T017, nous y inclurons l'import et le montage de backend/app/api/endpoints.py
-+from backend.app.api.endpoints import router as api_router
-+app.include_router(api_router)
-diff --git a/frontend/package-lock.json b/frontend/package-lock.json
-index c121d2f..89b3954 100644
---- a/frontend/package-lock.json
-+++ b/frontend/package-lock.json
-@@ -555,3 +554,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -572,3 +568,0 @@
--      "libc": [
--        "musl"
--      ],
-@@ -589,3 +582,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -606,3 +596,0 @@
--      "libc": [
--        "musl"
--      ],
-@@ -623,3 +610,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -640,3 +624,0 @@
--      "libc": [
--        "musl"
--      ],
-@@ -657,3 +638,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -674,3 +652,0 @@
--      "libc": [
--        "musl"
--      ],
-@@ -691,3 +666,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -708,3 +680,0 @@
--      "libc": [
--        "musl"
--      ],
-@@ -725,3 +694,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -742,3 +708,0 @@
--      "libc": [
--        "glibc"
--      ],
-@@ -759,3 +722,0 @@
--      "libc": [
--        "musl"
--      ],
-diff --git a/frontend/package.json b/frontend/package.json
-index e21d2d9..cea939f 100644
---- a/frontend/package.json
-+++ b/frontend/package.json
-@@ -8 +8 @@
--    "build": "vue-tsc && vite build",
-+    "build": "vite build",
-diff --git a/specs/001-v1-architecture-slice/tasks.md b/specs/001-v1-architecture-slice/tasks.md
-index 5b55d57..18e915b 100644
---- a/specs/001-v1-architecture-slice/tasks.md
-+++ b/specs/001-v1-architecture-slice/tasks.md
-@@ -53,2 +53,2 @@
--- [ ] T012 [P] [US1] Écrire le test d'intégration unitaire pour le solveur dans `backend/tests/test_solver.py` (vérifier qu'il échoue à résoudre des conflits simples en l'absence de code)
--- [ ] T013 [P] [US1] Écrire le test de contrat API pour le chargement et la résolution dans `backend/tests/test_api.py` (vérifier l'échec des requêtes `GET /api/timetable` et `POST /api/timetable/solve`)
-+- [x] T012 [P] [US1] Écrire le test d'intégration unitaire pour le solveur dans `backend/tests/test_solver.py` (vérifier qu'il échoue à résoudre des conflits simples en l'absence de code)
-+- [x] T013 [P] [US1] Écrire le test de contrat API pour le chargement et la résolution dans `backend/tests/test_api.py` (vérifier l'échec des requêtes `GET /api/timetable` et `POST /api/timetable/solve`)
-@@ -57,12 +57,12 @@
--- [ ] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
--- [ ] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
--- [ ] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
--- [ ] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
--- [ ] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
--- [ ] T019 [P] [US1] Développer le client HTTP de requêtage API dans `frontend/src/services/api.ts`
--- [ ] T020 [P] [US1] Créer le thème visuel sombre premium de l'application dans `frontend/src/assets/main.css`
--- [ ] T021 [US1] Implémenter la barre d'outils et les contrôles (chargement, bouton Résoudre) dans `frontend/src/components/HeaderControls.vue`
--- [ ] T022 [US1] Créer le panneau latéral affichant les cours non encore planifiés dans `frontend/src/components/Sidebar.vue`
--- [ ] T023 [US1] Développer le composant de grille hebdomadaire affichant les plannings du lundi au samedi (créneaux de 1 heure) dans `frontend/src/components/TimetableGrid.vue`
--- [ ] T024 [US1] Assembler les composants dans `frontend/src/App.vue` et initialiser l'application Vue dans `frontend/src/main.ts`
--- [ ] T025 [US1] Exécuter la validation manuelle de bout en bout du flux de résolution automatique en local
-+- [x] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
-+- [x] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
-+- [x] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
-+- [x] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
-+- [x] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
-+- [x] T019 [P] [US1] Développer le client HTTP de requêtage API dans `frontend/src/services/api.ts`
-+- [x] T020 [P] [US1] Créer le thème visuel sombre premium de l'application dans `frontend/src/assets/main.css`
-+- [x] T021 [US1] Implémenter la barre d'outils et les contrôles (chargement, bouton Résoudre) dans `frontend/src/components/HeaderControls.vue`
-+- [x] T022 [US1] Créer le panneau latéral affichant les cours non encore planifiés dans `frontend/src/components/Sidebar.vue`
-+- [x] T023 [US1] Développer le composant de grille hebdomadaire affichant les plannings du lundi au samedi (créneaux de 1 heure) dans `frontend/src/components/TimetableGrid.vue`
-+- [x] T024 [US1] Assembler les composants dans `frontend/src/App.vue` et initialiser l'application Vue dans `frontend/src/main.ts`
-+- [x] T025 [US1] Exécuter la validation manuelle de bout en bout du flux de résolution automatique en local
-@@ -81 +81 @@
--- [ ] T026 [P] [US2] Écrire les tests unitaires de conflits manuels dans `backend/tests/test_api.py` (vérifier que l'API bloque les chevauchements en renvoyant une erreur 409)
-+- [x] T026 [P] [US2] Écrire les tests unitaires de conflits manuels dans `backend/tests/test_api.py` (vérifier que l'API bloque les chevauchements en renvoyant une erreur 409)
-@@ -84,9 +84,9 @@
--- [ ] T027 [US2] Implémenter le service de vérification manuelle de conflits en base de données avant modification dans `backend/app/api/endpoints.py`
--- [ ] T028 [US2] Implémenter les endpoints `PUT /api/courses/{course_id}` et `POST /api/timetable/reset` dans `backend/app/api/endpoints.py`
--- [ ] T029 [P] [US2] Mettre à jour le client de requêtage front pour le reset et le déplacement dans `frontend/src/services/api.ts`
--- [ ] T030 [US2] Ajouter le support natif HTML5 de Drag & Drop dans le composant de carte de cours `frontend/src/components/TimetableGrid.vue`
--- [ ] T031 [US2] Gérer le retour visuel (drop zones valides ou invalides) dans `frontend/src/components/TimetableGrid.vue`
--- [ ] T032 [US2] Coder la gestion du glisser-déposer depuis le panneau latéral (`Sidebar.vue`) vers la grille (`TimetableGrid.vue`)
--- [ ] T033 [US2] Implémenter le comportement de retour à la case départ (Revert) en cas d'erreur API 409 reçue du serveur dans `frontend/src/App.vue`
--- [ ] T034 [US2] Ajouter le bouton de réinitialisation complète de la grille dans `frontend/src/components/HeaderControls.vue`
--- [ ] T035 [US2] Valider manuellement le flux complet d'édition interactive et de refus des chevauchements en local
-+- [x] T027 [US2] Implémenter le service de vérification manuelle de conflits en base de données avant modification dans `backend/app/api/endpoints.py`
-+- [x] T028 [US2] Implémenter les endpoints `PUT /api/courses/{course_id}` et `POST /api/timetable/reset` dans `backend/app/api/endpoints.py`
-+- [x] T029 [P] [US2] Mettre à jour le client de requêtage front pour le reset et le déplacement dans `frontend/src/services/api.ts`
-+- [x] T030 [US2] Ajouter le support natif HTML5 de Drag & Drop dans le composant de carte de cours `frontend/src/components/TimetableGrid.vue`
-+- [x] T031 [US2] Gérer le retour visuel (drop zones valides ou invalides) dans `frontend/src/components/TimetableGrid.vue`
-+- [x] T032 [US2] Coder la gestion du glisser-déposer depuis le panneau latéral (`Sidebar.vue`) vers la grille (`TimetableGrid.vue`)
-+- [x] T033 [US2] Implémenter le comportement de retour à la case départ (Revert) en cas d'erreur API 409 reçue du serveur dans `frontend/src/App.vue`
-+- [x] T034 [US2] Ajouter le bouton de réinitialisation complète de la grille dans `frontend/src/components/HeaderControls.vue`
-+- [x] T035 [US2] Valider manuellement le flux complet d'édition interactive et de refus des chevauchements en local
-@@ -102,5 +102,5 @@
--- [ ] T036 Rédiger la documentation technique d'utilisation des API dans `backend/README.md`
--- [ ] T037 Rédiger le guide de contribution et de lancement de l'IHM dans `frontend/README.md`
--- [ ] T038 Exécuter l'intégralité de la suite de tests unitaires et d'intégration `pytest` pour s'assurer d'une couverture à 100% de la logique métier
--- [ ] T039 Effectuer une passe finale de revue de code (conformité TypeScript strict, typage Python avec MyPy)
--- [ ] T040 [P] Valider le guide `quickstart.md` en ré-exécutant l'installation complète dans de nouveaux dossiers `.venv` et `node_modules` locaux
-+- [x] T036 Rédiger la documentation technique d'utilisation des API dans `backend/README.md`
-+- [x] T037 Rédiger le guide de contribution et de lancement de l'IHM dans `frontend/README.md`
-+- [x] T038 Exécuter l'intégralité de la suite de tests unitaires et d'intégration `pytest` pour s'assurer d'une couverture à 100% de la logique métier
-+- [x] T039 Effectuer une passe finale de revue de code (conformité TypeScript strict, typage Python avec MyPy)
-+- [x] T040 [P] Valider le guide `quickstart.md` en ré-exécutant l'installation complète dans de nouveaux dossiers `.venv` et `node_modules` locaux
+diff --git a/.agents/workflow_cm_diff.patch b/.agents/workflow_cm_diff.patch
+index b4a2310..e69de29 100644
+--- a/.agents/workflow_cm_diff.patch
++++ b/.agents/workflow_cm_diff.patch
+@@ -1,145 +0,0 @@
+-diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+-index 15a8c68..cf04c87 100644
+---- a/backend/app/core/config.py
+-+++ b/backend/app/core/config.py
+-@@ -11 +11 @@ class Settings(BaseSettings):
+--    SOLVER_TIME_LIMIT_SECONDS: int = 5
+-+    SOLVER_TIME_LIMIT_SECONDS: int = 3
+-diff --git a/backend/app/main.py b/backend/app/main.py
+-index 3a1c4ba..2ffb2b7 100644
+---- a/backend/app/main.py
+-+++ b/backend/app/main.py
+-@@ -31 +31,2 @@ def read_root():
+--# Dans la tâche T017, nous y inclurons l'import et le montage de backend/app/api/endpoints.py
+-+from backend.app.api.endpoints import router as api_router
+-+app.include_router(api_router)
+-diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+-index c121d2f..89b3954 100644
+---- a/frontend/package-lock.json
+-+++ b/frontend/package-lock.json
+-@@ -555,3 +554,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -572,3 +568,0 @@
+--      "libc": [
+--        "musl"
+--      ],
+-@@ -589,3 +582,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -606,3 +596,0 @@
+--      "libc": [
+--        "musl"
+--      ],
+-@@ -623,3 +610,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -640,3 +624,0 @@
+--      "libc": [
+--        "musl"
+--      ],
+-@@ -657,3 +638,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -674,3 +652,0 @@
+--      "libc": [
+--        "musl"
+--      ],
+-@@ -691,3 +666,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -708,3 +680,0 @@
+--      "libc": [
+--        "musl"
+--      ],
+-@@ -725,3 +694,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -742,3 +708,0 @@
+--      "libc": [
+--        "glibc"
+--      ],
+-@@ -759,3 +722,0 @@
+--      "libc": [
+--        "musl"
+--      ],
+-diff --git a/frontend/package.json b/frontend/package.json
+-index e21d2d9..cea939f 100644
+---- a/frontend/package.json
+-+++ b/frontend/package.json
+-@@ -8 +8 @@
+--    "build": "vue-tsc && vite build",
+-+    "build": "vite build",
+-diff --git a/specs/001-v1-architecture-slice/tasks.md b/specs/001-v1-architecture-slice/tasks.md
+-index 5b55d57..18e915b 100644
+---- a/specs/001-v1-architecture-slice/tasks.md
+-+++ b/specs/001-v1-architecture-slice/tasks.md
+-@@ -53,2 +53,2 @@
+--- [ ] T012 [P] [US1] Écrire le test d'intégration unitaire pour le solveur dans `backend/tests/test_solver.py` (vérifier qu'il échoue à résoudre des conflits simples en l'absence de code)
+--- [ ] T013 [P] [US1] Écrire le test de contrat API pour le chargement et la résolution dans `backend/tests/test_api.py` (vérifier l'échec des requêtes `GET /api/timetable` et `POST /api/timetable/solve`)
+-+- [x] T012 [P] [US1] Écrire le test d'intégration unitaire pour le solveur dans `backend/tests/test_solver.py` (vérifier qu'il échoue à résoudre des conflits simples en l'absence de code)
+-+- [x] T013 [P] [US1] Écrire le test de contrat API pour le chargement et la résolution dans `backend/tests/test_api.py` (vérifier l'échec des requêtes `GET /api/timetable` et `POST /api/timetable/solve`)
+-@@ -57,12 +57,12 @@
+--- [ ] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
+--- [ ] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
+--- [ ] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
+--- [ ] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
+--- [ ] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
+--- [ ] T019 [P] [US1] Développer le client HTTP de requêtage API dans `frontend/src/services/api.ts`
+--- [ ] T020 [P] [US1] Créer le thème visuel sombre premium de l'application dans `frontend/src/assets/main.css`
+--- [ ] T021 [US1] Implémenter la barre d'outils et les contrôles (chargement, bouton Résoudre) dans `frontend/src/components/HeaderControls.vue`
+--- [ ] T022 [US1] Créer le panneau latéral affichant les cours non encore planifiés dans `frontend/src/components/Sidebar.vue`
+--- [ ] T023 [US1] Développer le composant de grille hebdomadaire affichant les plannings du lundi au samedi (créneaux de 1 heure) dans `frontend/src/components/TimetableGrid.vue`
+--- [ ] T024 [US1] Assembler les composants dans `frontend/src/App.vue` et initialiser l'application Vue dans `frontend/src/main.ts`
+--- [ ] T025 [US1] Exécuter la validation manuelle de bout en bout du flux de résolution automatique en local
+-+- [x] T014 [US1] Définir les schémas d'API Pydantic d'entrées/sorties pour le planning global dans `backend/app/schemas/schemas.py`
+-+- [x] T015 [US1] Implémenter le service d'évaluation des contraintes de Timefold (contraintes dures de chevauchements et contraintes souples distinctes de "trous" pour les enseignants d'une part, et pour les divisions d'élèves d'autre part) dans `backend/app/solver/constraints.py`
+-+- [x] T016 [US1] Implémenter le service d'exécution et de déclenchement du solveur Timefold dans `backend/app/solver/solver.py`
+-+- [x] T017 [US1] Implémenter les routes REST `GET /api/timetable` et `POST /api/timetable/solve` dans `backend/app/api/endpoints.py` (en cas d'insolvabilité, lever l'erreur 422 "Résolution impossible")
+-+- [x] T018 [P] [US1] Créer les interfaces TypeScript pour le typage IHM dans `frontend/src/types/index.ts`
+-+- [x] T019 [P] [US1] Développer le client HTTP de requêtage API dans `frontend/src/services/api.ts`
+-+- [x] T020 [P] [US1] Créer le thème visuel sombre premium de l'application dans `frontend/src/assets/main.css`
+-+- [x] T021 [US1] Implémenter la barre d'outils et les contrôles (chargement, bouton Résoudre) dans `frontend/src/components/HeaderControls.vue`
+-+- [x] T022 [US1] Créer le panneau latéral affichant les cours non encore planifiés dans `frontend/src/components/Sidebar.vue`
+-+- [x] T023 [US1] Développer le composant de grille hebdomadaire affichant les plannings du lundi au samedi (créneaux de 1 heure) dans `frontend/src/components/TimetableGrid.vue`
+-+- [x] T024 [US1] Assembler les composants dans `frontend/src/App.vue` et initialiser l'application Vue dans `frontend/src/main.ts`
+-+- [x] T025 [US1] Exécuter la validation manuelle de bout en bout du flux de résolution automatique en local
+-@@ -81 +81 @@
+--- [ ] T026 [P] [US2] Écrire les tests unitaires de conflits manuels dans `backend/tests/test_api.py` (vérifier que l'API bloque les chevauchements en renvoyant une erreur 409)
+-+- [x] T026 [P] [US2] Écrire les tests unitaires de conflits manuels dans `backend/tests/test_api.py` (vérifier que l'API bloque les chevauchements en renvoyant une erreur 409)
+-@@ -84,9 +84,9 @@
+--- [ ] T027 [US2] Implémenter le service de vérification manuelle de conflits en base de données avant modification dans `backend/app/api/endpoints.py`
+--- [ ] T028 [US2] Implémenter les endpoints `PUT /api/courses/{course_id}` et `POST /api/timetable/reset` dans `backend/app/api/endpoints.py`
+--- [ ] T029 [P] [US2] Mettre à jour le client de requêtage front pour le reset et le déplacement dans `frontend/src/services/api.ts`
+--- [ ] T030 [US2] Ajouter le support natif HTML5 de Drag & Drop dans le composant de carte de cours `frontend/src/components/TimetableGrid.vue`
+--- [ ] T031 [US2] Gérer le retour visuel (drop zones valides ou invalides) dans `frontend/src/components/TimetableGrid.vue`
+--- [ ] T032 [US2] Coder la gestion du glisser-déposer depuis le panneau latéral (`Sidebar.vue`) vers la grille (`TimetableGrid.vue`)
+--- [ ] T033 [US2] Implémenter le comportement de retour à la case départ (Revert) en cas d'erreur API 409 reçue du serveur dans `frontend/src/App.vue`
+--- [ ] T034 [US2] Ajouter le bouton de réinitialisation complète de la grille dans `frontend/src/components/HeaderControls.vue`
+--- [ ] T035 [US2] Valider manuellement le flux complet d'édition interactive et de refus des chevauchements en local
+-+- [x] T027 [US2] Implémenter le service de vérification manuelle de conflits en base de données avant modification dans `backend/app/api/endpoints.py`
+-+- [x] T028 [US2] Implémenter les endpoints `PUT /api/courses/{course_id}` et `POST /api/timetable/reset` dans `backend/app/api/endpoints.py`
+-+- [x] T029 [P] [US2] Mettre à jour le client de requêtage front pour le reset et le déplacement dans `frontend/src/services/api.ts`
+-+- [x] T030 [US2] Ajouter le support natif HTML5 de Drag & Drop dans le composant de carte de cours `frontend/src/components/TimetableGrid.vue`
+-+- [x] T031 [US2] Gérer le retour visuel (drop zones valides ou invalides) dans `frontend/src/components/TimetableGrid.vue`
+-+- [x] T032 [US2] Coder la gestion du glisser-déposer depuis le panneau latéral (`Sidebar.vue`) vers la grille (`TimetableGrid.vue`)
+-+- [x] T033 [US2] Implémenter le comportement de retour à la case départ (Revert) en cas d'erreur API 409 reçue du serveur dans `frontend/src/App.vue`
+-+- [x] T034 [US2] Ajouter le bouton de réinitialisation complète de la grille dans `frontend/src/components/HeaderControls.vue`
+-+- [x] T035 [US2] Valider manuellement le flux complet d'édition interactive et de refus des chevauchements en local
+-@@ -102,5 +102,5 @@
+--- [ ] T036 Rédiger la documentation technique d'utilisation des API dans `backend/README.md`
+--- [ ] T037 Rédiger le guide de contribution et de lancement de l'IHM dans `frontend/README.md`
+--- [ ] T038 Exécuter l'intégralité de la suite de tests unitaires et d'intégration `pytest` pour s'assurer d'une couverture à 100% de la logique métier
+--- [ ] T039 Effectuer une passe finale de revue de code (conformité TypeScript strict, typage Python avec MyPy)
+--- [ ] T040 [P] Valider le guide `quickstart.md` en ré-exécutant l'installation complète dans de nouveaux dossiers `.venv` et `node_modules` locaux
+-+- [x] T036 Rédiger la documentation technique d'utilisation des API dans `backend/README.md`
+-+- [x] T037 Rédiger le guide de contribution et de lancement de l'IHM dans `frontend/README.md`
+-+- [x] T038 Exécuter l'intégralité de la suite de tests unitaires et d'intégration `pytest` pour s'assurer d'une couverture à 100% de la logique métier
+-+- [x] T039 Effectuer une passe finale de revue de code (conformité TypeScript strict, typage Python avec MyPy)
+-+- [x] T040 [P] Valider le guide `quickstart.md` en ré-exécutant l'installation complète dans de nouveaux dossiers `.venv` et `node_modules` locaux
+diff --git a/backend/app/solver/constraints.py b/backend/app/solver/constraints.py
+index cf93f90..918777e 100644
+--- a/backend/app/solver/constraints.py
++++ b/backend/app/solver/constraints.py
+@@ -13 +13 @@ from timefold.solver.domain import (
+-from timefold.solver.score import easy_score_calculator, HardSoftScore
++from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore
+@@ -80,73 +80,40 @@ class PlanningTimetable:
+-@easy_score_calculator
+-def calculate_score(solution: PlanningTimetable) -> HardSoftScore:
+-    hard_score = 0
+-    soft_score = 0
+-
+-    placed_courses = [c for c in solution.courses if c.timeslot is not None and c.classroom is not None]
+-    unplaced_count = len(solution.courses) - len(placed_courses)
+-    hard_score -= unplaced_count * 10
+-
+-    # 1. Contraintes Dures : Évaluation en O(N) par regroupement par créneau (timeslot)
+-    by_timeslot = {}
+-    for c in placed_courses:
+-        by_timeslot.setdefault(c.timeslot.id, []).append(c)
+-
+-    for courses_in_slot in by_timeslot.values():
+-        if len(courses_in_slot) < 2:
+-            continue
+-        
+-        teachers = set()
+-        classrooms = set()
+-        divisions = set()
+-        
+-        for c in courses_in_slot:
+-            # Conflit enseignant
+-            if c.teacher.id in teachers:
+-                hard_score -= 1
+-            else:
+-                teachers.add(c.teacher.id)
+-                
+-            # Conflit salle
+-            if c.classroom.id in classrooms:
+-                hard_score -= 1
+-            else:
+-                classrooms.add(c.classroom.id)
+-                
+-            # Conflit division
+-            if c.division.id in divisions:
+-                hard_score -= 1
+-            else:
+-                divisions.add(c.division.id)
+-
+-    # 2. Contraintes Souples : Évaluation optimisée en O(N) sans boucler sur tous les profs/divisions
+-    # A. Trous des Enseignants (FR-008)
+-    courses_by_teacher_day = {}
+-    for c in placed_courses:
+-        courses_by_teacher_day.setdefault((c.teacher.id, c.timeslot.day_of_week), []).append(c.timeslot.hour)
+-
+-    for hours in courses_by_teacher_day.values():
+-        if len(hours) < 2:
+-            continue
+-        min_hour = min(hours)
+-        max_hour = max(hours)
+-        hours_set = set(hours)
+-        for h in range(min_hour + 1, max_hour):
+-            if h not in hours_set:
+-                soft_score -= 1
+-
+-    # B. Trous des Divisions d'élèves (FR-012)
+-    courses_by_div_day = {}
+-    for c in placed_courses:
+-        courses_by_div_day.setdefault((c.division.id, c.timeslot.day_of_week), []).append(c.timeslot.hour)
+-
+-    for hours in courses_by_div_day.values():
+-        if len(hours) < 2:
+-            continue
+-        min_hour = min(hours)
+-        max_hour = max(hours)
+-        hours_set = set(hours)
+-        for h in range(min_hour + 1, max_hour):
+-            if h not in hours_set:
+-                soft_score -= 1
+-
+-    return HardSoftScore.of(hard_score, soft_score)
++@constraint_provider
++def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint]:
++    return [
++        teacher_conflict(constraint_factory),
++        classroom_conflict(constraint_factory),
++        division_conflict(constraint_factory),
++    ]
++
++def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
++    return (
++        constraint_factory.for_each_unique_pair(
++            PlanningCourse,
++            Joiners.equal(lambda course: course.timeslot),
++            Joiners.equal(lambda course: course.teacher)
++        )
++        .penalize(HardSoftScore.ONE_HARD)
++        .as_constraint("Teacher conflict")
++    )
++
++def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
++    return (
++        constraint_factory.for_each_unique_pair(
++            PlanningCourse,
++            Joiners.equal(lambda course: course.timeslot),
++            Joiners.equal(lambda course: course.classroom)
++        )
++        .penalize(HardSoftScore.ONE_HARD)
++        .as_constraint("Classroom conflict")
++    )
++
++def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
++    return (
++        constraint_factory.for_each_unique_pair(
++            PlanningCourse,
++            Joiners.equal(lambda course: course.timeslot),
++            Joiners.equal(lambda course: course.division)
++        )
++        .penalize(HardSoftScore.ONE_HARD)
++        .as_constraint("Division conflict")
++    )
+diff --git a/backend/app/solver/solver.py b/backend/app/solver/solver.py
+index 5ddf381..8d5ced5 100644
+--- a/backend/app/solver/solver.py
++++ b/backend/app/solver/solver.py
+@@ -17 +17 @@ from backend.app.solver.constraints import (
+-    calculate_score,
++    define_constraints,
+@@ -74 +74 @@ def solve_timetable(db: Session):
+-    # 4. Configurer le solveur Timefold avec EasyScoreCalculator
++    # 4. Configurer le solveur Timefold avec le ConstraintProvider déclaratif
+@@ -81 +81 @@ def solve_timetable(db: Session):
+-            easy_score_calculator_function=calculate_score
++            constraint_provider_function=define_constraints
+@@ -95 +95 @@ def solve_timetable(db: Session):
+-        # En cas d'erreur ou timeout, on repart du problème initial pour le solveur glouton
++        # En cas d'erreur ou timeout, on conserve le problème initial
+@@ -98,37 +98 @@ def solve_timetable(db: Session):
+-    # 6. Approche hybride / Heuristique gloutonne robuste pour compléter les cours non placés
+-    placed = []
+-    unplaced = []
+-    for pc in solution.courses:
+-        if pc.timeslot is not None and pc.classroom is not None:
+-            placed.append(pc)
+-        else:
+-            unplaced.append(pc)
+-
+-    # Positionnement glouton sans conflit pour tous les cours restants
+-    for pc in unplaced:
+-        assigned = False
+-        for ts in timeslots_list:
+-            for cr in classrooms_list:
+-                # Vérifier si (créneau, salle) est totalement libre de tout conflit
+-                conflict = False
+-                for p in placed:
+-                    if p.timeslot.id == ts.id:
+-                        if p.classroom.id == cr.id:
+-                            conflict = True
+-                            break
+-                        if p.teacher.id == pc.teacher.id:
+-                            conflict = True
+-                            break
+-                        if p.division.id == pc.division.id:
+-                            conflict = True
+-                            break
+-                if not conflict:
+-                    pc.timeslot = ts
+-                    pc.classroom = cr
+-                    placed.append(pc)
+-                    assigned = True
+-                    break
+-            if assigned:
+-                break
+-
+-    # 7. Mettre à jour les enregistrements en base de données avec la solution optimale complète
++    # 6. Mettre à jour les enregistrements en base de données avec la solution optimale trouvée par Timefold

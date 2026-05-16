@@ -10,7 +10,7 @@ from timefold.solver.domain import (
     PlanningScore,
     ValueRangeProvider,
 )
-from timefold.solver.score import easy_score_calculator, HardSoftScore
+from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore
 
 # Patch PlanningScore to enforce HardSoftLongScore type in Java layer
 # to avoid translation type issues in JPype/Timefold
@@ -77,77 +77,44 @@ class PlanningTimetable:
     score: Annotated[HardSoftScore, PlanningScore]
 
 
-@easy_score_calculator
-def calculate_score(solution: PlanningTimetable) -> HardSoftScore:
-    hard_score = 0
-    soft_score = 0
+@constraint_provider
+def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint]:
+    return [
+        teacher_conflict(constraint_factory),
+        classroom_conflict(constraint_factory),
+        division_conflict(constraint_factory),
+    ]
 
-    placed_courses = [c for c in solution.courses if c.timeslot is not None and c.classroom is not None]
-    unplaced_count = len(solution.courses) - len(placed_courses)
-    hard_score -= unplaced_count * 10
+def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.timeslot),
+            Joiners.equal(lambda course: course.teacher)
+        )
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Teacher conflict")
+    )
 
-    # 1. Contraintes Dures : Évaluation en O(N) par regroupement par créneau (timeslot)
-    by_timeslot = {}
-    for c in placed_courses:
-        by_timeslot.setdefault(c.timeslot.id, []).append(c)
+def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.timeslot),
+            Joiners.equal(lambda course: course.classroom)
+        )
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Classroom conflict")
+    )
 
-    for courses_in_slot in by_timeslot.values():
-        if len(courses_in_slot) < 2:
-            continue
-        
-        teachers = set()
-        classrooms = set()
-        divisions = set()
-        
-        for c in courses_in_slot:
-            # Conflit enseignant
-            if c.teacher.id in teachers:
-                hard_score -= 1
-            else:
-                teachers.add(c.teacher.id)
-                
-            # Conflit salle
-            if c.classroom.id in classrooms:
-                hard_score -= 1
-            else:
-                classrooms.add(c.classroom.id)
-                
-            # Conflit division
-            if c.division.id in divisions:
-                hard_score -= 1
-            else:
-                divisions.add(c.division.id)
-
-    # 2. Contraintes Souples : Évaluation optimisée en O(N) sans boucler sur tous les profs/divisions
-    # A. Trous des Enseignants (FR-008)
-    courses_by_teacher_day = {}
-    for c in placed_courses:
-        courses_by_teacher_day.setdefault((c.teacher.id, c.timeslot.day_of_week), []).append(c.timeslot.hour)
-
-    for hours in courses_by_teacher_day.values():
-        if len(hours) < 2:
-            continue
-        min_hour = min(hours)
-        max_hour = max(hours)
-        hours_set = set(hours)
-        for h in range(min_hour + 1, max_hour):
-            if h not in hours_set:
-                soft_score -= 1
-
-    # B. Trous des Divisions d'élèves (FR-012)
-    courses_by_div_day = {}
-    for c in placed_courses:
-        courses_by_div_day.setdefault((c.division.id, c.timeslot.day_of_week), []).append(c.timeslot.hour)
-
-    for hours in courses_by_div_day.values():
-        if len(hours) < 2:
-            continue
-        min_hour = min(hours)
-        max_hour = max(hours)
-        hours_set = set(hours)
-        for h in range(min_hour + 1, max_hour):
-            if h not in hours_set:
-                soft_score -= 1
-
-    return HardSoftScore.of(hard_score, soft_score)
+def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.timeslot),
+            Joiners.equal(lambda course: course.division)
+        )
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Division conflict")
+    )
 
