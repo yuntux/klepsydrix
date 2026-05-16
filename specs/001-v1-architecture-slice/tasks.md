@@ -18,11 +18,11 @@
 
 **Purpose**: Initialisation physique du projet et isolation des environnements de développement.
 
-- [ ] T001 Créer l'arborescence des dossiers `backend/` et `frontend/` selon le plan technique dans le workspace local
-- [ ] T002 Initialiser le projet backend avec le fichier de dépendances `backend/requirements.txt`
-- [ ] T003 [P] Initialiser le projet frontend Vue 3 avec Vite, TypeScript et npm dans `frontend/package.json`
-- [ ] T004 Créer le fichier de configuration initial `backend/app/core/config.py` (Pydantic Settings pour le chargement du `.env`)
-- [ ] T005 [P] Configurer le fichier d'exemple `backend/.env.example` et le fichier de configuration du proxy `frontend/vite.config.ts`
+- [x] T001 Créer l'arborescence des dossiers `backend/` et `frontend/` selon le plan technique dans le workspace local
+- [x] T002 Initialiser le projet backend avec le fichier de dépendances `backend/requirements.txt`
+- [x] T003 [P] Initialiser le projet frontend Vue 3 avec Vite, TypeScript et npm dans `frontend/package.json`
+- [x] T004 Créer le fichier de configuration initial `backend/app/core/config.py` (Pydantic Settings pour le chargement du `.env`)
+- [x] T005 [P] Configurer le fichier d'exemple `backend/.env.example` et le fichier de configuration du proxy `frontend/vite.config.ts`
 
 ---
 
