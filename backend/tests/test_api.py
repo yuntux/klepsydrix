@@ -29,6 +29,17 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
+import backend.app.solver.solver
+def mock_start_solve():
+    db = TestSessionLocal()
+    try:
+        backend.app.solver.solver._solve_timetable_job(db)
+    finally:
+        db.close()
+        
+import backend.app.api.endpoints
+backend.app.api.endpoints.start_solve_timetable_async = mock_start_solve
+
 client = TestClient(app)
 
 @pytest.fixture(scope="function")
@@ -73,9 +84,17 @@ def test_solve_timetable(db_session: Session):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert len(data["courses"]) == 1
-    assert data["courses"][0]["timeslot_id"] is not None
-    assert data["courses"][0]["classroom_id"] is not None
+    
+    import time
+    for _ in range(15):
+        status_resp = client.get("/api/timetable/status")
+        if status_resp.json()["status"] == "NOT_SOLVING":
+            break
+        time.sleep(1)
+        
+    db_session.refresh(course)
+    assert course.timeslot_id is not None
+    assert course.classroom_id is not None
 
 def test_reset_timetable(db_session: Session):
     t = Teacher(name="Prof A")
@@ -171,6 +190,13 @@ def test_solve_pinned_course(db_session: Session):
     # Résoudre avec Timefold
     response = client.post("/api/timetable/solve")
     assert response.status_code == 200
+    
+    import time
+    for _ in range(15):
+        status_resp = client.get("/api/timetable/status")
+        if status_resp.json()["status"] == "NOT_SOLVING":
+            break
+        time.sleep(1)
     
     # Vérifier que le cours 1 n'a pas été déplacé par le solveur
     db_session.refresh(course1)

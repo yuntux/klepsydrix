@@ -8,8 +8,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
-from backend.app.solver.solver import solve_timetable, UnsolvableTimetableException
-
+from backend.app.solver.solver import start_solve_timetable_async, SolverState
 router = APIRouter(prefix="/api/timetable")
 
 @router.get("", response_model=Dict[str, Any])
@@ -39,29 +38,19 @@ def get_timetable(db: Session = Depends(get_db)):
         ],
     }
 
+@router.get("/status")
+def get_status():
+    return {"status": SolverState.get_status()}
+
 @router.post("/solve")
-def solve(db: Session = Depends(get_db)):
-    try:
-        solve_timetable(db)
-    except UnsolvableTimetableException as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    courses = db.query(Course).all()
-    return {
-        "status": "success",
-        "courses": [
-            {
-                "id": c.id,
-                "subject": c.subject,
-                "teacher_id": c.teacher_id,
-                "division_id": c.division_id,
-                "timeslot_id": c.timeslot_id,
-                "classroom_id": c.classroom_id,
-                "is_pinned": c.is_pinned,
-            }
-            for c in courses
-        ]
-    }
+def solve():
+    start_solve_timetable_async()
+    return {"status": "success", "message": "Résolution asynchrone démarrée."}
+
+@router.post("/stop")
+def stop_solve():
+    SolverState.stop_solving()
+    return {"status": "success", "message": "Résolution interrompue."}
 
 @router.post("/reset")
 def reset(db: Session = Depends(get_db)):

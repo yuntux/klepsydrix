@@ -7,7 +7,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
-from backend.app.solver.solver import solve_timetable
+from backend.app.solver.solver import _solve_timetable_job
 
 # Moteur en mémoire vive dédié aux tests pour isolation totale et vitesse critique
 TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -57,7 +57,7 @@ def test_solver_resolves_timetable(db_session: Session):
     db_session.commit()
 
     # 2. Exécution du solveur
-    solve_timetable(db_session)
+    _solve_timetable_job(db_session)
 
     # 3. Rechargement des objets et assertions
     db_session.refresh(course1)

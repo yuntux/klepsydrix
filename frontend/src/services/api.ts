@@ -8,13 +8,31 @@ export async function fetchTimetable(): Promise<TimetableData> {
   return response.json();
 }
 
-export async function solveTimetable(): Promise<{ status: string; courses: Course[] }> {
+export async function fetchTimetableStatus(): Promise<{ status: string }> {
+  const response = await fetch('/api/timetable/status');
+  if (!response.ok) {
+    throw new Error('Erreur lors de la récupération du statut');
+  }
+  return response.json();
+}
+
+export async function solveTimetable(): Promise<{ status: string; message: string }> {
   const response = await fetch('/api/timetable/solve', {
     method: 'POST',
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Erreur lors de la résolution automatique');
+  }
+  return response.json();
+}
+
+export async function stopTimetable(): Promise<{ status: string; message: string }> {
+  const response = await fetch('/api/timetable/stop', {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Erreur lors de l\'interruption du solveur');
   }
   return response.json();
 }

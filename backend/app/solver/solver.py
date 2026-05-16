@@ -7,6 +7,8 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.core.database import SessionLocal
+import threading
 from backend.app.solver.constraints import (
     PlanningTeacher,
     PlanningClassroom,
@@ -18,90 +20,130 @@ from backend.app.solver.constraints import (
 )
 
 
-class UnsolvableTimetableException(Exception):
-    """Exception levée lorsque le solveur Timefold ne trouve aucune solution valide sans conflits."""
-    pass
+class SolverState:
+    _lock = threading.Lock()
+    active_solver = None
+    status = "NOT_SOLVING"
+
+    @classmethod
+    def set_solving(cls, solver):
+        with cls._lock:
+            cls.active_solver = solver
+            cls.status = "SOLVING"
+
+    @classmethod
+    def set_not_solving(cls):
+        with cls._lock:
+            cls.active_solver = None
+            cls.status = "NOT_SOLVING"
+
+    @classmethod
+    def get_status(cls):
+        with cls._lock:
+            return cls.status
+
+    @classmethod
+    def stop_solving(cls):
+        with cls._lock:
+            if cls.active_solver is not None:
+                try:
+                    cls.active_solver.terminate_early()
+                except Exception:
+                    pass
 
 
-def solve_timetable(db: Session):
-    # 1. Charger toutes les données depuis la base de données SQLite
-    db_teachers = db.query(Teacher).all()
-    db_classrooms = db.query(Classroom).all()
-    db_divisions = db.query(Division).all()
-    db_timeslots = db.query(Timeslot).all()
-    db_courses = db.query(Course).all()
-
-    # 2. Mapper les entités vers les classes de planification Timefold
-    # Création des dictionnaires pour des correspondances ultra-rapides
-    teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
-    classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
-    divisions_map = {d.id: PlanningDivision(d.id, d.name) for d in db_divisions}
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.hour) for ts in db_timeslots}
-
-    # Liste des faits de planification (Planning Facts)
-    teachers_list = list(teachers_map.values())
-    classrooms_list = list(classrooms_map.values())
-    divisions_list = list(divisions_map.values())
-    timeslots_list = list(timeslots_map.values())
-
-    # Mapper les cours (Planning Entities)
-    courses_list = []
-    for c in db_courses:
-        # Récupérer les correspondances si déjà planifié
-        ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
-        cr_planning = classrooms_map.get(c.classroom_id) if c.classroom_id else None
-        
-        pc = PlanningCourse(
-            id=c.id,
-            subject=c.subject,
-            teacher=teachers_map[c.teacher_id],
-            division=divisions_map[c.division_id],
-            timeslot=ts_planning,
-            classroom=cr_planning,
-            is_pinned=c.is_pinned,
-        )
-        courses_list.append(pc)
-
-    # 3. Construire le problème de départ (Planning Problem Solution)
-    problem = PlanningTimetable(
-        teachers=teachers_list,
-        classrooms=classrooms_list,
-        divisions=divisions_list,
-        timeslots=timeslots_list,
-        courses=courses_list,
-        score=None,
-    )
-
-    # 4. Configurer le solveur Timefold avec le ConstraintProvider déclaratif
-    limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
-    solver_config = SolverConfig(
-        environment_mode=EnvironmentMode.NO_ASSERT,
-        solution_class=PlanningTimetable,
-        entity_class_list=[PlanningCourse],
-        score_director_factory_config=ScoreDirectorFactoryConfig(
-            constraint_provider_function=define_constraints
-        ),
-        termination_config=TerminationConfig(
-            spent_limit=Duration(seconds=limit_seconds)
-        ),
-    )
-
-    solver_factory = SolverFactory.create(solver_config)
-    solver = solver_factory.build_solver()
-
-    # 5. Lancer la résolution avec le solveur Timefold
+def _solve_timetable_job(db_session=None):
+    db = db_session if db_session else SessionLocal()
     try:
-        solution = solver.solve(problem)
+        # 1. Charger toutes les données depuis la base de données SQLite
+        db_teachers = db.query(Teacher).all()
+        db_classrooms = db.query(Classroom).all()
+        db_divisions = db.query(Division).all()
+        db_timeslots = db.query(Timeslot).all()
+        db_courses = db.query(Course).all()
+
+        teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
+        classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
+        divisions_map = {d.id: PlanningDivision(d.id, d.name) for d in db_divisions}
+        timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.hour) for ts in db_timeslots}
+
+        teachers_list = list(teachers_map.values())
+        classrooms_list = list(classrooms_map.values())
+        divisions_list = list(divisions_map.values())
+        timeslots_list = list(timeslots_map.values())
+
+        courses_list = []
+        for c in db_courses:
+            ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
+            cr_planning = classrooms_map.get(c.classroom_id) if c.classroom_id else None
+            
+            pc = PlanningCourse(
+                id=c.id,
+                subject=c.subject,
+                teacher=teachers_map[c.teacher_id],
+                division=divisions_map[c.division_id],
+                timeslot=ts_planning,
+                classroom=cr_planning,
+                is_pinned=c.is_pinned,
+            )
+            courses_list.append(pc)
+
+        problem = PlanningTimetable(
+            teachers=teachers_list,
+            classrooms=classrooms_list,
+            divisions=divisions_list,
+            timeslots=timeslots_list,
+            courses=courses_list,
+            score=None,
+        )
+
+        limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
+        solver_config = SolverConfig(
+            environment_mode=EnvironmentMode.NO_ASSERT,
+            solution_class=PlanningTimetable,
+            entity_class_list=[PlanningCourse],
+            score_director_factory_config=ScoreDirectorFactoryConfig(
+                constraint_provider_function=define_constraints
+            ),
+            termination_config=TerminationConfig(
+                spent_limit=Duration(seconds=limit_seconds)
+            ),
+        )
+
+        solver_factory = SolverFactory.create(solver_config)
+        solver = solver_factory.build_solver()
+
+        # Enregistrer le solveur actif
+        SolverState.set_solving(solver)
+
+        try:
+            solution = solver.solve(problem)
+        except Exception:
+            solution = problem
+        finally:
+            SolverState.set_not_solving()
+
+        # Mettre à jour les enregistrements
+        for pc in solution.courses:
+            db_course = db.query(Course).filter(Course.id == pc.id).first()
+            if db_course:
+                db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
+                db_course.classroom_id = pc.classroom.id if pc.classroom else None
+
+        db.commit()
+
     except Exception as e:
-        # En cas d'erreur ou timeout, on conserve le problème initial
-        solution = problem
+        db.rollback()
+        print(f"Solver thread error: {e}")
+    finally:
+        if not db_session:
+            db.close()
+        SolverState.set_not_solving()
 
-    # 6. Mettre à jour les enregistrements en base de données avec la solution optimale trouvée par Timefold
-    for pc in solution.courses:
-        db_course = db.query(Course).filter(Course.id == pc.id).first()
-        if db_course:
-            db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
-            db_course.classroom_id = pc.classroom.id if pc.classroom else None
 
-    # Valider la transaction dans la base de données
-    db.commit()
+def start_solve_timetable_async():
+    if SolverState.get_status() == "SOLVING":
+        return
+    thread = threading.Thread(target=_solve_timetable_job)
+    thread.daemon = True
+    thread.start()

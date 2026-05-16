@@ -54,12 +54,16 @@
         Réinitialiser
       </button>
 
-      <button class="btn btn-primary" @click="$emit('solve')" :disabled="loading">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16" v-if="!loading">
+      <button v-if="!loading" class="btn btn-primary" @click="$emit('solve')">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 21l8.982-11.795M20.614 4c-.754.902-1.455 1.89-2.115 2.948m-2.115 2.948c-.07.112-.14.224-.21.336m-2.285 3.655A17.228 17.228 0 0 1 8.134 16m-4.82-4.48A17.185 17.185 0 0 1 11.25 8.134m0 0a17.185 17.185 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 0-3.116 7.866m0 0a17.22 17.22 0 0 0-4.819-4.48M12 8.5c.5-1 1.5-1.5 2.5-1.5s2 1 2.5 2c.5 1 .5 2-1 3.5s-2.5 2-3 3.5m0-7.5c-1-1-1.5-2.5-1.5-4s1-3 2.5-3s2.5 1.5 2.5 3c0 1.5-.5 3-1.5 4" />
         </svg>
-        <span class="spinner-small" v-else></span>
-        {{ loading ? 'Résolution...' : 'Résolution Auto' }}
+        Résolution Auto
+      </button>
+
+      <button v-else class="btn" style="background-color: var(--accent-danger); color: white;" @click="$emit('stop')">
+        <span class="spinner-small"></span>
+        Arrêter
       </button>
     </div>
   </header>
@@ -81,6 +85,7 @@ defineEmits<{
   (e: 'update:viewMode', value: string): void;
   (e: 'update:selectedId', value: number): void;
   (e: 'solve'): void;
+  (e: 'stop'): void;
   (e: 'reset'): void;
 }>();
 </script>

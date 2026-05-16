@@ -9,6 +9,7 @@
       :classrooms="classrooms"
       :loading="loading"
       @solve="onSolve"
+      @stop="onStopSolve"
       @reset="onReset"
     />
 
@@ -191,16 +192,45 @@ async function onTogglePinCourse(courseId: number) {
   }
 }
 
+let pollingInterval: number | undefined;
+
+async function checkStatus() {
+  try {
+    const res = await api.fetchTimetableStatus();
+    if (res.status === 'SOLVING') {
+      loading.value = true;
+    } else {
+      if (loading.value) {
+        // Le solveur vient de s'arrêter
+        loading.value = false;
+        // Recharger les données pour voir le résultat complet
+        loadData();
+      }
+    }
+  } catch (err) {
+    console.error('Erreur lors de la vérification du statut', err);
+  }
+}
+
 async function onSolve() {
-  loading.value = true;
   try {
     const result = await api.solveTimetable();
-    courses.value = result.courses;
-    showNotification('success', 'Résolution optimale calculée avec succès par le moteur Timefold !');
+    showNotification('success', result.message || 'Résolution démarrée en arrière-plan.');
+    loading.value = true;
+    if (!pollingInterval) {
+      pollingInterval = window.setInterval(checkStatus, 2000);
+    }
   } catch (err: any) {
-    showNotification('error', err.message || 'Erreur lors de la résolution automatique');
-  } finally {
-    loading.value = false;
+    showNotification('error', err.message || 'Erreur lors du lancement de la résolution');
+  }
+}
+
+async function onStopSolve() {
+  try {
+    const result = await api.stopTimetable();
+    showNotification('success', result.message || 'Interruption demandée...');
+  } catch (err: any) {
+    showNotification('error', err.message || 'Erreur lors de l\'interruption');
   }
 }
 
@@ -223,5 +253,10 @@ async function onReset() {
 
 onMounted(() => {
   loadData();
+  checkStatus();
+  // Vérification périodique (au cas où on recharge la page pendant la résolution)
+  if (!pollingInterval) {
+    pollingInterval = window.setInterval(checkStatus, 3000);
+  }
 });
 </script>
