@@ -41,6 +41,7 @@ class CourseSchema(BaseModel):
     division_id: int
     classroom_id: Optional[int] = None
     timeslot_id: Optional[int] = None
+    is_pinned: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -68,3 +69,4 @@ class SolveResultSchema(BaseModel):
 class ManualCourseUpdateSchema(BaseModel):
     timeslot_id: Optional[int] = None
     classroom_id: Optional[int] = None
+    is_pinned: Optional[bool] = None

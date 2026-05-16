@@ -146,3 +146,40 @@ def test_update_course_conflict(db_session: Session):
     assert response.status_code == 409
     assert "conflit" in response.json()["detail"].lower()
 
+
+def test_solve_pinned_course(db_session: Session):
+    # Enseignants, Salles, Divisions et Créneaux
+    t = Teacher(name="Prof A")
+    c1 = Classroom(name="Salle 1", capacity=30)
+    c2 = Classroom(name="Salle 2", capacity=30)
+    d1 = Division(name="6A")
+    d2 = Division(name="6B")
+    ts1 = Timeslot(day_of_week=1, hour=8)
+    ts2 = Timeslot(day_of_week=1, hour=9)
+    
+    db_session.add_all([t, c1, c2, d1, d2, ts1, ts2])
+    db_session.commit()
+
+    # Le cours 1 est verrouillé (pinned) sur ts1 et c1
+    course1 = Course(subject="Maths", teacher_id=t.id, division_id=d1.id, timeslot_id=ts1.id, classroom_id=c1.id, is_pinned=True)
+    # Le cours 2 est libre
+    course2 = Course(subject="Histoire", teacher_id=t.id, division_id=d2.id)
+
+    db_session.add_all([course1, course2])
+    db_session.commit()
+
+    # Résoudre avec Timefold
+    response = client.post("/api/timetable/solve")
+    assert response.status_code == 200
+    
+    # Vérifier que le cours 1 n'a pas été déplacé par le solveur
+    db_session.refresh(course1)
+    db_session.refresh(course2)
+    
+    assert course1.timeslot_id == ts1.id
+    assert course1.classroom_id == c1.id
+    assert course1.is_pinned is True
+    
+    # Le cours 2 a dû être planifié sur ts2 puisqu'il y a conflit enseignant sur ts1
+    assert course2.timeslot_id == ts2.id
+

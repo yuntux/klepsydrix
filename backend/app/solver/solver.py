@@ -58,6 +58,7 @@ def solve_timetable(db: Session):
             division=divisions_map[c.division_id],
             timeslot=ts_planning,
             classroom=cr_planning,
+            is_pinned=c.is_pinned,
         )
         courses_list.append(pc)
 

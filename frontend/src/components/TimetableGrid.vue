@@ -27,23 +27,34 @@
             @dragleave="onDragLeave(day.value, hour)"
             @drop="onDrop($event, day.value, hour)"
           >
-            <!-- Cartes des cours placés sur ce créneau -->
             <div
               v-for="course in getCoursesAt(day.value, hour)"
               :key="course.id"
               class="placed-course"
+              :class="{ 'is-pinned-card': course.is_pinned }"
               :style="{ backgroundColor: getCourseColor(course.subject) }"
               draggable="true"
               @dragstart="onDragStart($event, course.id)"
             >
               <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
                 <span class="placed-subject">{{ course.subject }}</span>
-                <!-- Bouton de retrait rapide (Unassign) -->
-                <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                <div style="display: flex; align-items: center; gap: 2px;">
+                  <!-- Bouton de verrouillage (Pin) -->
+                  <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
+                    <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
+                      <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
+                    </svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="lock-icon">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
+                    </svg>
+                  </button>
+                  <!-- Bouton de retrait rapide (Unassign) -->
+                  <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               <div class="placed-meta">
@@ -83,6 +94,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'move', courseId: number, timeslotId: number, classroomId: number | null): void;
   (e: 'unassign', courseId: number): void;
+  (e: 'togglePin', courseId: number): void;
 }>();
 
 const days = [
@@ -224,5 +236,32 @@ function getCourseColor(subject: string): string {
 .unassign-btn svg {
   width: 12px;
   height: 12px;
+}
+.pin-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  opacity: 0.6;
+}
+.pin-btn:hover, .pin-btn.is-pinned {
+  color: var(--accent-warning, #f59e0b);
+  opacity: 1;
+}
+.pin-btn.is-pinned {
+  background-color: rgba(245, 158, 11, 0.15);
+}
+.lock-icon {
+  width: 12px;
+  height: 12px;
+}
+.placed-course.is-pinned-card {
+  border-left: 3px solid var(--accent-warning, #f59e0b) !important;
 }
 </style>

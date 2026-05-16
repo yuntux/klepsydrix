@@ -33,6 +33,7 @@
         :loading="loading"
         @move="onMoveCourse"
         @unassign="onUnassignCourse"
+        @togglePin="onTogglePinCourse"
       />
     </main>
 
@@ -166,6 +167,27 @@ async function onUnassignCourse(courseId: number) {
   } catch (err: any) {
     courses.value = previousCoursesState;
     showNotification('error', err.message || 'Impossible de retirer le cours.');
+  }
+}
+
+async function onTogglePinCourse(courseId: number) {
+  const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
+  const courseIndex = courses.value.findIndex(c => c.id === courseId);
+  if (courseIndex === -1) return;
+
+  const currentPinState = courses.value[courseIndex].is_pinned;
+  const newPinState = !currentPinState;
+
+  // Appliquer localement de manière optimiste
+  courses.value[courseIndex].is_pinned = newPinState;
+
+  try {
+    const course = courses.value[courseIndex];
+    await api.updateCourse(courseId, course.timeslot_id, course.classroom_id, newPinState);
+    showNotification('success', newPinState ? 'Le cours a été verrouillé.' : 'Le cours a été déverrouillé.');
+  } catch (err: any) {
+    courses.value = previousCoursesState;
+    showNotification('error', err.message || 'Impossible de modifier le verrouillage du cours.');
   }
 }
 

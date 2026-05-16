@@ -27,6 +27,7 @@ export interface Course {
   division_id: number;
   timeslot_id: number | null;
   classroom_id: number | null;
+  is_pinned: boolean;
 }
 
 export interface TimetableData {

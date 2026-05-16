@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
 
@@ -7,6 +7,7 @@ class Course(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     subject = Column(String(100), nullable=False)
+    is_pinned = Column(Boolean, default=False, nullable=False)
 
     # Clés étrangères
     teacher_id = Column(Integer, ForeignKey("teachers.id", ondelete="RESTRICT"), nullable=False)

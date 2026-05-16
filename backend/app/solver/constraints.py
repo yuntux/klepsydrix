@@ -9,6 +9,7 @@ from timefold.solver.domain import (
     PlanningEntityCollectionProperty,
     PlanningScore,
     ValueRangeProvider,
+    PlanningPin,
 )
 from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore
 
@@ -64,6 +65,7 @@ class PlanningCourse:
     division: PlanningDivision
     timeslot: Annotated[PlanningTimeslot, PlanningVariable(value_range_provider_refs=['timeslotRange'])] = None
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
+    is_pinned: Annotated[bool, PlanningPin] = False
 
 
 @planning_solution

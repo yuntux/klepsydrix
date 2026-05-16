@@ -33,6 +33,7 @@ def get_timetable(db: Session = Depends(get_db)):
                 "division_id": c.division_id,
                 "timeslot_id": c.timeslot_id,
                 "classroom_id": c.classroom_id,
+                "is_pinned": c.is_pinned,
             }
             for c in courses
         ],
@@ -56,6 +57,7 @@ def solve(db: Session = Depends(get_db)):
                 "division_id": c.division_id,
                 "timeslot_id": c.timeslot_id,
                 "classroom_id": c.classroom_id,
+                "is_pinned": c.is_pinned,
             }
             for c in courses
         ]
@@ -67,6 +69,7 @@ def reset(db: Session = Depends(get_db)):
     for c in courses:
         c.timeslot_id = None
         c.classroom_id = None
+        c.is_pinned = False
     db.commit()
     return {"status": "success"}
 
@@ -77,6 +80,7 @@ from typing import Optional
 class CourseUpdate(BaseModel):
     timeslot_id: Optional[int] = None
     classroom_id: Optional[int] = None
+    is_pinned: Optional[bool] = None
 
 @router.put("/courses/{course_id}")
 def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(get_db)):
@@ -115,8 +119,13 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             if division_conflict:
                 raise HTTPException(status_code=409, detail="Conflit : La division est déjà occupée sur ce créneau")
 
-    course.timeslot_id = payload.timeslot_id
-    course.classroom_id = payload.classroom_id
+    if payload.timeslot_id is not None:
+        course.timeslot_id = payload.timeslot_id
+    if payload.classroom_id is not None:
+        course.classroom_id = payload.classroom_id
+    if payload.is_pinned is not None:
+        course.is_pinned = payload.is_pinned
+        
     db.commit()
     return {"status": "success", "course": {
         "id": course.id,
@@ -125,5 +134,6 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
         "division_id": course.division_id,
         "timeslot_id": course.timeslot_id,
         "classroom_id": course.classroom_id,
+        "is_pinned": course.is_pinned,
     }}
 
