@@ -85,9 +85,13 @@ En tant que Planificateur, je veux déplacer un cours manuellement sur un créne
   - Un enseignant ne peut pas dispenser deux cours sur le même créneau.
   - Une salle ne peut pas accueillir deux cours sur le même créneau.
 - **FR-008** : Le solveur doit appliquer une règle d'optimisation préférentielle (Contrainte Souple Enseignants) :
-  - Minimiser le nombre de créneaux temporels vacants (les "trous" horaires) situés entre le premier et le dernier cours planifiés d'un même enseignant au cours d'une même journée.
+  - Optimiser l'efficacité temporelle en récompensant (reward) le regroupement de cours consécutifs (sans pause) d'un même enseignant au cours d'une même journée.
 - **FR-012** : Le solveur doit appliquer une règle d'optimisation préférentielle (Contrainte Souple Élèves) :
-  - Minimiser le nombre de créneaux temporels vacants (les "trous" horaires) situés entre le premier et le dernier cours planifiés d'une même division (classe d'élèves) au cours d'une même journée.
+  - Optimiser l'efficacité temporelle en récompensant (reward) le regroupement de cours consécutifs d'une même division au cours d'une même journée.
+- **FR-013** : Le solveur doit appliquer une règle d'optimisation préférentielle (Contrainte Souple de Sédentarité) :
+  - Minimiser les déplacements des enseignants en pénalisant les emplois du temps qui obligent un enseignant à changer de salle de classe pour différents cours.
+- **FR-014** : Le solveur doit appliquer une règle d'optimisation préférentielle (Contrainte Souple Pédagogique) :
+  - Favoriser la variété pédagogique en pénalisant les emplois du temps où une même division suit deux cours consécutifs de la même matière.
 - **FR-011** : Si le solveur ne parvient pas à trouver une solution respectant 100% des contraintes dures (FR-007) dans le temps imparti, la base de données ne doit pas être modifiée et l'API doit renvoyer une erreur claire "Résolution impossible" à l'interface utilisateur.
 
 

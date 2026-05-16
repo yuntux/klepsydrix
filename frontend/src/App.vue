@@ -139,6 +139,56 @@ watch(viewMode, () => {
   updateDefaultSelection();
 });
 
+const constraintTranslations: Record<string, string> = {
+  "Teacher conflict": "Ce déplacement crée un conflit d'emploi du temps pour le professeur.",
+  "Classroom conflict": "Ce déplacement crée une double réservation pour cette salle.",
+  "Division conflict": "Ce déplacement crée un conflit pour cette classe (ils ont déjà cours).",
+  "Minimize timetable disruption": "Vous avez éloigné le cours de son créneau d'origine.",
+  "Teacher room stability": "Ce déplacement oblige le professeur à changer de salle.",
+  "Student group subject variety": "Ce déplacement force les élèves à suivre deux cours de suite de la même matière.",
+  "Teacher time efficiency": "Ce déplacement crée un 'trou' dans l'emploi du temps du professeur.",
+  "Division time efficiency": "Ce déplacement crée un 'trou' dans l'emploi du temps des élèves."
+};
+
+// Actualisation centralisée du score et comparaison
+async function refreshScoreAndNotify(oldScore: any, actionName: string = 'Modification appliquée') {
+  try {
+    const newScore = await api.fetchTimetableScore();
+    scoreData.value = newScore;
+    
+    if (!oldScore) {
+      showNotification('success', actionName);
+      return;
+    }
+    
+    if (newScore.hard_score < oldScore.hard_score || newScore.soft_score < oldScore.soft_score) {
+      let brokenRule = "Le planning a été dégradé.";
+      if (newScore.matches) {
+        for (const [ruleName, detail] of Object.entries(newScore.matches)) {
+          const oldDetail = oldScore.matches?.[ruleName] || { count: 0 };
+          if (detail.count > oldDetail.count) {
+             brokenRule = constraintTranslations[ruleName] || `Règle enfreinte : ${ruleName}`;
+             break;
+          }
+        }
+      }
+      
+      if (newScore.hard_score < oldScore.hard_score) {
+        showNotification('error', `🚨 Attention : ${brokenRule}`);
+      } else {
+        showNotification('error', `⚠️ Info : ${brokenRule}`);
+      }
+    } else if (newScore.hard_score > oldScore.hard_score || newScore.soft_score > oldScore.soft_score) {
+      showNotification('success', `✨ Amélioration du planning ! Nouveau score : ${newScore.hard_score}H / ${newScore.soft_score}S.`);
+    } else {
+      showNotification('success', actionName);
+    }
+  } catch (e) {
+    console.error("Score could not be fetched", e);
+    showNotification('success', actionName);
+  }
+}
+
 // Actions de planification
 async function onMoveCourse(courseId: number, timeslotId: number, classroomId: number | null) {
   // Sauvegarde de l'état précédent en cas d'erreur de validation (Revert)
@@ -154,7 +204,7 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
 
   try {
     await api.updateCourse(courseId, timeslotId, classroomId);
-    showNotification('success', 'Le cours a été planifié avec succès.');
+    await refreshScoreAndNotify(oldScore, 'Le cours a été planifié avec succès.');
   } catch (err: any) {
     // Revert en cas de conflit 409 ou autre erreur serveur
     courses.value = previousCoursesState;
@@ -197,7 +247,7 @@ async function onTogglePinCourse(courseId: number) {
   try {
     const course = courses.value[courseIndex];
     await api.updateCourse(courseId, course.timeslot_id, course.classroom_id, newPinState);
-    showNotification('success', newPinState ? 'Le cours a été verrouillé.' : 'Le cours a été déverrouillé.');
+    await refreshScoreAndNotify(oldScore, newPinState ? 'Le cours a été verrouillé.' : 'Le cours a été déverrouillé.');
   } catch (err: any) {
     courses.value = previousCoursesState;
     showNotification('error', err.message || 'Impossible de modifier le verrouillage du cours.');
@@ -248,6 +298,7 @@ async function onStopSolve() {
 
 async function onReset() {
   loading.value = true;
+  const oldScore = scoreData.value ? { ...scoreData.value } : null;
   try {
     await api.resetTimetable();
     // Vider localement
@@ -255,7 +306,7 @@ async function onReset() {
       c.timeslot_id = null;
       c.classroom_id = null;
     });
-    showNotification('success', 'Tous les cours ont été retirés de la grille.');
+    await refreshScoreAndNotify(oldScore, 'Tous les cours ont été retirés de la grille.');
   } catch (err: any) {
     showNotification('error', err.message || 'Erreur lors de la réinitialisation');
   } finally {

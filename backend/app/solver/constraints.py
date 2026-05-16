@@ -88,6 +88,10 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         classroom_conflict(constraint_factory),
         division_conflict(constraint_factory),
         stability_penalty(constraint_factory),
+        teacher_room_stability(constraint_factory),
+        student_group_subject_variety(constraint_factory),
+        teacher_time_efficiency(constraint_factory),
+        division_time_efficiency(constraint_factory),
     ]
 
 def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
@@ -129,5 +133,53 @@ def stability_penalty(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(lambda course: course.original_timeslot_id is not None and course.timeslot is not None and course.original_timeslot_id != course.timeslot.id)
         .penalize(HardSoftScore.ONE_SOFT)
         .as_constraint("Minimize timetable disruption")
+    )
+
+def teacher_room_stability(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.teacher)
+        )
+        .filter(lambda course1, course2: course1.classroom is not None and course2.classroom is not None and course1.classroom.id != course2.classroom.id)
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Teacher room stability")
+    )
+
+def student_group_subject_variety(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.subject),
+            Joiners.equal(lambda course: course.division),
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot else -1)
+        )
+        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(course1.timeslot.hour - course2.timeslot.hour) == 1)
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Student group subject variety")
+    )
+
+def teacher_time_efficiency(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.teacher),
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot else -1)
+        )
+        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(course1.timeslot.hour - course2.timeslot.hour) == 1)
+        .reward(HardSoftScore.ONE_SOFT)
+        .as_constraint("Teacher time efficiency")
+    )
+
+def division_time_efficiency(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.division),
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot else -1)
+        )
+        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(course1.timeslot.hour - course2.timeslot.hour) == 1)
+        .reward(HardSoftScore.ONE_SOFT)
+        .as_constraint("Division time efficiency")
     )
 
