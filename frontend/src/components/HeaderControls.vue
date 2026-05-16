@@ -47,8 +47,8 @@
 
     <!-- Actions principales -->
     <div class="controls-group">
-      <div v-if="scoreData" class="score-pill" :class="{ 'score-perfect': scoreData.hard_score === 0 && scoreData.soft_score === 0, 'score-warning': scoreData.hard_score < 0 || scoreData.soft_score < 0 }" :title="scoreData.summary">
-        Score: {{ scoreData.hard_score }}H / {{ scoreData.soft_score }}S
+      <div class="score-pill" :class="{ 'score-perfect': scoreData && scoreData.hard_score === 0 && scoreData.soft_score === 0, 'score-warning': scoreData && (scoreData.hard_score < 0 || scoreData.soft_score < 0) }" :title="scoreData ? scoreData.summary : 'En attente...'">
+        Score: {{ scoreData ? scoreData.hard_score : '?' }}H / {{ scoreData ? scoreData.soft_score : '?' }}S
       </div>
 
       <button class="btn btn-secondary" @click="$emit('reset')" :disabled="loading">
@@ -119,6 +119,9 @@ defineEmits<{
   margin-right: 1rem;
   cursor: help;
   transition: all 0.2s;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .score-perfect {
