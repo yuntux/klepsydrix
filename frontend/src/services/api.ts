@@ -16,6 +16,14 @@ export async function fetchTimetableStatus(): Promise<{ status: string }> {
   return response.json();
 }
 
+export async function fetchTimetableScore(): Promise<{ hard_score: number; soft_score: number; summary: string }> {
+  const response = await fetch('/api/timetable/score');
+  if (!response.ok) {
+    throw new Error('Erreur lors de la récupération du score');
+  }
+  return response.json();
+}
+
 export async function solveTimetable(): Promise<{ status: string; message: string }> {
   const response = await fetch('/api/timetable/solve', {
     method: 'POST',

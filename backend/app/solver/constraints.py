@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Annotated
+import typing
 from timefold.solver.domain import (
     planning_entity,
     PlanningVariable,
@@ -66,6 +67,7 @@ class PlanningCourse:
     timeslot: Annotated[PlanningTimeslot, PlanningVariable(value_range_provider_refs=['timeslotRange'])] = None
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
+    original_timeslot_id: typing.Optional[int] = None
 
 
 @planning_solution
@@ -85,6 +87,7 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         teacher_conflict(constraint_factory),
         classroom_conflict(constraint_factory),
         division_conflict(constraint_factory),
+        stability_penalty(constraint_factory),
     ]
 
 def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
@@ -118,5 +121,13 @@ def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
         )
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Division conflict")
+    )
+
+def stability_penalty(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.original_timeslot_id is not None and course.timeslot is not None and course.original_timeslot_id != course.timeslot.id)
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Minimize timetable disruption")
     )
 

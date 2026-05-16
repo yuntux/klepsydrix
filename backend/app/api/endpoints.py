@@ -42,6 +42,12 @@ def get_timetable(db: Session = Depends(get_db)):
 def get_status():
     return {"status": SolverState.get_status()}
 
+from backend.app.solver.solver import explain_timetable_score
+
+@router.get("/score")
+def get_score(db: Session = Depends(get_db)):
+    return explain_timetable_score(db)
+
 @router.post("/solve")
 def solve():
     start_solve_timetable_async()

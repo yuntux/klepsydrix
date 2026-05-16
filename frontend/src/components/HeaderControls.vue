@@ -47,6 +47,10 @@
 
     <!-- Actions principales -->
     <div class="controls-group">
+      <div v-if="scoreData" class="score-pill" :class="{ 'score-perfect': scoreData.hard_score === 0 && scoreData.soft_score === 0, 'score-warning': scoreData.hard_score < 0 || scoreData.soft_score < 0 }" :title="scoreData.summary">
+        Score: {{ scoreData.hard_score }}H / {{ scoreData.soft_score }}S
+      </div>
+
       <button class="btn btn-secondary" @click="$emit('reset')" :disabled="loading">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -79,6 +83,7 @@ defineProps<{
   teachers: Teacher[];
   classrooms: Classroom[];
   loading: boolean;
+  scoreData: { hard_score: number; soft_score: number; summary: string } | null;
 }>();
 
 defineEmits<{
@@ -102,5 +107,29 @@ defineEmits<{
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.score-pill {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 1rem;
+  cursor: help;
+  transition: all 0.2s;
+}
+
+.score-perfect {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.score-warning {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 </style>

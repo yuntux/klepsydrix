@@ -8,6 +8,7 @@
       :teachers="teachers"
       :classrooms="classrooms"
       :loading="loading"
+      :scoreData="scoreData"
       @solve="onSolve"
       @stop="onStopSolve"
       @reset="onReset"
@@ -96,6 +97,8 @@ function showNotification(type: 'success' | 'error', message: string) {
   }, 4500);
 }
 
+const scoreData = ref<{ hard_score: number; soft_score: number; summary: string } | null>(null);
+
 // Chargement initial des données
 async function loadData() {
   try {
@@ -108,6 +111,12 @@ async function loadData() {
 
     // Définir la sélection par défaut pour le mode actif
     updateDefaultSelection();
+
+    try {
+      scoreData.value = await api.fetchTimetableScore();
+    } catch (e) {
+      console.error("Score could not be fetched", e);
+    }
   } catch (err: any) {
     showNotification('error', err.message || 'Impossible de charger les données');
   }
