@@ -26,8 +26,8 @@ Toutes les contributions doivent respecter une architecture claire séparant str
 ### II. Rigorous Testing Standards
 Le développement doit suivre une méthodologie guidée par les tests (TDD). Les tests unitaires et d'intégration doivent couvrir toutes les fonctionnalités du graphe de données et du solveur de contraintes. L'agent AI a l'**INTERDICTION STRICTE** d'utiliser des navigateurs pour tester l'UI de manière automatisée.
 
-### III. Premium Modern UX (React & CSS)
-L'interface utilisateur doit être exceptionnelle ("WOW factor"). Elle sera développée en React (via Vite) avec une charte graphique premium (Glassmorphism, mode sombre profond, couleurs vibrantes). L'expérience utilisateur doit inclure des micro-animations fluides, et la grille horaire doit gérer le Drag & Drop massif de manière instantanée, comme une application bureau.
+### III. Clear & Efficient Modern UX (Vue 3 & CSS)
+L'interface utilisateur doit être claire et pratique pour un utilisateur aguerri. Elle sera développée en Vue 3 (via Vite) avec une charte graphique sobre et efficace. L'expérience utilisateur doit inclure des micro-animations fluides (transitions natives Vue), et la grille horaire doit gérer le Drag & Drop massif de manière instantanée, comme une application bureau.
 
 ### IV. High-Performance Solving
 La résolution d'emplois du temps (problème NP-complet) exige des performances critiques. Le moteur de calcul (solveur) doit opérer entièrement en mémoire vive pour évaluer des millions de combinaisons (via une librairie de type Timefold ou OR-Tools). La persistance doit se fonder sur une base SQL classique.
