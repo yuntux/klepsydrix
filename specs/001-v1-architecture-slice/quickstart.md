@@ -38,7 +38,7 @@ cp .env.example .env
 Le fichier `.env` contiendra les variables minimales pour SQLite :
 ```ini
 DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite:///./klepsydrix.db
+DATABASE_URL=sqlite:///./timetable.db
 ```
 
 ### Étape D : Lancement du serveur FastAPI de développement
