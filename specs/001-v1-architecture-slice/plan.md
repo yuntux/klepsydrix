@@ -19,9 +19,9 @@ Ce plan d'implémentation structure la réalisation de la première **Tranche Ve
 
 ## 2. Contexte Technique
 
-- **Language/Version** : Python 3.11+ (Backend), Node.js v18+ & TypeScript 5+ (Frontend).
+- **Language/Version** : Python 3.11 ou 3.12 (Strict). **Ne pas utiliser Python 3.13 ou supérieur**. Le pont Python-Java (JPype) requis par Timefold Solver n'est pas encore compatible avec les versions de Python > 3.12, ce qui cause des erreurs critiques d'initialisation de la JVM. Node.js v18+ & TypeScript 5+ (Frontend).
 - **Primary Dependencies** : 
-  - *Backend* : `fastapi`, `uvicorn`, `sqlalchemy`, `pydantic`, `pydantic-settings`, `timefold` (ou algorithme de recherche locale en mémoire), `pytest`.
+  - *Backend* : `fastapi`, `uvicorn`, `sqlalchemy`, `pydantic`, `pydantic-settings`, `timefold` (pont JPype), `pytest`.
   - *Frontend* : `vue`, `vite`, `typescript`, `@types/node`.
 - **Storage** : SQLite en local (développement), compatible PostgreSQL en production via SQLAlchemy.
 - **Testing** : `pytest` (tests unitaires et d'intégration du backend), `vitest` ou tests unitaires natifs côté frontend. **Note : Pas d'automatisation des tests d'IHM par navigateur.**

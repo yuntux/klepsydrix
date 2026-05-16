@@ -6,7 +6,8 @@ Ce guide détaille les étapes pour installer, isoler les dépendances et exécu
 
 ## 1. Prérequis Système
 Avant de commencer, assurez-vous d'avoir installés sur votre machine hôte :
-- **Python 3.11** ou supérieur.
+- **Python 3.11 ou 3.12** : ⚠️ *Critique : N'utilisez surtout pas Python 3.13 ou supérieur. La librairie Timefold s'appuie sur le pont Python-Java `JPype1`, qui plante au démarrage de la JVM sur les versions récentes de Python (erreur `SIGSEGV`).*
+- **Java JRE/JDK 17+** : Requis par Timefold pour exécuter le moteur sous le capot.
 - **Node.js v18** ou supérieur (avec son gestionnaire de paquets `npm`).
 
 ---
