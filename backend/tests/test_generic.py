@@ -128,3 +128,29 @@ def test_generic_crud_dynamic_filtering(db_session: Session):
     assert len(data["items"]) == 1
     assert data["items"][0]["name"] == "Kit A"
 
+
+def test_generic_dynamic_method_execution(db_session: Session):
+    # 1. Créer un établissement de test
+    school = School(uai="8888888X", name="Ecole Test Dynamique", standard_timeslot_duration=45)
+    db_session.add(school)
+    db_session.commit()
+    db_session.refresh(school)
+
+    # 2. Tester l'appel de la méthode de classe test_class_method (compte le nombre d'écoles (1) et multiplie par 5)
+    class_call_payload = {
+        "args": [],
+        "kwargs": {"multiplier": 5}
+    }
+    response = client.post("/api/generic/schools/call/test_class_method", json=class_call_payload)
+    assert response.status_code == 200
+    assert response.json() == 5
+
+    # 3. Tester l'appel de la méthode d'instance test_instance_method
+    instance_call_payload = {
+        "args": [],
+        "kwargs": {"prefix": "Bienvenue à"}
+    }
+    response = client.post(f"/api/generic/schools/{school.id}/call/test_instance_method", json=instance_call_payload)
+    assert response.status_code == 200
+    assert response.json() == "Bienvenue à Ecole Test Dynamique"
+

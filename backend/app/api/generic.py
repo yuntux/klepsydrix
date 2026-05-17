@@ -4,6 +4,8 @@ from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 import importlib
 import pkgutil
+import inspect
+from pydantic import BaseModel
 
 from backend.app.core.database import get_db
 from backend.app.models.base import Base
@@ -227,6 +229,94 @@ def make_delete_endpoint(model, resource_name):
             raise HTTPException(status_code=400, detail=f"Impossible de supprimer l'élément : {e}")
     return delete_endpoint
 
+class CallPayload(BaseModel):
+    args: Optional[List[Any]] = []
+    kwargs: Optional[Dict[str, Any]] = {}
+
+def serialize_execution_result(result):
+    if result is None:
+        return None
+    if isinstance(result, list):
+        return [serialize_execution_result(item) for item in result]
+    if isinstance(result, dict):
+        return {k: serialize_execution_result(v) for k, v in result.items()}
+    # Si c'est un modèle classique SQLAlchemy ou TransientModel
+    if hasattr(result, "__table__") or isinstance(result, TransientModel):
+        return sqla_to_dict(result)
+    return result
+
+def make_class_call_endpoint(model):
+    def class_call_endpoint(
+        method_name: str,
+        payload: CallPayload,
+        db: Session = Depends(get_db)
+    ):
+        if not hasattr(model, method_name):
+            raise HTTPException(status_code=404, detail=f"Méthode '{method_name}' introuvable sur le modèle {model.__name__}.")
+        
+        func = getattr(model, method_name)
+        if not callable(func):
+            raise HTTPException(status_code=400, detail=f"L'attribut '{method_name}' n'est pas exécutable.")
+            
+        args = payload.args or []
+        kwargs = payload.kwargs or {}
+        
+        try:
+            sig = inspect.signature(func)
+            if "db" in sig.parameters:
+                kwargs["db"] = db
+        except Exception:
+            pass
+            
+        try:
+            result = func(*args, **kwargs)
+            return serialize_execution_result(result)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode de classe : {e}")
+            
+    return class_call_endpoint
+
+def make_instance_call_endpoint(model):
+    def instance_call_endpoint(
+        item_id: int,
+        method_name: str,
+        payload: CallPayload,
+        db: Session = Depends(get_db)
+    ):
+        if issubclass(model, TransientModel):
+            items = model.read(db, domain={"id": item_id})
+            instance = items[0] if items else None
+        else:
+            instance = db.query(model).filter(model.id == item_id).first()
+            
+        if not instance:
+            raise HTTPException(status_code=404, detail="Instance introuvable.")
+            
+        if not hasattr(instance, method_name):
+            raise HTTPException(status_code=404, detail=f"Méthode '{method_name}' introuvable sur l'instance.")
+            
+        func = getattr(instance, method_name)
+        if not callable(func):
+            raise HTTPException(status_code=400, detail=f"L'attribut '{method_name}' n'est pas exécutable.")
+            
+        args = payload.args or []
+        kwargs = payload.kwargs or {}
+        
+        try:
+            sig = inspect.signature(func)
+            if "db" in sig.parameters:
+                kwargs["db"] = db
+        except Exception:
+            pass
+            
+        try:
+            result = func(*args, **kwargs)
+            return serialize_execution_result(result)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode d'instance : {e}")
+            
+    return instance_call_endpoint
+
 # Génération dynamique des routes explicites et typées au chargement pour toutes les ressources
 for resource_name, model in MODEL_MAP.items():
     create_schema = make_pydantic_model(model, all_optional=False)
@@ -279,6 +369,26 @@ for resource_name, model in MODEL_MAP.items():
         methods=["DELETE"],
         response_model=Dict[str, Any],
         summary=f"Supprimer un(e) {resource_name} par ID",
+        tags=[resource_name]
+    )
+
+    # 6. Appel de méthode de classe dynamique (POST /api/generic/{resource_name}/call/{method_name})
+    router.add_api_route(
+        path=f"/{resource_name}/call/{{method_name}}",
+        endpoint=make_class_call_endpoint(model),
+        methods=["POST"],
+        response_model=Any,
+        summary=f"Appeler une méthode de classe sur {resource_name}",
+        tags=[resource_name]
+    )
+
+    # 7. Appel de méthode d'instance dynamique (POST /api/generic/{resource_name}/{item_id}/call/{method_name})
+    router.add_api_route(
+        path=f"/{resource_name}/{{item_id}}/call/{{method_name}}",
+        endpoint=make_instance_call_endpoint(model),
+        methods=["POST"],
+        response_model=Any,
+        summary=f"Appeler une méthode d'instance sur {resource_name}",
         tags=[resource_name]
     )
 
