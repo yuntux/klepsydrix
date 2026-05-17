@@ -130,7 +130,7 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 
 Voici la définition formelle de chaque objet et de sa structure de données :
 
-### 0. Establishment (Établissement)
+### 0. School (Établissement)
 Représente une entité administrative scolaire autonome (un collège, un lycée général, un lycée professionnel) coexistant au sein de la même base de données (concept de **Cité Scolaire**). Cela permet aux établissements de partager les ressources communes (professeurs partagés, salles communes, même campus) tout en conservant une gestion budgétaire, des imports/exports STSWEB et des structures de classes strictement séparés.
 *   `id` : Clé primaire (Entier)
 *   `uai` : Code national unique de l'établissement (anciennement RNE) (Chaîne de 8 caractères, ex: "0751234A")
@@ -138,13 +138,18 @@ Représente une entité administrative scolaire autonome (un collège, un lycée
 *   `type` : Type d'établissement (Enum : `COLLEGE`, `LYCEE`, `LYCEE_PRO`, `AUTRE`)
 *   `city` : Ville (Chaîne)
 *   `postal_code` : Code postal (Chaîne)
+*   `standard_timeslot_duration` : Durée standard d'un créneau élémentaire (Entier, exprimée en minutes, par défaut `30`). Cela permet au solveur de convertir dynamiquement les durées des cours en nombre de créneaux.
 
 ### 1. Course (Cours)
 Le conteneur logique de cours.
 *   `id` : Clé primaire (Entier)
+*   `subject_id` : Clé étrangère vers la **Matière** principale enseignée (Entier, relation N-à-1)
+*   `teacher_id` : Clé étrangère optionnelle vers le **Professeur** principal (Entier, relation N-à-1)
+*   `division_id` : Clé étrangère optionnelle vers la **Classe** principale visée (Entier, relation N-à-1)
+*   `group_id` : Clé étrangère optionnelle vers le **Groupe** visé (Entier, relation N-à-1)
 *   `label` : Libellé textuel calculé de manière dynamique à partir des séances et ressources rattachées (ex : `"{matières} - {profs} - {classes}"`)
 *   `memo` : Texte libre (Chaîne optionnelle) pour les notes du planificateur
-*   `duration` : Durée du cours définie en amont du placement (Entier, exprimée en nombre de créneaux élémentaires de 30min ou 1h, ex: `2` pour un cours de 2h sur des créneaux de 1h)
+*   `duration_minutes` : Durée du cours définie en amont du placement (Entier, exprimée en minutes, ex: `55` pour un cours standard d'une heure)
 *   `is_complex` : Indicateur s'il s'agit d'un cours complexe (Booléen, par défaut `False`)
 *   `lock_sessions` : Si vrai, verrouille l'ordre ou la répartition des séances à l'intérieur du cours complexe (Booléen, par défaut `False`)
 *   `mission_id` : Clé étrangère optionnelle vers une **Mission** (Entier, ex: pour lier un cours à un rôle spécifique comme Professeur Principal)
@@ -163,7 +168,10 @@ Le conteneur logique de cours.
 L'unité opérationnelle et planifiée d'un cours.
 *   `id` : Clé primaire (Entier)
 *   `course_id` : Clé étrangère vers le **Course** parent (Entier, relation 1-à-N)
-*   `timeslot_id` : Clé étrangère optionnelle vers un **Timeslot** (0 ou 1 créneau). Dans le cas d'une séance planifiée sur la grille, `timeslot_id` désigne le créneau de départ (Start Timeslot), et la séance s'étend de manière contiguë sur une longueur égale à la `duration` du cours parent.
+*   `timeslot_id` : Clé étrangère optionnelle vers un **Timeslot** (0 ou 1 créneau). Dans le cas d'une séance planifiée sur la grille, `timeslot_id` désigne le créneau de départ (Start Timeslot), et la séance s'étend de manière contiguë sur une longueur égale à la `duration_minutes` du cours parent.
+*   `classroom_id` : Clé étrangère optionnelle vers la **Salle** principale de la séance (Entier, relation N-à-1)
+*   `week_type` : Type d'alternance de semaine (Chaîne, 'A', 'B' ou 'T' pour Toutes les semaines, par défaut 'T')
+*   `is_pinned` : Indicateur si la séance est verrouillée statiquement sur ce créneau et cette salle, ignorée par le solveur (Booléen, par défaut `False`)
 *   `is_co_teaching` : Indicateur si la séance est dispensée en co-enseignement (Booléen, par défaut `False`)
 *   *Relations (N-à-N)* : `subjects`, `teachers`, `divisions`, `class_parts`, `groups`, `alternations`, `sites`, `materials`, `classrooms` (les ressources affectées à cette séance)
 
@@ -216,7 +224,7 @@ Un professeur est défini globalement au niveau de la cité scolaire (permettant
 *   `first_name` : Prénom (Chaîne)
 *   `color` : Code couleur d'affichage (Chaîne)
 *   `max_weekly_hours` : Nombre maximum d'heures d'enseignement autorisées par semaine (Réel)
-*   `primary_establishment_id` : Clé étrangère optionnelle vers son **Establishment** de rattachement administratif principal (Entier, relation N-à-1)
+*   `primary_school_id` : Clé étrangère optionnelle vers sa **School** de rattachement administratif principal (Entier, relation N-à-1)
 
 ### 4. MEF (Module Élémentaire de Formation / Niveau de formation)
 Représente une formation ou un niveau d'enseignement réglementaire national défini par le ministère (ex: "Troisième Générale", "Seconde Générale et Technologique", "Première Spécialité"). C'est le socle technique indispensable pour l'import de la structure depuis STSWEB et pour calculer les dotations horaires globales.
@@ -227,7 +235,7 @@ Le MEF est un concept structurant pour :
 3. **La gestion des structures composites** : Il permet de distinguer les élèves de formations différentes réunis au sein d'une même classe physique (ex: double-niveau ou classe de 3ème réunissant des élèves de MEF Général et MEF SEGPA).
 
 *   `id` : Clé primaire (Entier)
-*   `establishment_id` : Clé étrangère vers l'**Establishment** concerné (Entier, relation N-à-1)
+*   `school_id` : Clé étrangère vers la **School** concernée (Entier, relation N-à-1)
 *   `code` : Code national unique standardisé sur 11 caractères (Chaîne, e.g. "20310010110" pour une 3ème Générale)
 *   `name` : Libellé complet de la formation (Chaîne, e.g. "Troisième Générale")
 *   `forecast_student_count` : Nombre prévisionnel d'élèves affectés à cette formation dans l'établissement (Entier)
@@ -244,7 +252,7 @@ Modèle de service d'enseignement lié à un MEF. Il sert de « gabarit » ou de
 
 ### 4ter. Division (Classe)
 *   `id` : Clé primaire (Entier)
-*   `establishment_id` : Clé étrangère vers l'**Establishment** auquel la classe appartient (Entier, relation N-à-1)
+*   `school_id` : Clé étrangère vers la **School** à laquelle la classe appartient (Entier, relation N-à-1)
 *   `code` : Code unique de la classe (Chaîne, e.g. "3EME_A")
 *   `name` : Libellé de la classe (Chaîne, e.g. "Troisième A")
 *   `student_count` : Nombre total d'élèves de la classe (Entier)
