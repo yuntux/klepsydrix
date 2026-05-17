@@ -90,10 +90,12 @@
           v-else
           :title="adminModels.find(m => m.key === activeAdminModel)?.label || ''"
           :columns="columnsConfig"
+          :fields="formFieldsConfig"
           :items="genericItems"
           @add="onAddGeneric"
           @edit="onEditGeneric"
           @delete="onDeleteGeneric"
+          @update-item="onUpdateGenericInline"
         />
       </section>
     </main>
@@ -352,6 +354,21 @@ async function onSubmitGeneric(value: Record<string, any>) {
   }
 }
 
+async function onUpdateGenericInline(item: any) {
+  try {
+    await api.updateGenericItem(activeAdminModel.value, item.id, item);
+    showNotification('success', 'Élément mis à jour directement !');
+    if (activeAdminModel.value === 'schools') {
+      loadSchools();
+    } else if (['teachers', 'classrooms', 'divisions'].includes(activeAdminModel.value)) {
+      loadData();
+    }
+  } catch (err: any) {
+    showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
+    loadGenericItems();
+  }
+}
+
 async function onDeleteGeneric(item: any) {
   const resourceType = modelToResourceType[activeAdminModel.value];
   if (resourceType) {
@@ -500,7 +517,7 @@ const formFieldsConfig = computed(() => {
       { key: 'code_nomenclature', label: 'Code nomenclature', type: 'text', placeholder: 'ex: 006600' },
       { key: 'short_label', label: 'Libellé court', type: 'text', required: true, placeholder: 'ex: Maths' },
       { key: 'long_label', label: 'Libellé long', type: 'text', placeholder: 'ex: Mathématiques' },
-      { key: 'color', label: 'Code couleur', type: 'text', placeholder: 'ex: #3498DB' },
+      { key: 'color', label: 'Code couleur', type: 'color', placeholder: 'ex: #3498DB' },
       { key: 'is_etp', label: 'Matière ETP', type: 'boolean' },
       { key: 'is_specialty', label: 'Matière de Spécialité', type: 'boolean' },
       { key: 'pedagogic_weight', label: 'Poids Pédagogique', type: 'number', min: 0.1, max: 10, step: '0.1' }
@@ -519,7 +536,7 @@ const formFieldsConfig = computed(() => {
       { key: 'code', label: 'Code de la classe', type: 'text', required: true, placeholder: 'ex: 6EME_A' },
       { key: 'name', label: 'Nom de la classe', type: 'text', required: true, placeholder: 'ex: 6ème A' },
       { key: 'student_count', label: 'Nombre d\'élèves', type: 'number', required: true, min: 1, max: 50 },
-      { key: 'color', label: 'Couleur', type: 'text', placeholder: 'ex: #3498DB' },
+      { key: 'color', label: 'Couleur', type: 'color', placeholder: 'ex: #3498DB' },
       { key: 'school_id', label: 'Établissement', type: 'select', required: true, options: schoolOptions }
     ];
   } else if (model === 'classrooms') {

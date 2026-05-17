@@ -1,8 +1,8 @@
 # Dossier d'Architecture Logicielle (DAL) : Klepsydrix
 
-**Version** : 1.0.0  
+**Version** : 1.1.0  
 **Statut** : Approuvé  
-**Dernière mise à jour** : 2026-05-16  
+**Dernière mise à jour** : 2026-05-18  
 
 Ce document décrit l'architecture globale cible du projet Klepsydrix, notre outil open-source d'aide à la conception et d'optimisation d'emplois du temps scolaires. Il sert de cadre technique pour tous les plans d'implémentation spécifiques (`plan.md`).
 
@@ -141,6 +141,29 @@ sequenceDiagram
 
 ---
 
-## 6. Principes de Développement Rattachés
+## 6. Bibliothèques Frontend Tierces Adoptées
+
+Pour ne pas réinventer la roue, certains composants UI standard sont délégués à des bibliothèques spécialisées et légères, intégrées via `npm`.
+
+### A. `vue3-swatches` — Sélecteur de Couleurs par Palette
+
+| Attribut | Valeur |
+|---|---|
+| **Package** | `vue3-swatches` v1.2.4 |
+| **Usage** | Sélection d'une couleur dans une palette finie prédéfinie |
+| **Composant encapsulant** | `frontend/src/components/ColorSwatchPicker.vue` |
+| **Utilisé dans** | `GenericList.vue` (cellule éditable en ligne), `GenericForm.vue` (champ de formulaire) |
+
+**Raisonnement** : Plutôt que de maintenir un composant custom fragile (popover, gestion du click-outside, accessibilité), ce package standard offre un widget éprouvé, accessible, et entièrement configurable. Le composant `ColorSwatchPicker.vue` agit comme un adaptateur mince qui pré-configure la palette de 30 couleurs communes et expose une interface `v-model`-compatible (`modelValue` / `@change`) pour s'intégrer sans friction dans le reste de l'application.
+
+```
+frontend/src/components/
+└── ColorSwatchPicker.vue   ← adaptateur de vue3-swatches (palette 30 couleurs, v-model)
+```
+
+---
+
+## 7. Principes de Développement Rattachés
 - **Agnosticisme de la spécification** : Les besoins sont écrits sans mentionner cette stack.
 - **Liaison avec la Constitution** : Cette architecture respecte scrupuleusement la constitution (Performance in-memory, typage strict, TDD).
+- **Pas de réinvention de la roue** : Tout widget UI standard doit d'abord être recherché sous forme de package npm maintenu, avant d'envisager une implémentation maison.

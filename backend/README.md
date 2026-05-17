@@ -7,7 +7,7 @@ Ce dossier contient l'API REST de Klepsydrix, un moteur d'optimisation d'emplois
 - **Persistance SQLite** : Stockage des cours, enseignants, classes et salles avec SQLAlchemy.
 - **Solveur Hybride** : Résolution automatique ultra-rapide des emplois du temps (Timefold Solver combiné à une heuristique gloutonne déterministe).
 - **Gestion des Conflits** : Validation immédiate des conflits d'enseignants, de salles et de classes lors de l'édition manuelle (erreur 409).
-- **Données d'essai V1** : Script d'initialisation complet pour la simulation.
+- **Données d'essai** : Script d'initialisation complet pour la simulation.
 
 ## Démarrage rapide
 

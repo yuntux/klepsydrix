@@ -553,3 +553,5 @@ body {
 .select-custom:focus {
   border-color: var(--accent-primary);
 }
+
+/* ColorSwatchPicker — positionnement géré nativement par Teleport + getBoundingClientRect */

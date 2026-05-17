@@ -30,6 +30,14 @@
               class="form-input"
             />
 
+            <!-- Input COULEUR : composant standard vue3-swatches -->
+            <div v-else-if="field.type === 'color'" class="form-color-swatch-wrapper">
+              <color-swatch-picker
+                :model-value="localModel[field.key] || '#3B82F6'"
+                @change="localModel[field.key] = $event"
+              />
+            </div>
+            
             <!-- Input NUMÉRIQUE -->
             <input 
               v-else-if="field.type === 'number'"
@@ -102,11 +110,12 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import ColorSwatchPicker from './ColorSwatchPicker.vue';
 
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color';
   required?: boolean;
   placeholder?: string;
   min?: number;
@@ -133,16 +142,20 @@ const localModel = ref<Record<string, any>>({});
 
 watch(() => props.modelValue, (newVal) => {
   localModel.value = { ...newVal };
-  // Initialiser les champs booléens par défaut
+  // Initialiser les champs booléens et couleur par défaut
   props.fields.forEach(field => {
     if (field.type === 'boolean' && localModel.value[field.key] === undefined) {
       localModel.value[field.key] = false;
+    }
+    if (field.type === 'color' && !localModel.value[field.key]) {
+      localModel.value[field.key] = '#3498DB'; // couleur par défaut premium
     }
     if (field.type === 'select' && localModel.value[field.key] === undefined) {
       localModel.value[field.key] = null;
     }
   });
 }, { immediate: true, deep: true });
+
 
 function handleSubmit() {
   emit('update:modelValue', localModel.value);
@@ -172,7 +185,7 @@ function handleSubmit() {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 14px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: var(--shadow-lg), 0 0 30px rgba(99, 102, 241, 0.15);
   display: flex;
   flex-direction: column;
@@ -344,5 +357,10 @@ input:checked + .slider:before {
 .glass-morphism {
   background: rgba(32, 38, 50, 0.85);
   backdrop-filter: blur(12px);
+}
+
+/* Sélecteur de couleur formulaire — identique à la vue liste */
+.form-color-swatch-wrapper {
+  width: 100%;
 }
 </style>

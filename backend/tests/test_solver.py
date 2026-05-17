@@ -220,3 +220,51 @@ def test_solver_respects_preferences(db_session: Session):
     assert course.timeslot_id is not None
     assert course.timeslot_id == ts2.id
 
+
+def test_solver_preference_overrides_stability(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    # 1. Création Enseignant, Salle, Division, Créneaux
+    t1 = Teacher(code="PROF_STAB", name="Prof Stab", last_name="Stab", school_id=school.id)
+    db_session.add(t1)
+    db_session.commit()
+
+    c1 = Classroom(code="ROOM_STAB", name="Room Stab", capacity=30, quantity=1, school_id=school.id)
+    db_session.add(c1)
+    db_session.commit()
+
+    d1 = Division(code="DIV_STAB", name="Div Stab", student_count=25, color="#CCCCCC", school_id=school.id)
+    db_session.add(d1)
+    db_session.commit()
+
+    ts1 = Timeslot(day_of_week=1, hour=8) # Position initiale (Neutre)
+    ts2 = Timeslot(day_of_week=1, hour=9) # Préféré (Preferred)
+    db_session.add_all([ts1, ts2])
+    db_session.commit()
+
+    # 2. Création du vœu "Preferred" sur ts2
+    p1 = ResourcePreference(resource_type="Teacher", resource_id=t1.id, timeslot_id=ts2.id, preference_level="Preferred")
+    db_session.add(p1)
+    db_session.commit()
+
+    # 3. Création du cours initialement placé sur ts1 (déclenche la pénalité de stabilité s'il bouge)
+    course = Course(
+        subject_id=subject.id,
+        teacher_id=t1.id,
+        division_id=d1.id,
+        classroom_id=c1.id,
+        timeslot_id=ts1.id,
+        school_id=school.id
+    )
+    db_session.add(course)
+    db_session.commit()
+
+    # 4. Résoudre
+    _solve_timetable_job(db_session)
+    db_session.refresh(course)
+
+    # 5. Assertion : Le cours DOIT avoir bougé de ts1 à ts2 car la préférence (+10 soft) l'emporte sur la stabilité (-1 soft)
+    assert course.timeslot_id is not None
+    assert course.timeslot_id == ts2.id
+

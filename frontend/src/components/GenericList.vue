@@ -77,7 +77,14 @@
           <!-- Ligne de filtrage / recherche spécifique par colonne -->
           <tr class="filter-tr">
             <td v-for="col in visibleColumns" :key="'filter-' + col.key" class="filter-td">
+              <!-- Si c'est un champ couleur, on propose le composant swatch -->
+              <color-swatch-picker
+                v-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'"
+                :model-value="filters[col.key] || ''"
+                @change="filters[col.key] = $event"
+              />
               <input 
+                v-else
                 type="text" 
                 v-model="filters[col.key]" 
                 :placeholder="'Filtrer...'" 
@@ -104,14 +111,71 @@
               :key="col.key"
               class="body-td"
             >
-              <!-- Formatage personnalisé des valeurs -->
+              <!-- Formatage personnalisé des valeurs (Édition en ligne Airtable) -->
               <slot :name="'col-' + col.key" :item="item">
-                <span v-if="typeof item[col.key] === 'boolean'">
-                  <span class="badge-boolean" :class="item[col.key] ? 'badge-true' : 'badge-false'">
-                    {{ item[col.key] ? 'Oui' : 'Non' }}
-                  </span>
+                <!-- ID est immuable -->
+                <span v-if="col.key === 'id'" class="immutable-id">
+                  {{ item[col.key] }}
                 </span>
-                <span v-else>{{ item[col.key] }}</span>
+
+                <!-- Booléen (Switch / Checkbox en ligne) -->
+                <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
+                  <label class="inline-switch">
+                    <input 
+                      type="checkbox" 
+                      :checked="!!item[col.key]" 
+                      @change="updateInline(item, col.key, $event.target.checked)"
+                    />
+                    <span class="inline-slider inline-round"></span>
+                  </label>
+                </div>
+
+                <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
+                <!-- Couleur : composant standard vue3-swatches -->
+                <div v-else-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper">
+                  <color-swatch-picker
+                    :model-value="item[col.key] || '#3B82F6'"
+                    @change="updateInline(item, col.key, $event)"
+                  />
+                </div>
+
+                <!-- Menu Déroulant Select (ex: école principale) -->
+                <select 
+                  v-else-if="getFieldDef(col.key)?.type === 'select'"
+                  :value="item[col.key]" 
+                  @change="updateInline(item, col.key, $event.target.value ? Number($event.target.value) : null)"
+                  class="inline-select"
+                >
+                  <option :value="null">-- Choisir --</option>
+                  <option 
+                    v-for="opt in getFieldDef(col.key)?.options" 
+                    :key="opt.value" 
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+
+                <!-- Nombre -->
+                <input 
+                  v-else-if="getFieldDef(col.key)?.type === 'number' || typeof item[col.key] === 'number'"
+                  type="number" 
+                  :value="item[col.key]" 
+                  :min="getFieldDef(col.key)?.min"
+                  :max="getFieldDef(col.key)?.max"
+                  :step="getFieldDef(col.key)?.step || '1'"
+                  @change="updateInline(item, col.key, $event.target.value !== '' ? Number($event.target.value) : null)"
+                  class="inline-input inline-number"
+                />
+
+                <!-- Texte standard (ex: nom, code) -->
+                <input 
+                  v-else
+                  type="text" 
+                  :value="item[col.key] || ''" 
+                  @change="updateInline(item, col.key, $event.target.value)"
+                  class="inline-input"
+                />
               </slot>
             </td>
             <td class="body-td actions-td">
@@ -189,6 +253,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import ColorSwatchPicker from './ColorSwatchPicker.vue';
 
 interface ColumnDef {
   key: string;
@@ -197,17 +262,61 @@ interface ColumnDef {
   visible?: boolean;
 }
 
+interface FormField {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color';
+  required?: boolean;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: string;
+  options?: Array<{ value: any; label: string }>;
+}
+
 const props = defineProps<{
   title: string;
   columns: ColumnDef[];
   items: any[];
+  fields?: FormField[];
 }>();
 
 const emit = defineEmits<{
   (e: 'add'): void;
   (e: 'edit', item: any): void;
   (e: 'delete', item: any): void;
+  (e: 'update-item', item: any): void;
 }>();
+
+function getFieldDef(key: string): FormField | undefined {
+  return props.fields?.find(f => f.key === key);
+}
+
+function updateInline(item: any, key: string, value: any) {
+  if (item[key] === value) return;
+  const updatedItem = { ...item };
+  updatedItem[key] = value;
+  emit('update-item', updatedItem);
+}
+
+// Palette unifiée de 30 couleurs premium
+const colorPalette = [
+  '#F87171', '#F97316', '#F59E0B', '#EAB308', '#84CC16', '#22C55E', '#10B981', '#14B8A6', '#06B6D4', '#0EA5E9',
+  '#3B82F6', '#6366F1', '#8B5CF6', '#A855F7', '#D946EF', '#EC4899', '#F43F5E', '#6B7280', '#4F46E5', '#059669',
+  '#DC2626', '#D97706', '#0891B2', '#2563EB', '#7C3AED', '#DB2777', '#0284C7', '#4B5563', '#9CA3AF', '#374151'
+];
+
+
+
+function getContrastYIQ(hexcolor: string) {
+  if (!hexcolor || hexcolor.length < 6) return '#ffffff';
+  const hex = hexcolor.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+  return (yiq >= 128) ? '#000000' : '#ffffff';
+}
 
 // Gestion des colonnes internes (pour réordonner/redimensionner localement)
 const internalColumns = ref<ColumnDef[]>([]);
@@ -421,7 +530,7 @@ function onDrop(event: DragEvent, index: number) {
   background-color: rgba(17, 20, 26, 0.45);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
 }
@@ -533,8 +642,8 @@ function onDrop(event: DragEvent, index: number) {
 /* Table */
 .table-wrapper {
   flex: 1;
-  overflow: auto;
   position: relative;
+  overflow: visible;
 }
 
 .premium-table {
@@ -797,5 +906,143 @@ function onDrop(event: DragEvent, index: number) {
 .glass-morphism {
   background: rgba(32, 38, 50, 0.85);
   backdrop-filter: blur(12px);
+}
+
+/* Styles Airtable-style pour l'édition en ligne */
+.immutable-id {
+  color: var(--text-muted);
+  font-family: monospace;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+
+.inline-input, .inline-select {
+  width: 100%;
+  background-color: transparent;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  transition: all var(--transition-fast);
+}
+
+.inline-input:hover, .inline-select:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.inline-input:focus, .inline-select:focus {
+  background-color: rgba(10, 12, 16, 0.7);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+/* Sélecteur de couleur unifié standard */
+.inline-color-select-wrapper {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.inline-color-select {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  outline: none;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  text-align: center;
+}
+
+.inline-color-select:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.inline-color-select:focus {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--accent-primary);
+}
+
+/* Filtre de couleur spécial */
+.filter-color-select {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+/* Switch toggle en ligne */
+.inline-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+
+.inline-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 18px;
+}
+
+.inline-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.inline-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  transition: .3s;
+}
+
+.inline-slider:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-secondary);
+  transition: .3s;
+}
+
+input:checked + .inline-slider {
+  background-color: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent-primary);
+}
+
+input:checked + .inline-slider:before {
+  transform: translateX(18px);
+  background-color: var(--accent-primary);
+}
+
+.inline-slider.inline-round {
+  border-radius: 18px;
+}
+
+.inline-slider.inline-round:before {
+  border-radius: 50%;
 }
 </style>

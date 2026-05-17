@@ -268,7 +268,7 @@ def resource_preference_soft_penalty(constraint_factory: ConstraintFactory) -> C
             (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
             (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
         ))
-        .penalize(HardSoftScore.ONE_SOFT)
+        .penalize(HardSoftScore.of_soft(10))
         .as_constraint("Resource preference undesirable")
     )
 
@@ -286,7 +286,7 @@ def resource_preference_soft_reward(constraint_factory: ConstraintFactory) -> Co
             (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
             (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
         ))
-        .reward(HardSoftScore.ONE_SOFT)
+        .reward(HardSoftScore.of_soft(10))
         .as_constraint("Resource preference preferred")
     )
 
