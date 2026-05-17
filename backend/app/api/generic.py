@@ -47,22 +47,21 @@ from pydantic import create_model
 def sqla_to_dict(obj) -> Dict[str, Any]:
     if obj is None:
         return {}
+    
+    fields = getattr(obj, "_fields", None)
+    if fields is None and hasattr(obj, "__table__"):
+        fields = [c.name for c in obj.__table__.columns]
+        
+    if not fields:
+        return {}
+        
     d = {}
-    if isinstance(obj, TransientModel):
-        for field in getattr(obj, "_fields", []):
-            val = getattr(obj, field, None)
-            if isinstance(val, (date, datetime)):
-                d[field] = val.isoformat()
-            else:
-                d[field] = val
-        return d
-
-    for column in obj.__table__.columns:
-        val = getattr(obj, column.name)
+    for field in fields:
+        val = getattr(obj, field, None)
         if isinstance(val, (date, datetime)):
-            d[column.name] = val.isoformat()
+            d[field] = val.isoformat()
         else:
-            d[column.name] = val
+            d[field] = val
     return d
 
 def make_pydantic_model(model, all_optional=False):
@@ -156,24 +155,29 @@ def make_get_endpoint(model):
         return sqla_to_dict(item)
     return get_endpoint
 
+def clean_payload(model, payload_dict: dict) -> dict:
+    if issubclass(model, TransientModel):
+        return payload_dict
+        
+    cleaned = {}
+    valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
+    for k, v in payload_dict.items():
+        if k in valid_keys and v is not None:
+            column_type = model.__table__.columns[k].type
+            if str(column_type) == "DATE" and v:
+                cleaned[k] = date.fromisoformat(v) if isinstance(v, str) else v
+            elif str(column_type) == "DATETIME" and v:
+                cleaned[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
+            else:
+                cleaned[k] = v
+    return cleaned
+
 def make_create_endpoint(model, payload_schema):
     def create_endpoint(payload: payload_schema, db: Session = Depends(get_db)):
         if issubclass(model, TransientModel):
             raise HTTPException(status_code=405, detail="La création n'est pas supportée pour cette ressource transitoire.")
 
-        valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
-        cleaned_payload = {}
-        payload_dict = payload.model_dump()
-        for k, v in payload_dict.items():
-            if k in valid_keys and v is not None:
-                column_type = model.__table__.columns[k].type
-                if str(column_type) == "DATE" and v:
-                    cleaned_payload[k] = date.fromisoformat(v) if isinstance(v, str) else v
-                elif str(column_type) == "DATETIME" and v:
-                    cleaned_payload[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
-                else:
-                    cleaned_payload[k] = v
-
+        cleaned_payload = clean_payload(model, payload.model_dump())
         try:
             new_item = model.create(db, cleaned_payload)
             if new_item is None:
@@ -192,20 +196,8 @@ def make_update_endpoint(model, payload_schema):
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
 
-        valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
-        cleaned_vals = {}
-        payload_dict = payload.model_dump()
+        cleaned_vals = clean_payload(model, payload.model_dump())
         try:
-            for k, v in payload_dict.items():
-                if k in valid_keys and v is not None:
-                    column_type = model.__table__.columns[k].type
-                    if str(column_type) == "DATE" and v:
-                        cleaned_vals[k] = date.fromisoformat(v) if isinstance(v, str) else v
-                    elif str(column_type) == "DATETIME" and v:
-                        cleaned_vals[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
-                    else:
-                        cleaned_vals[k] = v
-            
             updated_item = item.update(db, cleaned_vals)
             if updated_item is None:
                 return {"id": item_id, "status": "purged"}

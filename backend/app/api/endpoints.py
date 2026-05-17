@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from backend.app.core.database import get_db
 from backend.app.models.teacher import Teacher
@@ -10,8 +10,6 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.solver.solver import start_solve_timetable_async, SolverState
 router = APIRouter(prefix="/api/timetable")
-
-from typing import Dict, Any, Optional
 
 @router.get("", response_model=Dict[str, Any])
 def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)):
@@ -83,7 +81,6 @@ def reset(db: Session = Depends(get_db)):
 
 
 from pydantic import BaseModel
-from typing import Optional
 
 class CourseUpdate(BaseModel):
     timeslot_id: Optional[int] = None
