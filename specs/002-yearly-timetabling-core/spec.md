@@ -96,6 +96,14 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 - **FR-001**: **Moteur CRUD Générique (Socle)** : Le système doit fournir un mécanisme générique côté backend et frontend pour générer les formulaires et les listes pour les entités simples : *Matières, Professeurs, Groupes, Salles, Classes, Parties de classe, Alternances, Sites, Matériels, Créneaux*.
 - **FR-002**: **APIs Génériques** : Le backend doit exposer des points d'accès API unifiés, typés et réutilisables pour les opérations CRUD de chaque type de ressource de base.
 - **FR-003**: **Composants Frontend Réutilisables** : Le frontend doit utiliser des composants de tableau (`GenericList`) et de formulaire (`GenericForm`) paramétrables pour éviter la duplication de code pour les 10 types de ressources.
+Concernant le composant `GenericList`, il est fortement recommandé d'intégrer une librairie VueJS existante sur internet (ex: PrimeVue DataTable, AG Grid ou Tabulator) pour offrir nativement les fonctionnalités suivantes :
+  1. Pagination (par défaut 30 éléments par page, avec possibilité de modifier ce nombre).
+  2. Redimensionnement manuel de la largeur des colonnes.
+  3. Réordonnancement des colonnes via glisser-déposer (drag-and-drop) de leurs en-têtes.
+  4. Sélecteur de colonnes accessible via un bouton en haut à droite permettant de cocher/décocher les colonnes à afficher.
+  5. Tri des données en cliquant sur l'en-tête de n'importe quelle colonne.
+  6. Recherche / filtrage spécifique sur chaque colonne.
+  *(Note : L'implémentation d'une fonction de regroupement de lignes n'est pas requise).*
 - **FR-004**: **Gestion des Alternances (Quinzaine)** : Le modèle de données et le solveur doivent supporter les alternances temporelles (Semaine A / Semaine B / Toutes les semaines).
 - **FR-005**: **Gestion des Groupes et Sous-groupes** : Les divisions doivent pouvoir être partitionnées en sous-groupes (ex: demi-classes, groupes de spécialités), avec support des conflits d'intersection d'élèves par le solveur.
 - **FR-006**: **Fiche Cours Cumulée (Fiche T)** : Une popin métier unifiée doit permettre de visualiser et de consulter de manière synthétique et consolidée les caractéristiques d'une sélection multiple de cours. Les ressources communes (ex: même matière) s'affichent de façon standard, tandis que les ressources divergentes (ex: enseignants ou salles différents) sont regroupées sous forme de pastilles (chips) stylisées dotées d'un indicateur visuel de divergence (bordure ou couleur contrastée) et d'un badge de proportion (ex: `[2/3]`). **La popin doit être déplaçable (draggable) par glisser-déposer (drag-and-drop) de son en-tête**, afin de permettre au planificateur de dégager la vue sur la grille horaire sous-jacente.
