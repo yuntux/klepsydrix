@@ -105,11 +105,11 @@ description: "Task list for feature implementation"
 
 ### Implementation for User Story 4
 
-- [ ] T022 [P] [US4] Implémenter le modèle polymorphique `ResourcePreference` dans `backend/app/models/preference.py`
-- [ ] T023 [US4] Ajouter le CRUD des préférences dans l'API `backend/app/api/endpoints.py`
-- [ ] T024 [US4] Créer la grille interactive de saisie (Rouge/Orange/Vert) `PreferenceGrid.vue` dans `frontend/src/components/`
-- [ ] T025 [US4] Ajouter les pénalités / récompenses souples (Soft Constraints) et dures (Hard Constraints) dans `backend/app/solver/solver.py`
-- [ ] T025b [US4] Implémenter l'alerte UI lors du placement manuel d'un cours sur un créneau "Rouge" verrouillé dans `frontend/src/components/`
+- [X] T022 [P] [US4] Implémenter le modèle polymorphique `ResourcePreference` dans `backend/app/models/preference.py`
+- [X] T023 [US4] Ajouter le CRUD des préférences dans l'API `backend/app/api/endpoints.py`
+- [X] T024 [US4] Créer la grille interactive de saisie (Rouge/Orange/Vert) `PreferenceGrid.vue` dans `frontend/src/components/`
+- [X] T025 [US4] Ajouter les pénalités / récompenses souples (Soft Constraints) et dures (Hard Constraints) dans `backend/app/solver/solver.py`
+- [X] T025b [US4] Implémenter l'alerte UI lors du placement manuel d'un cours sur un créneau "Rouge" verrouillé dans `frontend/src/components/`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -119,9 +119,9 @@ description: "Task list for feature implementation"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T026 Ajouter la synthèse budgétaire TRMD (`GET /api/timetable/trmd/{school_id}`) dans `backend/app/api/endpoints.py`
-- [ ] T027 Mettre à jour la suite de tests avec `pytest tests/test_solver.py -v` (conflits, quinzaines, vœux)
-- [ ] T028 Vérifier les migrations et lancer le seed V2 (via `quickstart.md`) pour validation finale
+- [X] T026 Ajouter la synthèse budgétaire TRMD (`GET /api/timetable/trmd/{school_id}`) dans `backend/app/api/endpoints.py`
+- [X] T027 Mettre à jour la suite de tests avec `pytest tests/test_solver.py -v` (conflits, quinzaines, vœux)
+- [X] T028 Vérifier les migrations et lancer le seed V2 (via `quickstart.md`) pour validation finale
 
 ---
 

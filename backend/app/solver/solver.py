@@ -10,6 +10,7 @@ from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import ClassPartLink
+from backend.app.models.preference import ResourcePreference
 from backend.app.core.database import SessionLocal
 import threading
 from backend.app.solver.constraints import (
@@ -19,6 +20,7 @@ from backend.app.solver.constraints import (
     PlanningTimeslot,
     PlanningCourse,
     PlanningClassPartLink,
+    PlanningPreference,
     PlanningTimetable,
     define_constraints,
 )
@@ -63,6 +65,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_timeslots = db.query(Timeslot).all()
     db_courses = db.query(Course).all()
     db_links = db.query(ClassPartLink).all()
+    db_preferences = db.query(ResourcePreference).all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
@@ -74,6 +77,15 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     divisions_list = list(divisions_map.values())
     timeslots_list = list(timeslots_map.values())
     links_list = [PlanningClassPartLink(link.class_part_a_id, link.class_part_b_id) for link in db_links]
+    preferences_list = [
+        PlanningPreference(
+            id=pref.id,
+            resource_type=pref.resource_type,
+            resource_id=pref.resource_id,
+            timeslot_id=pref.timeslot_id,
+            preference_level=pref.preference_level
+        ) for pref in db_preferences
+    ]
 
     courses_list = []
     for c in db_courses:
@@ -129,6 +141,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         timeslots=timeslots_list,
         courses=courses_list,
         class_part_links=links_list,
+        preferences=preferences_list,
         score=None,
     )
 

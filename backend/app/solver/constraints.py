@@ -63,6 +63,15 @@ class PlanningClassPartLink:
     class_part_b_id: int
 
 
+@dataclass
+class PlanningPreference:
+    id: int
+    resource_type: str
+    resource_id: int
+    timeslot_id: int
+    preference_level: str
+
+
 @planning_entity
 @dataclass
 class PlanningCourse:
@@ -89,6 +98,7 @@ class PlanningTimetable:
     timeslots: Annotated[List[PlanningTimeslot], ProblemFactCollectionProperty, ValueRangeProvider(id='timeslotRange')]
     courses: Annotated[List[PlanningCourse], PlanningEntityCollectionProperty]
     class_part_links: Annotated[List[PlanningClassPartLink], ProblemFactCollectionProperty] = field(default_factory=list)
+    preferences: Annotated[List[PlanningPreference], ProblemFactCollectionProperty] = field(default_factory=list)
     score: Annotated[HardSoftScore, PlanningScore] = None
 
 
@@ -112,6 +122,9 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         student_group_subject_variety(constraint_factory),
         teacher_time_efficiency(constraint_factory),
         division_time_efficiency(constraint_factory),
+        resource_preference_hard(constraint_factory),
+        resource_preference_soft_penalty(constraint_factory),
+        resource_preference_soft_reward(constraint_factory),
     ]
 
 def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
@@ -222,3 +235,58 @@ def division_time_efficiency(constraint_factory: ConstraintFactory) -> Constrain
         .reward(HardSoftScore.ONE_SOFT)
         .as_constraint("Division time efficiency")
     )
+
+
+def resource_preference_hard(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
+        )
+        .filter(lambda course, pref: pref.preference_level == "Unsuited" and (
+            (pref.resource_type == "Teacher" and course.teacher is not None and pref.resource_id == course.teacher.id) or
+            (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
+            (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
+        ))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Resource unavailability (strict)")
+    )
+
+
+def resource_preference_soft_penalty(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
+        )
+        .filter(lambda course, pref: pref.preference_level == "Undesirable" and (
+            (pref.resource_type == "Teacher" and course.teacher is not None and pref.resource_id == course.teacher.id) or
+            (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
+            (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
+        ))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Resource preference undesirable")
+    )
+
+
+def resource_preference_soft_reward(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
+        )
+        .filter(lambda course, pref: pref.preference_level == "Preferred" and (
+            (pref.resource_type == "Teacher" and course.teacher is not None and pref.resource_id == course.teacher.id) or
+            (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
+            (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
+        ))
+        .reward(HardSoftScore.ONE_SOFT)
+        .as_constraint("Resource preference preferred")
+    )
+

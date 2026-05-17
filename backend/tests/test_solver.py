@@ -11,6 +11,7 @@ from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
+from backend.app.models.preference import ResourcePreference
 from backend.app.solver.solver import _solve_timetable_job
 
 # Moteur en mémoire vive dédié aux tests pour isolation totale et vitesse critique
@@ -176,3 +177,46 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     assert course1.timeslot_id is not None
     assert course2.timeslot_id is not None
     assert course1.timeslot_id == course2.timeslot_id
+
+
+def test_solver_respects_preferences(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    # 1. Création Enseignant, Salle, Division, Créneaux
+    t1 = Teacher(code="PROF_PREF", name="Prof Pref", last_name="Pref", school_id=school.id)
+    db_session.add(t1)
+    db_session.commit()
+
+    c1 = Classroom(code="ROOM_PREF", name="Room Pref", capacity=30, quantity=1, school_id=school.id)
+    db_session.add(c1)
+    db_session.commit()
+
+    d1 = Division(code="DIV_PREF", name="Div Pref", student_count=25, color="#CCCCCC", school_id=school.id)
+    db_session.add(d1)
+    db_session.commit()
+
+    ts1 = Timeslot(day_of_week=1, hour=8) # Indisponible (Unsuited)
+    ts2 = Timeslot(day_of_week=1, hour=9) # Préféré (Preferred)
+    db_session.add_all([ts1, ts2])
+    db_session.commit()
+
+    # 2. Création du vœu "Unsuited" sur ts1 et "Preferred" sur ts2
+    p1 = ResourcePreference(resource_type="Teacher", resource_id=t1.id, timeslot_id=ts1.id, preference_level="Unsuited")
+    p2 = ResourcePreference(resource_type="Teacher", resource_id=t1.id, timeslot_id=ts2.id, preference_level="Preferred")
+    db_session.add_all([p1, p2])
+    db_session.commit()
+
+    # 3. Création du cours à planifier
+    course = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    db_session.add(course)
+    db_session.commit()
+
+    # 4. Résoudre
+    _solve_timetable_job(db_session)
+    db_session.refresh(course)
+
+    # 5. Assertion : Le cours DOIT être planifié sur ts2 (Preferred) car ts1 est Unsuited (Strictement interdit)
+    assert course.timeslot_id is not None
+    assert course.timeslot_id == ts2.id
+

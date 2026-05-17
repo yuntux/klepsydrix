@@ -23,6 +23,13 @@
       </button>
       <button 
         class="nav-tab" 
+        :class="{ active: activeTab === 'preferences' }"
+        @click="$emit('update:activeTab', 'preferences')"
+      >
+        🎨 Saisie des Vœux
+      </button>
+      <button 
+        class="nav-tab" 
         :class="{ active: activeTab === 'admin' }"
         @click="$emit('update:activeTab', 'admin')"
       >

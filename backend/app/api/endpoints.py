@@ -221,4 +221,124 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
         "diagnostic_history_id": 42
     }
 
+from pydantic import BaseModel
+from typing import List
+from backend.app.models.preference import ResourcePreference
+
+class PreferenceCreate(BaseModel):
+    resource_type: str
+    resource_id: int
+    timeslot_id: int
+    preference_level: str
+
+@router.get("/preferences", response_model=List[Dict[str, Any]])
+def get_preferences(resource_type: Optional[str] = None, resource_id: Optional[int] = None, db: Session = Depends(get_db)):
+    query = db.query(ResourcePreference)
+    if resource_type:
+        query = query.filter(ResourcePreference.resource_type == resource_type)
+    if resource_id:
+        query = query.filter(ResourcePreference.resource_id == resource_id)
+    prefs = query.all()
+    return [{
+        "id": p.id,
+        "resource_type": p.resource_type,
+        "resource_id": p.resource_id,
+        "timeslot_id": p.timeslot_id,
+        "preference_level": p.preference_level
+    } for p in prefs]
+
+@router.post("/preferences")
+def create_preference(payload: PreferenceCreate, db: Session = Depends(get_db)):
+    existing = db.query(ResourcePreference).filter(
+        ResourcePreference.resource_type == payload.resource_type,
+        ResourcePreference.resource_id == payload.resource_id,
+        ResourcePreference.timeslot_id == payload.timeslot_id
+    ).first()
+    
+    if payload.preference_level == "Neutral" or payload.preference_level == "":
+        if existing:
+            db.delete(existing)
+            db.commit()
+        return {"status": "success", "message": "Preference cleared"}
+        
+    if existing:
+        existing.preference_level = payload.preference_level
+        db.commit()
+        return {"status": "success", "id": existing.id}
+    
+    new_pref = ResourcePreference(
+        resource_type=payload.resource_type,
+        resource_id=payload.resource_id,
+        timeslot_id=payload.timeslot_id,
+        preference_level=payload.preference_level
+    )
+    db.add(new_pref)
+    db.commit()
+    db.refresh(new_pref)
+    return {"status": "success", "id": new_pref.id}
+
+@router.delete("/preferences/{pref_id}")
+def delete_preference(pref_id: int, db: Session = Depends(get_db)):
+    pref = db.query(ResourcePreference).filter(ResourcePreference.id == pref_id).first()
+    if not pref:
+        raise HTTPException(status_code=404, detail="Préférence introuvable")
+    db.delete(pref)
+    db.commit()
+    return {"status": "success"}
+
+
+from backend.app.models.subject import Subject
+from backend.app.models.trmd_budget import TrmdBudget
+
+@router.get("/trmd/{school_id}")
+def get_trmd_synthesis(school_id: int, db: Session = Depends(get_db)):
+    subjects = db.query(Subject).all()
+    budget_summary = []
+    
+    for subject in subjects:
+        # Trouver le budget associé à la discipline de cette matière
+        budget = db.query(TrmdBudget).filter(
+            TrmdBudget.school_id == school_id,
+            TrmdBudget.discipline_id == subject.discipline_id
+        ).first()
+        
+        # Calculer les heures allouées (HP) converties en ETP
+        # allocated_etp = allocated_hp / 18
+        allocated_etp = round(budget.allocated_hp / 18.0, 2) if budget else 0.0
+        
+        # Calculer les heures consommées par les cours de cette matière
+        courses = db.query(Course).filter(
+            Course.school_id == school_id,
+            Course.subject_id == subject.id
+        ).all()
+        
+        consumed_minutes = sum(c.duration_minutes for c in courses)
+        consumed_hours = consumed_minutes / 60.0
+        consumed_etp = round(consumed_hours / 18.0, 2)
+        
+        diff_etp = round(consumed_etp - allocated_etp, 2)
+        
+        if consumed_etp > allocated_etp:
+            status = "OVER_BUDGET"
+        elif consumed_etp < allocated_etp:
+            status = "UNDER_BUDGET"
+        else:
+            status = "ON_BUDGET"
+            
+        budget_summary.append({
+            "subject": {
+                "id": subject.id,
+                "short_label": subject.short_label,
+                "long_label": subject.long_label
+            },
+            "allocated_etp": allocated_etp,
+            "consumed_etp": consumed_etp,
+            "diff_etp": diff_etp,
+            "status": status
+        })
+        
+    return {
+        "school_id": school_id,
+        "budget_summary": budget_summary
+    }
 

@@ -294,3 +294,74 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     assert course.timeslot_id is None
     assert course.classroom_id is None
 
+
+def test_preferences_crud(db_session: Session):
+    ts = Timeslot(day_of_week=1, hour=8)
+    db_session.add(ts)
+    db_session.commit()
+
+    # 1. Créer une préférence
+    pref_payload = {
+        "resource_type": "Teacher",
+        "resource_id": 999,
+        "timeslot_id": ts.id,
+        "preference_level": "Preferred"
+    }
+    response = client.post("/api/timetable/preferences", json=pref_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    pref_id = data["id"]
+
+    # 2. Lire les préférences
+    response = client.get(f"/api/timetable/preferences?resource_type=Teacher&resource_id=999")
+    assert response.status_code == 200
+    prefs = response.json()
+    assert len(prefs) == 1
+    assert prefs[0]["preference_level"] == "Preferred"
+    assert prefs[0]["id"] == pref_id
+
+    # 3. Supprimer (Mise au niveau Neutral)
+    pref_payload["preference_level"] = "Neutral"
+    response = client.post("/api/timetable/preferences", json=pref_payload)
+    assert response.status_code == 200
+
+    # 4. Vérifier la suppression
+    response = client.get(f"/api/timetable/preferences?resource_type=Teacher&resource_id=999")
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_trmd_budget_synthesis(db_session: Session):
+    from backend.app.models.trmd_budget import TrmdBudget
+    from backend.app.models.school import School
+    from backend.app.models.discipline import Discipline
+    from backend.app.models.subject import Subject
+
+    school = db_session.query(School).first()
+    discipline = db_session.query(Discipline).first()
+    
+    # 1. Créer un budget de test
+    budget = TrmdBudget(
+        school_id=school.id,
+        discipline_id=discipline.id,
+        allocated_hp=36.0,
+        allocated_hsa=4.0,
+        allocated_posts=2.0
+    )
+    db_session.add(budget)
+    db_session.commit()
+
+    # 2. Appeler l'API de synthèse budgétaire
+    response = client.get(f"/api/timetable/trmd/{school.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["school_id"] == school.id
+    assert "budget_summary" in data
+    assert len(data["budget_summary"]) > 0
+    
+    # Heures allouées converties en ETP = 36.0 / 18.0 = 2.0
+    maths_summary = next(s for s in data["budget_summary"] if s["subject"]["short_label"] == "Maths")
+    assert maths_summary["allocated_etp"] == 2.0
+    assert maths_summary["consumed_etp"] == 0.0
+    assert maths_summary["status"] == "UNDER_BUDGET"

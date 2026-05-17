@@ -44,6 +44,16 @@
       />
     </main>
 
+    <!-- Vue Saisie des Voeux (T024) -->
+    <main class="main-layout" v-else-if="activeTab === 'preferences'">
+      <PreferenceGrid
+        :teachers="teachers"
+        :classrooms="classrooms"
+        :divisions="divisions"
+        :timeslots="timeslots"
+      />
+    </main>
+
     <!-- Vue Gestion du Socle (CRUD Générique) -->
     <main class="main-layout admin-layout" v-else>
       <!-- Barre latérale de choix de la ressource -->
@@ -150,6 +160,7 @@ import GenericList from './components/GenericList.vue';
 import GenericForm from './components/GenericForm.vue';
 import ImpactConfirmDialog from './components/ImpactConfirmDialog.vue';
 import CoursePopin from './components/CoursePopin.vue';
+import PreferenceGrid from './components/PreferenceGrid.vue';
 import { Course, Timeslot, Teacher, Division, Classroom } from './types';
 import * as api from './services/api';
 
@@ -602,6 +613,8 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
   const oldScore = scoreData.value ? { ...scoreData.value } : null;
   
   const courseIndex = courses.value.findIndex(c => c.id === courseId);
+  const courseObj = courseIndex !== -1 ? courses.value[courseIndex] : null;
+  
   if (courseIndex !== -1) {
     courses.value[courseIndex].timeslot_id = timeslotId;
     courses.value[courseIndex].classroom_id = classroomId;
@@ -610,6 +623,26 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
   try {
     await api.updateCourse(courseId, timeslotId, classroomId);
     await refreshScoreAndNotify(oldScore, 'Le cours a été planifié avec succès.');
+    
+    // Alerte en cas de placement sur un créneau indisponible (Rouge / Unsuited) - T025b
+    if (courseObj) {
+      try {
+        const prefRes = await fetch(`/api/timetable/preferences`).then(res => res.json());
+        const unsuitedPref = prefRes.find((p: any) => 
+          p.timeslot_id === timeslotId && 
+          p.preference_level === 'Unsuited' && (
+            (p.resource_type === 'Teacher' && p.resource_id === courseObj.teacher_id) ||
+            (p.resource_type === 'Classroom' && p.resource_id === classroomId) ||
+            (p.resource_type === 'Division' && p.resource_id === courseObj.division_id)
+          )
+        );
+        if (unsuitedPref) {
+          showNotification('error', `🚨 Alerte : Créneau verrouillé ou indisponible (Rouge) pour cette ressource !`);
+        }
+      } catch (e) {
+        console.warn("Could not check preferences", e);
+      }
+    }
   } catch (err: any) {
     courses.value = previousCoursesState;
     showNotification('error', err.message || 'Créneau horaire ou salle indisponible.');
