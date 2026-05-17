@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, date
 from typing import Dict, Any, List, Optional
@@ -69,6 +69,7 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
 @router.get("/{resource_name}", response_model=Dict[str, Any])
 def list_generic(
     resource_name: str,
+    request: Request,
     school_id: Optional[int] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1),
@@ -80,6 +81,24 @@ def list_generic(
     # Appliquer le filtrage school_id si la colonne existe sur le modèle
     if school_id is not None and hasattr(model, "school_id"):
         query = query.filter(model.school_id == school_id)
+        
+    # Filtrage dynamique générique sur n'importe quelle colonne présente dans l'URL
+    for key, value in request.query_params.items():
+        if key in ["skip", "limit", "school_id"]:
+            continue
+        if hasattr(model, key):
+            col = getattr(model, key)
+            try:
+                # Tenter de convertir le type pour correspondre au type python de la colonne
+                column_type = model.__table__.columns[key].type.python_type
+                if column_type == bool:
+                    converted_val = value.lower() in ("true", "1", "yes")
+                else:
+                    converted_val = column_type(value)
+                query = query.filter(col == converted_val)
+            except Exception:
+                # En cas de problème ou type complexe, on applique la valeur brute
+                query = query.filter(col == value)
         
     total = query.count()
     items = query.offset(skip).limit(limit).all()

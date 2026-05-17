@@ -103,3 +103,28 @@ def test_generic_crud_flow(db_session: Session):
     # 8. Vérifier la disparition
     response = client.get(f"/api/generic/materials/{material_id}")
     assert response.status_code == 404
+
+
+def test_generic_crud_dynamic_filtering(db_session: Session):
+    # 1. Créer deux matériels avec des caractéristiques différentes
+    m1 = Material(code="KIT_01", name="Kit A", quantity=5)
+    m2 = Material(code="KIT_02", name="Kit B", quantity=10)
+    db_session.add_all([m1, m2])
+    db_session.commit()
+
+    # 2. Tester le filtrage dynamique sur 'quantity=10'
+    response = client.get("/api/generic/materials?quantity=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["code"] == "KIT_02"
+
+    # 3. Tester le filtrage dynamique sur 'code=KIT_01'
+    response = client.get("/api/generic/materials?code=KIT_01")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["name"] == "Kit A"
+
