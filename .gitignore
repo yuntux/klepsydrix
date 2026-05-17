@@ -229,3 +229,7 @@ build/
 *.db-journal
 *.sqlite
 !timetable.db
+
+# Agents files
+.agents/workflow_cm_diff.patch
+
