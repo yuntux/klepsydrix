@@ -22,8 +22,8 @@ description: "Task list for feature implementation"
 
 **Purpose**: Project initialization and basic structure pour la V2
 
-- [ ] T001 Vérifier l'environnement Python et Node.js selon `quickstart.md`
-- [ ] T002 [P] Créer les fichiers vides pour les nouveaux modèles SQLAlchemy dans `backend/app/models/`
+- [X] T001 Vérifier l'environnement Python et Node.js selon `quickstart.md`
+- [X] T002 [P] Créer les fichiers vides pour les nouveaux modèles SQLAlchemy dans `backend/app/models/`
 
 ---
 
@@ -33,13 +33,13 @@ description: "Task list for feature implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T003 Implémenter l'entité pivot `School` dans `backend/app/models/school.py` avec `standard_timeslot_duration`
-- [ ] T004 Implémenter les entités nomenclatures (`Discipline`, `Subject`, `Mef`, `Site`, `Material`, `Mission`, `ElectionMethod`) dans `backend/app/models/`
-- [ ] T005 Implémenter les entités temporelles (`Period`, `Alternation`) dans `backend/app/models/`
-- [ ] T006 Mettre à jour les modèles existants (`Teacher`, `Division`, `Classroom`) dans `backend/app/models/` avec les nouvelles clés étrangères (ex: `school_id`)
-- [ ] T007 Scinder le modèle Cours V1 en `Course` et `Session` dans `backend/app/models/course.py` et `backend/app/models/session.py` (avec les liaisons N-à-N pour le co-enseignement et les co-ressources)
-- [ ] T008 Implémenter les entités de groupes (`Group`, `ClassPart`, `ClassPartLink`) dans `backend/app/models/group.py`
-- [ ] T009 Créer le script de migration SQLite V1 vers V2 dans `backend/app/core/database.py` suivant les étapes de `data-model.md`
+- [X] T003 Implémenter l'entité pivot `School` dans `backend/app/models/school.py` avec `standard_timeslot_duration`
+- [X] T004 Implémenter les entités nomenclatures (`Discipline`, `Subject`, `Mef`, `Site`, `Material`, `Mission`, `ElectionMethod`) dans `backend/app/models/`
+- [X] T005 Implémenter les entités temporelles (`Period`, `Alternation`) dans `backend/app/models/`
+- [X] T006 Mettre à jour les modèles existants (`Teacher`, `Division`, `Classroom`) dans `backend/app/models/` avec les nouvelles clés étrangères (ex: `school_id`)
+- [X] T007 Scinder le modèle Cours V1 en `Course` et `Session` dans `backend/app/models/course.py` et `backend/app/models/session.py` (avec les liaisons N-à-N pour le co-enseignement et les co-ressources)
+- [X] T008 Implémenter les entités de groupes (`Group`, `ClassPart`, `ClassPartLink`) dans `backend/app/models/group.py`
+- [X] T009 Créer le script de migration SQLite V1 vers V2 dans `backend/app/core/database.py` suivant les étapes de `data-model.md`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -53,11 +53,11 @@ description: "Task list for feature implementation"
 
 ### Implementation for User Story 1
 
-- [ ] T010 [P] [US1] Créer le routeur API générique `backend/app/api/generic.py` pour gérer le CRUD des modèles SQLAlchemy
-- [ ] T011 [US1] Intégrer les routes génériques dans `backend/app/api/endpoints.py`
-- [ ] T012 [P] [US1] Créer le composant Vue 3 `GenericList.vue` dans `frontend/src/components/` en intégrant une librairie externe (ex: PrimeVue DataTable) pour gérer nativement la pagination (30/page), le tri, le filtrage, le redimensionnement, le réordonnancement (drag-and-drop) et le sélecteur de colonnes.
-- [ ] T013 [P] [US1] Créer le composant Vue 3 `GenericForm.vue` dans `frontend/src/components/`
-- [ ] T014 [US1] Câbler l'interface utilisateur pour accéder au CRUD des 10 entités de base
+- [X] T010 [P] [US1] Créer le routeur API générique `backend/app/api/generic.py` pour gérer le CRUD des modèles SQLAlchemy
+- [X] T011 [US1] Intégrer les routes génériques dans `backend/app/api/endpoints.py` (ou `backend/app/main.py`)
+- [X] T012 [P] [US1] Créer le composant Vue 3 `GenericList.vue` dans `frontend/src/components/` en intégrant une librairie externe (ex: PrimeVue DataTable) pour gérer nativement la pagination (30/page), le tri, le filtrage, le redimensionnement, le réordonnancement (drag-and-drop) et le sélecteur de colonnes.
+- [X] T013 [P] [US1] Créer le composant Vue 3 `GenericForm.vue` dans `frontend/src/components/`
+- [X] T014 [US1] Câbler l'interface utilisateur pour accéder au CRUD des 10 entités de base
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -71,8 +71,8 @@ description: "Task list for feature implementation"
 
 ### Implementation for User Story 2
 
-- [ ] T015 [P] [US2] Mettre à jour `GET /api/timetable` dans `backend/app/api/endpoints.py` pour filtrer par `school_id`
-- [ ] T016 [US2] Adapter le convertisseur de modèle mathématique `_build_planning_problem` dans `backend/app/solver/solver.py` pour gérer `school_id`, convertir `duration_minutes` en créneaux, et geler les séances externes (`is_pinned=True`)
+- [X] T015 [P] [US2] Mettre à jour `GET /api/timetable` dans `backend/app/api/endpoints.py` pour filtrer par `school_id`
+- [X] T016 [US2] Adapter le convertisseur de modèle mathématique `_build_planning_problem` dans `backend/app/solver/solver.py` pour gérer `school_id`, convertir `duration_minutes` en créneaux, et geler les séances externes (`is_pinned=True`)
 - [ ] T017 [US2] Ajouter les règles Timefold (Chevauchement de groupes `ClassPartLink`, Alternances `week_type`) dans `backend/app/solver/solver.py`
 - [ ] T018 [US2] Ajouter l'endpoint de diagnostic de dépositionnement (`POST /api/timetable/structures/simulate-change`) dans `backend/app/api/endpoints.py`
 - [ ] T018b [US2] Créer la boîte de dialogue de confirmation UI pour l'impact des modifications de groupes dans `frontend/src/components/`

@@ -2,6 +2,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from backend.app.models.base import Base
+from backend.app.models.school import School
+from backend.app.models.discipline import Discipline
+from backend.app.models.subject import Subject
 from backend.app.models.teacher import Teacher
 from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
@@ -22,25 +25,47 @@ def db_session():
     Base.metadata.create_all(bind=test_engine)
     db = TestSessionLocal()
     try:
+        # Création des ressources socle indispensables (école, discipline, matière)
+        school = School(uai="1234567A", name="Lycée Test", standard_timeslot_duration=30)
+        db.add(school)
+        db.commit()
+        
+        discipline = Discipline(code="GEN", name="Général")
+        db.add(discipline)
+        db.commit()
+        
+        subject = Subject(
+            code="MATH",
+            code_nomenclature="NOM_MATH",
+            short_label="Maths",
+            long_label="Mathématiques",
+            discipline_id=discipline.id
+        )
+        db.add(subject)
+        db.commit()
+        
         yield db
     finally:
         db.close()
         Base.metadata.drop_all(bind=test_engine)
 
 def test_solver_resolves_timetable(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
     # 1. Alimentation minimale en base (2 enseignants, 2 salles, 2 divisions, 2 créneaux, 2 cours)
-    t1 = Teacher(name="Prof Math")
-    t2 = Teacher(name="Prof Anglais")
+    t1 = Teacher(code="PROF_MATH", name="Prof Math", last_name="Math", school_id=school.id)
+    t2 = Teacher(code="PROF_ANG", name="Prof Anglais", last_name="Anglais", school_id=school.id)
     db_session.add_all([t1, t2])
     db_session.commit()
 
-    c1 = Classroom(name="Salle A", capacity=30)
-    c2 = Classroom(name="Salle B", capacity=30)
+    c1 = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    c2 = Classroom(code="SALLE_B", name="Salle B", capacity=30, quantity=1, school_id=school.id)
     db_session.add_all([c1, c2])
     db_session.commit()
 
-    d1 = Division(name="6ème")
-    d2 = Division(name="5ème")
+    d1 = Division(code="DIV_6E", name="6ème", student_count=25, color="#CCCCCC", school_id=school.id)
+    d2 = Division(code="DIV_5E", name="5ème", student_count=25, color="#CCCCCC", school_id=school.id)
     db_session.add_all([d1, d2])
     db_session.commit()
 
@@ -51,8 +76,8 @@ def test_solver_resolves_timetable(db_session: Session):
 
     # Création de deux cours qui partagent le même enseignant (Prof Math) et la même division (6ème).
     # Ils DOIVENT être planifiés sur des créneaux différents car un professeur ou une classe ne peut pas doubler
-    course1 = Course(subject="Maths", teacher_id=t1.id, division_id=d1.id)
-    course2 = Course(subject="Géométrie", teacher_id=t1.id, division_id=d1.id)
+    course1 = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    course2 = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
     db_session.add_all([course1, course2])
     db_session.commit()
 

@@ -1,3 +1,4 @@
+from typing import Optional
 from sqlalchemy.orm import Session
 from timefold.solver import SolverFactory
 from timefold.solver.config import SolverConfig, TerminationConfig, ScoreDirectorFactoryConfig, Duration, EnvironmentMode
@@ -46,14 +47,14 @@ class SolverState:
     @classmethod
     def stop_solving(cls):
         with cls._lock:
-            if cls.active_solver is not None:
+            if cls.active_solver:
                 try:
                     cls.active_solver.terminate_early()
                 except Exception:
                     pass
 
 
-def _build_planning_problem(db: Session) -> PlanningTimetable:
+def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
     db_teachers = db.query(Teacher).all()
     db_classrooms = db.query(Classroom).all()
     db_divisions = db.query(Division).all()
@@ -75,6 +76,13 @@ def _build_planning_problem(db: Session) -> PlanningTimetable:
         ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
         cr_planning = classrooms_map.get(c.classroom_id) if c.classroom_id else None
         
+        # Gestion multi-établissement (US2) :
+        # Si school_id est spécifié et que ce cours appartient à une AUTRE école,
+        # il est forcé à is_pinned = True pour ne pas être déplacé par le solveur
+        is_pinned = c.is_pinned
+        if school_id is not None and c.school_id != school_id:
+            is_pinned = True
+            
         pc = PlanningCourse(
             id=c.id,
             subject=c.subject,
@@ -82,7 +90,7 @@ def _build_planning_problem(db: Session) -> PlanningTimetable:
             division=divisions_map[c.division_id],
             timeslot=ts_planning,
             classroom=cr_planning,
-            is_pinned=c.is_pinned,
+            is_pinned=is_pinned,
             original_timeslot_id=c.timeslot_id,
         )
         courses_list.append(pc)
@@ -111,10 +119,10 @@ def _get_solver_factory():
     )
     return SolverFactory.create(solver_config)
 
-def _solve_timetable_job(db_session=None):
+def _solve_timetable_job(db_session=None, school_id=None):
     db = db_session if db_session else SessionLocal()
     try:
-        problem = _build_planning_problem(db)
+        problem = _build_planning_problem(db, school_id)
         solver_factory = _get_solver_factory()
         solver = solver_factory.build_solver()
 
@@ -144,15 +152,15 @@ def _solve_timetable_job(db_session=None):
         SolverState.set_not_solving()
 
 
-def start_solve_timetable_async():
+def start_solve_timetable_async(school_id: Optional[int] = None):
     if SolverState.get_status() == "SOLVING":
         return
-    thread = threading.Thread(target=_solve_timetable_job)
+    thread = threading.Thread(target=_solve_timetable_job, kwargs={"school_id": school_id})
     thread.daemon = True
     thread.start()
 
-def explain_timetable_score(db: Session) -> dict:
-    problem = _build_planning_problem(db)
+def explain_timetable_score(db: Session, school_id: Optional[int] = None) -> dict:
+    problem = _build_planning_problem(db, school_id)
     solver_factory = _get_solver_factory()
     solution_manager = SolutionManager.create(solver_factory)
     score_explanation = solution_manager.explain(problem)

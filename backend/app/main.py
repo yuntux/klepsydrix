@@ -29,4 +29,6 @@ def read_root():
     }
 
 from backend.app.api.endpoints import router as api_router
+from backend.app.api.generic import router as generic_router
 app.include_router(api_router)
+app.include_router(generic_router)

@@ -9,8 +9,8 @@ class Timeslot(Base):
     day_of_week = Column(Integer, nullable=False) # 1 = Lundi, 6 = Samedi
     hour = Column(Integer, nullable=False)        # 8 = 8h-9h, 17 = 17h-18h
 
-    # Relation avec les cours planifiés sur ce créneau
-    courses = relationship("Course", back_populates="timeslot", passive_deletes="all")
+    # Relation avec les séances planifiées sur ce créneau
+    sessions = relationship("Session", back_populates="timeslot", passive_deletes="all")
 
     # Index unique composé pour empêcher les doublons de créneaux
     __table_args__ = (

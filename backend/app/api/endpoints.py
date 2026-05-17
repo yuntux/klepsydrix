@@ -11,13 +11,26 @@ from backend.app.models.course import Course
 from backend.app.solver.solver import start_solve_timetable_async, SolverState
 router = APIRouter(prefix="/api/timetable")
 
+from typing import Dict, Any, Optional
+
 @router.get("", response_model=Dict[str, Any])
-def get_timetable(db: Session = Depends(get_db)):
-    teachers = db.query(Teacher).all()
-    classrooms = db.query(Classroom).all()
-    divisions = db.query(Division).all()
+def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    teachers_query = db.query(Teacher)
+    classrooms_query = db.query(Classroom)
+    divisions_query = db.query(Division)
+    courses_query = db.query(Course)
+    
+    if school_id is not None:
+        teachers_query = teachers_query.filter(Teacher.school_id == school_id)
+        classrooms_query = classrooms_query.filter(Classroom.school_id == school_id)
+        divisions_query = divisions_query.filter(Division.school_id == school_id)
+        courses_query = courses_query.filter(Course.school_id == school_id)
+        
+    teachers = teachers_query.all()
+    classrooms = classrooms_query.all()
+    divisions = divisions_query.all()
     timeslots = db.query(Timeslot).all()
-    courses = db.query(Course).all()
+    courses = courses_query.all()
 
     return {
         "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.name} for t in teachers],
@@ -45,12 +58,12 @@ def get_status():
 from backend.app.solver.solver import explain_timetable_score
 
 @router.get("/score")
-def get_score(db: Session = Depends(get_db)):
-    return explain_timetable_score(db)
+def get_score(school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    return explain_timetable_score(db, school_id)
 
 @router.post("/solve")
-def solve():
-    start_solve_timetable_async()
+def solve(school_id: Optional[int] = None):
+    start_solve_timetable_async(school_id)
     return {"status": "success", "message": "Résolution asynchrone démarrée."}
 
 @router.post("/stop")

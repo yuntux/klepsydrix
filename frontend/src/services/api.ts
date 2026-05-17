@@ -78,3 +78,66 @@ export async function updateCourse(
   }
   return response.json();
 }
+
+// ==========================================
+// CLIENTS D'API CRUD GÉNÉRIQUES V2
+// ==========================================
+
+export async function fetchGenericList(
+  resourceName: string,
+  skip: number = 0,
+  limit: number = 100,
+  schoolId?: number
+): Promise<{ total: number; items: any[] }> {
+  let url = `/api/generic/${resourceName}?skip=${skip}&limit=${limit}`;
+  if (schoolId !== undefined && schoolId !== null) {
+    url += `&school_id=${schoolId}`;
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Erreur lors du chargement de la ressource ${resourceName}`);
+  }
+  return response.json();
+}
+
+export async function createGenericItem(resourceName: string, payload: any): Promise<any> {
+  const response = await fetch(`/api/generic/${resourceName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Erreur de création de la ressource ${resourceName}`);
+  }
+  return response.json();
+}
+
+export async function updateGenericItem(resourceName: string, id: number, payload: any): Promise<any> {
+  const response = await fetch(`/api/generic/${resourceName}/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Erreur de mise à jour de la ressource ${resourceName}`);
+  }
+  return response.json();
+}
+
+export async function deleteGenericItem(resourceName: string, id: number): Promise<any> {
+  const response = await fetch(`/api/generic/${resourceName}/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Erreur de suppression de la ressource ${resourceName}`);
+  }
+  return response.json();
+}
+

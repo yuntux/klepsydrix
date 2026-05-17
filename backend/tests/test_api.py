@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from backend.app.main import app
 from backend.app.core.database import SessionLocal, engine
 from backend.app.models.base import Base
+from backend.app.models.school import School
+from backend.app.models.discipline import Discipline
+from backend.app.models.subject import Subject
 from backend.app.models.teacher import Teacher
 from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
@@ -27,13 +30,17 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(scope="function", autouse=True)
+def setup_dependency_overrides():
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
 
 import backend.app.solver.solver
-def mock_start_solve():
+def mock_start_solve(school_id=None):
     db = TestSessionLocal()
     try:
-        backend.app.solver.solver._solve_timetable_job(db)
+        backend.app.solver.solver._solve_timetable_job(db, school_id)
     finally:
         db.close()
         
@@ -48,14 +55,33 @@ def db_session():
     Base.metadata.create_all(bind=test_engine)
     db = TestSessionLocal()
     try:
+        # Création des ressources socle indispensables (école, discipline, matière)
+        school = School(uai="1234567A", name="Lycée Test", standard_timeslot_duration=30)
+        db.add(school)
+        db.commit()
+        
+        discipline = Discipline(code="GEN", name="Général")
+        db.add(discipline)
+        db.commit()
+        
+        subject = Subject(
+            code="MATH",
+            code_nomenclature="NOM_MATH",
+            short_label="Maths",
+            long_label="Mathématiques",
+            discipline_id=discipline.id
+        )
+        db.add(subject)
+        db.commit()
+        
         yield db
     finally:
         db.close()
         Base.metadata.drop_all(bind=test_engine)
 
 def test_get_timetable(db_session: Session):
-    # Insérer une donnée d'exemple
-    t = Teacher(name="Prof Martin")
+    school = db_session.query(School).first()
+    t = Teacher(code="MARTIN", name="Prof Martin", last_name="Martin", school_id=school.id)
     db_session.add(t)
     db_session.commit()
 
@@ -67,16 +93,18 @@ def test_get_timetable(db_session: Session):
     assert any(teacher["name"] == "Prof Martin" for teacher in data["teachers"])
 
 def test_solve_timetable(db_session: Session):
-    # Insérer jeu d'essai minimal
-    t = Teacher(name="Prof A")
-    c = Classroom(name="Salle A", capacity=30)
-    d = Division(name="6A")
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject="Maths", teacher_id=t.id, division_id=d.id)
+    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, school_id=school.id)
     db_session.add(course)
     db_session.commit()
 
@@ -97,16 +125,19 @@ def test_solve_timetable(db_session: Session):
     assert course.classroom_id is not None
 
 def test_reset_timetable(db_session: Session):
-    t = Teacher(name="Prof A")
-    c = Classroom(name="Salle A", capacity=30)
-    d = Division(name="6A")
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
     # Créer un cours déjà planifié
-    course = Course(subject="Maths", teacher_id=t.id, division_id=d.id, timeslot_id=ts.id, classroom_id=c.id)
+    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, timeslot_id=ts.id, classroom_id=c.id, school_id=school.id)
     db_session.add(course)
     db_session.commit()
 
@@ -120,17 +151,19 @@ def test_reset_timetable(db_session: Session):
     assert course.timeslot_id is None
     assert course.classroom_id is None
 
-
 def test_update_course_success(db_session: Session):
-    t = Teacher(name="Prof A")
-    c = Classroom(name="Salle A", capacity=30)
-    d = Division(name="6A")
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject="Maths", teacher_id=t.id, division_id=d.id)
+    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, school_id=school.id)
     db_session.add(course)
     db_session.commit()
 
@@ -140,22 +173,24 @@ def test_update_course_success(db_session: Session):
     assert course.timeslot_id == ts.id
     assert course.classroom_id == c.id
 
-
 def test_update_course_conflict(db_session: Session):
-    t = Teacher(name="Prof A")
-    c1 = Classroom(name="Salle A", capacity=30)
-    c2 = Classroom(name="Salle B", capacity=25)
-    d1 = Division(name="6A")
-    d2 = Division(name="6B")
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    c1 = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    c2 = Classroom(code="SALLE_B", name="Salle B", capacity=25, quantity=1, school_id=school.id)
+    d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
+    d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
     db_session.add_all([t, c1, c2, d1, d2, ts])
     db_session.commit()
 
     # Le premier cours occupe Prof A sur le créneau ts
-    course1 = Course(subject="Maths", teacher_id=t.id, division_id=d1.id, timeslot_id=ts.id, classroom_id=c1.id)
+    course1 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d1.id, timeslot_id=ts.id, classroom_id=c1.id, school_id=school.id)
     # Le second cours est Prof A avec la classe d2 (actuellement non placé)
-    course2 = Course(subject="Maths", teacher_id=t.id, division_id=d2.id)
+    course2 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d2.id, school_id=school.id)
     
     db_session.add_all([course1, course2])
     db_session.commit()
@@ -165,14 +200,15 @@ def test_update_course_conflict(db_session: Session):
     assert response.status_code == 409
     assert "conflit" in response.json()["detail"].lower()
 
-
 def test_solve_pinned_course(db_session: Session):
-    # Enseignants, Salles, Divisions et Créneaux
-    t = Teacher(name="Prof A")
-    c1 = Classroom(name="Salle 1", capacity=30)
-    c2 = Classroom(name="Salle 2", capacity=30)
-    d1 = Division(name="6A")
-    d2 = Division(name="6B")
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    c1 = Classroom(code="SALLE_1", name="Salle 1", capacity=30, quantity=1, school_id=school.id)
+    c2 = Classroom(code="SALLE_2", name="Salle 2", capacity=30, quantity=1, school_id=school.id)
+    d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
+    d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
     ts1 = Timeslot(day_of_week=1, hour=8)
     ts2 = Timeslot(day_of_week=1, hour=9)
     
@@ -180,9 +216,9 @@ def test_solve_pinned_course(db_session: Session):
     db_session.commit()
 
     # Le cours 1 est verrouillé (pinned) sur ts1 et c1
-    course1 = Course(subject="Maths", teacher_id=t.id, division_id=d1.id, timeslot_id=ts1.id, classroom_id=c1.id, is_pinned=True)
+    course1 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d1.id, timeslot_id=ts1.id, classroom_id=c1.id, is_pinned=True, school_id=school.id)
     # Le cours 2 est libre
-    course2 = Course(subject="Histoire", teacher_id=t.id, division_id=d2.id)
+    course2 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d2.id, school_id=school.id)
 
     db_session.add_all([course1, course2])
     db_session.commit()
@@ -208,4 +244,3 @@ def test_solve_pinned_course(db_session: Session):
     
     # Le cours 2 a dû être planifié sur ts2 puisqu'il y a conflit enseignant sur ts1
     assert course2.timeslot_id == ts2.id
-

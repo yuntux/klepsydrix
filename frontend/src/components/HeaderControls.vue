@@ -12,8 +12,26 @@
       </div>
     </div>
 
-    <!-- Filtres actifs -->
-    <div class="filters-bar">
+    <!-- Navigation principale -->
+    <div class="header-nav">
+      <button 
+        class="nav-tab" 
+        :class="{ active: activeTab === 'timetable' }"
+        @click="$emit('update:activeTab', 'timetable')"
+      >
+        📅 Emploi du Temps
+      </button>
+      <button 
+        class="nav-tab" 
+        :class="{ active: activeTab === 'admin' }"
+        @click="$emit('update:activeTab', 'admin')"
+      >
+        ⚙️ Gestion du Socle
+      </button>
+    </div>
+
+    <!-- Filtres actifs (uniquement en mode Emploi du Temps) -->
+    <div class="filters-bar" v-if="activeTab === 'timetable'">
       <div class="filter-item">
         <label>Mode de vue :</label>
         <select :value="viewMode" @change="$emit('update:viewMode', ($event.target as HTMLSelectElement).value)" class="select-custom">
@@ -77,6 +95,7 @@
 import { Division, Teacher, Classroom } from '../types';
 
 defineProps<{
+  activeTab: string;
   viewMode: string;
   selectedId: number | null;
   divisions: Division[];
@@ -87,6 +106,7 @@ defineProps<{
 }>();
 
 defineEmits<{
+  (e: 'update:activeTab', value: string): void;
   (e: 'update:viewMode', value: string): void;
   (e: 'update:selectedId', value: number): void;
   (e: 'solve'): void;
@@ -107,6 +127,40 @@ defineEmits<{
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.header-nav {
+  display: flex;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  padding: 4px;
+  border-radius: 10px;
+  gap: 4px;
+}
+
+.nav-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+
+.nav-tab:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.nav-tab.active {
+  color: #fff;
+  background-color: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-color);
 }
 
 .score-pill {
