@@ -307,29 +307,32 @@ def test_preferences_crud(db_session: Session):
         "timeslot_id": ts.id,
         "preference_level": "Preferred"
     }
-    response = client.post("/api/timetable/preferences", json=pref_payload)
+    response = client.post("/api/generic/resource_preferences", json=pref_payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "success"
+    assert data["preference_level"] == "Preferred"
     pref_id = data["id"]
 
     # 2. Lire les préférences
-    response = client.get(f"/api/timetable/preferences?resource_type=Teacher&resource_id=999")
+    response = client.get(f"/api/generic/resource_preferences?resource_type=Teacher&resource_id=999")
     assert response.status_code == 200
-    prefs = response.json()
+    res_data = response.json()
+    prefs = res_data["items"]
     assert len(prefs) == 1
     assert prefs[0]["preference_level"] == "Preferred"
     assert prefs[0]["id"] == pref_id
 
     # 3. Supprimer (Mise au niveau Neutral)
     pref_payload["preference_level"] = "Neutral"
-    response = client.post("/api/timetable/preferences", json=pref_payload)
+    response = client.post("/api/generic/resource_preferences", json=pref_payload)
     assert response.status_code == 200
+    data_neutral = response.json()
+    assert data_neutral["status"] == "purged"
 
     # 4. Vérifier la suppression
-    response = client.get(f"/api/timetable/preferences?resource_type=Teacher&resource_id=999")
+    response = client.get(f"/api/generic/resource_preferences?resource_type=Teacher&resource_id=999")
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert len(response.json()["items"]) == 0
 
 
 def test_trmd_budget_synthesis(db_session: Session):

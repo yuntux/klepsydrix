@@ -21,6 +21,7 @@ from backend.app.models.period import Period
 from backend.app.models.alternation import Alternation
 from backend.app.models.site import Site, SiteTravelTime
 from backend.app.models.timeslot import Timeslot
+from backend.app.models.preference import ResourcePreference
 
 router = APIRouter(prefix="/api/generic")
 
@@ -47,6 +48,7 @@ MODEL_MAP = {
     "sites": Site,
     "site_travel_times": SiteTravelTime,
     "timeslots": Timeslot,
+    "resource_preferences": ResourcePreference,
 }
 
 def get_model_or_404(resource_name: str):
@@ -76,32 +78,34 @@ def list_generic(
     db: Session = Depends(get_db)
 ):
     model = get_model_or_404(resource_name)
-    query = db.query(model)
     
-    # Appliquer le filtrage school_id si la colonne existe sur le modèle
+    # Construire le domain de filtrage
+    domain = {}
     if school_id is not None and hasattr(model, "school_id"):
-        query = query.filter(model.school_id == school_id)
+        domain["school_id"] = school_id
         
-    # Filtrage dynamique générique sur n'importe quelle colonne présente dans l'URL
     for key, value in request.query_params.items():
         if key in ["skip", "limit", "school_id"]:
             continue
         if hasattr(model, key):
-            col = getattr(model, key)
             try:
-                # Tenter de convertir le type pour correspondre au type python de la colonne
                 column_type = model.__table__.columns[key].type.python_type
                 if column_type == bool:
                     converted_val = value.lower() in ("true", "1", "yes")
                 else:
                     converted_val = column_type(value)
-                query = query.filter(col == converted_val)
+                domain[key] = converted_val
             except Exception:
-                # En cas de problème ou type complexe, on applique la valeur brute
-                query = query.filter(col == value)
-        
+                domain[key] = value
+
+    # Calculer le total (count) sur la base du domain
+    query = db.query(model)
+    for k, v in domain.items():
+        query = query.filter(getattr(model, k) == v)
     total = query.count()
-    items = query.offset(skip).limit(limit).all()
+    
+    # Lire les instances Python en appelant la méthode de classe surchargeable
+    items = model.read(db, domain=domain, limit=limit, offset=skip)
     
     return {
         "total": total,
@@ -135,13 +139,11 @@ def create_generic(resource_name: str, payload: Dict[str, Any], db: Session = De
                 cleaned_payload[k] = v
 
     try:
-        new_item = model(**cleaned_payload)
-        db.add(new_item)
-        db.commit()
-        db.refresh(new_item)
+        new_item = model.create(db, cleaned_payload)
+        if new_item is None:
+            return {"id": 0, "status": "purged"}
         return sqla_to_dict(new_item)
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=400, detail=f"Erreur de création : {e}")
 
 @router.put("/{resource_name}/{item_id}", response_model=Dict[str, Any])
@@ -152,21 +154,23 @@ def update_generic(resource_name: str, item_id: int, payload: Dict[str, Any], db
         raise HTTPException(status_code=404, detail=f"Élément {item_id} introuvable.")
 
     valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
+    cleaned_vals = {}
     try:
         for k, v in payload.items():
             if k in valid_keys:
                 column_type = model.__table__.columns[k].type
                 if str(column_type) == "DATE" and v:
-                    setattr(item, k, date.fromisoformat(v))
+                    cleaned_vals[k] = date.fromisoformat(v)
                 elif str(column_type) == "DATETIME" and v:
-                    setattr(item, k, datetime.fromisoformat(v))
+                    cleaned_vals[k] = datetime.fromisoformat(v)
                 else:
-                    setattr(item, k, v)
-        db.commit()
-        db.refresh(item)
-        return sqla_to_dict(item)
+                    cleaned_vals[k] = v
+        
+        updated_item = item.update(db, cleaned_vals)
+        if updated_item is None:
+            return {"id": item_id, "status": "purged"}
+        return sqla_to_dict(updated_item)
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=400, detail=f"Erreur de mise à jour : {e}")
 
 @router.delete("/{resource_name}/{item_id}")
@@ -177,9 +181,8 @@ def delete_generic(resource_name: str, item_id: int, db: Session = Depends(get_d
         raise HTTPException(status_code=404, detail=f"Élément {item_id} introuvable.")
     
     try:
-        db.delete(item)
-        db.commit()
+        item.delete(db)
         return {"status": "success", "message": f"Élément {item_id} de {resource_name} supprimé avec succès."}
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=400, detail=f"Impossible de supprimer l'élément : {e}")
+

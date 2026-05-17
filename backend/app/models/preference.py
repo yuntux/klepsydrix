@@ -35,3 +35,47 @@ class ResourcePreference(Base):
     __table_args__ = (
         UniqueConstraint("resource_type", "resource_id", "timeslot_id", name="uq_resource_timeslot_pref"),
     )
+
+    @classmethod
+    def create(cls, db: "Session", vals: dict):
+        """
+        Surcharge de create pour implémenter l'upsert et le nettoyage Neutral.
+        """
+        level = vals.get("preference_level")
+        resource_type = vals.get("resource_type")
+        resource_id = vals.get("resource_id")
+        timeslot_id = vals.get("timeslot_id")
+
+        if level == "Neutral" or not level:
+            # Si le niveau est Neutral, on supprime l'éventuelle ligne existante
+            existing = db.query(cls).filter(
+                cls.resource_type == resource_type,
+                cls.resource_id == resource_id,
+                cls.timeslot_id == timeslot_id
+            ).first()
+            if existing:
+                existing.delete(db)
+            return None
+
+        # Comportement d'Upsert : si existe déjà, on appelle update à la place
+        existing = db.query(cls).filter(
+            cls.resource_type == resource_type,
+            cls.resource_id == resource_id,
+            cls.timeslot_id == timeslot_id
+        ).first()
+        if existing:
+            return existing.update(db, vals)
+
+        return super().create(db, vals)
+
+    def update(self, db: "Session", vals: dict):
+        """
+        Surcharge de update pour nettoyer la ligne si le niveau devient Neutral.
+        """
+        level = vals.get("preference_level", self.preference_level)
+        if level == "Neutral" or not level:
+            self.delete(db)
+            return None
+        return super().update(db, vals)
+
+

@@ -167,8 +167,9 @@ function onResourceChange() {
 async function loadPreferences() {
   if (!resourceId.value) return;
   try {
-    const list = await fetch(`/api/timetable/preferences?resource_type=${resourceType.value}&resource_id=${resourceId.value}`)
-      .then(res => res.json());
+    const list = await fetch(`/api/generic/resource_preferences?resource_type=${resourceType.value}&resource_id=${resourceId.value}`)
+      .then(res => res.json())
+      .then(data => data.items || []);
     
     const newMap: Record<string, string> = {};
     list.forEach((pref: any) => {
@@ -204,7 +205,7 @@ async function paintCell(day: number, hour: number) {
   }
 
   try {
-    const response = await fetch('/api/timetable/preferences', {
+    const response = await fetch('/api/generic/resource_preferences', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
