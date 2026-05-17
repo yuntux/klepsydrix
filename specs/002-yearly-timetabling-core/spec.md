@@ -6,7 +6,20 @@
 
 **Status**: Draft
 
-**Input**: User description: "Amélioration du socle CRUD générique, intégration des objets métiers annuels (alternances A/B, groupes), fiche cours cumulée en fiche T et gestion des voeux"
+## Clarifications
+
+### Session 2026-05-17
+- Q: Mode d'interaction et filtrage pour la gestion multi-établissement (Cité Scolaire) → A: Option A (Affichage contextuel : un menu déroulant global permet de sélectionner l'établissement actif. La grille et les listes n'affichent par défaut que ses ressources/classes/cours, tout en préservant la visibilité et la protection contre les conflits des professeurs et salles partagés).
+- Q: Échelle et volume de données cibles (Stress-test & Performance) → A: Option B (Structure pilote / Petite taille : jusqu'à 500 élèves, 40 enseignants, 30 salles, 20 classes).
+- Q: Déclarations de Hors-Scope (Out-of-Scope) → A: Option A (Exclusion de l'affectation nominative/individuelle des élèves dans les groupes, et de la synchronisation collaborative temps réel).
+- Q: Résolution des conflits lors de la modification de structures déjà planifiées → A: Option A (Dépositionnement automatique des cours impactés vers le statut UNPLACED avec boîte de dialogue de confirmation et historique de diagnostic).
+- Q: Consolidation visuelle des attributs divergents dans la Fiche T (Fiche Cours Cumulée) → A: Option A (Consolidation par Chips stylisées : les attributs communs s'affichent normalement et les attributs divergents sont regroupés sous forme de pastilles/chips avec un indicateur visuel de divergence et un badge de proportion comme `[2/3]`).
+- Q: Positionnement de la Fiche T sur l'écran → A: Popin déplaçable (draggable) par glisser-déposer de son en-tête pour ne pas masquer la grille horaire en dessous.
+
+## Out of Scope
+Pour cette itération, les fonctionnalités suivantes sont explicitement exclues du périmètre technique et fonctionnel :
+1. **Affectation nominative individuelle des élèves** : Le système gère uniquement les structures (Divisions, ClassParts, Groupes) avec leurs effectifs numériques globaux. Aucun suivi nominatif individuel ou gestion d'inscriptions d'élèves par fiche n'est inclus.
+2. **Synchronisation collaborative temps réel** : La gestion des conflits d'édition simultanée par plusieurs utilisateurs (type Google Docs) est exclue. Le verrouillage standard de la base SQLite et des sessions utilisateur classiques suffit.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -42,15 +55,16 @@ En tant que planificateur, je veux pouvoir définir des alternances (Semaine A /
 
 ### User Story 3 - IHM Métier : La Fiche Cours Cumulée "Fiche T" (Priority: P2)
 
-En tant que planificateur, lorsque je sélectionne plusieurs cours sur ma grille ou dans ma liste, je veux voir apparaître une popin unifiée (sous forme de Fiche T à l'ancienne) qui résume visuellement toutes les données de ces cours, par type d'objet lié (matière, enseignant, salle, division, créneau), afin d'avoir une vision synthétique claire de ma sélection sans pouvoir la modifier directement depuis cet écran. 
+En tant que planificateur, lorsque je sélectionne plusieurs cours sur ma grille ou dans ma liste, je veux voir apparaître une popin unifiée (sous forme de Fiche T à l'ancienne) qui résume visuellement toutes les données de ces cours, par type d'objet lié (matière, enseignant, salle, division, créneau), afin d'avoir une vision synthétique claire de ma sélection sans pouvoir la modifier directement depuis cet écran. Je veux pouvoir déplacer (glisser-déposer de son en-tête) cette popin de petite taille sur l'écran afin de ne pas masquer la grille horaire située en dessous.
 
 **Why this priority**: Permet un diagnostic et une consultation rapide des détails d'une sélection complexe de cours (enseignants, salles, divisions, créneaux) sans surcharger l'écran principal.
 
-**Independent Test**: Sélectionner 3 cours distincts sur la grille, ouvrir la Fiche T, et valider que l'ensemble de leurs détails consolidés (matières, enseignants, salles) s'affiche fidèlement.
+**Independent Test**: Sélectionner 3 cours distincts sur la grille, ouvrir la Fiche T, déplacer la popin à un autre endroit de l'écran par drag-and-drop, et valider que l'ensemble de leurs détails consolidés (matières, enseignants, salles) s'affiche fidèlement.
 
 **Acceptance Scenarios**:
 
 1. **Given** plusieurs cours sélectionnés, **When** l'utilisateur ouvre la Fiche T cumulée, **Then** les attributs communs (ex: même matière) s'affichent normalement et les attributs divergents (ex: salles différentes) sont clairement identifiés et consolidés.
+2. **Given** la Fiche T affichée, **When** l'utilisateur clique-glisse l'en-tête de la popin, **Then** la popin suit le mouvement de la souris et se repositionne à l'endroit désigné, sans interférer avec la grille d'emploi du temps sous-jacente.
 
 ---
 
@@ -73,7 +87,7 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 ### Edge Cases
 
 - **Chevauchement de vœux et de cours verrouillés** : Si un cours est manuellement épinglé (pinned) sur un créneau qu'un professeur a marqué en rouge (Indisponible), le système doit alerter l'utilisateur de ce conflit direct.
-- **Modification de groupes contenant des élèves** : Si un groupe est supprimé ou modifié alors qu'il a déjà des cours planifiés, le système doit demander confirmation et dépositionner proprement les cours orphelins.
+- **Modification de groupes contenant des élèves / ressources planifiées** : Si un groupe, une division ou une ressource (professeur, salle) est supprimée ou modifiée en profondeur alors que des séances y sont déjà placées sur la grille, le système présente une boîte de dialogue de confirmation listant les cours impactés. Après validation de l'utilisateur, les cours affectés sont automatiquement dépositionnés sur la grille (leur statut repasse en `UNPLACED` et leur créneau est libéré) afin de maintenir la cohérence de la base.
 
 ## Requirements *(mandatory)*
 
@@ -84,11 +98,12 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 - **FR-003**: **Composants Frontend Réutilisables** : Le frontend doit utiliser des composants de tableau (`GenericList`) et de formulaire (`GenericForm`) paramétrables pour éviter la duplication de code pour les 10 types de ressources.
 - **FR-004**: **Gestion des Alternances (Quinzaine)** : Le modèle de données et le solveur doivent supporter les alternances temporelles (Semaine A / Semaine B / Toutes les semaines).
 - **FR-005**: **Gestion des Groupes et Sous-groupes** : Les divisions doivent pouvoir être partitionnées en sous-groupes (ex: demi-classes, groupes de spécialités), avec support des conflits d'intersection d'élèves par le solveur.
-- **FR-006**: **Fiche Cours Cumulée (Fiche T)** : Une popin métier unifiée doit permettre de visualiser et de consulter de manière synthétique et consolidée les caractéristiques d'une sélection multiple de cours.
+- **FR-006**: **Fiche Cours Cumulée (Fiche T)** : Une popin métier unifiée doit permettre de visualiser et de consulter de manière synthétique et consolidée les caractéristiques d'une sélection multiple de cours. Les ressources communes (ex: même matière) s'affichent de façon standard, tandis que les ressources divergentes (ex: enseignants ou salles différents) sont regroupées sous forme de pastilles (chips) stylisées dotées d'un indicateur visuel de divergence (bordure ou couleur contrastée) et d'un badge de proportion (ex: `[2/3]`). **La popin doit être déplaçable (draggable) par glisser-déposer (drag-and-drop) de son en-tête**, afin de permettre au planificateur de dégager la vue sur la grille horaire sous-jacente.
 - **FR-007**: **Grille de Vœux Générique** : L'IHM doit proposer une grille interactive réutilisable permettant de saisir graphiquement les indisponibilités (Rouge - contrainte dure), les souhaits d'absence (Orange - contrainte souple négative) et les souhaits de présence (Vert - contrainte souple positive) pour n'importe quelle ressource (Enseignants, Salles, Divisions, Équipements).
 - **FR-008**: **Calcul Polymorphique des Vœux** : Le solveur Timefold doit intégrer les vœux et indisponibilités de manière générique dans son modèle de contraintes (Hard pour les créneaux rouges de toute ressource affectée, Soft pénalité pour les créneaux oranges, Soft bonus pour les créneaux verts).
 - **FR-009**: **Objet Cours, Durée et Attributs Métiers** : Chaque cours doit porter des attributs propres définis en amont de son placement : une durée (exprimée en nombre de créneaux élémentaires ou minutes), un libellé (généré dynamiquement à partir des ressources rattachées), un mémo (texte libre) et une planification sur la grille horaire via des séances rattachées (0 ou 1 créneau de départ, avec extension contiguë sur la durée du cours).
 - **FR-010**: **Données de Démo Réalistes** : La base de données SQLite doit être alimentée par défaut avec un jeu d'essai réaliste et complet couvrant les 9 types de ressources rattachables, plusieurs cours complexes N-à-N créés, et des grilles de vœux pré-remplies (avec créneaux rouges, oranges, verts) pour plusieurs profs/salles, afin de permettre un test direct.
+- **FR-011**: **Filtrage Multi-Établissement (Cité Scolaire)** : L'interface utilisateur doit proposer un menu déroulant global permettant de sélectionner l'établissement actif (ex: Collège). La grille et les listes n'affichent par défaut que les ressources (classes, cours) de l'établissement actif, tout en préservant la protection contre les conflits et la visibilité des ressources partagées (professeurs, salles communes).
 
 
 ### Key Entities
@@ -433,7 +448,7 @@ Gère les contraintes logistiques liées aux déplacements des professeurs ou é
 - **SC-004**: Les souhaits d'absence (oranges, évités) et de présence (verts, favorisés) sont respectés à plus de 90% sur l'ensemble des ressources lors de la résolution automatique.
 
 ## Assumptions
-
+ 
 - L'interface s'intègre harmonieusement avec le design existant en utilisant TailwindCSS et Vue 3.
 - Les données de vœux et d'alternance sont persistées dans la base SQLite existante via des migrations adaptées.
-- Le solveur de base reste performant (< 10s pour trouver une solution stable) malgré l'ajout des variables de vœux et de semaines alternées A/B.
+- Le solveur de base reste performant (recherche d'une solution stable et valide en < 10s) sous le volume cible de la structure pilote (jusqu'à 500 élèves, 40 enseignants, 30 salles, 20 classes / divisions).
