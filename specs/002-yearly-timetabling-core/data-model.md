@@ -279,7 +279,7 @@ Pour faire évoluer la base de données SQLite `timetable.db` de la V1 vers la V
    );
    ```
 
-9. **`resource_constraints`** & **`constraint_periods`** (Contraintes réglementaires/pédagogiques polymorphes et Liaison Périodes) :
+9. **`resource_constraints`** (Contraintes réglementaires/pédagogiques polymorphes globales) :
    ```sql
    CREATE TABLE resource_constraints (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -320,14 +320,6 @@ Pour faire évoluer la base de données SQLite `timetable.db` de la V1 vers la V
        max_travel_trips_per_day INTEGER,
 
        FOREIGN KEY (target_subject_b_id) REFERENCES subjects(id) ON DELETE CASCADE
-   );
-
-   CREATE TABLE constraint_periods (
-       constraint_id INTEGER NOT NULL,
-       period_id INTEGER NOT NULL,
-       PRIMARY KEY (constraint_id, period_id),
-       FOREIGN KEY (constraint_id) REFERENCES resource_constraints(id) ON DELETE CASCADE,
-       FOREIGN KEY (period_id) REFERENCES periods(id) ON DELETE CASCADE
    );
 
    CREATE TABLE constraint_alternations (

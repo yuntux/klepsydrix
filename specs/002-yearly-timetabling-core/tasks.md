@@ -75,6 +75,7 @@ description: "Task list for feature implementation"
 - [ ] T016 [US2] Adapter le convertisseur de modèle mathématique `_build_planning_problem` dans `backend/app/solver/solver.py` pour gérer `school_id`, convertir `duration_minutes` en créneaux, et geler les séances externes (`is_pinned=True`)
 - [ ] T017 [US2] Ajouter les règles Timefold (Chevauchement de groupes `ClassPartLink`, Alternances `week_type`) dans `backend/app/solver/solver.py`
 - [ ] T018 [US2] Ajouter l'endpoint de diagnostic de dépositionnement (`POST /api/timetable/structures/simulate-change`) dans `backend/app/api/endpoints.py`
+- [ ] T018b [US2] Créer la boîte de dialogue de confirmation UI pour l'impact des modifications de groupes dans `frontend/src/components/`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -108,6 +109,7 @@ description: "Task list for feature implementation"
 - [ ] T023 [US4] Ajouter le CRUD des préférences dans l'API `backend/app/api/endpoints.py`
 - [ ] T024 [US4] Créer la grille interactive de saisie (Rouge/Orange/Vert) `PreferenceGrid.vue` dans `frontend/src/components/`
 - [ ] T025 [US4] Ajouter les pénalités / récompenses souples (Soft Constraints) et dures (Hard Constraints) dans `backend/app/solver/solver.py`
+- [ ] T025b [US4] Implémenter l'alerte UI lors du placement manuel d'un cours sur un créneau "Rouge" verrouillé dans `frontend/src/components/`
 
 **Checkpoint**: All user stories should now be independently functional
 

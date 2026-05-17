@@ -93,9 +93,9 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 
 ### Functional Requirements
 
-- **FR-001**: **Moteur CRUD Générique (Socle)** : Le système doit fournir un mécanisme générique côté backend et frontend pour générer les formulaires et les listes pour les entités simples : *Matières, Professeurs, Groupes, Salles, Classes, Parties de classe, Alternances, Sites, Matériels, Créneaux*.
+- **FR-001**: **Moteur CRUD Générique (Socle)** : Le système doit fournir un mécanisme générique côté backend et frontend pour générer les formulaires et les listes pour toutes les entités de base (y compris les nomenclatures) : *Matières, Professeurs, Groupes, Salles, Classes, Parties de classe, Alternances, Sites, Matériels, Créneaux, MEFs, Disciplines, Missions, Méthodes d'élection et Périodes*.
 - **FR-002**: **APIs Génériques** : Le backend doit exposer des points d'accès API unifiés, typés et réutilisables pour les opérations CRUD de chaque type de ressource de base.
-- **FR-003**: **Composants Frontend Réutilisables** : Le frontend doit utiliser des composants de tableau (`GenericList`) et de formulaire (`GenericForm`) paramétrables pour éviter la duplication de code pour les 10 types de ressources.
+- **FR-003**: **Composants Frontend Réutilisables** : Le frontend doit utiliser des composants de tableau (`GenericList`) et de formulaire (`GenericForm`) paramétrables pour éviter la duplication de code pour tous les types de ressources.
 Concernant le composant `GenericList`, il est fortement recommandé d'intégrer une librairie VueJS existante sur internet (ex: PrimeVue DataTable, AG Grid ou Tabulator) pour offrir nativement les fonctionnalités suivantes :
   1. Pagination (par défaut 30 éléments par page, avec possibilité de modifier ce nombre).
   2. Redimensionnement manuel de la largeur des colonnes.
@@ -132,7 +132,7 @@ Concernant le composant `GenericList`, il est fortement recommandé d'intégrer 
   *   **Classrooms (Salles)** : La ou les salles de classe affectées (ex : Salle 102, Labo SVT).
 - **ResourcePreference** : Association polymorphique entre n'importe quel type de ressource listé ci-dessus, un créneau (Timeslot) et un niveau de préférence (Disponible [Blanc], Souhait d'absence [Orange], Indisponible [Rouge], Souhait de présence [Vert]).
 - **Period (Période)** : Découpage temporel de l'année scolaire (trimestres, semestres, etc.).
-- **ResourceConstraint (Contrainte de Ressource)** : Définition des contraintes réglementaires, pédagogiques ou géographiques rattachées à une ressource unique (matière, enseignant, classe, etc.) pour une ou plusieurs périodes de l'année. Les caractéristiques de ces contraintes s'adaptent dynamiquement selon le type de ressource.
+- **ResourceConstraint (Contrainte de Ressource)** : Définition globale pour toute l'année des contraintes réglementaires, pédagogiques ou géographiques rattachées à une ressource unique (matière, enseignant, classe, etc.). Les caractéristiques de ces contraintes s'adaptent dynamiquement selon le type de ressource.
 
 ## Spécification Détaillée des Objets et de leurs Attributs
 
@@ -367,11 +367,11 @@ Découpage temporel de l'année d'enseignement (ex: Semestres, Trimestres, Péri
 *   `end_date` : Date de fin de la période (Date)
 
 ### 15. ResourceConstraint (Contrainte de Ressource)
-L'objet générique portant les contraintes spécifiques à une ressource et associées à une ou plusieurs périodes de l'année d'enseignement.
+L'objet générique portant les contraintes spécifiques à une ressource, définies de manière globale pour toute l'année d'enseignement (sans liaison temporelle avec les périodes).
 *   `id` : Clé primaire (Entier)
 *   `resource_type` : Type de ressource concernée (Chaîne : `Subject`, `Teacher`, `Division`, `Classroom`, `Site`)
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
-*   *Relations (N-à-N)* : `periods` (Liaison vers les périodes d'application de la contrainte)
+
 
 #### Attributs spécifiques dynamiques selon le type de ressource :
 
