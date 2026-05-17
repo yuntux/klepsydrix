@@ -145,3 +145,80 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
         "is_pinned": course.is_pinned,
     }}
 
+
+@router.post("/structures/simulate-change")
+def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
+    action = request_data.get("action")
+    resource_type = request_data.get("resource_type")
+    resource_id = request_data.get("resource_id")
+    
+    impacted = []
+    
+    if action == "DELETE_RESOURCE" or action == "UPDATE_GROUP_PARTITION":
+        courses_query = db.query(Course)
+        if resource_type == "Teacher":
+            courses_query = courses_query.filter(Course.teacher_id == resource_id)
+        elif resource_type == "Classroom":
+            courses_query = courses_query.filter(Course.classroom_id == resource_id)
+        elif resource_type == "Division":
+            courses_query = courses_query.filter(Course.division_id == resource_id)
+        elif resource_type == "Group":
+            courses_query = courses_query.filter(Course.group_id == resource_id)
+            
+        courses = courses_query.all()
+        for c in courses:
+            if c.timeslot_id is not None:
+                ts = db.query(Timeslot).filter(Timeslot.id == c.timeslot_id).first()
+                ts_str = f"Jour {ts.day_of_week} à {ts.hour}h00" if ts else "Créneau Inconnu"
+                
+                t_name = c.teacher.name if c.teacher else "Sans Prof"
+                d_name = c.division.name if c.division else "Sans Division"
+                
+                impacted.append({
+                    "session_id": c.id,
+                    "course_label": f"{c.subject} - {t_name} - {d_name}",
+                    "timeslot": ts_str,
+                    "reason": f"Modification ou suppression de la structure de {resource_type} associée"
+                })
+                
+    return {
+        "can_proceed": True,
+        "impacted_sessions_count": len(impacted),
+        "impacted_sessions": impacted
+    }
+
+
+@router.post("/structures/apply-change")
+def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
+    action = request_data.get("action")
+    resource_type = request_data.get("resource_type")
+    resource_id = request_data.get("resource_id")
+    
+    deplaced_count = 0
+    
+    courses_query = db.query(Course)
+    if resource_type == "Teacher":
+        courses_query = courses_query.filter(Course.teacher_id == resource_id)
+    elif resource_type == "Classroom":
+        courses_query = courses_query.filter(Course.classroom_id == resource_id)
+    elif resource_type == "Division":
+        courses_query = courses_query.filter(Course.division_id == resource_id)
+    elif resource_type == "Group":
+        courses_query = courses_query.filter(Course.group_id == resource_id)
+        
+    courses = courses_query.all()
+    for c in courses:
+        if c.timeslot_id is not None:
+            c.timeslot_id = None
+            c.classroom_id = None
+            deplaced_count += 1
+            
+    db.commit()
+    
+    return {
+        "success": True,
+        "deplaced_sessions_count": deplaced_count,
+        "diagnostic_history_id": 42
+    }
+
+

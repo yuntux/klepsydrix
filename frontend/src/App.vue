@@ -22,6 +22,8 @@
         :courses="courses"
         :teachers="teachers"
         :divisions="divisions"
+        :selectedCourseIds="selectedCourseIds"
+        @selectCourse="toggleCourseSelection"
       />
 
       <!-- Grille -->
@@ -34,9 +36,11 @@
         :viewMode="viewMode"
         :selectedId="selectedId"
         :loading="loading"
+        :selectedCourseIds="selectedCourseIds"
         @move="onMoveCourse"
         @unassign="onUnassignCourse"
         @togglePin="onTogglePinCourse"
+        @selectCourse="toggleCourseSelection"
       />
     </main>
 
@@ -94,6 +98,27 @@
       @cancel="showFormModal = false"
     />
 
+    <!-- Boîte de dialogue de confirmation d'impact de dépositionnement (T018b) -->
+    <ImpactConfirmDialog
+      :show="showImpactModal"
+      :title="impactModalTitle"
+      :impactedCount="impactedSessionsCount"
+      :impactedSessions="impactedSessions"
+      @confirm="onConfirmImpactDelete"
+      @cancel="showImpactModal = false"
+    />
+
+    <!-- Fiche T Cumulée (T020) -->
+    <CoursePopin
+      :show="selectedCourseIds.length > 0"
+      :courses="courses.filter(c => selectedCourseIds.includes(c.id))"
+      :teachers="teachers"
+      :divisions="divisions"
+      :classrooms="classrooms"
+      :timeslots="timeslots"
+      @close="selectedCourseIds = []"
+    />
+
     <!-- Système de notifications -->
     <div class="notification-container">
       <div
@@ -123,6 +148,8 @@ import Sidebar from './components/Sidebar.vue';
 import TimetableGrid from './components/TimetableGrid.vue';
 import GenericList from './components/GenericList.vue';
 import GenericForm from './components/GenericForm.vue';
+import ImpactConfirmDialog from './components/ImpactConfirmDialog.vue';
+import CoursePopin from './components/CoursePopin.vue';
 import { Course, Timeslot, Teacher, Division, Classroom } from './types';
 import * as api from './services/api';
 
@@ -136,6 +163,16 @@ const classrooms = ref<Classroom[]>([]);
 const viewMode = ref<string>('division');
 const selectedId = ref<number | null>(null);
 const loading = ref<boolean>(false);
+
+const selectedCourseIds = ref<number[]>([]);
+
+function toggleCourseSelection(id: number) {
+  if (selectedCourseIds.value.includes(id)) {
+    selectedCourseIds.value = selectedCourseIds.value.filter(x => x !== id);
+  } else {
+    selectedCourseIds.value.push(id);
+  }
+}
 
 // Onglet actif
 const activeTab = ref<string>('timetable');
@@ -157,6 +194,20 @@ const activeAdminModel = ref('schools');
 const genericItems = ref<any[]>([]);
 const genericLoading = ref(false);
 const schoolsList = ref<any[]>([]);
+
+// États pour la boîte de dialogue de confirmation d'impact
+const showImpactModal = ref(false);
+const impactModalTitle = ref('');
+const impactedSessionsCount = ref(0);
+const impactedSessions = ref<any[]>([]);
+const pendingDeleteCallback = ref<(() => Promise<void>) | null>(null);
+
+const modelToResourceType: Record<string, string> = {
+  teachers: 'Teacher',
+  classrooms: 'Classroom',
+  divisions: 'Division',
+  schools: 'School',
+};
 
 // Notifications
 interface Notification {
@@ -291,6 +342,30 @@ async function onSubmitGeneric(value: Record<string, any>) {
 }
 
 async function onDeleteGeneric(item: any) {
+  const resourceType = modelToResourceType[activeAdminModel.value];
+  if (resourceType) {
+    try {
+      const sim = await api.simulateChange("DELETE_RESOURCE", resourceType, item.id);
+      if (sim.impacted_sessions_count > 0) {
+        impactModalTitle.value = `Suppression de ${item.name || item.code || 'la ressource'}`;
+        impactedSessionsCount.value = sim.impacted_sessions_count;
+        impactedSessions.value = sim.impacted_sessions;
+        showImpactModal.value = true;
+        
+        pendingDeleteCallback.value = async () => {
+          await api.applyChange("DELETE_RESOURCE", resourceType, item.id);
+          await api.deleteGenericItem(activeAdminModel.value, item.id);
+          showNotification('success', 'Ressource supprimée et séances dépositionnées avec succès !');
+          loadGenericItems();
+          loadTimetableData();
+        };
+        return;
+      }
+    } catch (err: any) {
+      console.error("Simulation error", err);
+    }
+  }
+
   if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement cet élément ?`)) {
     try {
       await api.deleteGenericItem(activeAdminModel.value, item.id);
@@ -301,6 +376,19 @@ async function onDeleteGeneric(item: any) {
       }
     } catch (err: any) {
       showNotification('error', err.message || 'Échec de la suppression de la ressource.');
+    }
+  }
+}
+
+async function onConfirmImpactDelete() {
+  showImpactModal.value = false;
+  if (pendingDeleteCallback.value) {
+    try {
+      await pendingDeleteCallback.value();
+    } catch (err: any) {
+      showNotification('error', err.message || 'Échec de l\'opération de suppression.');
+    } finally {
+      pendingDeleteCallback.value = null;
     }
   }
 }

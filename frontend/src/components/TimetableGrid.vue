@@ -31,10 +31,11 @@
               v-for="course in getCoursesAt(day.value, hour)"
               :key="course.id"
               class="placed-course"
-              :class="{ 'is-pinned-card': course.is_pinned }"
+              :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
               :style="{ backgroundColor: getCourseColor(course.subject) }"
               draggable="true"
               @dragstart="onDragStart($event, course.id)"
+              @click.stop="$emit('selectCourse', course.id)"
             >
               <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
                 <span class="placed-subject">{{ course.subject }}</span>
@@ -89,12 +90,14 @@ const props = defineProps<{
   viewMode: string;
   selectedId: number | null;
   loading: boolean;
+  selectedCourseIds?: number[];
 }>();
 
 const emit = defineEmits<{
   (e: 'move', courseId: number, timeslotId: number, classroomId: number | null): void;
   (e: 'unassign', courseId: number): void;
   (e: 'togglePin', courseId: number): void;
+  (e: 'selectCourse', courseId: number): void;
 }>();
 
 const days = [

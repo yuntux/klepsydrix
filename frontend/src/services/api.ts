@@ -141,3 +141,45 @@ export async function deleteGenericItem(resourceName: string, id: number): Promi
   return response.json();
 }
 
+export async function simulateChange(action: string, resourceType: string, resourceId: number, payload: any = {}): Promise<{
+  can_proceed: boolean;
+  impacted_sessions_count: number;
+  impacted_sessions: Array<{
+    session_id: number;
+    course_label: string;
+    timeslot: string;
+    reason: string;
+  }>;
+}> {
+  const response = await fetch('/api/timetable/structures/simulate-change', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action, resource_type: resourceType, resource_id: resourceId, payload }),
+  });
+  if (!response.ok) {
+    throw new Error('Erreur lors de la simulation de changement de structure');
+  }
+  return response.json();
+}
+
+export async function applyChange(action: string, resourceType: string, resourceId: number, payload: any = {}): Promise<{
+  success: boolean;
+  deplaced_sessions_count: number;
+  diagnostic_history_id: number;
+}> {
+  const response = await fetch('/api/timetable/structures/apply-change', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action, resource_type: resourceType, resource_id: resourceId, payload }),
+  });
+  if (!response.ok) {
+    throw new Error('Erreur lors de l\'application de changement de structure');
+  }
+  return response.json();
+}
+
+

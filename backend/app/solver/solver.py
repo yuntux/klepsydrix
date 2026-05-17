@@ -9,6 +9,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.group import ClassPartLink
 from backend.app.core.database import SessionLocal
 import threading
 from backend.app.solver.constraints import (
@@ -17,6 +18,7 @@ from backend.app.solver.constraints import (
     PlanningDivision,
     PlanningTimeslot,
     PlanningCourse,
+    PlanningClassPartLink,
     PlanningTimetable,
     define_constraints,
 )
@@ -60,6 +62,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_divisions = db.query(Division).all()
     db_timeslots = db.query(Timeslot).all()
     db_courses = db.query(Course).all()
+    db_links = db.query(ClassPartLink).all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
@@ -70,6 +73,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     classrooms_list = list(classrooms_map.values())
     divisions_list = list(divisions_map.values())
     timeslots_list = list(timeslots_map.values())
+    links_list = [PlanningClassPartLink(link.class_part_a_id, link.class_part_b_id) for link in db_links]
 
     courses_list = []
     for c in db_courses:
@@ -83,6 +87,27 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         if school_id is not None and c.school_id != school_id:
             is_pinned = True
             
+        # Charger week_type et class_part_ids
+        week_type = "T"
+        class_part_ids = []
+        if c.sessions:
+            week_type = c.sessions[0].week_type or "T"
+            
+        if c.group_id and c.group:
+            class_part_ids.extend([cp.id for cp in c.group.class_parts])
+        if c.division_id and c.division:
+            class_part_ids.extend([cp.id for cp in c.division.class_parts])
+            
+        if c.sessions:
+            primary_sess = c.sessions[0]
+            if primary_sess.co_class_parts:
+                class_part_ids.extend([cp.id for cp in primary_sess.co_class_parts])
+            if primary_sess.co_groups:
+                for grp in primary_sess.co_groups:
+                    class_part_ids.extend([cp.id for cp in grp.class_parts])
+                    
+        class_part_ids = list(set(class_part_ids))
+            
         pc = PlanningCourse(
             id=c.id,
             subject=c.subject,
@@ -92,6 +117,8 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             classroom=cr_planning,
             is_pinned=is_pinned,
             original_timeslot_id=c.timeslot_id,
+            week_type=week_type,
+            class_part_ids=class_part_ids,
         )
         courses_list.append(pc)
 
@@ -101,6 +128,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         divisions=divisions_list,
         timeslots=timeslots_list,
         courses=courses_list,
+        class_part_links=links_list,
         score=None,
     )
 

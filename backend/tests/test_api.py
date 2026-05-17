@@ -244,3 +244,53 @@ def test_solve_pinned_course(db_session: Session):
     
     # Le cours 2 a dû être planifié sur ts2 puisqu'il y a conflit enseignant sur ts1
     assert course2.timeslot_id == ts2.id
+
+
+def test_structures_simulate_and_apply_change(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
+    ts = Timeslot(day_of_week=1, hour=8)
+    
+    db_session.add_all([t, c, d, ts])
+    db_session.commit()
+
+    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, timeslot_id=ts.id, classroom_id=c.id, school_id=school.id)
+    db_session.add(course)
+    db_session.commit()
+
+    # 1. Simuler la suppression de l'enseignant
+    sim_payload = {
+        "action": "DELETE_RESOURCE",
+        "resource_type": "Teacher",
+        "resource_id": t.id,
+        "payload": {}
+    }
+    response = client.post("/api/timetable/structures/simulate-change", json=sim_payload)
+    assert response.status_code == 200
+    sim_data = response.json()
+    assert sim_data["can_proceed"] is True
+    assert sim_data["impacted_sessions_count"] == 1
+    assert sim_data["impacted_sessions"][0]["session_id"] == course.id
+
+    # 2. Confirmer et appliquer la suppression
+    apply_payload = {
+        "action": "DELETE_RESOURCE",
+        "resource_type": "Teacher",
+        "resource_id": t.id,
+        "payload": {}
+    }
+    response = client.post("/api/timetable/structures/apply-change", json=apply_payload)
+    assert response.status_code == 200
+    apply_data = response.json()
+    assert apply_data["success"] is True
+    assert apply_data["deplaced_sessions_count"] == 1
+
+    # 3. Vérifier que la séance a bien été dépositionnée (timeslot_id et classroom_id à None)
+    db_session.refresh(course)
+    assert course.timeslot_id is None
+    assert course.classroom_id is None
+

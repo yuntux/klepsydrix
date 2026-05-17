@@ -29,7 +29,7 @@ def patched_planning_score_init(self, *args, **kwargs):
 PlanningScore.__init__ = patched_planning_score_init
 
 
-# --- ENTIRES DE PLANIFICATION TIMEFOLD ---
+# --- ENTITÉS DE PLANIFICATION TIMEFOLD ---
 
 @dataclass
 class PlanningTeacher:
@@ -57,6 +57,12 @@ class PlanningTimeslot:
     hour: int
 
 
+@dataclass
+class PlanningClassPartLink:
+    class_part_a_id: int
+    class_part_b_id: int
+
+
 @planning_entity
 @dataclass
 class PlanningCourse:
@@ -68,6 +74,10 @@ class PlanningCourse:
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
     original_timeslot_id: typing.Optional[int] = None
+    
+    # Alternance et parties de classe (US2)
+    week_type: str = "T"
+    class_part_ids: List[int] = field(default_factory=list)
 
 
 @planning_solution
@@ -78,7 +88,16 @@ class PlanningTimetable:
     divisions: Annotated[List[PlanningDivision], ProblemFactCollectionProperty]
     timeslots: Annotated[List[PlanningTimeslot], ProblemFactCollectionProperty, ValueRangeProvider(id='timeslotRange')]
     courses: Annotated[List[PlanningCourse], PlanningEntityCollectionProperty]
-    score: Annotated[HardSoftScore, PlanningScore]
+    class_part_links: Annotated[List[PlanningClassPartLink], ProblemFactCollectionProperty] = field(default_factory=list)
+    score: Annotated[HardSoftScore, PlanningScore] = None
+
+
+# --- RÈGLES DE CONTRAINTES ---
+
+def weeks_overlap(w1: str, w2: str) -> bool:
+    if w1 == "T" or w2 == "T":
+        return True
+    return w1 == w2
 
 
 @constraint_provider
@@ -87,6 +106,7 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         teacher_conflict(constraint_factory),
         classroom_conflict(constraint_factory),
         division_conflict(constraint_factory),
+        group_link_conflict(constraint_factory),
         stability_penalty(constraint_factory),
         teacher_room_stability(constraint_factory),
         student_group_subject_variety(constraint_factory),
@@ -101,6 +121,7 @@ def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot),
             Joiners.equal(lambda course: course.teacher)
         )
+        .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Teacher conflict")
     )
@@ -112,6 +133,7 @@ def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot),
             Joiners.equal(lambda course: course.classroom)
         )
+        .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Classroom conflict")
     )
@@ -123,8 +145,26 @@ def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot),
             Joiners.equal(lambda course: course.division)
         )
+        .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Division conflict")
+    )
+
+def group_link_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningClassPartLink)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda link, course: link.class_part_a_id in course.class_part_ids or link.class_part_b_id in course.class_part_ids)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.equal(lambda link, course1: course1.timeslot, lambda course2: course2.timeslot),
+            Joiners.filtering(lambda link, course1, course2: course1.id < course2.id and (link.class_part_a_id in course2.class_part_ids or link.class_part_b_id in course2.class_part_ids))
+        )
+        .filter(lambda link, course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Group link conflict")
     )
 
 def stability_penalty(constraint_factory: ConstraintFactory) -> Constraint:
@@ -182,4 +222,3 @@ def division_time_efficiency(constraint_factory: ConstraintFactory) -> Constrain
         .reward(HardSoftScore.ONE_SOFT)
         .as_constraint("Division time efficiency")
     )
-

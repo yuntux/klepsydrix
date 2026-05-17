@@ -73,9 +73,9 @@ description: "Task list for feature implementation"
 
 - [X] T015 [P] [US2] Mettre à jour `GET /api/timetable` dans `backend/app/api/endpoints.py` pour filtrer par `school_id`
 - [X] T016 [US2] Adapter le convertisseur de modèle mathématique `_build_planning_problem` dans `backend/app/solver/solver.py` pour gérer `school_id`, convertir `duration_minutes` en créneaux, et geler les séances externes (`is_pinned=True`)
-- [ ] T017 [US2] Ajouter les règles Timefold (Chevauchement de groupes `ClassPartLink`, Alternances `week_type`) dans `backend/app/solver/solver.py`
-- [ ] T018 [US2] Ajouter l'endpoint de diagnostic de dépositionnement (`POST /api/timetable/structures/simulate-change`) dans `backend/app/api/endpoints.py`
-- [ ] T018b [US2] Créer la boîte de dialogue de confirmation UI pour l'impact des modifications de groupes dans `frontend/src/components/`
+- [X] T017 [US2] Ajouter les règles Timefold (Chevauchement de groupes `ClassPartLink`, Alternances `week_type`) dans `backend/app/solver/solver.py`
+- [X] T018 [US2] Ajouter l'endpoint de diagnostic de dépositionnement (`POST /api/timetable/structures/simulate-change`) dans `backend/app/api/endpoints.py`
+- [X] T018b [US2] Créer la boîte de dialogue de confirmation UI pour l'impact des modifications de groupes dans `frontend/src/components/`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -89,9 +89,9 @@ description: "Task list for feature implementation"
 
 ### Implementation for User Story 3
 
-- [ ] T019 [P] [US3] Créer le composant de puce consolidée `ConsolidatedChip.vue` dans `frontend/src/components/`
-- [ ] T020 [US3] Créer le composant de la Fiche T `CoursePopin.vue` dans `frontend/src/components/` avec la logique d'agrégation des attributs divergents
-- [ ] T021 [US3] Implémenter le drag-and-drop natif (coordonnées absolues) pour l'en-tête de `CoursePopin.vue`
+- [X] T019 [P] [US3] Créer le composant de puce consolidée `ConsolidatedChip.vue` dans `frontend/src/components/`
+- [X] T020 [US3] Créer le composant de la Fiche T `CoursePopin.vue` dans `frontend/src/components/` avec la logique d'agrégation des attributs divergents
+- [X] T021 [US3] Implémenter le drag-and-drop natif (coordonnées absolues) pour l'en-tête de `CoursePopin.vue`
 
 **Checkpoint**: All user stories up to US3 should now be functional
 

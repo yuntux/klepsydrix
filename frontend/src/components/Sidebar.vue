@@ -12,8 +12,10 @@
         v-for="course in unassignedCourses"
         :key="course.id"
         class="course-card"
+        :class="{ 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
         draggable="true"
         @dragstart="onDragStart($event, course.id)"
+        @click.stop="$emit('selectCourse', course.id)"
       >
         <div class="course-subject">{{ course.subject }}</div>
         <div class="course-meta">
@@ -47,6 +49,11 @@ const props = defineProps<{
   courses: Course[];
   teachers: Teacher[];
   divisions: Division[];
+  selectedCourseIds?: number[];
+}>();
+
+const emit = defineEmits<{
+  (e: 'selectCourse', courseId: number): void;
 }>();
 
 const unassignedCourses = computed(() => {

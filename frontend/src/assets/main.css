@@ -335,6 +335,19 @@ body {
   filter: brightness(1.1);
 }
 
+.placed-course.is-selected-card {
+  outline: 2px solid var(--accent-primary) !important;
+  outline-offset: 1px;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+  z-index: 10;
+}
+
+.course-card.is-selected-card {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.5) !important;
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+
 .placed-subject {
   font-weight: 700;
   color: #fff;
