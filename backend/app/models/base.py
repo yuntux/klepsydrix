@@ -64,3 +64,17 @@ class CRUDMixin:
 # Base déclarative commune pour tous les modèles SQLAlchemy
 Base = declarative_base(cls=CRUDMixin)
 
+class TransientModel:
+    """
+    Classe de base pour les objets métiers virtuels/transitoires.
+    Ces objets ne sont pas stockés en base de données physique
+    mais exposent l'interface standard CRUDMixin pour l'API générique.
+    """
+    __tablename__ = None
+    _fields = []
+
+    @classmethod
+    def read(cls, db: Session, domain: dict = None, limit: int = None, offset: int = None):
+        raise NotImplementedError("Les modèles transitoires doivent implémenter la méthode read().")
+
+

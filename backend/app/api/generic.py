@@ -15,12 +15,25 @@ for _, module_name, _ in pkgutil.iter_modules(models_package.__path__):
 
 router = APIRouter(prefix="/api/generic")
 
+from backend.app.models.base import TransientModel
+
 # Génération 100% automatique de la cartographie des modèles sur la base de leur table SQL
 MODEL_MAP = {
     mapper.class_.__tablename__: mapper.class_
     for mapper in Base.registry.mappers
     if hasattr(mapper.class_, "__tablename__")
 }
+
+# Découvrir et ajouter dynamiquement tous les modèles transitoires (TransientModels)
+def get_all_transient_models(cls):
+    subclasses = set(cls.__subclasses__())
+    return subclasses.union(
+        [s for c in subclasses for s in get_all_transient_models(c)]
+    )
+
+for sub in get_all_transient_models(TransientModel):
+    if getattr(sub, "__tablename__", None):
+        MODEL_MAP[sub.__tablename__] = sub
 
 def get_model_or_404(resource_name: str):
     if resource_name not in MODEL_MAP:
@@ -33,6 +46,15 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
     if obj is None:
         return {}
     d = {}
+    if isinstance(obj, TransientModel):
+        for field in getattr(obj, "_fields", []):
+            val = getattr(obj, field, None)
+            if isinstance(val, (date, datetime)):
+                d[field] = val.isoformat()
+            else:
+                d[field] = val
+        return d
+
     for column in obj.__table__.columns:
         val = getattr(obj, column.name)
         if isinstance(val, (date, datetime)):
@@ -43,6 +65,12 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
 
 def make_pydantic_model(model, all_optional=False):
     fields = {}
+    if issubclass(model, TransientModel):
+        for field in getattr(model, "_fields", []):
+            fields[field] = (Optional[Any], None)
+        suffix = "UpdatePayload" if all_optional else "CreatePayload"
+        return create_model(f"{model.__name__}{suffix}", **fields)
+
     for column in model.__table__.columns:
         if column.name == "id":
             continue
@@ -68,13 +96,19 @@ def make_list_endpoint(model):
         db: Session = Depends(get_db)
     ):
         domain = {}
-        if school_id is not None and hasattr(model, "school_id"):
-            domain["school_id"] = school_id
+        if school_id is not None:
+            if issubclass(model, TransientModel) and "school_id" in getattr(model, "_fields", []):
+                domain["school_id"] = school_id
+            elif hasattr(model, "school_id"):
+                domain["school_id"] = school_id
             
         for key, value in request.query_params.items():
             if key in ["skip", "limit", "school_id"]:
                 continue
-            if hasattr(model, key):
+            if issubclass(model, TransientModel):
+                if key in getattr(model, "_fields", []):
+                    domain[key] = value
+            elif hasattr(model, key):
                 try:
                     column_type = model.__table__.columns[key].type.python_type
                     if column_type == bool:
@@ -84,6 +118,13 @@ def make_list_endpoint(model):
                     domain[key] = converted_val
                 except Exception:
                     domain[key] = value
+
+        if issubclass(model, TransientModel):
+            items = model.read(db, domain=domain, limit=limit, offset=skip)
+            return {
+                "total": len(items),
+                "items": [sqla_to_dict(item) for item in items]
+            }
 
         query = db.query(model)
         for k, v in domain.items():
@@ -99,6 +140,14 @@ def make_list_endpoint(model):
 
 def make_get_endpoint(model):
     def get_endpoint(item_id: int, db: Session = Depends(get_db)):
+        if issubclass(model, TransientModel):
+            # Pour un modèle virtuel, on tente de le lire via un filtre sur ID
+            items = model.read(db, domain={"id": item_id})
+            item = items[0] if items else None
+            if not item:
+                raise HTTPException(status_code=404, detail="Élément introuvable.")
+            return sqla_to_dict(item)
+
         item = db.query(model).filter(model.id == item_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
@@ -107,6 +156,9 @@ def make_get_endpoint(model):
 
 def make_create_endpoint(model, payload_schema):
     def create_endpoint(payload: payload_schema, db: Session = Depends(get_db)):
+        if issubclass(model, TransientModel):
+            raise HTTPException(status_code=405, detail="La création n'est pas supportée pour cette ressource transitoire.")
+
         valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
         cleaned_payload = {}
         payload_dict = payload.model_dump()
@@ -131,6 +183,9 @@ def make_create_endpoint(model, payload_schema):
 
 def make_update_endpoint(model, payload_schema):
     def update_endpoint(item_id: int, payload: payload_schema, db: Session = Depends(get_db)):
+        if issubclass(model, TransientModel):
+            raise HTTPException(status_code=405, detail="La mise à jour n'est pas supportée pour cette ressource transitoire.")
+
         item = db.query(model).filter(model.id == item_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
@@ -159,6 +214,9 @@ def make_update_endpoint(model, payload_schema):
 
 def make_delete_endpoint(model, resource_name):
     def delete_endpoint(item_id: int, db: Session = Depends(get_db)):
+        if issubclass(model, TransientModel):
+            raise HTTPException(status_code=405, detail="La suppression n'est pas supportée pour cette ressource transitoire.")
+
         item = db.query(model).filter(model.id == item_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")

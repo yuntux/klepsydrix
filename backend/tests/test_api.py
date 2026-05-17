@@ -355,16 +355,15 @@ def test_trmd_budget_synthesis(db_session: Session):
     db_session.add(budget)
     db_session.commit()
 
-    # 2. Appeler l'API de synthèse budgétaire
-    response = client.get(f"/api/timetable/trmd/{school.id}")
+    # 2. Appeler l'API de synthèse budgétaire générique via le modèle virtuel
+    response = client.get(f"/api/generic/trmd_syntheses?school_id={school.id}")
     assert response.status_code == 200
     data = response.json()
-    assert data["school_id"] == school.id
-    assert "budget_summary" in data
-    assert len(data["budget_summary"]) > 0
+    assert "items" in data
+    assert len(data["items"]) > 0
     
     # Heures allouées converties en ETP = 36.0 / 18.0 = 2.0
-    maths_summary = next(s for s in data["budget_summary"] if s["subject"]["short_label"] == "Maths")
+    maths_summary = next(s for s in data["items"] if s["short_label"] == "Maths")
     assert maths_summary["allocated_etp"] == 2.0
     assert maths_summary["consumed_etp"] == 0.0
     assert maths_summary["status"] == "UNDER_BUDGET"
