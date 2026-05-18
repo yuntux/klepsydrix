@@ -1,14 +1,56 @@
 from sqlalchemy.orm import declarative_base, Session
 
 class CRUDMixin:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Recherche et assigne automatiquement les champs 'related' du modèle
+        cls._fields = [
+            name for name, attr in cls.__dict__.items()
+            if isinstance(attr, property) and getattr(attr, "_is_related", False)
+        ]
+
+    def ensure_related_record(self, relation_name: str):
+        """
+        Garantit que l'objet lié existe et le retourne.
+        Surchargeable par les classes enfants (ex: _ensure_constraint_record).
+        """
+        handler_name = f"_ensure_{relation_name}"
+        if hasattr(self, handler_name):
+            return getattr(self, handler_name)()
+        return getattr(self, relation_name, None)
+
     @classmethod
     def create(cls, db: Session, vals: dict):
         """
-        Méthode de création standard surchargeable.
+        Méthode de création standard surchargeable avec gestion des related_fields.
         """
         try:
-            instance = cls(**vals)
+            # 1. Séparer les champs related des champs locaux
+            related_vals = {}
+            local_vals = {}
+            for k, v in vals.items():
+                if k in getattr(cls, "_fields", []):
+                    prop = getattr(cls, k)
+                    relation_name = prop.relation_name
+                    if relation_name not in related_vals:
+                        related_vals[relation_name] = {}
+                    related_vals[relation_name][k] = v
+                else:
+                    local_vals[k] = v
+
+            # 2. Créer l'enregistrement local principal
+            instance = cls(**local_vals)
             db.add(instance)
+            db.flush() # Génère l'ID en base sans commiter tout de suite
+
+            # 3. Assurer l'existence et mettre à jour les enregistrements liés
+            for relation_name, fields in related_vals.items():
+                related_obj = instance.ensure_related_record(relation_name)
+                if related_obj:
+                    for k, v in fields.items():
+                        prop = getattr(cls, k)
+                        setattr(related_obj, prop.target_field, v)
+
             db.commit()
             db.refresh(instance)
             return instance
@@ -36,12 +78,35 @@ class CRUDMixin:
 
     def update(self, db: Session, vals: dict):
         """
-        Méthode de mise à jour standard surchargeable.
+        Méthode de mise à jour standard surchargeable avec gestion des related_fields.
         """
         try:
-            for key, value in vals.items():
+            # 1. Séparer les champs related des champs locaux
+            related_vals = {}
+            local_vals = {}
+            for k, v in vals.items():
+                if k in getattr(self, "_fields", []):
+                    prop = getattr(self.__class__, k)
+                    relation_name = prop.relation_name
+                    if relation_name not in related_vals:
+                        related_vals[relation_name] = {}
+                    related_vals[relation_name][k] = v
+                else:
+                    local_vals[k] = v
+
+            # 2. Mettre à jour l'enregistrement principal
+            for key, value in local_vals.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
+
+            # 3. Assurer l'existence et mettre à jour les enregistrements liés
+            for relation_name, fields in related_vals.items():
+                related_obj = self.ensure_related_record(relation_name)
+                if related_obj:
+                    for k, v in fields.items():
+                        prop = getattr(self.__class__, k)
+                        setattr(related_obj, prop.target_field, v)
+
             db.commit()
             db.refresh(self)
             return self

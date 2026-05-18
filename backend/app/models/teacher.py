@@ -49,72 +49,25 @@ class Teacher(Base):
             ResourceConstraint.resource_id == self.id
         ).first()
 
-    # Surcharges CRUD pour persister dans resource_constraints
-    @classmethod
-    def create(cls, db: Session, vals: dict):
-        constraint_vals = {}
-        teacher_vals = {}
-        for k, v in vals.items():
-            if k in cls._fields:
-                constraint_vals[k] = v
-            else:
-                teacher_vals[k] = v
-
-        teacher = super().create(db, teacher_vals)
-
+    def _ensure_constraint_record(self):
+        """
+        Méthode appelée automatiquement par le CRUDMixin parent pour
+        garantir l'existence de la contrainte liée.
+        """
         from backend.app.models.constraint import ResourceConstraint
-        constraint = db.query(ResourceConstraint).filter(
+        from sqlalchemy.orm import object_session
+        session = object_session(self)
+        if not session:
+            return None
+            
+        constraint = session.query(ResourceConstraint).filter(
             ResourceConstraint.resource_type == 'Teacher',
-            ResourceConstraint.resource_id == teacher.id
+            ResourceConstraint.resource_id == self.id
         ).first()
         if not constraint:
             constraint = ResourceConstraint(
                 resource_type='Teacher',
-                resource_id=teacher.id
+                resource_id=self.id
             )
-            db.add(constraint)
-
-        for k, v in constraint_vals.items():
-            setattr(constraint, k, v)
-        
-        db.commit()
-        db.refresh(teacher)
-        return teacher
-
-    def update(self, db: Session, vals: dict):
-        constraint_vals = {}
-        teacher_vals = {}
-        for k, v in vals.items():
-            if k in self._fields:
-                constraint_vals[k] = v
-            else:
-                teacher_vals[k] = v
-
-        super().update(db, teacher_vals)
-
-        if constraint_vals or True: # On force la création de l'enregistrement de contrainte s'il n'existe pas
-            from backend.app.models.constraint import ResourceConstraint
-            constraint = db.query(ResourceConstraint).filter(
-                ResourceConstraint.resource_type == 'Teacher',
-                ResourceConstraint.resource_id == self.id
-            ).first()
-            if not constraint:
-                constraint = ResourceConstraint(
-                    resource_type='Teacher',
-                    resource_id=self.id
-                )
-                db.add(constraint)
-
-            for k, v in constraint_vals.items():
-                setattr(constraint, k, v)
-            
-            db.commit()
-            db.refresh(self)
-
-        return self
-
-# Extraction dynamique et automatique de l'ensemble des champs Odoo-like liés
-Teacher._fields = [
-    name for name, attr in Teacher.__dict__.items()
-    if isinstance(attr, property) and getattr(attr, "_is_related", False)
-]
+            session.add(constraint)
+        return constraint
