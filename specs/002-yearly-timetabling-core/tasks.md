@@ -133,11 +133,11 @@ description: "Task list for feature implementation"
 
 ### Implementation for User Story 5
 
-- [ ] T029 [P] [US5] Créer le fichier de configuration JSON des onglets `frontend/src/config/notebooks.json` avec la structure de base (Emploi du temps, Paramètres et sous-onglets du socle).
-- [ ] T030 [P] [US5] Créer le composant Vue 3 `NotebooksTree.vue` dans `frontend/src/components/` gérant la navigation récursive, l'affichage et l'en-tête stylisé (fond coloré ou liseré supérieur).
-- [ ] T031 [P] [US5] Créer le composant Vue 3 `SplitPanel.vue` dans `frontend/src/components/` implémentant le séparateur (splitter) interactif avec glisser-déposer de la souris pour recalculer les largeurs.
-- [ ] T032 [US5] Remplacer le squelette de mise en page dans `frontend/src/App.vue` pour utiliser `NotebooksTree` comme structure de navigation principale, alimentée par `notebooks.json`, affichant les panneaux configurés.
-- [ ] T033 [US5] Ajuster le style global (`frontend/src/assets/main.css`) pour appliquer le thème clair premium avec la couleur d'arrière-plan `bg-gray-300` (gris doux).
+- [X] T029 [P] [US5] Créer le fichier de configuration JSON des onglets `frontend/src/config/notebooks.json` avec la structure de base (Emploi du temps, Paramètres et sous-onglets du socle).
+- [X] T030 [P] [US5] Créer le composant Vue 3 `NotebooksTree.vue` dans `frontend/src/components/` gérant la navigation récursive, l'affichage et l'en-tête stylisé (fond coloré ou liseré supérieur).
+- [X] T031 [P] [US5] Créer le composant Vue 3 `SplitPanel.vue` dans `frontend/src/components/` implémentant le séparateur (splitter) interactif avec glisser-déposer de la souris pour recalculer les largeurs.
+- [X] T032 [US5] Remplacer le squelette de mise en page dans `frontend/src/App.vue` pour utiliser `NotebooksTree` comme structure de navigation principale, alimentée par `notebooks.json`, affichant les panneaux configurés.
+- [X] T033 [US5] Ajuster le style global (`frontend/src/assets/main.css`) pour appliquer le thème clair premium avec la couleur d'arrière-plan `bg-gray-300` (gris doux).
 
 ---
 
