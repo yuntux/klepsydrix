@@ -268,7 +268,7 @@ watch(resourceOptions, () => {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background-color: rgba(17, 20, 26, 0.45);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
@@ -284,7 +284,7 @@ watch(resourceOptions, () => {
   align-items: center;
   flex-wrap: wrap;
   gap: 16px;
-  background-color: rgba(23, 28, 36, 0.5);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   padding: 16px 20px;
   border-radius: 10px;
@@ -293,7 +293,7 @@ watch(resourceOptions, () => {
 .toolbar-title {
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .selectors-group {
@@ -311,9 +311,9 @@ watch(resourceOptions, () => {
 }
 
 .select-custom {
-  background-color: rgba(10, 12, 16, 0.6);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  color: #fff;
+  color: var(--text-primary);
   padding: 6px 12px;
   border-radius: 6px;
   outline: none;
@@ -348,7 +348,7 @@ watch(resourceOptions, () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   padding: 6px 14px;
@@ -360,36 +360,40 @@ watch(resourceOptions, () => {
 }
 
 .btn-brush:hover {
-  background-color: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
   border-color: var(--text-secondary);
 }
 
 .btn-brush.active {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .btn-brush.brush-preferred.active {
   background-color: rgba(16, 185, 129, 0.15);
   border-color: #10b981;
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+  color: #10b981;
 }
 
 .btn-brush.brush-undesirable.active {
   background-color: rgba(245, 158, 11, 0.15);
   border-color: #f59e0b;
   box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+  color: #f59e0b;
 }
 
 .btn-brush.brush-unsuited.active {
   background-color: rgba(239, 68, 68, 0.15);
   border-color: #ef4444;
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
+  color: #ef4444;
 }
 
 .btn-brush.brush-neutral.active {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--bg-surface);
   border-color: #9ca3af;
+  color: var(--text-primary);
 }
 
 .brush-dot {
@@ -459,6 +463,7 @@ watch(resourceOptions, () => {
   justify-content: center;
   transition: all 0.2s;
   position: relative;
+  background-color: var(--bg-card);
 }
 
 .clickable-cell {
@@ -492,7 +497,7 @@ watch(resourceOptions, () => {
 }
 
 .pref-level-neutral {
-  background-color: rgba(255, 255, 255, 0.01) !important;
+  background-color: var(--bg-card) !important;
   color: var(--text-muted);
 }
 

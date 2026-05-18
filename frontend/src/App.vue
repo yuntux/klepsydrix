@@ -1,26 +1,11 @@
 <template>
   <div class="app-container">
-    <!-- Header -->
-    <HeaderControls
-      v-model:activeTab="activeTab"
-      v-model:viewMode="viewMode"
-      v-model:selectedId="selectedId"
-      :divisions="divisions"
-      :teachers="teachers"
-      :classrooms="classrooms"
-      :loading="loading"
-      :scoreData="scoreData"
-      @solve="onSolve"
-      @stop="onStopSolve"
-      @reset="onReset"
-    />
-
     <!-- Vue interactive principale orchestrée par NotebooksTree (T032) -->
     <NotebooksTree @change-leaf="onLeafChange">
       <template #panel="{ panel }">
         <!-- 1. Grille interactive de l'Emploi du Temps -->
-        <main v-if="panel.component === 'TimetableGrid'" class="main-layout">
-          <!-- Panneau latéral (Cours à planifier) -->
+        <div v-if="panel.component === 'TimetableGrid'" class="timetable-tab-wrapper">
+          <!-- Panneau latéral (Cours à planifier) à l'extrême gauche, sur toute la hauteur -->
           <Sidebar
             :courses="courses"
             :teachers="teachers"
@@ -29,23 +14,87 @@
             @selectCourse="toggleCourseSelection"
           />
 
-          <!-- Grille horaire -->
-          <TimetableGrid
-            :courses="courses"
-            :timeslots="timeslots"
-            :teachers="teachers"
-            :divisions="divisions"
-            :classrooms="classrooms"
-            :viewMode="viewMode"
-            :selectedId="selectedId"
-            :loading="loading"
-            :selectedCourseIds="selectedCourseIds"
-            @move="onMoveCourse"
-            @unassign="onUnassignCourse"
-            @togglePin="onTogglePinCourse"
-            @selectCourse="toggleCourseSelection"
-          />
-        </main>
+          <!-- Zone de droite contenant la barre de filtres/actions ET la grille horaire -->
+          <div class="timetable-right-container">
+            <!-- Timetable Top Controls (Filter bar + Reset + Solve) -->
+            <div class="timetable-controls-bar">
+              <div class="filters-bar-wrapper">
+                <div class="filter-item">
+                  <label>Mode de vue :</label>
+                  <select v-model="viewMode" class="select-custom">
+                    <option value="division">Par Classe (Division)</option>
+                    <option value="teacher">Par Enseignant</option>
+                    <option value="classroom">Par Salle</option>
+                  </select>
+                </div>
+
+                <div class="filter-item" v-if="viewMode === 'division'">
+                  <label>Classe :</label>
+                  <select :value="selectedId" @change="selectedId = Number(($event.target as HTMLSelectElement).value)" class="select-custom">
+                    <option v-for="d in divisions" :key="d.id" :value="d.id">{{ d.name }}</option>
+                  </select>
+                </div>
+
+                <div class="filter-item" v-else-if="viewMode === 'teacher'">
+                  <label>Enseignant :</label>
+                  <select :value="selectedId" @change="selectedId = Number(($event.target as HTMLSelectElement).value)" class="select-custom">
+                    <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}</option>
+                  </select>
+                </div>
+
+                <div class="filter-item" v-else-if="viewMode === 'classroom'">
+                  <label>Salle :</label>
+                  <select :value="selectedId" @change="selectedId = Number(($event.target as HTMLSelectElement).value)" class="select-custom">
+                    <option v-for="c in classrooms" :key="c.id" :value="c.id">{{ c.name }} (Cap. {{ c.capacity }})</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Actions principales -->
+              <div class="controls-group">
+                <div class="score-pill" :class="{ 'score-perfect': scoreData && scoreData.hard_score === 0 && scoreData.soft_score === 0, 'score-warning': scoreData && (scoreData.hard_score < 0 || scoreData.soft_score < 0) }" :title="scoreData ? scoreData.summary : 'En attente...'">
+                  Score: {{ scoreData ? scoreData.hard_score : '?' }}H / {{ scoreData ? scoreData.soft_score : '?' }}S
+                </div>
+
+                <button class="btn btn-secondary" @click="onReset" :disabled="loading">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Réinitialiser
+                </button>
+
+                <button v-if="!loading" class="btn btn-primary" @click="onSolve">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 21l8.982-11.795M20.614 4c-.754.902-1.455 1.89-2.115 2.948m-2.115 2.948c-.07.112-.14.224-.21.336m-2.285 3.655A17.228 17.228 0 0 1 8.134 16m-4.82-4.48A17.185 17.185 0 0 1 11.25 8.134m0 0a17.185 17.185 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 0-3.116 7.866m0 0a17.22 17.22 0 0 0-4.819-4.48M12 8.5c.5-1 1.5-1.5 2.5-1.5s2 1 2.5 2c.5 1 .5 2-1 3.5s-2.5 2-3 3.5m0-7.5c-1-1-1.5-2.5-1.5-4s1-3 2.5-3s2.5 1.5 2.5 3c0 1.5-.5 3-1.5 4" />
+                  </svg>
+                  Résolution Auto
+                </button>
+
+                <button v-else class="btn btn-danger" @click="onStopSolve">
+                  <span class="spinner-small"></span>
+                  Arrêter
+                </button>
+              </div>
+            </div>
+
+            <!-- Grille horaire -->
+            <TimetableGrid
+              :courses="courses"
+              :timeslots="timeslots"
+              :teachers="teachers"
+              :divisions="divisions"
+              :classrooms="classrooms"
+              :viewMode="viewMode"
+              :selectedId="selectedId"
+              :loading="loading"
+              :selectedCourseIds="selectedCourseIds"
+              @move="onMoveCourse"
+              @unassign="onUnassignCourse"
+              @togglePin="onTogglePinCourse"
+              @selectCourse="toggleCourseSelection"
+            />
+          </div>
+        </div>
 
         <!-- 2. Grille interactive de saisie des vœux -->
         <main v-else-if="panel.component === 'PreferenceGrid'" class="main-layout">
@@ -73,6 +122,7 @@
             @edit="onEditGeneric"
             @delete="onDeleteGeneric"
             @update-item="onUpdateGenericInline"
+            @row-click="onRowClickGeneric"
           />
         </section>
 
@@ -144,7 +194,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
-import HeaderControls from './components/HeaderControls.vue';
 import Sidebar from './components/Sidebar.vue';
 import TimetableGrid from './components/TimetableGrid.vue';
 import GenericList from './components/GenericList.vue';
@@ -361,6 +410,12 @@ function onEditGeneric(item: any) {
   isEditing.value = true;
   if (!isInlineMode.value) {
     showFormModal.value = true;
+  }
+}
+
+function onRowClickGeneric(item: any) {
+  if (isInlineMode.value) {
+    onEditGeneric(item);
   }
 }
 
@@ -808,7 +863,79 @@ onMounted(() => {
 .admin-layout {
   display: flex;
   background-color: var(--bg-primary);
-  height: calc(100vh - 70px);
+  height: 100%;
+}
+
+.timetable-tab-wrapper {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.timetable-right-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+
+.timetable-controls-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 65px;
+  padding: 0 24px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  box-sizing: border-box;
+  gap: 16px;
+}
+
+.filters-bar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.filters-bar-wrapper .filter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.filters-bar-wrapper .select-custom {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 3px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+
+.filters-bar-wrapper .select-custom:focus {
+  border-color: var(--accent-primary);
+}
+
+.spinner-small {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .admin-sidebar {
@@ -863,7 +990,7 @@ onMounted(() => {
 
 .admin-main-content {
   flex: 1;
-  padding: 24px;
+  padding: 0;
   overflow: hidden;
   position: relative;
 }
@@ -876,5 +1003,13 @@ onMounted(() => {
   height: 100%;
   color: var(--text-secondary);
   gap: 16px;
+}
+
+.inline-form-panel, .panel-content-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 </style>

@@ -141,8 +141,13 @@ const emit = defineEmits<{
 // Copie locale réactive pour éviter de modifier directement le modèle parent avant soumission
 const localModel = ref<Record<string, any>>({});
 
+// Watch props.modelValue pour mettre à jour la copie locale
 watch(() => props.modelValue, (newVal) => {
-  localModel.value = { ...newVal };
+  const cleanNewVal = newVal ? { ...newVal } : {};
+  if (JSON.stringify(cleanNewVal) === JSON.stringify(localModel.value)) return;
+  
+  localModel.value = cleanNewVal;
+  
   // Initialiser les champs booléens et couleur par défaut
   props.fields.forEach(field => {
     if (field.type === 'boolean' && localModel.value[field.key] === undefined) {
@@ -157,6 +162,11 @@ watch(() => props.modelValue, (newVal) => {
   });
 }, { immediate: true, deep: true });
 
+// Synchroniser les saisies locales en temps réel avec le parent pour forcer la réactivité du bouton d'ajout
+watch(localModel, (newVal) => {
+  if (JSON.stringify(newVal) === JSON.stringify(props.modelValue)) return;
+  emit('update:modelValue', { ...newVal });
+}, { deep: true });
 
 function handleSubmit() {
   emit('update:modelValue', localModel.value);
@@ -185,7 +195,7 @@ function handleSubmit() {
   max-width: 95%;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 14px;
+  border-radius: 6px;
   overflow: visible;
   box-shadow: var(--shadow-lg), 0 0 30px rgba(99, 102, 241, 0.15);
   display: flex;
@@ -198,13 +208,13 @@ function handleSubmit() {
   align-items: center;
   padding: 18px 24px;
   border-bottom: 1px solid var(--border-color);
-  background-color: rgba(23, 28, 36, 0.5);
+  background-color: var(--bg-surface);
 }
 
 .form-title {
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .btn-close {
@@ -218,7 +228,7 @@ function handleSubmit() {
 }
 
 .btn-close:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .form-body {
@@ -258,11 +268,11 @@ function handleSubmit() {
 }
 
 .form-input, .form-select {
-  background-color: rgba(10, 12, 16, 0.6);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 10px 14px;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 14px;
   outline: none;
   font-family: var(--font-sans);
@@ -356,7 +366,7 @@ input:checked + .slider:before {
 }
 
 .glass-morphism {
-  background: rgba(32, 38, 50, 0.85);
+  background: var(--bg-card);
   backdrop-filter: blur(12px);
 }
 

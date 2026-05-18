@@ -159,12 +159,12 @@ defineEmits<{
 }
 
 .nav-tab:hover {
-  color: #fff;
-  background-color: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
 }
 
 .nav-tab.active {
-  color: #fff;
+  color: var(--text-primary);
   background-color: var(--bg-card);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-color);
@@ -180,9 +180,9 @@ defineEmits<{
   margin-right: 1rem;
   cursor: help;
   transition: all 0.2s;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .score-perfect {

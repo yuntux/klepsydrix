@@ -93,7 +93,7 @@ defineEmits<{
   max-width: 580px;
   background: rgba(30, 36, 48, 0.95);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  border-radius: 16px;
+  border-radius: 6px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
   padding: 24px;
   display: flex;
@@ -131,7 +131,7 @@ defineEmits<{
   background-color: rgba(239, 68, 68, 0.15);
   color: #f87171;
   padding: 12px;
-  border-radius: 12px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -209,7 +209,7 @@ defineEmits<{
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background-color: rgba(10, 12, 16, 0.35);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -223,7 +223,7 @@ defineEmits<{
   padding: 10px 12px;
   background-color: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 4px;
   transition: background-color 0.2s;
 }
 
@@ -258,7 +258,7 @@ defineEmits<{
   color: #818cf8;
   border: 1px solid rgba(99, 102, 241, 0.25);
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: 3px;
   font-size: 11px;
   font-weight: 600;
 }
@@ -284,7 +284,7 @@ defineEmits<{
   justify-content: center;
   gap: 8px;
   padding: 10px 20px;
-  border-radius: 10px;
+  border-radius: 4px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;

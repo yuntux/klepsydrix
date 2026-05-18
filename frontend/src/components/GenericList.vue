@@ -1,46 +1,5 @@
 <template>
   <div class="generic-list-container">
-    <!-- Barre d'outils supérieure -->
-    <div class="list-toolbar">
-      <div class="toolbar-left">
-        <h3 class="toolbar-title">{{ title }}</h3>
-        <span class="toolbar-badge">{{ filteredItems.length }} éléments</span>
-      </div>
-      <div class="toolbar-right">
-        <!-- Sélecteur de colonnes -->
-        <div class="column-selector-wrapper" ref="dropdownRef">
-          <button class="btn btn-secondary btn-sm" @click="toggleDropdown">
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon-selector" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-            </svg>
-            Colonnes
-          </button>
-          
-          <div v-if="showDropdown" class="column-dropdown glass-morphism">
-            <div class="dropdown-header">Affichage des colonnes</div>
-            <div class="dropdown-list">
-              <label v-for="col in internalColumns" :key="col.key" class="dropdown-item">
-                <input 
-                  type="checkbox" 
-                  :checked="col.visible" 
-                  @change="toggleColumnVisibility(col.key)"
-                />
-                <span>{{ col.label }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Bouton Ajouter -->
-        <button class="btn btn-primary btn-sm" @click="$emit('add')">
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          Ajouter
-        </button>
-      </div>
-    </div>
-
     <!-- Conteneur de table avec scroll -->
     <div class="table-wrapper">
       <table class="premium-table">
@@ -71,7 +30,33 @@
                 @mousedown.stop.prevent="startResize($event, col.key)"
               ></div>
             </th>
-            <th class="header-th actions-th">Actions</th>
+            <th class="header-th actions-th">
+              <div class="actions-header-wrapper" style="justify-content: flex-end;">
+                
+                <!-- Sélecteur de colonnes (déplacé dans l'en-tête Action) -->
+                <div class="column-selector-wrapper" ref="dropdownRef">
+                  <button class="btn-icon-only-flat" @click.stop="toggleDropdown" title="Gérer les colonnes">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon-columns-settings" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                    </svg>
+                  </button>
+                  
+                  <div v-if="showDropdown" class="column-dropdown glass-morphism">
+                    <div class="dropdown-header">Affichage des colonnes</div>
+                    <div class="dropdown-list">
+                      <label v-for="col in internalColumns" :key="col.key" class="dropdown-item">
+                        <input 
+                          type="checkbox" 
+                          :checked="col.visible" 
+                          @change="toggleColumnVisibility(col.key)"
+                        />
+                        <span>{{ col.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </th>
           </tr>
 
           <!-- Ligne de filtrage / recherche spécifique par colonne -->
@@ -96,6 +81,18 @@
         </thead>
         
         <tbody>
+          <!-- Ligne virtuelle interactive "+ Ajouter une ligne" -->
+          <tr class="add-row-tr" @click="$emit('add')">
+            <td :colspan="visibleColumns.length + 1" class="add-row-td">
+              <div class="add-row-wrapper">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Ajouter une ligne...</span>
+              </div>
+            </td>
+          </tr>
+
           <tr v-if="paginatedItems.length === 0" class="empty-tr">
             <td :colspan="visibleColumns.length + 1" class="empty-td">
               Aucune donnée à afficher.
@@ -105,6 +102,7 @@
             v-for="item in paginatedItems" 
             :key="item.id" 
             class="body-tr"
+            @click="onRowClick(item, $event)"
           >
             <td 
               v-for="col in visibleColumns" 
@@ -180,12 +178,7 @@
             </td>
             <td class="body-td actions-td">
               <div class="actions-group">
-                <button class="btn-action btn-edit" @click="$emit('edit', item)">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button class="btn-action btn-delete" @click="$emit('delete', item)">
+                <button class="btn-action btn-delete" @click.stop="$emit('delete', item)" title="Supprimer">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
@@ -200,6 +193,7 @@
     <!-- Système de Pagination -->
     <div class="list-pagination">
       <div class="pagination-left">
+        <span class="toolbar-badge">{{ filteredItems.length }} éléments</span>
         <label class="per-page-selector">
           Afficher
           <select v-model="perPage" class="select-custom">
@@ -286,7 +280,22 @@ const emit = defineEmits<{
   (e: 'edit', item: any): void;
   (e: 'delete', item: any): void;
   (e: 'update-item', item: any): void;
+  (e: 'row-click', item: any): void;
 }>();
+
+function onRowClick(item: any, event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (
+    target.closest('input') || 
+    target.closest('select') || 
+    target.closest('button') || 
+    target.closest('.inline-color-swatch-wrapper') || 
+    target.closest('.btn-action')
+  ) {
+    return;
+  }
+  emit('row-click', item);
+}
 
 function getFieldDef(key: string): FormField | undefined {
   return props.fields?.find(f => f.key === key);
@@ -527,9 +536,9 @@ function onDrop(event: DragEvent, index: number) {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background-color: rgba(17, 20, 26, 0.45);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   overflow: visible;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
@@ -541,7 +550,7 @@ function onDrop(event: DragEvent, index: number) {
   align-items: center;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
-  background-color: rgba(23, 28, 36, 0.5);
+  background-color: var(--bg-surface);
 }
 
 .toolbar-left {
@@ -553,7 +562,7 @@ function onDrop(event: DragEvent, index: number) {
 .toolbar-title {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .toolbar-badge {
@@ -589,7 +598,7 @@ function onDrop(event: DragEvent, index: number) {
   width: 220px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: var(--shadow-lg);
   z-index: 100;
   padding: 12px;
@@ -630,7 +639,7 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .dropdown-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--bg-secondary);
 }
 
 .dropdown-item input[type="checkbox"] {
@@ -654,23 +663,23 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .header-tr {
-  background-color: rgba(23, 28, 36, 0.7);
+  background-color: var(--bg-surface);
   border-bottom: 2px solid var(--border-color);
 }
 
 .header-th {
   position: sticky;
   top: 0;
-  background-color: rgba(23, 28, 36, 0.85);
+  background-color: var(--bg-surface);
   backdrop-filter: blur(8px);
   z-index: 10;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
-  padding: 12px 16px;
+  padding: 8px 16px;
   position: relative;
   user-select: none;
-  border-right: 1px solid rgba(255, 255, 255, 0.03);
+  border-right: 1px solid var(--border-color);
 }
 
 .th-content {
@@ -682,7 +691,7 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .th-content:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .th-label {
@@ -719,22 +728,22 @@ function onDrop(event: DragEvent, index: number) {
 
 /* Filtres */
 .filter-tr {
-  background-color: rgba(17, 20, 26, 0.6);
+  background-color: var(--bg-surface);
 }
 
 .filter-td {
   padding: 6px 12px;
   border-bottom: 1px solid var(--border-color);
-  border-right: 1px solid rgba(255, 255, 255, 0.03);
+  border-right: 1px solid var(--border-color);
 }
 
 .filter-input {
   width: 100%;
-  background-color: rgba(10, 12, 16, 0.5);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 3px;
   padding: 5px 10px;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 12px;
   outline: none;
   font-family: var(--font-sans);
@@ -749,20 +758,21 @@ function onDrop(event: DragEvent, index: number) {
 .body-tr {
   border-bottom: 1px solid var(--border-color);
   transition: background-color var(--transition-fast);
+  background-color: var(--bg-card);
 }
 
 .body-tr:hover {
-  background-color: rgba(255, 255, 255, 0.015);
+  background-color: var(--bg-secondary);
 }
 
 .body-td {
-  padding: 14px 16px;
+  padding: 0;
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-right: 1px solid rgba(255, 255, 255, 0.02);
+  border-right: 1px solid var(--border-color);
 }
 
 .empty-td {
@@ -778,7 +788,7 @@ function onDrop(event: DragEvent, index: number) {
   text-align: center;
   position: sticky;
   right: 0;
-  background-color: rgba(23, 28, 36, 0.85);
+  background-color: var(--bg-surface);
   z-index: 11;
   border-left: 1px solid var(--border-color);
 }
@@ -788,7 +798,7 @@ function onDrop(event: DragEvent, index: number) {
   text-align: center;
   position: sticky;
   right: 0;
-  background-color: rgba(20, 26, 34, 0.95);
+  background-color: var(--bg-card);
   backdrop-filter: blur(8px);
   z-index: 9;
   border-left: 1px solid var(--border-color);
@@ -805,7 +815,7 @@ function onDrop(event: DragEvent, index: number) {
   border: none;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: 3px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -854,10 +864,10 @@ function onDrop(event: DragEvent, index: number) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 20px;
+  padding: 4px 12px;
   border-top: 1px solid var(--border-color);
-  background-color: rgba(23, 28, 36, 0.5);
-  font-size: 13px;
+  background-color: var(--bg-surface);
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -868,19 +878,21 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .select-custom {
-  background-color: rgba(10, 12, 16, 0.6);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 2px 6px;
+  border-radius: 3px;
   outline: none;
   cursor: pointer;
+  height: 22px;
+  font-size: 11px;
 }
 
 .pagination-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .pagination-buttons {
@@ -889,22 +901,37 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .btn-icon-only {
-  width: 32px;
-  height: 32px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 11px;
+  font-weight: bold;
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-only:hover:not(:disabled) {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
 }
 
 .btn-icon-only:disabled {
-  opacity: 0.3;
+  opacity: 0.25;
   cursor: not-allowed;
+  border-color: var(--border-color);
+  color: var(--text-muted);
 }
 
 .glass-morphism {
-  background: rgba(32, 38, 50, 0.85);
+  background: var(--bg-card);
   backdrop-filter: blur(12px);
 }
 
@@ -913,7 +940,8 @@ function onDrop(event: DragEvent, index: number) {
   color: var(--text-muted);
   font-family: monospace;
   font-weight: 600;
-  padding: 4px 8px;
+  padding: 6px 10px;
+  display: block;
 }
 
 .inline-input, .inline-select {
@@ -922,7 +950,7 @@ function onDrop(event: DragEvent, index: number) {
   border: 1px solid transparent;
   color: var(--text-primary);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 3px;
   outline: none;
   font-family: var(--font-sans);
   font-size: 13px;
@@ -930,12 +958,12 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .inline-input:hover, .inline-select:hover {
-  background-color: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
 }
 
 .inline-input:focus, .inline-select:focus {
-  background-color: rgba(10, 12, 16, 0.7);
+  background-color: var(--bg-card);
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
@@ -949,8 +977,8 @@ function onDrop(event: DragEvent, index: number) {
 
 .inline-color-select {
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
   padding: 4px 8px;
   font-family: monospace;
   font-size: 12px;
@@ -959,7 +987,7 @@ function onDrop(event: DragEvent, index: number) {
   outline: none;
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -969,11 +997,11 @@ function onDrop(event: DragEvent, index: number) {
 .inline-color-select:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: var(--accent-primary);
 }
 
 .inline-color-select:focus {
-  border-color: #fff;
+  border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px var(--accent-primary);
 }
 
@@ -990,6 +1018,13 @@ function onDrop(event: DragEvent, index: number) {
   display: flex;
   align-items: center;
   height: 28px;
+  padding: 0 10px;
+}
+
+.inline-color-swatch-wrapper {
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
 }
 
 .inline-switch {
@@ -1044,5 +1079,62 @@ input:checked + .inline-slider:before {
 
 .inline-slider.inline-round:before {
   border-radius: 50%;
+}
+
+/* Nouveaux styles IHM optimisés */
+.actions-header-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.btn-icon-only-flat {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-only-flat:hover {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+}
+
+.pagination-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.add-row-tr {
+  background-color: rgba(99, 102, 241, 0.03);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.add-row-tr:hover {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
+.add-row-td {
+  padding: 8px 16px;
+}
+
+.add-row-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-primary);
+  font-size: 13px;
+  font-weight: 600;
 }
 </style>

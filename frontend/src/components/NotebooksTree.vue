@@ -129,12 +129,12 @@ function getTabStyle(tab: NotebookNode, isActive: boolean) {
       styles['border-bottom'] = 'none';
     } else if (tab.borderColor) {
       styles['border-top'] = `4px solid ${tab.borderColor}`;
-      styles['color'] = '#1E293B';
+      styles['color'] = 'var(--text-primary)';
     }
   } else {
     // Onglet inactif
     if (tab.backgroundColor) {
-      styles['border-bottom'] = `1px solid #E2E8F0`;
+      styles['border-bottom'] = `1px solid var(--border-color)`;
     }
   }
   
@@ -154,14 +154,14 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: calc(100vh - 70px);
-  background-color: #F8FAFC; /* Arrière-plan clair par défaut */
+  height: 100vh;
+  background-color: var(--bg-primary); /* Arrière-plan standard clair */
 }
 
 /* Wrappers des barres d'onglets pour une finition ultra premium */
 .tabs-level-1-wrapper {
-  background-color: #E2E8F0; /* Arrière-plan slate-200 pour le relief */
-  border-bottom: 1px solid #CBD5E1;
+  background-color: var(--bg-secondary); /* Relief avec la seconde teinte */
+  border-bottom: 1px solid var(--border-color);
   padding: 8px 16px 0 16px;
 }
 
@@ -174,12 +174,12 @@ onMounted(() => {
   padding: 10px 20px;
   font-size: 14px;
   font-weight: 500;
-  color: #64748B;
-  background-color: #F1F5F9;
-  border: 1px solid #CBD5E1;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-bottom: none;
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
   cursor: pointer;
   outline: none;
   transition: all 0.2s ease;
@@ -188,23 +188,23 @@ onMounted(() => {
 }
 
 .tab-btn-l1:hover {
-  background-color: #FFFFFF;
-  color: #1E293B;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .tab-btn-l1.active {
-  background-color: #F8FAFC;
-  color: #2563EB; /* Blue-600 */
+  background-color: var(--bg-primary);
+  color: var(--accent-primary);
   font-weight: 600;
-  border-color: #CBD5E1;
-  border-bottom: 1px solid #F8FAFC; /* Effet d'onglet fusionné */
+  border-color: var(--border-color);
+  border-bottom: 1px solid var(--bg-primary); /* Effet d'onglet fusionné */
   z-index: 2;
 }
 
 /* Onglets de niveau 2 (paramètres imbriqués) */
 .tabs-level-2-wrapper {
-  background-color: #F1F5F9; /* Gris très clair */
-  border-bottom: 1px solid #E2E8F0;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
   padding: 6px 16px 0 16px;
 }
 
@@ -217,12 +217,12 @@ onMounted(() => {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: #64748B;
-  background-color: #F8FAFC;
-  border: 1px solid #E2E8F0;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-bottom: none;
-  border-top-left-radius: 6px;
-  border-top-right-radius: 6px;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
   cursor: pointer;
   outline: none;
   transition: all 0.2s ease;
@@ -231,16 +231,16 @@ onMounted(() => {
 }
 
 .tab-btn-l2:hover {
-  background-color: #FFFFFF;
-  color: #1E293B;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .tab-btn-l2.active {
-  background-color: #F8FAFC;
-  color: #1E293B;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   font-weight: 600;
-  border-color: #E2E8F0;
-  border-bottom: 1px solid #F8FAFC;
+  border-color: var(--border-color);
+  border-bottom: 1px solid var(--bg-primary);
   z-index: 2;
 }
 
@@ -249,7 +249,7 @@ onMounted(() => {
   flex: 1;
   overflow: hidden;
   position: relative;
-  background-color: #F8FAFC;
+  background-color: var(--bg-primary);
 }
 
 .empty-state {
@@ -258,15 +258,15 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #64748B;
+  color: var(--text-secondary);
   gap: 12px;
 }
 
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #CBD5E1;
-  border-top-color: #2563EB;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }

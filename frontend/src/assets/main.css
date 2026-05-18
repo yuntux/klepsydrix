@@ -129,13 +129,13 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
-  height: calc(100vh - 70px);
+  height: 100%;
 }
 
 /* Sidebar */
 .app-sidebar {
   width: 320px;
-  background-color: rgba(23, 28, 36, 0.65);
+  background-color: var(--bg-surface);
   backdrop-filter: blur(16px);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -144,8 +144,12 @@ body {
 }
 
 .sidebar-header {
-  padding: 20px;
+  height: 65px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 
 .sidebar-title {
@@ -180,7 +184,7 @@ body {
 .course-card {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 14px;
   cursor: grab;
   position: relative;
@@ -203,7 +207,7 @@ body {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 6px;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .course-meta {
@@ -232,7 +236,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 24px;
+  padding: 0;
   gap: 16px;
 }
 
@@ -240,7 +244,7 @@ body {
   flex: 1;
   overflow: auto;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 4px;
   background-color: var(--bg-secondary);
   box-shadow: var(--shadow-lg);
   position: relative;
@@ -293,13 +297,13 @@ body {
 .grid-cell {
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
-  background-color: rgba(23, 28, 36, 0.2);
+  background-color: var(--bg-card);
   position: relative;
   transition: background-color var(--transition-fast);
 }
 
 .grid-cell:hover {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--bg-surface);
 }
 
 /* Drag Over Animation */
@@ -317,7 +321,7 @@ body {
   left: 4px;
   right: 4px;
   bottom: 4px;
-  border-radius: 8px;
+  border-radius: 3px;
   padding: 8px;
   font-size: 12px;
   display: flex;
@@ -376,7 +380,7 @@ body {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 10px 18px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -389,7 +393,7 @@ body {
 
 .btn:hover {
   border-color: var(--text-secondary);
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--bg-secondary);
 }
 
 .btn-primary {
@@ -428,14 +432,13 @@ body {
   background-color: rgba(239, 68, 68, 0.08);
 }
 
-/* Loader overlay */
 .loader-overlay {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(10, 12, 16, 0.75);
+  background-color: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(4px);
   display: flex;
   flex-direction: column;
@@ -479,10 +482,10 @@ body {
 .notification {
   background-color: var(--bg-surface);
   border-left: 4px solid var(--accent-primary);
-  box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 0, 0, 0.4);
-  border-radius: 8px;
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
   padding: 16px;
-  color: #fff;
+  color: var(--text-primary);
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -526,7 +529,7 @@ body {
   gap: 16px;
   background-color: var(--bg-secondary);
   padding: 12px 18px;
-  border-radius: 10px;
+  border-radius: 4px;
   border: 1px solid var(--border-color);
 }
 
@@ -541,9 +544,9 @@ body {
 .select-custom {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  color: #fff;
+  color: var(--text-primary);
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 3px;
   font-family: var(--font-sans);
   font-size: 13px;
   cursor: pointer;
