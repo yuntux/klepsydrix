@@ -167,6 +167,130 @@
                           "readOnly": true
                         }
                       ]
+                    },
+                    {
+                      "type": "newline"
+                    },
+                    {
+                      "type": "separator",
+                      "string": "Contraintes Règlementaires"
+                    },
+                    {
+                      "type": "group",
+                      "string": "Max Horaire [M]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_hours_per_day",
+                          "overrideLabel": "Journée (heures)",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_hours_per_am",
+                          "overrideLabel": "Matin (heures)",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_hours_per_pm",
+                          "overrideLabel": "Après-midi (heures)",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Maximum Présentiel [P]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_presence_days_per_week",
+                          "overrideLabel": "Jours max / sem.",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_presence_hours_per_day",
+                          "overrideLabel": "Journées d'au plus (h)",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Horaires Aménagés [A]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "late_start_days_per_week",
+                          "overrideLabel": "Démarrage tardif (jours / sem.)",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "late_start_time",
+                          "overrideLabel": "Commencer au plus tôt à",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "early_end_days_per_week",
+                          "overrideLabel": "Fin précoce (jours / sem.)",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "early_end_time",
+                          "overrideLabel": "Terminer au plus tard à",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Plages Libres Garanties [G]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "min_free_days_per_week",
+                          "overrideLabel": "Journées libres garanties",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "min_free_half_days_per_week",
+                          "overrideLabel": "Demi-journées libres gar.",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Maximum Demi-Journées de Travail [J]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_worked_am_per_week",
+                          "overrideLabel": "Matinées max travaillées",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_worked_pm_per_week",
+                          "overrideLabel": "Après-midis max travaillées",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "only_one_half_day_per_day",
+                          "overrideLabel": "Ne travailler qu'une demi-journée/jour",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Préférences d'Optimisation",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_gap_hours_per_week",
+                          "overrideLabel": "Nombre d'heures de trous tolérées",
+                          "readOnly": false
+                        }
+                      ]
                     }
                   ]
                 }

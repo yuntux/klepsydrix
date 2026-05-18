@@ -662,7 +662,23 @@ const formFieldsConfig = computed(() => {
       { key: 'last_name', label: 'Nom de famille', type: 'text', placeholder: 'ex: Dupont' },
       { key: 'name', label: 'Nom d\'usage complet', type: 'text', required: true, placeholder: 'ex: M. Dupont' },
       { key: 'max_weekly_hours', label: 'Heures max hebdomadaires', type: 'number', min: 1, max: 40, step: '0.5' },
-      { key: 'school_id', label: 'Établissement Principal', type: 'select', required: true, options: schoolOptions }
+      { key: 'school_id', label: 'Établissement Principal', type: 'select', required: true, options: schoolOptions },
+      // Contraintes (US3 / Preferences)
+      { key: 'max_hours_per_day', label: 'Max Heures par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
+      { key: 'max_hours_per_am', label: 'Max Heures par Matinée', type: 'number', min: 0, max: 8, step: '0.5' },
+      { key: 'max_hours_per_pm', label: 'Max Heures par Après-midi', type: 'number', min: 0, max: 8, step: '0.5' },
+      { key: 'max_presence_days_per_week', label: 'Max Jours Présence par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'max_presence_hours_per_day', label: 'Max Heures Présence par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
+      { key: 'late_start_days_per_week', label: 'Jours de démarrage tardif par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'text', placeholder: 'ex: 09:00' },
+      { key: 'early_end_days_per_week', label: 'Jours de fin précoce par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'text', placeholder: 'ex: 16:30' },
+      { key: 'min_free_days_per_week', label: 'Jours libres minimum par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'min_free_half_days_per_week', label: 'Demi-jours libres minimum par Semaine', type: 'number', min: 0, max: 12 },
+      { key: 'max_worked_am_per_week', label: 'Max Matinées travaillées par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'max_worked_pm_per_week', label: 'Max Après-midis travaillées par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'only_one_half_day_per_day', label: 'Ne travailler qu\'une demi-journée par jour', type: 'boolean' },
+      { key: 'max_gap_hours_per_week', label: 'Max heures creuses (trous) par Semaine', type: 'number', min: 0, max: 20 }
     ];
   } else if (model === 'divisions') {
     return [

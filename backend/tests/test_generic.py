@@ -154,3 +154,62 @@ def test_generic_dynamic_method_execution(db_session: Session):
     assert response.status_code == 200
     assert response.json() == "Bienvenue à Ecole Test Dynamique"
 
+
+def test_teacher_constraints_crud(db_session: Session):
+    # 1. Créer un établissement requis pour le prof
+    school = School(uai="9999999Z", name="Lycée de la Forêt", standard_timeslot_duration=30)
+    db_session.add(school)
+    db_session.commit()
+    db_session.refresh(school)
+    
+    # 2. Créer un prof avec des contraintes via POST generic
+    teacher_payload = {
+        "code": "MARTINEZ.P",
+        "first_name": "Pedro",
+        "last_name": "Martinez",
+        "name": "M. Martinez",
+        "max_weekly_hours": 18.0,
+        "school_id": school.id,
+        # Contraintes:
+        "max_hours_per_day": 8.0,
+        "max_hours_per_am": 4.0,
+        "max_presence_days_per_week": 4,
+        "late_start_time": "09:00",
+        "only_one_half_day_per_day": True,
+        "max_gap_hours_per_week": 1
+    }
+    response = client.post("/api/generic/teachers", json=teacher_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("id") is not None
+    assert data["max_hours_per_day"] == 8.0
+    assert data["max_hours_per_am"] == 4.0
+    assert data["max_presence_days_per_week"] == 4
+    assert data["late_start_time"] == "09:00"
+    assert data["only_one_half_day_per_day"] is True
+    assert data["max_gap_hours_per_week"] == 1
+    
+    teacher_id = data["id"]
+    
+    # 3. Mettre à jour les contraintes via PUT generic
+    update_payload = {
+        "max_hours_per_day": 7.0,
+        "late_start_time": "10:00",
+        "only_one_half_day_per_day": False
+    }
+    response = client.put(f"/api/generic/teachers/{teacher_id}", json=update_payload)
+    assert response.status_code == 200
+    updated_data = response.json()
+    assert updated_data["max_hours_per_day"] == 7.0
+    assert updated_data["late_start_time"] == "10:00"
+    assert updated_data["only_one_half_day_per_day"] is False
+    
+    # 4. Charger via GET generic pour s'assurer que c'est bien persistant
+    response = client.get(f"/api/generic/teachers/{teacher_id}")
+    assert response.status_code == 200
+    fetched_data = response.json()
+    assert fetched_data["max_hours_per_day"] == 7.0
+    assert fetched_data["late_start_time"] == "10:00"
+    assert fetched_data["only_one_half_day_per_day"] is False
+
+

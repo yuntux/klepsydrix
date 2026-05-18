@@ -48,9 +48,18 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
     if obj is None:
         return {}
     
-    fields = getattr(obj, "_fields", None)
-    if fields is None and hasattr(obj, "__table__"):
+    fields = []
+    if hasattr(obj, "__table__"):
         fields = [c.name for c in obj.__table__.columns]
+        
+    extra_fields = getattr(obj, "_fields", None)
+    if extra_fields:
+        # Pour un TransientModel, _fields est la source principale, pour les autres c'est en plus des colonnes
+        from backend.app.models.base import TransientModel
+        if isinstance(obj, TransientModel):
+            fields = list(extra_fields)
+        else:
+            fields = list(set(fields + list(extra_fields)))
         
     if not fields:
         return {}
@@ -84,6 +93,10 @@ def make_pydantic_model(model, all_optional=False):
             fields[column.name] = (Optional[py_type], None)
         else:
             fields[column.name] = (py_type, ...)
+            
+    # Inclure également les champs virtuels dans le schéma Pydantic
+    for field in getattr(model, "_fields", []):
+        fields[field] = (Optional[Any], None)
             
     suffix = "UpdatePayload" if all_optional else "CreatePayload"
     return create_model(f"{model.__name__}{suffix}", **fields)
@@ -161,8 +174,13 @@ def clean_payload(model, payload_dict: dict) -> dict:
         
     cleaned = {}
     valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
+    extra_fields = getattr(model, "_fields", [])
+    all_keys = valid_keys + extra_fields
     for k, v in payload_dict.items():
-        if k in valid_keys and v is not None:
+        if k in all_keys and v is not None:
+            if k in extra_fields:
+                cleaned[k] = v
+                continue
             column_type = model.__table__.columns[k].type
             if str(column_type) == "DATE" and v:
                 cleaned[k] = date.fromisoformat(v) if isinstance(v, str) else v
