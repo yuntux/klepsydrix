@@ -82,6 +82,22 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 2. **Given** une ressource affectée à un cours sur un créneau marqué en rouge pour elle, **When** le solveur tente de placer le cours, **Then** une contrainte dure (Hard Constraint) bloque ce placement.
 3. **Given** une ressource affectée à un cours sur un créneau marqué en orange ou vert, **When** le solveur arbitre la solution, **Then** le score souple (Soft Constraint) est respectivement pénalisé ou récompensé en fonction de la préférence.
 
+### User Story 5 - Navigation fluide et structurée via Notebooks Imbriqués et Multi-panneaux (Priority: P2)
+
+En tant que planificateur, je veux naviguer dans l'application via une interface structurée sous forme d'onglets (notebooks) imbriqués configurables dynamiquement, et pouvoir diviser mes écrans de travail les plus bas en plusieurs panneaux redimensionnables verticalement par glisser-déposer, afin de visualiser et d'éditer simultanément différentes données du socle (par exemple, afficher la liste des enseignants à côté de leur formulaire d'édition).
+
+**Why this priority**: Cette ergonomie moderne élimine la navigation complexe par menus séparés, améliore la productivité en permettant le multi-panneaux côte à côte (ex: liste + formulaire), et standardise le squelette visuel complet de l'application sous forme de configuration déclarative.
+
+**Independent Test**:
+Charger une configuration JSON décrivant un arbre de notebooks avec au niveau 1 "Emploi du temps" (pleine largeur) et "Paramètres". Dans "Paramètres", accéder au sous-onglet "Enseignants" divisé verticalement en 2 panneaux : la liste générique à gauche et le formulaire générique à droite. Cliquer sur la barre de séparation entre les deux panneaux et la faire glisser pour modifier leur largeur respective. Vérifier que la nouvelle largeur est appliquée de façon fluide.
+
+**Acceptance Scenarios**:
+
+1. **Given** une structure JSON de configuration valide fournie à l'application, **When** l'application démarre, **Then** elle génère dynamiquement l'arbre complet des onglets à un ou plusieurs niveaux de profondeur, avec le titre, la couleur de fond ou la couleur de liseré supérieur définie pour chaque onglet.
+2. **Given** un onglet feuille contenant plusieurs panneaux verticaux juxtaposés, **When** l'utilisateur clique-glisse sur la barre de séparation (splitter) située entre deux panneaux, **Then** la largeur des deux panneaux adjacents est mise à jour dynamiquement selon la position de la souris sans altérer leur rendu fonctionnel.
+3. **Given** un onglet avec fond coloré défini dans le JSON, **When** l'onglet est rendu à l'écran, **Then** son en-tête affiche la couleur de fond spécifiée et son texte s'affiche en gras et en blanc.
+4. **Given** un onglet avec liseré supérieur coloré défini dans le JSON, **When** l'onglet est rendu à l'écran, **Then** son en-tête affiche une bordure supérieure colorée de la couleur spécifiée.
+
 ---
 
 ### Edge Cases
@@ -112,9 +128,20 @@ Concernant le composant `GenericList`, il est fortement recommandé d'intégrer 
 - **FR-009**: **Objet Cours, Durée et Attributs Métiers** : Chaque cours doit porter des attributs propres définis en amont de son placement : une durée (exprimée en nombre de créneaux élémentaires ou minutes), un libellé (généré dynamiquement à partir des ressources rattachées), un mémo (texte libre) et une planification sur la grille horaire via des séances rattachées (0 ou 1 créneau de départ, avec extension contiguë sur la durée du cours).
 - **FR-010**: **Données de Démo Réalistes** : La base de données SQLite doit être alimentée par défaut avec un jeu d'essai réaliste et complet couvrant les 9 types de ressources rattachables, plusieurs cours complexes N-à-N créés, et des grilles de vœux pré-remplies (avec créneaux rouges, oranges, verts) pour plusieurs profs/salles, afin de permettre un test direct.
 - **FR-011**: **Filtrage Multi-Établissement (Cité Scolaire)** : L'interface utilisateur doit proposer un menu déroulant global permettant de sélectionner l'établissement actif (ex: Collège). La grille et les listes n'affichent par défaut que les ressources (classes, cours) de l'établissement actif, tout en préservant la protection contre les conflits et la visibilité des ressources partagées (professeurs, salles communes).
+- **FR-012**: **Notebooks Imbriqués Génériques par Configuration JSON** : L'application doit structurer son ergonomie globale sous forme d'un arbre d'onglets (notebooks) à plusieurs niveaux de profondeur. Ce composant de navigation et de mise en page doit être entièrement générique et alimenté par une structure JSON décrivant l'arbre complet des onglets, leurs titres, leurs attributs de style (couleur de fond, liseré supérieur) et les panneaux qu'ils contiennent.
+- **FR-013**: **Affichage Multi-Panneaux Verticaux** : Lorsqu'un onglet se situe au niveau le plus bas de la hiérarchie (une feuille de l'arbre), il peut être divisé verticalement en 1 à N panneaux. Chaque panneau doit pouvoir afficher au choix :
+  1. Un composant liste générique (`GenericList`)
+  2. Un composant formulaire générique (`GenericForm`)
+  3. L'un des composants personnalisés de l'application (comme la grille d'emploi du temps `TimetableGrid` ou la grille de saisie des vœux/contraintes `PreferenceGrid`).
+- **FR-014**: **Redimensionnement Dynamique des Panneaux (Splitter)** : Lorsqu'un onglet contient plusieurs panneaux verticaux juxtaposés, une barre de redimensionnement vertical (splitter) doit séparer chaque panneau. L'utilisateur doit pouvoir cliquer sur cette barre et la faire glisser (drag-and-drop) pour modifier en temps réel et de manière fluide la largeur des panneaux adjacents.
+- **FR-015**: **Personnalisation Visuelle des Onglets via la Configuration JSON** : Chaque onglet défini dans la structure JSON de configuration peut porter des attributs de style spécifiques pour son en-tête (titre) :
+  - **Option Fond Coloré** : L'en-tête de l'onglet est entièrement rempli avec une couleur de fond spécifiée. Le texte du titre de l'onglet s'affiche alors automatiquement en blanc et en gras.
+  - **Option Liseré Supérieur Coloré** : L'en-tête de l'onglet conserve son fond neutre mais affiche un liseré (bordure supérieure colorée) d'une épaisseur de quelques pixels de la couleur spécifiée dans le JSON.
+- **FR-016**: **Thème Général Clair bg-gray-300** : Le thème visuel de l'application doit être unifié vers une apparence claire et premium. L'arrière-plan de l'application doit utiliser un ton gris/blanc cassé doux correspondant à la teinte standard de design `bg-gray-300` (ou son équivalent hexadécimal/HSL clair), offrant un excellent contraste avec les textes sombres et les onglets colorés.
 
 
 ### Key Entities
+
 
 - **Course (Cours)** : Le conteneur logique de planification. Il peut être de deux types :
   *   **Cours Simple** : Composé d'une seule **Séance** (Session).
@@ -452,9 +479,123 @@ Délimite les conditions de travail des élèves d'une division (classe entière
 Gère les contraintes logistiques liées aux déplacements des professeurs ou élèves sur les différents campus :
 *   `max_travel_trips_per_day` : Nombre maximum de déplacements / trajets inter-sites autorisés par jour pour une même ressource (enseignant ou division/élèves) (Entier, optionnel). Si le nombre de déplacements réels dépasse ce seuil lors de la planification d'un jour donné, une alerte est levée ou le placement automatique échoue.
 
+### 16. Configuration JSON de l'Arbre des Notebooks
+La structure générale de l'interface de l'application est définie par un arbre JSON de configuration dynamique. Cet arbre est composé de nœuds (Notebooks) de niveau 1 à N, où les feuilles décrivent la disposition des panneaux de travail.
+
+**Schéma de la structure JSON d'un nœud d'onglet :**
+*   `id` : Identifiant unique de l'onglet (Chaîne, ex: "timetable", "settings_teachers")
+*   `title` : Titre textuel affiché sur l'onglet (Chaîne, ex: "Emploi du temps", "Enseignants")
+*   `backgroundColor` : Code couleur (hexadécimal ou CSS standard, ex: "#4F46E5") optionnel pour remplir le fond de l'onglet. Si défini, le texte est rendu en blanc et en gras.
+*   `borderColor` : Code couleur (hexadécimal ou CSS standard, ex: "#ef4444") optionnel pour le liseré supérieur de l'onglet.
+*   `children` : Liste optionnelle de sous-onglets (nœuds enfants) pour les niveaux imbriqués (ex: les menus de gestion du socle dans "Paramètres").
+*   `layout` : Type de disposition des panneaux de l'onglet feuille (Enum : `VERTICAL`, `HORIZONTAL`, par défaut `VERTICAL`).
+*   `panels` : Liste optionnelle de panneaux de contenu pour les onglets feuilles (niveau le plus bas). Chaque panneau possède :
+    *   `id` : Identifiant unique du panneau (Chaîne)
+    *   `width` : Largeur initiale en pourcentage ou pixels (ex: "50%")
+    *   `component` : Type de composant logique à afficher dans le panneau. Valeurs supportées :
+        *   `GenericList` : Le tableau dynamique introspectif avec la clé d'entité correspondante.
+        *   `GenericForm` : Le formulaire dynamique d'édition.
+        *   `TimetableGrid` : La grille métier de l'emploi du temps.
+        *   `PreferenceGrid` : La grille de saisie des vœux et indisponibilités tricolores.
+    *   `resourceKey` : Clé d'entité pour les composants génériques (`GenericList` ou `GenericForm`), désignant l'entité à charger (ex: "teachers", "classrooms").
+
+**Exemple de structure de configuration JSON par défaut de l'application :**
+```json
+[
+  {
+    "id": "timetable_root",
+    "title": "📅 Emploi du temps",
+    "borderColor": "#6366F1",
+    "panels": [
+      {
+        "id": "main_grid",
+        "component": "TimetableGrid",
+        "width": "100%"
+      }
+    ]
+  },
+  {
+    "id": "settings_root",
+    "title": "⚙️ Paramètres",
+    "backgroundColor": "#1E293B",
+    "children": [
+      {
+        "id": "teachers_setting",
+        "title": "👨‍🏫 Enseignants",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "teachers_list",
+            "component": "GenericList",
+            "resourceKey": "teachers",
+            "width": "50%"
+          },
+          {
+            "id": "teachers_form",
+            "component": "GenericForm",
+            "resourceKey": "teachers",
+            "width": "50%"
+          }
+        ]
+      },
+      {
+        "id": "divisions_setting",
+        "title": "🎒 Classes (Divisions)",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "divisions_list",
+            "component": "GenericList",
+            "resourceKey": "divisions",
+            "width": "50%"
+          },
+          {
+            "id": "divisions_form",
+            "component": "GenericForm",
+            "resourceKey": "divisions",
+            "width": "50%"
+          }
+        ]
+      },
+      {
+        "id": "classrooms_setting",
+        "title": "🏢 Salles",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "classrooms_list",
+            "component": "GenericList",
+            "resourceKey": "classrooms",
+            "width": "50%"
+          },
+          {
+            "id": "classrooms_form",
+            "component": "GenericForm",
+            "resourceKey": "classrooms",
+            "width": "50%"
+          }
+        ]
+      },
+      {
+        "id": "preferences_setting",
+        "title": "🎨 Vœux",
+        "panels": [
+          {
+            "id": "preferences_grid",
+            "component": "PreferenceGrid",
+            "width": "100%"
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
 ---
 
 ## Success Criteria *(mandatory)*
+
 
 ### Measurable Outcomes
 
@@ -462,9 +603,13 @@ Gère les contraintes logistiques liées aux déplacements des professeurs ou é
 - **SC-002**: L'utilisateur peut visualiser et analyser d'un coup d'œil les caractéristiques consolidées de 5 cours sélectionnés en moins de 1 seconde via la Fiche T.
 - **SC-003**: Le solveur respecte à 100% les indisponibilités strictes (créneaux rouges) saisies sur la grille pour l'ensemble des ressources (enseignants, salles, classes, équipements).
 - **SC-004**: Les souhaits d'absence (oranges, évités) et de présence (verts, favorisés) sont respectés à plus de 90% sur l'ensemble des ressources lors de la résolution automatique.
+- **SC-005**: Navigation fluide : l'utilisateur peut basculer entre n'importe quel onglet configuré de l'arbre en moins de 100ms.
+- **SC-006**: Redimensionnement précis : les largeurs des panneaux verticaux s'adaptent de façon pixel-perfect par rapport aux mouvements de souris (glisser-déposer) sur la barre de séparation (splitter).
 
 ## Assumptions
  
 - L'interface s'intègre harmonieusement avec le design existant en utilisant TailwindCSS et Vue 3.
 - Les données de vœux et d'alternance sont persistées dans la base SQLite existante via des migrations adaptées.
 - Le solveur de base reste performant (recherche d'une solution stable et valide en < 10s) sous le volume cible de la structure pilote (jusqu'à 500 élèves, 40 enseignants, 30 salles, 20 classes / divisions).
+- Le thème visuel de l'application est unifié sous une apparence claire haut de gamme en gris/blanc cassé bg-gray-300 pour offrir une base de contraste soignée.
+

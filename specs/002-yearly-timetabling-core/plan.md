@@ -118,9 +118,13 @@ Pour la définition exhaustive et fonctionnelle de tous les attributs de ces obj
   * **Comportement Déplaçable** : Géré via des écouteurs `mousedown` sur son en-tête pour calculer le delta souris et repositionner la popin sur l'écran en temps réel.
   * **Visualisation par Puces (Chips)** : Analyse des attributs des cours sélectionnés. Les attributs divergents affichent des chips contrastées dotées de badges de proportions (ex: `M. Martin [2/3]`, `Mme. Petit [1/3]`).
 * **`frontend/src/components/VoeuxGrid.vue`** : Grille horaire interactive tricolore permettant à un enseignant ou pour une salle de définir graphiquement ses préférences par clic/glisser (Rouge = indisponible, Orange = évitable, Vert = préféré, Gris = neutre).
+* **`frontend/src/components/NotebooksTree.vue`** : Composant de navigation dynamique par onglets (notebooks) imbriqués, alimenté par le JSON de configuration. Il gère l'application des styles spécifiques (en-tête à fond coloré ou liseré supérieur).
+* **`frontend/src/components/SplitPanel.vue`** : Conteneur de mise en page capable de scinder son espace en 1 à N panneaux verticaux séparés par des barres de redimensionnement interactif (splitter) gérées par glisser-déposer de la souris.
+* **`frontend/src/config/notebooks.json`** : Fichier de configuration déclarative décrivant l'arbre complet des onglets, leur style et leurs panneaux de contenu.
 * **`frontend/src/components/GenericList.vue`** : Tableau générique dynamique qui interroge l'API de métadonnées backend pour construire ses colonnes, ses tris et afficher les instances.
 * **`frontend/src/components/GenericForm.vue`** : Formulaire dynamique intelligent qui s'auto-génère en lisant le JSON-Schema fourni par le backend pour l'entité (champs textes, selects relationnels, booléens).
 * **`frontend/src/pages/Admin.vue`** : Page d'administration unifiée permettant de basculer entre la gestion des 10 entités de base à l'aide des composants génériques `GenericList` et `GenericForm`.
+
 
 
 ---
@@ -165,6 +169,8 @@ backend/
 
 frontend/
 ├── src/
+│   ├── config/
+│   │   └── notebooks.json     # NOUVEAU (Structure déclarative des onglets)
 │   ├── components/
 │   │   ├── TimetableGrid.vue  # MODIFIÉ (Rendu A/B, Drag-and-drop semaine)
 │   │   ├── Sidebar.vue        # MODIFIÉ (Affichage des cours non placés par établissement)
@@ -172,11 +178,14 @@ frontend/
 │   │   ├── FicheT.vue         # NOUVEAU (Popin déplaçable de consultation cumulée par Chips)
 │   │   ├── VoeuxGrid.vue      # NOUVEAU (Grille interactive tricolore des vœux)
 │   │   ├── GenericList.vue    # NOUVEAU (Composant de tableau dynamique introspectif)
-│   │   └── GenericForm.vue    # NOUVEAU (Composant de formulaire dynamique auto-généré)
+│   │   ├── GenericForm.vue    # NOUVEAU (Composant de formulaire dynamique auto-généré)
+│   │   ├── NotebooksTree.vue  # NOUVEAU (Composant générique d'onglets imbriqués)
+│   │   └── SplitPanel.vue     # NOUVEAU (Conteneur multi-panneaux redimensionnables)
 │   ├── pages/
 │   │   └── Admin.vue          # NOUVEAU (Panneau d'administration CRUD unifié)
-│   └── App.vue                # MODIFIÉ (Sélection multiple, orchestration Fiche T)
+│   └── App.vue                # MODIFIÉ (Orchestration principale par NotebooksTree)
 ```
+
 
 ---
 
