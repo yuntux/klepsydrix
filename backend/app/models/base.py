@@ -64,6 +64,30 @@ class CRUDMixin:
 # Base déclarative commune pour tous les modèles SQLAlchemy
 Base = declarative_base(cls=CRUDMixin)
 
+class related_field(property):
+    """
+    Subclass de property qui simule un champ 'related' à la Odoo dans SQLAlchemy.
+    Permet la découverte dynamique des propriétés virtuelles.
+    """
+    def __init__(self, relation_name: str, target_field: str, default=None):
+        self.relation_name = relation_name
+        self.target_field = target_field
+        self.default = default
+        self._is_related = True
+
+        def getter(instance):
+            related_obj = getattr(instance, relation_name)
+            if not related_obj:
+                return default
+            return getattr(related_obj, target_field, default)
+
+        def setter(instance, value):
+            related_obj = getattr(instance, relation_name)
+            if related_obj:
+                setattr(related_obj, target_field, value)
+
+        super().__init__(getter, setter)
+
 class TransientModel:
     """
     Classe de base pour les objets métiers virtuels/transitoires.
