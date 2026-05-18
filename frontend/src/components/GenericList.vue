@@ -2,7 +2,7 @@
   <div class="generic-list-container">
     <!-- Conteneur de table avec scroll -->
     <div class="table-wrapper">
-      <table class="premium-table">
+      <table class="premium-table" :style="{ minWidth: totalTableWidth + 'px' }">
         <thead>
           <tr class="header-tr">
             <th v-if="isMultiSelectAllowed" class="header-th checkbox-th" style="width: 40px; text-align: center; border-right: 1px solid var(--border-color); padding: 8px 4px;">
@@ -331,6 +331,13 @@ const isMultiSelectAllowed = computed(() => {
 
 const isEditableInline = computed(() => {
   return props.listConfig?.editableInline !== false;
+});
+
+const totalTableWidth = computed(() => {
+  const colsWidth = visibleColumns.value.reduce((acc, col) => acc + (col.width || 150), 0);
+  const checkboxWidth = isMultiSelectAllowed.value ? 40 : 0;
+  const actionsWidth = 40;
+  return colsWidth + checkboxWidth + actionsWidth;
 });
 
 function isColumnReadOnly(key: string): boolean {
@@ -805,7 +812,7 @@ function onDrop(event: DragEvent, index: number) {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  overflow: visible;
+  overflow: hidden;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
 }
@@ -925,7 +932,7 @@ function onDrop(event: DragEvent, index: number) {
 .table-wrapper {
   flex: 1;
   position: relative;
-  overflow: visible;
+  overflow: auto;
 }
 
 .premium-table {
