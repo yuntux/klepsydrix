@@ -15,92 +15,81 @@
       @reset="onReset"
     />
 
-    <!-- Vue Emploi du Temps -->
-    <main class="main-layout" v-if="activeTab === 'timetable'">
-      <!-- Panneau latéral (Cours à planifier) -->
-      <Sidebar
-        :courses="courses"
-        :teachers="teachers"
-        :divisions="divisions"
-        :selectedCourseIds="selectedCourseIds"
-        @selectCourse="toggleCourseSelection"
-      />
+    <!-- Vue interactive principale orchestrée par NotebooksTree (T032) -->
+    <NotebooksTree @change-leaf="onLeafChange">
+      <template #panel="{ panel }">
+        <!-- 1. Grille interactive de l'Emploi du Temps -->
+        <main v-if="panel.component === 'TimetableGrid'" class="main-layout">
+          <!-- Panneau latéral (Cours à planifier) -->
+          <Sidebar
+            :courses="courses"
+            :teachers="teachers"
+            :divisions="divisions"
+            :selectedCourseIds="selectedCourseIds"
+            @selectCourse="toggleCourseSelection"
+          />
 
-      <!-- Grille -->
-      <TimetableGrid
-        :courses="courses"
-        :timeslots="timeslots"
-        :teachers="teachers"
-        :divisions="divisions"
-        :classrooms="classrooms"
-        :viewMode="viewMode"
-        :selectedId="selectedId"
-        :loading="loading"
-        :selectedCourseIds="selectedCourseIds"
-        @move="onMoveCourse"
-        @unassign="onUnassignCourse"
-        @togglePin="onTogglePinCourse"
-        @selectCourse="toggleCourseSelection"
-      />
-    </main>
+          <!-- Grille horaire -->
+          <TimetableGrid
+            :courses="courses"
+            :timeslots="timeslots"
+            :teachers="teachers"
+            :divisions="divisions"
+            :classrooms="classrooms"
+            :viewMode="viewMode"
+            :selectedId="selectedId"
+            :loading="loading"
+            :selectedCourseIds="selectedCourseIds"
+            @move="onMoveCourse"
+            @unassign="onUnassignCourse"
+            @togglePin="onTogglePinCourse"
+            @selectCourse="toggleCourseSelection"
+          />
+        </main>
 
-    <!-- Vue Saisie des Voeux (T024) -->
-    <main class="main-layout" v-else-if="activeTab === 'preferences'">
-      <PreferenceGrid
-        :teachers="teachers"
-        :classrooms="classrooms"
-        :divisions="divisions"
-        :timeslots="timeslots"
-      />
-    </main>
+        <!-- 2. Grille interactive de saisie des vœux -->
+        <main v-else-if="panel.component === 'PreferenceGrid'" class="main-layout">
+          <PreferenceGrid
+            :teachers="teachers"
+            :classrooms="classrooms"
+            :divisions="divisions"
+            :timeslots="timeslots"
+          />
+        </main>
 
-    <!-- Vue Gestion du Socle (CRUD Générique) -->
-    <main class="main-layout admin-layout" v-else>
-      <!-- Barre latérale de choix de la ressource -->
-      <aside class="app-sidebar admin-sidebar">
-        <div class="sidebar-header">
-          <h2 class="sidebar-title">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="icon-title">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.43l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128c.332-.183.582-.495.644-.869l.214-1.28Z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-            </svg>
-            Données du Socle
-          </h2>
+        <!-- 3. Composant Liste Générique introspectif -->
+        <section v-else-if="panel.component === 'GenericList'" class="admin-main-content">
+          <div v-if="genericLoading" class="loader-container">
+            <div class="spinner"></div>
+            <span>Chargement en cours...</span>
+          </div>
+          <GenericList
+            v-else
+            :title="adminModels.find(m => m.key === activeAdminModel)?.label || ''"
+            :columns="columnsConfig"
+            :fields="formFieldsConfig"
+            :items="genericItems"
+            @add="onAddGeneric"
+            @edit="onEditGeneric"
+            @delete="onDeleteGeneric"
+            @update-item="onUpdateGenericInline"
+          />
+        </section>
+
+        <!-- 4. Composant Formulaire Générique Inline -->
+        <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
+          <GenericForm
+            :title="inlineFormTitle"
+            :fields="formFieldsConfig"
+            v-model="formModel"
+            :inline="true"
+            @submit="onSubmitGeneric"
+          />
         </div>
-        <div class="admin-menu-list">
-          <button
-            v-for="model in adminModels"
-            :key="model.key"
-            class="admin-menu-btn"
-            :class="{ active: activeAdminModel === model.key }"
-            @click="activeAdminModel = model.key"
-          >
-            {{ model.label }}
-          </button>
-        </div>
-      </aside>
+      </template>
+    </NotebooksTree>
 
-      <!-- Zone de liste générique -->
-      <section class="admin-main-content">
-        <div v-if="genericLoading" class="loader-container">
-          <div class="spinner"></div>
-          <span>Chargement en cours...</span>
-        </div>
-        <GenericList
-          v-else
-          :title="adminModels.find(m => m.key === activeAdminModel)?.label || ''"
-          :columns="columnsConfig"
-          :fields="formFieldsConfig"
-          :items="genericItems"
-          @add="onAddGeneric"
-          @edit="onEditGeneric"
-          @delete="onDeleteGeneric"
-          @update-item="onUpdateGenericInline"
-        />
-      </section>
-    </main>
-
-    <!-- Modal Formulaire Générique -->
+    <!-- Modal Formulaire Générique Fallback -->
     <GenericForm
       v-if="showFormModal"
       :title="formTitle"
@@ -163,6 +152,7 @@ import GenericForm from './components/GenericForm.vue';
 import ImpactConfirmDialog from './components/ImpactConfirmDialog.vue';
 import CoursePopin from './components/CoursePopin.vue';
 import PreferenceGrid from './components/PreferenceGrid.vue';
+import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, Division, Classroom } from './types';
 import * as api from './services/api';
 
@@ -187,8 +177,43 @@ function toggleCourseSelection(id: number) {
   }
 }
 
-// Onglet actif
+// Onglet actif et configuration des Notebooks (T032)
 const activeTab = ref<string>('timetable');
+const activeLeaf = ref<any>(null);
+
+const isInlineMode = computed(() => {
+  if (!activeLeaf.value || !activeLeaf.value.panels) return false;
+  return activeLeaf.value.panels.some((p: any) => p.component === 'GenericForm');
+});
+
+const inlineFormTitle = computed(() => {
+  return isEditing.value ? `Modifier l'élément` : `Ajouter un élément`;
+});
+
+function onLeafChange(leaf: any) {
+  activeLeaf.value = leaf;
+  
+  if (leaf.id === 'timetable_root') {
+    activeTab.value = 'timetable';
+  } else if (leaf.id === 'preferences_setting') {
+    activeTab.value = 'preferences';
+  } else {
+    activeTab.value = 'admin';
+  }
+
+  // Si l'onglet actif est une feuille administrative avec une ressource
+  if (leaf.panels) {
+    const listPanel = leaf.panels.find((p: any) => p.component === 'GenericList');
+    if (listPanel && listPanel.resourceKey) {
+      activeAdminModel.value = listPanel.resourceKey;
+      loadGenericItems();
+      
+      // Réinitialiser le formulaire inline
+      formModel.value = {};
+      isEditing.value = false;
+    }
+  }
+}
 
 // Administration
 const adminModels = [
@@ -325,14 +350,18 @@ function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
   formModel.value = {};
   isEditing.value = false;
-  showFormModal.value = true;
+  if (!isInlineMode.value) {
+    showFormModal.value = true;
+  }
 }
 
 function onEditGeneric(item: any) {
   formTitle.value = `Modifier l'élément`;
   formModel.value = { ...item };
   isEditing.value = true;
-  showFormModal.value = true;
+  if (!isInlineMode.value) {
+    showFormModal.value = true;
+  }
 }
 
 async function onSubmitGeneric(value: Record<string, any>) {
@@ -346,6 +375,9 @@ async function onSubmitGeneric(value: Record<string, any>) {
     }
     showFormModal.value = false;
     loadGenericItems();
+    // Vider le formulaire inline après enregistrement réussi
+    formModel.value = {};
+    isEditing.value = false;
     if (activeAdminModel.value === 'schools') {
       loadSchools();
     }

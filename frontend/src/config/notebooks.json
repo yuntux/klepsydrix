@@ -1,0 +1,233 @@
+[
+  {
+    "id": "timetable_root",
+    "title": "📅 Emploi du temps",
+    "borderColor": "#3B82F6",
+    "panels": [
+      {
+        "id": "main_grid",
+        "component": "TimetableGrid",
+        "width": "100%"
+      }
+    ]
+  },
+  {
+    "id": "settings_root",
+    "title": "⚙️ Paramètres",
+    "backgroundColor": "#1E293B",
+    "children": [
+      {
+        "id": "schools_setting",
+        "title": "🏫 Établissements",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "schools_list",
+            "component": "GenericList",
+            "resourceKey": "schools",
+            "width": "60%"
+          },
+          {
+            "id": "schools_form",
+            "component": "GenericForm",
+            "resourceKey": "schools",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "disciplines_setting",
+        "title": "📚 Disciplines",
+        "borderColor": "#6366F1",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "disciplines_list",
+            "component": "GenericList",
+            "resourceKey": "disciplines",
+            "width": "60%"
+          },
+          {
+            "id": "disciplines_form",
+            "component": "GenericForm",
+            "resourceKey": "disciplines",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "subjects_setting",
+        "title": "📖 Matières",
+        "borderColor": "#EC4899",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "subjects_list",
+            "component": "GenericList",
+            "resourceKey": "subjects",
+            "width": "60%"
+          },
+          {
+            "id": "subjects_form",
+            "component": "GenericForm",
+            "resourceKey": "subjects",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "teachers_setting",
+        "title": "👨‍🏫 Enseignants",
+        "borderColor": "#F59E0B",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "teachers_list",
+            "component": "GenericList",
+            "resourceKey": "teachers",
+            "width": "60%"
+          },
+          {
+            "id": "teachers_form",
+            "component": "GenericForm",
+            "resourceKey": "teachers",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "divisions_setting",
+        "title": "🎒 Classes (Divisions)",
+        "borderColor": "#8B5CF6",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "divisions_list",
+            "component": "GenericList",
+            "resourceKey": "divisions",
+            "width": "60%"
+          },
+          {
+            "id": "divisions_form",
+            "component": "GenericForm",
+            "resourceKey": "divisions",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "classrooms_setting",
+        "title": "🏢 Salles",
+        "borderColor": "#06B6D4",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "classrooms_list",
+            "component": "GenericList",
+            "resourceKey": "classrooms",
+            "width": "60%"
+          },
+          {
+            "id": "classrooms_form",
+            "component": "GenericForm",
+            "resourceKey": "classrooms",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "materials_setting",
+        "title": "🛠️ Matériels",
+        "borderColor": "#3B82F6",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "materials_list",
+            "component": "GenericList",
+            "resourceKey": "materials",
+            "width": "60%"
+          },
+          {
+            "id": "materials_form",
+            "component": "GenericForm",
+            "resourceKey": "materials",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "missions_setting",
+        "title": "🎯 Missions",
+        "borderColor": "#F43F5E",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "missions_list",
+            "component": "GenericList",
+            "resourceKey": "missions",
+            "width": "60%"
+          },
+          {
+            "id": "missions_form",
+            "component": "GenericForm",
+            "resourceKey": "missions",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "election_methods_setting",
+        "title": "🗳️ Élections",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "election_methods_list",
+            "component": "GenericList",
+            "resourceKey": "election_methods",
+            "width": "60%"
+          },
+          {
+            "id": "election_methods_form",
+            "component": "GenericForm",
+            "resourceKey": "election_methods",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "periods_setting",
+        "title": "📅 Périodes",
+        "borderColor": "#8B5CF6",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "periods_list",
+            "component": "GenericList",
+            "resourceKey": "periods",
+            "width": "60%"
+          },
+          {
+            "id": "periods_form",
+            "component": "GenericForm",
+            "resourceKey": "periods",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "preferences_setting",
+        "title": "🎨 Vœux",
+        "borderColor": "#EAB308",
+        "panels": [
+          {
+            "id": "preferences_grid",
+            "component": "PreferenceGrid",
+            "width": "100%"
+          }
+        ]
+      }
+    ]
+  }
+]

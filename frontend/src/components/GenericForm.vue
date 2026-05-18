@@ -1,9 +1,9 @@
 <template>
-  <div class="modal-overlay">
-    <div class="generic-form-modal glass-morphism">
+  <div :class="inline ? 'inline-form-container' : 'modal-overlay'">
+    <div :class="inline ? 'generic-form-inline' : 'generic-form-modal glass-morphism'">
       <div class="form-header">
         <h3 class="form-title">{{ title }}</h3>
-        <button class="btn-close" @click="$emit('cancel')">×</button>
+        <button v-if="!inline" class="btn-close" @click="$emit('cancel')">×</button>
       </div>
 
       <form @submit.prevent="handleSubmit" class="form-body">
@@ -12,7 +12,7 @@
             v-for="field in fields" 
             :key="field.key" 
             class="form-group"
-            :class="{ 'full-width': field.fullWidth }"
+            :class="{ 'full-width': field.fullWidth || inline }"
           >
             <label :for="field.key" class="form-label">
               {{ field.label }}
@@ -96,7 +96,7 @@
         </div>
 
         <div class="form-actions">
-          <button type="button" class="btn btn-secondary" @click="$emit('cancel')">
+          <button v-if="!inline" type="button" class="btn btn-secondary" @click="$emit('cancel')">
             Annuler
           </button>
           <button type="submit" class="btn btn-primary">
@@ -129,6 +129,7 @@ const props = defineProps<{
   title: string;
   fields: FormField[];
   modelValue: Record<string, any>;
+  inline?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -362,5 +363,57 @@ input:checked + .slider:before {
 /* Sélecteur de couleur formulaire — identique à la vue liste */
 .form-color-swatch-wrapper {
   width: 100%;
+}
+
+/* Styles pour le mode inline (panneau latéral) */
+.inline-form-container {
+  width: 100%;
+  height: 100%;
+  background-color: #FFFFFF;
+  border-left: 1px solid #E2E8F0;
+  display: flex;
+  flex-direction: column;
+}
+
+.generic-form-inline {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.generic-form-inline .form-header {
+  background-color: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  padding: 14px 20px;
+}
+
+.generic-form-inline .form-title {
+  color: #1E293B;
+  font-size: 14px;
+}
+
+.generic-form-inline .form-body {
+  padding: 20px;
+  background-color: #FFFFFF;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.generic-form-inline .form-input,
+.generic-form-inline .form-select {
+  background-color: #F8FAFC;
+  border: 1px solid #CBD5E1;
+  color: #1E293B;
+}
+
+.generic-form-inline .form-input:focus,
+.generic-form-inline .form-select:focus {
+  border-color: #6366F1;
+  background-color: #FFFFFF;
+}
+
+.generic-form-inline .form-label {
+  color: #475569;
 }
 </style>
