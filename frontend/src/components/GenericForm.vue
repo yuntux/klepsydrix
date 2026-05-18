@@ -26,12 +26,13 @@
               type="text"
               v-model="localModel[field.key]"
               :required="field.required"
+              :disabled="!isEditableForm"
               :placeholder="field.placeholder || ''"
               class="form-input"
             />
 
             <!-- Input COULEUR : composant standard vue3-swatches -->
-            <div v-else-if="field.type === 'color'" class="form-color-swatch-wrapper">
+            <div v-else-if="field.type === 'color'" class="form-color-swatch-wrapper" :class="{ 'readonly-swatch': !isEditableForm }">
               <color-swatch-picker
                 :model-value="localModel[field.key] || '#3B82F6'"
                 @change="localModel[field.key] = $event"
@@ -48,6 +49,7 @@
               :min="field.min"
               :max="field.max"
               :step="field.step || '1'"
+              :disabled="!isEditableForm"
               class="form-input"
             />
 
@@ -58,6 +60,7 @@
               type="date"
               v-model="localModel[field.key]"
               :required="field.required"
+              :disabled="!isEditableForm"
               class="form-input"
             />
 
@@ -67,6 +70,7 @@
                 <input 
                   type="checkbox" 
                   v-model="localModel[field.key]"
+                  :disabled="!isEditableForm"
                 />
                 <span class="slider round"></span>
               </label>
@@ -81,6 +85,7 @@
               :id="field.key"
               v-model="localModel[field.key]"
               :required="field.required"
+              :disabled="!isEditableForm"
               class="select-custom form-select"
             >
               <option :value="null">-- Choisir --</option>
@@ -99,7 +104,7 @@
           <button v-if="!inline" type="button" class="btn btn-secondary" @click="$emit('cancel')">
             Annuler
           </button>
-          <button type="submit" class="btn btn-primary">
+          <button v-if="isEditableForm" type="submit" class="btn btn-primary">
             Enregistrer
           </button>
         </div>
@@ -109,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 
 interface FormField {
@@ -125,11 +130,16 @@ interface FormField {
   options?: Array<{ value: any; label: string }>;
 }
 
+interface FormConfig {
+  editableForm?: boolean;
+}
+
 const props = defineProps<{
   title: string;
   fields: FormField[];
   modelValue: Record<string, any>;
   inline?: boolean;
+  formConfig?: FormConfig;
 }>();
 
 const emit = defineEmits<{
@@ -137,6 +147,10 @@ const emit = defineEmits<{
   (e: 'submit', value: Record<string, any>): void;
   (e: 'cancel'): void;
 }>();
+
+const isEditableForm = computed(() => {
+  return props.formConfig?.editableForm !== false;
+});
 
 // Copie locale réactive pour éviter de modifier directement le modèle parent avant soumission
 const localModel = ref<Record<string, any>>({});
@@ -373,6 +387,11 @@ input:checked + .slider:before {
 /* Sélecteur de couleur formulaire — identique à la vue liste */
 .form-color-swatch-wrapper {
   width: 100%;
+}
+
+.readonly-swatch {
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 /* Styles pour le mode inline (panneau latéral) */

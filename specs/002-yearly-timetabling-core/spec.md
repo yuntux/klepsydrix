@@ -122,10 +122,21 @@ Concernant le composant `GenericList`, il doit offrir nativement les fonctionnal
   7. **Multisélection par cases à cocher** : Une colonne de cases à cocher à gauche de la liste, avec une case à cocher globale dans l'en-tête pour tout cocher/décocher.
   8. **Mise en surbrillance** : Toute ligne sélectionnée par sa case à cocher ou via les raccourcis se colore de manière distincte en surbrillance.
   9. **Badge de comptage de sélection** : Dès qu'au moins un élément est sélectionné, un badge affiche le nombre d'éléments sélectionnés en bas dans la zone de pagination.
-  10. **Raccourcis de sélection (EDT Page 41)** :
+  10. **Raccourcis de sélection** :
       - *Maj + Clic* : Sélectionne tous les éléments contigus entre le premier et le dernier élément cliqué.
       - *Ctrl + Clic / Cmd + Clic* : Sélectionne/désélectionne des éléments non contigus.
       - *Ctrl + A / Cmd + A* : Sélectionne d'un coup tous les éléments affichés de la liste.
+Concernant le composant `GenericList`, il doit offrir nativement les fonctionnalités suivantes :
+  11. **Structure de configuration optionnelle (`listConfig`)** :
+      - `editableInline` : booléen indiquant si l'on peut éditer les enregistrements directement dans la liste (par défaut `true`).
+      - `allowMultiSelect` : booléen permettant ou non d'activer la multisélection/les cases à cocher (par défaut `true`).
+      - `columns` : configuration fine pour chaque colonne, comprenant :
+        - `visibleByDefault` : booléen (par défaut `true`) coché par défaut dans le sélecteur de colonnes.
+        - `overrideLabel` : intitulé optionnel surchargé (s'il est spécifié).
+        - `readOnly` : booléen (par défaut `false`) pour rendre un champ ou une colonne non modifiable en ligne.
+Concernant le composant `GenericForm`, il doit offrir la fonctionnalité suivante :
+  1. **Structure de configuration optionnelle (`formConfig`)** :
+     - `editableForm` : booléen indiquant si l'on peut éditer les enregistrements dans le formulaire (par défaut `true`).
 - **FR-004**: **Gestion des Alternances (Quinzaine)** : Le modèle de données et le solveur doivent supporter les alternances temporelles (Semaine A / Semaine B / Toutes les semaines).
 - **FR-005**: **Gestion des Groupes et Sous-groupes** : Les divisions doivent pouvoir être partitionnées en sous-groupes (ex: demi-classes, groupes de spécialités), avec support des conflits d'intersection d'élèves par le solveur.
 - **FR-006**: **Fiche Cours Cumulée (Fiche T)** : Une popin métier unifiée doit permettre de visualiser et de consulter de manière synthétique et consolidée les caractéristiques d'une sélection multiple de cours. Les ressources communes (ex: même matière) s'affichent de façon standard, tandis que les ressources divergentes (ex: enseignants ou salles différents) sont regroupées sous forme de pastilles (chips) stylisées dotées d'un indicateur visuel de divergence (bordure ou couleur contrastée) et d'un badge de proportion (ex: `[2/3]`). **La popin doit être déplaçable (draggable) par glisser-déposer (drag-and-drop) de son en-tête**, afin de permettre au planificateur de dégager la vue sur la grille horaire sous-jacente.

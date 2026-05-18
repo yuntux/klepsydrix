@@ -5,7 +5,7 @@
       <table class="premium-table">
         <thead>
           <tr class="header-tr">
-            <th class="header-th checkbox-th" style="width: 40px; text-align: center; border-right: 1px solid var(--border-color); padding: 8px 4px;">
+            <th v-if="isMultiSelectAllowed" class="header-th checkbox-th" style="width: 40px; text-align: center; border-right: 1px solid var(--border-color); padding: 8px 4px;">
               <input 
                 type="checkbox" 
                 :checked="isAllSelected" 
@@ -69,7 +69,7 @@
 
           <!-- Ligne de filtrage / recherche spécifique par colonne -->
           <tr class="filter-tr">
-            <td class="filter-td checkbox-filter-td" style="width: 40px; border-right: 1px solid var(--border-color); padding: 6px 4px;"></td>
+            <td v-if="isMultiSelectAllowed" class="filter-td checkbox-filter-td" style="width: 40px; border-right: 1px solid var(--border-color); padding: 6px 4px;"></td>
             <td v-for="col in visibleColumns" :key="'filter-' + col.key" class="filter-td">
               <!-- Si c'est un champ couleur, on propose le composant swatch -->
               <color-swatch-picker
@@ -92,7 +92,7 @@
         <tbody>
           <!-- Ligne virtuelle interactive "+ Ajouter une ligne" -->
           <tr class="add-row-tr" @click="$emit('add')">
-            <td :colspan="visibleColumns.length + 2" class="add-row-td">
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="add-row-td">
               <div class="add-row-wrapper">
                 <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
@@ -103,7 +103,7 @@
           </tr>
 
           <tr v-if="paginatedItems.length === 0" class="empty-tr">
-            <td :colspan="visibleColumns.length + 2" class="empty-td">
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="empty-td">
               Aucune donnée à afficher.
             </td>
           </tr>
@@ -114,7 +114,7 @@
             :class="{ 'selected-row': selectedIds.has(item.id) }"
             @click="onRowClick(item, $event)"
           >
-            <td class="body-td checkbox-td" style="text-align: center; width: 40px; border-right: 1px solid var(--border-color); padding: 0 4px;">
+            <td v-if="isMultiSelectAllowed" class="body-td checkbox-td" style="text-align: center; width: 40px; border-right: 1px solid var(--border-color); padding: 0 4px;">
               <input 
                 type="checkbox" 
                 :checked="selectedIds.has(item.id)" 
@@ -135,10 +135,11 @@
 
                 <!-- Booléen (Switch / Checkbox en ligne) -->
                 <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
-                  <label class="inline-switch">
+                  <label class="inline-switch" :class="{ 'disabled-switch': isColumnReadOnly(col.key) }">
                     <input 
                       type="checkbox" 
                       :checked="!!item[col.key]" 
+                      :disabled="isColumnReadOnly(col.key)"
                       @change="updateInline(item, col.key, $event.target.checked)"
                     />
                     <span class="inline-slider inline-round"></span>
@@ -147,7 +148,7 @@
 
                 <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
                 <!-- Couleur : composant standard vue3-swatches -->
-                <div v-else-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper">
+                <div v-else-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': isColumnReadOnly(col.key) }">
                   <color-swatch-picker
                     :model-value="item[col.key] || '#3B82F6'"
                     @change="updateInline(item, col.key, $event)"
@@ -158,6 +159,7 @@
                 <select 
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
                   :value="item[col.key]" 
+                  :disabled="isColumnReadOnly(col.key)"
                   @change="updateInline(item, col.key, $event.target.value ? Number($event.target.value) : null)"
                   class="inline-select"
                 >
@@ -179,6 +181,7 @@
                   :min="getFieldDef(col.key)?.min"
                   :max="getFieldDef(col.key)?.max"
                   :step="getFieldDef(col.key)?.step || '1'"
+                  :disabled="isColumnReadOnly(col.key)"
                   @change="updateInline(item, col.key, $event.target.value !== '' ? Number($event.target.value) : null)"
                   class="inline-input inline-number"
                 />
@@ -188,6 +191,7 @@
                   v-else
                   type="text" 
                   :value="item[col.key] || ''" 
+                  :disabled="isColumnReadOnly(col.key)"
                   @change="updateInline(item, col.key, $event.target.value)"
                   class="inline-input"
                 />
@@ -211,7 +215,7 @@
     <div class="list-pagination">
       <div class="pagination-left">
         <span class="toolbar-badge">{{ filteredItems.length }} éléments</span>
-        <span v-if="selectedIds.size > 0" class="toolbar-badge selection-badge">
+        <span v-if="isMultiSelectAllowed && selectedIds.size > 0" class="toolbar-badge selection-badge">
           {{ selectedIds.size }} sélectionné(s)
         </span>
         <label class="per-page-selector">
@@ -288,11 +292,24 @@ interface FormField {
   options?: Array<{ value: any; label: string }>;
 }
 
+interface ColumnConfig {
+  visibleByDefault?: boolean;
+  overrideLabel?: string;
+  readOnly?: boolean;
+}
+
+interface ListConfig {
+  editableInline?: boolean;
+  allowMultiSelect?: boolean;
+  columns?: Record<string, ColumnConfig>;
+}
+
 const props = defineProps<{
   title: string;
   columns: ColumnDef[];
   items: any[];
   fields?: FormField[];
+  listConfig?: ListConfig;
 }>();
 
 const emit = defineEmits<{
@@ -301,7 +318,23 @@ const emit = defineEmits<{
   (e: 'delete', item: any): void;
   (e: 'update-item', item: any): void;
   (e: 'row-click', item: any): void;
+  (e: 'selection-change', ids: any[]): void;
 }>();
+
+const isMultiSelectAllowed = computed(() => {
+  return props.listConfig?.allowMultiSelect !== false;
+});
+
+const isEditableInline = computed(() => {
+  return props.listConfig?.editableInline !== false;
+});
+
+function isColumnReadOnly(key: string): boolean {
+  if (!isEditableInline.value) return true;
+  const colConf = props.listConfig?.columns?.[key];
+  if (colConf?.readOnly === true) return true;
+  return false;
+}
 
 function onRowClick(item: any, event: MouseEvent) {
   const target = event.target as HTMLElement;
@@ -325,10 +358,18 @@ function onRowClick(item: any, event: MouseEvent) {
     }
   }
 
+  if (!isMultiSelectAllowed.value) {
+    selectedIds.value.clear();
+    selectedIds.value.add(item.id);
+    lastClickedItem.value = item;
+    emit('row-click', item);
+    return;
+  }
+
   // Si clic sur la checkbox ou sa cellule : 
   // - Clic normal ou Ctrl+Clic : coche/décoche la ligne, mais n'ouvre pas le formulaire d'édition
   // - Shift+Clic : sélectionne la plage de lignes correspondante
-  if (isCheckboxClick) {
+  if (isCheckboxClick && isMultiSelectAllowed.value) {
     event.preventDefault();
     if (event.shiftKey) {
       if (lastClickedItem.value) {
@@ -359,7 +400,7 @@ function onRowClick(item: any, event: MouseEvent) {
   }
 
   // EDT Raccourcis page 41 pour le clic hors checkbox
-  if (event.ctrlKey || event.metaKey) {
+  if ((event.ctrlKey || event.metaKey) && isMultiSelectAllowed.value) {
     event.preventDefault();
     if (selectedIds.value.has(item.id)) {
       selectedIds.value.delete(item.id);
@@ -370,7 +411,7 @@ function onRowClick(item: any, event: MouseEvent) {
     return;
   }
 
-  if (event.shiftKey) {
+  if (event.shiftKey && isMultiSelectAllowed.value) {
     event.preventDefault();
     if (lastClickedItem.value) {
       const idx1 = filteredItems.value.findIndex(x => x.id === lastClickedItem.value.id);
@@ -414,8 +455,6 @@ const colorPalette = [
   '#DC2626', '#D97706', '#0891B2', '#2563EB', '#7C3AED', '#DB2777', '#0284C7', '#4B5563', '#9CA3AF', '#374151'
 ];
 
-
-
 function getContrastYIQ(hexcolor: string) {
   if (!hexcolor || hexcolor.length < 6) return '#ffffff';
   const hex = hexcolor.replace('#', '');
@@ -429,13 +468,43 @@ function getContrastYIQ(hexcolor: string) {
 // Gestion des colonnes internes (pour réordonner/redimensionner localement)
 const internalColumns = ref<ColumnDef[]>([]);
 
-watch(() => props.columns, (newVal) => {
-  internalColumns.value = newVal.map(c => ({
-    ...c,
-    width: c.width || 150,
-    visible: c.visible !== false
-  }));
-}, { immediate: true });
+watch([() => props.columns, () => props.listConfig], () => {
+  if (props.listConfig?.columns) {
+    // Si la config spécifie des colonnes précises, on filtre et on réordonne selon la config
+    const configKeys = Object.keys(props.listConfig.columns);
+    const mapped: ColumnDef[] = [];
+    
+    configKeys.forEach(key => {
+      const originalCol = props.columns.find(c => c.key === key);
+      if (originalCol) {
+        const colConf = props.listConfig.columns[key];
+        const isVisible = colConf.visibleByDefault !== undefined 
+          ? colConf.visibleByDefault 
+          : true;
+          
+        const overrideLabel = colConf.overrideLabel || originalCol.label;
+        
+        mapped.push({
+          ...originalCol,
+          label: overrideLabel,
+          width: originalCol.width || 150,
+          visible: isVisible
+        });
+      }
+    });
+    
+    internalColumns.value = mapped;
+  } else {
+    // Comportement par défaut (conserver toutes les colonnes d'origine)
+    internalColumns.value = props.columns.map(c => {
+      return {
+        ...c,
+        width: c.width || 150,
+        visible: c.visible !== false
+      };
+    });
+  }
+}, { immediate: true, deep: true });
 
 const visibleColumns = computed(() => {
   return internalColumns.value.filter(c => c.visible);
@@ -468,7 +537,9 @@ const selectedIds = ref<Set<number | string>>(new Set());
 const lastClickedItem = ref<any>(null);
 const selectAllCheckbox = ref<HTMLInputElement | null>(null);
 
-// Les fonctions dépendantes de filteredItems sont déclarées plus bas après l'initialisation de filteredItems.
+watch(selectedIds, (newVal) => {
+  emit('selection-change', Array.from(newVal));
+}, { deep: true });
 
 // Pagination
 const currentPage = ref(1);
@@ -598,7 +669,7 @@ function handleGlobalKeyDown(event: KeyboardEvent) {
   }
 
   // Ctrl+A ou Cmd+A
-  if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A')) {
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A') && isMultiSelectAllowed.value) {
     event.preventDefault();
     filteredItems.value.forEach(item => {
       selectedIds.value.add(item.id);
@@ -612,10 +683,24 @@ watch(isSomeSelected, (val) => {
   }
 });
 
-watch([() => props.items, () => props.title], () => {
+watch(() => props.title, () => {
   selectedIds.value.clear();
   lastClickedItem.value = null;
 });
+
+watch(() => props.items, (newItems) => {
+  const validIds = new Set(newItems.map(item => item.id));
+  const toDelete: any[] = [];
+  selectedIds.value.forEach(id => {
+    if (!validIds.has(id)) {
+      toDelete.push(id);
+    }
+  });
+  toDelete.forEach(id => selectedIds.value.delete(id));
+  if (lastClickedItem.value && !validIds.has(lastClickedItem.value.id)) {
+    lastClickedItem.value = null;
+  }
+}, { deep: true });
 
 onMounted(() => {
   document.addEventListener('mousedown', handleClickOutside);
@@ -1155,6 +1240,14 @@ function onDrop(event: DragEvent, index: number) {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
+.inline-input:disabled, .inline-select:disabled {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--text-primary) !important;
+  cursor: default;
+  pointer-events: none;
+}
+
 /* Sélecteur de couleur unifié standard */
 .inline-color-select-wrapper {
   width: 100%;
@@ -1323,5 +1416,17 @@ input:checked + .inline-slider:before {
   color: var(--accent-primary);
   font-size: 13px;
   font-weight: 600;
+}
+
+/* Disabled and ReadOnly styles */
+.disabled-switch {
+  cursor: not-allowed !important;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.readonly-swatch {
+  pointer-events: none;
+  opacity: 0.6;
 }
 </style>

@@ -3,10 +3,11 @@
     <!-- Barre de configuration (Sélecteurs de ressource et d'outil) -->
     <div class="pref-toolbar">
       <div class="toolbar-section">
-        <h3 class="toolbar-title">🎨 Grille de Vœux & Indisponibilités</h3>
+        <h3 class="toolbar-title">Grille de Vœux & Indisponibilités</h3>
       </div>
 
-      <div class="toolbar-section selectors-group">
+      <!-- Sélecteurs standards (si non embarqués) -->
+      <div v-if="!hideSelectors" class="toolbar-section selectors-group">
         <label class="selector-item">
           <span>Type de Ressource :</span>
           <select v-model="resourceType" class="select-custom" @change="onResourceChange">
@@ -29,8 +30,10 @@
         </label>
       </div>
 
+
+
       <!-- Palette de pinceaux (Gomme, Vert, Orange, Rouge) -->
-      <div class="toolbar-section brush-palette">
+      <div v-if="resourceId" class="toolbar-section brush-palette">
         <span class="palette-label">Outil Vœu :</span>
         <div class="brush-buttons">
           <button 
@@ -76,9 +79,17 @@
       </div>
     </div>
 
-    <!-- Grille interactive des voeux -->
+    <!-- Grille interactive des voeux ou Placeholder -->
     <div class="grid-wrapper">
-      <div class="timetable-grid">
+      <div v-if="!resourceId" class="pref-placeholder">
+        <div class="placeholder-icon">👈</div>
+        <div class="placeholder-title">Sélectionnez un élément</div>
+        <div class="placeholder-subtitle">
+          Veuillez choisir un élément dans la liste de gauche pour configurer ses vœux et contraintes horaires.
+        </div>
+      </div>
+
+      <div v-else class="timetable-grid">
         <!-- Coin supérieur gauche -->
         <div class="grid-header-cell">Horaire</div>
 
@@ -100,7 +111,8 @@
             :key="day.value"
             class="grid-cell clickable-cell"
             :class="getCellClass(day.value, hour)"
-            @click="paintCell(day.value, hour)"
+            @mousedown="onCellMouseDown(day.value, hour, $event)"
+            @mouseenter="onCellMouseEnter(day.value, hour)"
           >
             <div class="cell-label">
               {{ getCellLabel(day.value, hour) }}
@@ -113,16 +125,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Teacher, Classroom, Division, Timeslot } from '../types';
-import * as api from '../services/api';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   teachers: Teacher[];
   classrooms: Classroom[];
   divisions: Division[];
   timeslots: Timeslot[];
-}>();
+  resourceTypeProp?: 'Teacher' | 'Classroom' | 'Division';
+  resourceIdProp?: number | null;
+  hideSelectors?: boolean;
+}>(), {
+  resourceTypeProp: 'Teacher',
+  hideSelectors: false
+});
 
 const resourceType = ref<'Teacher' | 'Classroom' | 'Division'>('Teacher');
 const resourceId = ref<number | ''>('');
@@ -152,6 +169,29 @@ const resourceOptions = computed(() => {
     return props.divisions.map(d => ({ id: d.id, name: d.name }));
   }
 });
+
+const currentResourceName = computed(() => {
+  if (!resourceId.value) return '';
+  const option = resourceOptions.value.find(o => o.id === resourceId.value);
+  return option ? option.name : '';
+});
+
+// Synchronisation des props vers l'état interne
+watch(() => props.resourceTypeProp, (newVal) => {
+  if (newVal) {
+    resourceType.value = newVal;
+  }
+}, { immediate: true });
+
+watch(() => props.resourceIdProp, (newVal) => {
+  if (newVal !== undefined && newVal !== null) {
+    resourceId.value = newVal;
+    loadPreferences();
+  } else {
+    resourceId.value = '';
+    preferencesMap.value = {};
+  }
+}, { immediate: true });
 
 function onResourceChange() {
   if (resourceOptions.value.length > 0) {
@@ -249,13 +289,39 @@ function getCellLabel(day: number, hour: number): string {
   return 'Neutre';
 }
 
+const isMouseDown = ref(false);
+
+function onCellMouseDown(day: number, hour: number, event: MouseEvent) {
+  if (event.button !== 0) return; // Seul le clic gauche dessine
+  event.preventDefault();
+  isMouseDown.value = true;
+  paintCell(day, hour);
+}
+
+function onCellMouseEnter(day: number, hour: number) {
+  if (isMouseDown.value) {
+    paintCell(day, hour);
+  }
+}
+
+const handleGlobalMouseUp = () => {
+  isMouseDown.value = false;
+};
+
 onMounted(() => {
-  onResourceChange();
+  if (!props.hideSelectors) {
+    onResourceChange();
+  }
+  window.addEventListener('mouseup', handleGlobalMouseUp);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('mouseup', handleGlobalMouseUp);
 });
 
 // Re-charger si les listes changent
 watch(resourceOptions, () => {
-  if (!resourceId.value && resourceOptions.value.length > 0) {
+  if (!props.hideSelectors && !resourceId.value && resourceOptions.value.length > 0) {
     resourceId.value = resourceOptions.value[0].id;
     loadPreferences();
   }
@@ -270,12 +336,12 @@ watch(resourceOptions, () => {
   width: 100%;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
-  padding: 20px;
-  gap: 20px;
+  padding: 0;
+  gap: 0;
 }
 
 .pref-toolbar {
@@ -285,13 +351,14 @@ watch(resourceOptions, () => {
   flex-wrap: wrap;
   gap: 16px;
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  padding: 16px 20px;
-  border-radius: 10px;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 20px;
+  border-radius: 0;
 }
 
 .toolbar-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -306,7 +373,7 @@ watch(resourceOptions, () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
@@ -327,6 +394,27 @@ watch(resourceOptions, () => {
   border-color: var(--accent-primary);
 }
 
+.active-resource-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(99, 102, 241, 0.1);
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.active-resource-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.active-resource-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
 .brush-palette {
   display: flex;
   align-items: center;
@@ -334,7 +422,7 @@ watch(resourceOptions, () => {
 }
 
 .palette-label {
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -351,9 +439,9 @@ watch(resourceOptions, () => {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  padding: 6px 14px;
+  padding: 6px 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -411,10 +499,45 @@ watch(resourceOptions, () => {
 .grid-wrapper {
   flex: 1;
   overflow: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border: none;
+  border-radius: 0;
   background-color: var(--bg-secondary);
-  box-shadow: var(--shadow-lg);
+  box-shadow: none;
+}
+
+.pref-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  background-color: var(--bg-card);
+}
+
+.placeholder-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  animation: float 2s ease-in-out infinite;
+}
+
+.placeholder-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.placeholder-subtitle {
+  font-size: 13.5px;
+  max-width: 320px;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-8px); }
 }
 
 .timetable-grid {
@@ -433,7 +556,7 @@ watch(resourceOptions, () => {
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-primary);
   position: sticky;
   top: 0;
@@ -447,7 +570,7 @@ watch(resourceOptions, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   position: sticky;
@@ -467,7 +590,7 @@ watch(resourceOptions, () => {
 }
 
 .clickable-cell {
-  cursor: pointer;
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' style='font-size: 24px;'%3E%3Ctext y='24'%3E🖌️%3C/text%3E%3C/svg%3E") 4 28, pointer;
   user-select: none;
 }
 
@@ -502,7 +625,7 @@ watch(resourceOptions, () => {
 }
 
 .cell-label {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
 }
 </style>

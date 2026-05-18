@@ -16,7 +16,7 @@
       </div>
     </div>
 
-    <!-- Level 2 Sub-Tabs (if children exist) -->
+    <!-- Level 2 Sub-Tabs (if children exist on level 1) -->
     <div v-if="activeLevel1Node?.children && activeLevel1Node.children.length > 0" class="tabs-level-2-wrapper">
       <div class="tabs-level-2">
         <button
@@ -32,16 +32,37 @@
       </div>
     </div>
 
+    <!-- Level 3 Sub-Tabs (if children exist on level 2) -->
+    <div v-if="activeLevel2Node?.children && activeLevel2Node.children.length > 0" class="tabs-level-3-wrapper">
+      <div class="tabs-level-3">
+        <button
+          v-for="subSubTab in activeLevel2Node.children"
+          :key="subSubTab.id"
+          class="tab-btn-l3"
+          :style="getTabStyle(subSubTab, activeLevel3Id === subSubTab.id)"
+          :class="{ active: activeLevel3Id === subSubTab.id }"
+          @click="selectLevel3(subSubTab.id)"
+        >
+          {{ subSubTab.title }}
+        </button>
+      </div>
+    </div>
+
     <!-- Main Content Area -->
     <div class="notebook-content">
       <SplitPanel 
-        v-if="activeLeafNode && activeLeafNode.panels" 
+        v-if="activeLeafNode && activeLeafNode.panels && activeLeafNode.panels.length > 0" 
         :panels="activeLeafNode.panels"
       >
         <template #default="{ panel, index }">
           <slot name="panel" :panel="panel" :index="index"></slot>
         </template>
       </SplitPanel>
+      <div v-else-if="activeLeafNode && (!activeLeafNode.panels || activeLeafNode.panels.length === 0)" class="empty-state-card">
+        <div class="empty-illustration">📭</div>
+        <span class="empty-title">{{ activeLeafNode.title }}</span>
+        <span class="empty-subtitle">Cet espace est vide pour le moment.</span>
+      </div>
       <div v-else class="empty-state">
         <div class="spinner"></div>
         <span>Chargement de la vue...</span>
@@ -76,6 +97,7 @@ const config = ref<NotebookNode[]>(notebooksConfig as NotebookNode[]);
 
 const activeLevel1Id = ref<string>('');
 const activeLevel2Id = ref<string>('');
+const activeLevel3Id = ref<string>('');
 
 const emit = defineEmits<{
   (e: 'change-leaf', leaf: NotebookNode): void;
@@ -86,14 +108,31 @@ const activeLevel1Node = computed(() => {
   return config.value.find(tab => tab.id === activeLevel1Id.value) || null;
 });
 
+// Obtenir le nœud actif de niveau 2
+const activeLevel2Node = computed(() => {
+  const node = activeLevel1Node.value;
+  if (!node || !node.children) return null;
+  return node.children.find(sub => sub.id === activeLevel2Id.value) || null;
+});
+
+// Obtenir le nœud actif de niveau 3
+const activeLevel3Node = computed(() => {
+  const node = activeLevel2Node.value;
+  if (!node || !node.children) return null;
+  return node.children.find(sub => sub.id === activeLevel3Id.value) || null;
+});
+
 // Obtenir le nœud feuille actif
 const activeLeafNode = computed(() => {
-  const node = activeLevel1Node.value;
-  if (!node) return null;
-  if (node.children && node.children.length > 0) {
-    return node.children.find(sub => sub.id === activeLevel2Id.value) || null;
+  const node2 = activeLevel2Node.value;
+  if (node2 && node2.children && node2.children.length > 0) {
+    return node2.children.find(sub => sub.id === activeLevel3Id.value) || null;
   }
-  return node;
+  const node1 = activeLevel1Node.value;
+  if (node1 && node1.children && node1.children.length > 0) {
+    return node1.children.find(sub => sub.id === activeLevel2Id.value) || null;
+  }
+  return node1;
 });
 
 // Émettre les changements de feuille pour que le parent se synchronise
@@ -107,14 +146,27 @@ function selectLevel1(id: string) {
   activeLevel1Id.value = id;
   const node = config.value.find(tab => tab.id === id);
   if (node && node.children && node.children.length > 0) {
-    activeLevel2Id.value = node.children[0].id;
+    selectLevel2(node.children[0].id);
   } else {
     activeLevel2Id.value = '';
+    activeLevel3Id.value = '';
   }
 }
 
 function selectLevel2(id: string) {
   activeLevel2Id.value = id;
+  const parent = activeLevel1Node.value;
+  if (!parent || !parent.children) return;
+  const node = parent.children.find(sub => sub.id === id);
+  if (node && node.children && node.children.length > 0) {
+    activeLevel3Id.value = node.children[0].id;
+  } else {
+    activeLevel3Id.value = '';
+  }
+}
+
+function selectLevel3(id: string) {
+  activeLevel3Id.value = id;
 }
 
 // Styles dynamiques pour les onglets (couleurs personnalisées du JSON)
@@ -201,7 +253,7 @@ onMounted(() => {
   z-index: 2;
 }
 
-/* Onglets de niveau 2 (paramètres imbriqués) */
+/* Onglets de niveau 2 */
 .tabs-level-2-wrapper {
   background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
@@ -244,6 +296,43 @@ onMounted(() => {
   z-index: 2;
 }
 
+/* Onglets de niveau 3 (imbriqués de troisième niveau) - Style pilule premium */
+.tabs-level-3-wrapper {
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 16px 8px 16px;
+}
+
+.tabs-level-3 {
+  display: flex;
+  gap: 8px;
+}
+
+.tab-btn-l3 {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 20px; /* Pilule */
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.tab-btn-l3:hover {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.tab-btn-l3.active {
+  background-color: var(--accent-primary);
+  color: #FFFFFF;
+  font-weight: 600;
+  border-color: var(--accent-primary);
+}
+
 /* Zone de contenu des Notebooks */
 .notebook-content {
   flex: 1;
@@ -260,6 +349,33 @@ onMounted(() => {
   height: 100%;
   color: var(--text-secondary);
   gap: 12px;
+}
+
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  gap: 8px;
+  background-color: var(--bg-primary);
+}
+
+.empty-illustration {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.empty-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .spinner {

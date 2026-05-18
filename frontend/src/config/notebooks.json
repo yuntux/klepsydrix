@@ -3,11 +3,157 @@
     "id": "timetable_root",
     "title": "📅 Emploi du temps",
     "borderColor": "#3B82F6",
-    "panels": [
+    "children": [
       {
-        "id": "main_grid",
-        "component": "TimetableGrid",
-        "width": "100%"
+        "id": "timetable_viewer",
+        "title": "🔍 Visualiseur",
+        "borderColor": "#3B82F6",
+        "panels": [
+          {
+            "id": "main_grid",
+            "component": "TimetableGrid",
+            "width": "100%"
+          }
+        ]
+      },
+      {
+        "id": "divisions_setting",
+        "title": "🎒 Classes",
+        "borderColor": "#8B5CF6",
+        "children": [
+          {
+            "id": "divisions_list_tab",
+            "title": "Liste",
+            "borderColor": "#8B5CF6",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "divisions_list",
+                "component": "GenericList",
+                "resourceKey": "divisions",
+                "width": "60%"
+              },
+              {
+                "id": "divisions_form",
+                "component": "GenericForm",
+                "resourceKey": "divisions",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "divisions_preferences_tab",
+            "title": "Vœux et contraintes",
+            "borderColor": "#8B5CF6",
+            "panels": []
+          }
+        ]
+      },
+      {
+        "id": "teachers_setting",
+        "title": "👨‍🏫 Enseignants",
+        "borderColor": "#F59E0B",
+        "children": [
+          {
+            "id": "teachers_list_tab",
+            "title": "Liste",
+            "borderColor": "#F59E0B",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "teachers_list",
+                "component": "GenericList",
+                "resourceKey": "teachers",
+                "width": "60%"
+              },
+              {
+                "id": "teachers_form",
+                "component": "GenericForm",
+                "resourceKey": "teachers",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "teachers_preferences_tab",
+            "title": "Vœux et contraintes",
+            "borderColor": "#F59E0B",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "teachers_pref_list",
+                "component": "GenericList",
+                "resourceKey": "teachers",
+                "width": "20%",
+                "listConfig": {
+                  "editableInline": false,
+                  "allowMultiSelect": false,
+                  "columns": {
+                    "code": {
+                      "visibleByDefault": false,
+                      "overrideLabel": "Code"
+                    },
+                    "last_name": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Nom de famille"
+                    },
+                    "first_name": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Prénom"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "teachers_pref_grid",
+                "component": "PreferenceGrid",
+                "width": "50%"
+              },
+              {
+                "id": "teachers_pref_form",
+                "component": "GenericForm",
+                "resourceKey": "teachers",
+                "width": "30%",
+                "formConfig": {
+                  "editableForm": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "classrooms_setting",
+        "title": "🏢 Salles",
+        "borderColor": "#06B6D4",
+        "children": [
+          {
+            "id": "classrooms_list_tab",
+            "title": "Liste",
+            "borderColor": "#06B6D4",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "classrooms_list",
+                "component": "GenericList",
+                "resourceKey": "classrooms",
+                "width": "60%"
+              },
+              {
+                "id": "classrooms_form",
+                "component": "GenericForm",
+                "resourceKey": "classrooms",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "classrooms_preferences_tab",
+            "title": "Vœux et contraintes",
+            "borderColor": "#06B6D4",
+            "panels": []
+          }
+        ]
       }
     ]
   },
@@ -72,66 +218,6 @@
             "id": "subjects_form",
             "component": "GenericForm",
             "resourceKey": "subjects",
-            "width": "40%"
-          }
-        ]
-      },
-      {
-        "id": "teachers_setting",
-        "title": "👨‍🏫 Enseignants",
-        "borderColor": "#F59E0B",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "teachers_list",
-            "component": "GenericList",
-            "resourceKey": "teachers",
-            "width": "60%"
-          },
-          {
-            "id": "teachers_form",
-            "component": "GenericForm",
-            "resourceKey": "teachers",
-            "width": "40%"
-          }
-        ]
-      },
-      {
-        "id": "divisions_setting",
-        "title": "🎒 Classes (Divisions)",
-        "borderColor": "#8B5CF6",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "divisions_list",
-            "component": "GenericList",
-            "resourceKey": "divisions",
-            "width": "60%"
-          },
-          {
-            "id": "divisions_form",
-            "component": "GenericForm",
-            "resourceKey": "divisions",
-            "width": "40%"
-          }
-        ]
-      },
-      {
-        "id": "classrooms_setting",
-        "title": "🏢 Salles",
-        "borderColor": "#06B6D4",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "classrooms_list",
-            "component": "GenericList",
-            "resourceKey": "classrooms",
-            "width": "60%"
-          },
-          {
-            "id": "classrooms_form",
-            "component": "GenericForm",
-            "resourceKey": "classrooms",
             "width": "40%"
           }
         ]

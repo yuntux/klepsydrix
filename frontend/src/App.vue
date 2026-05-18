@@ -103,6 +103,9 @@
             :classrooms="classrooms"
             :divisions="divisions"
             :timeslots="timeslots"
+            :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : 'Teacher'))"
+            :resourceIdProp="formModel && formModel.id ? formModel.id : null"
+            :hideSelectors="['teachers_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab'].includes(activeLeaf?.id)"
           />
         </main>
 
@@ -118,11 +121,13 @@
             :columns="columnsConfig"
             :fields="formFieldsConfig"
             :items="genericItems"
+            :listConfig="panel.listConfig"
             @add="onAddGeneric"
             @edit="onEditGeneric"
             @delete="onDeleteGeneric"
             @update-item="onUpdateGenericInline"
             @row-click="onRowClickGeneric"
+            @selection-change="onSelectionChangeGeneric"
           />
         </section>
 
@@ -133,6 +138,7 @@
             :fields="formFieldsConfig"
             v-model="formModel"
             :inline="true"
+            :formConfig="panel.formConfig"
             @submit="onSubmitGeneric"
           />
         </div>
@@ -419,20 +425,54 @@ function onRowClickGeneric(item: any) {
   }
 }
 
+function onSelectionChangeGeneric(ids: any[]) {
+  if (ids.length > 1) {
+    // Si plusieurs profs sont sélectionnés, les deux volets de droite n'affichent rien
+    formModel.value = {};
+    isEditing.value = false;
+  } else if (ids.length === 1) {
+    // Si un seul prof est sélectionné, on le charge dans le formulaire et la grille de voeux
+    const item = genericItems.value.find(x => x.id === ids[0]);
+    if (item) {
+      onEditGeneric(item);
+    }
+  } else {
+    // Aucun élément sélectionné
+    formModel.value = {};
+    isEditing.value = false;
+  }
+}
+
 async function onSubmitGeneric(value: Record<string, any>) {
   try {
     if (isEditing.value) {
       await api.updateGenericItem(activeAdminModel.value, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
+      
+      await loadGenericItems();
+      
+      if (isInlineMode.value) {
+        // En mode inline, on conserve l'élément sélectionné actif
+        const updated = genericItems.value.find(x => x.id === value.id);
+        if (updated) {
+          formModel.value = { ...updated };
+          isEditing.value = true;
+        }
+      } else {
+        showFormModal.value = false;
+        formModel.value = {};
+        isEditing.value = false;
+      }
     } else {
       await api.createGenericItem(activeAdminModel.value, value);
       showNotification('success', 'Ressource créée avec succès !');
+      
+      await loadGenericItems();
+      
+      showFormModal.value = false;
+      formModel.value = {};
+      isEditing.value = false;
     }
-    showFormModal.value = false;
-    loadGenericItems();
-    // Vider le formulaire inline après enregistrement réussi
-    formModel.value = {};
-    isEditing.value = false;
     if (activeAdminModel.value === 'schools') {
       loadSchools();
     }
