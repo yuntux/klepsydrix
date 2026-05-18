@@ -7,100 +7,17 @@
       </div>
 
       <form @submit.prevent="handleSubmit" class="form-body">
-        <div class="fields-grid">
-          <div 
-            v-for="field in fields" 
-            :key="field.key" 
-            class="form-group"
-            :class="{ 'full-width': field.fullWidth || inline }"
-          >
-            <label :for="field.key" class="form-label">
-              {{ field.label }}
-              <span v-if="field.required" class="required-indicator">*</span>
-            </label>
-
-            <!-- Input TEXTE -->
-            <input 
-              v-if="field.type === 'text'"
-              :id="field.key"
-              type="text"
-              v-model="localModel[field.key]"
-              :required="field.required"
-              :disabled="!isEditableForm"
-              :placeholder="field.placeholder || ''"
-              class="form-input"
-            />
-
-            <!-- Input COULEUR : composant standard vue3-swatches -->
-            <div v-else-if="field.type === 'color'" class="form-color-swatch-wrapper" :class="{ 'readonly-swatch': !isEditableForm }">
-              <color-swatch-picker
-                :model-value="localModel[field.key] || '#3B82F6'"
-                @change="localModel[field.key] = $event"
-              />
-            </div>
-            
-            <!-- Input NUMÉRIQUE -->
-            <input 
-              v-else-if="field.type === 'number'"
-              :id="field.key"
-              type="number"
-              v-model.number="localModel[field.key]"
-              :required="field.required"
-              :min="field.min"
-              :max="field.max"
-              :step="field.step || '1'"
-              :disabled="!isEditableForm"
-              class="form-input"
-            />
-
-            <!-- Input DATE -->
-            <input 
-              v-else-if="field.type === 'date'"
-              :id="field.key"
-              type="date"
-              v-model="localModel[field.key]"
-              :required="field.required"
-              :disabled="!isEditableForm"
-              class="form-input"
-            />
-
-            <!-- Input BOOLEAN (Checkbox / Toggle) -->
-            <div v-else-if="field.type === 'boolean'" class="toggle-wrapper">
-              <label class="switch">
-                <input 
-                  type="checkbox" 
-                  v-model="localModel[field.key]"
-                  :disabled="!isEditableForm"
-                />
-                <span class="slider round"></span>
-              </label>
-              <span class="toggle-status">
-                {{ localModel[field.key] ? 'Oui' : 'Non' }}
-              </span>
-            </div>
-
-            <!-- Input SELECT (Menu déroulant optionnel) -->
-            <select 
-              v-else-if="field.type === 'select'"
-              :id="field.key"
-              v-model="localModel[field.key]"
-              :required="field.required"
-              :disabled="!isEditableForm"
-              class="select-custom form-select"
-            >
-              <option :value="null">-- Choisir --</option>
-              <option 
-                v-for="opt in field.options" 
-                :key="opt.value" 
-                :value="opt.value"
-              >
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-        </div>
+        <FormLayoutGrid
+          :elements="layoutTree"
+          :localModel="localModel"
+          :isEditableForm="isEditableForm"
+          :inline="inline"
+        />
 
         <div class="form-actions">
+          <button v-if="localModel && localModel.id" type="button" class="btn btn-danger btn-delete" @click="handleDelete">
+            Supprimer
+          </button>
           <button v-if="!inline" type="button" class="btn btn-secondary" @click="$emit('cancel')">
             Annuler
           </button>
@@ -114,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 
 interface FormField {
@@ -130,8 +47,23 @@ interface FormField {
   options?: Array<{ value: any; label: string }>;
 }
 
+interface LayoutElement {
+  type: 'field' | 'group' | 'separator' | 'newline';
+  key?: string;
+  string?: string;
+  col?: number;
+  children?: LayoutElement[];
+  readOnly?: boolean;
+  required?: boolean;
+  overrideLabel?: string;
+  label?: string;
+  disabled?: boolean;
+  originalField?: FormField;
+}
+
 interface FormConfig {
   editableForm?: boolean;
+  fields?: any[];
 }
 
 const props = defineProps<{
@@ -146,10 +78,358 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: Record<string, any>): void;
   (e: 'submit', value: Record<string, any>): void;
   (e: 'cancel'): void;
+  (e: 'delete', value: Record<string, any>): void;
 }>();
 
 const isEditableForm = computed(() => {
   return props.formConfig?.editableForm !== false;
+});
+
+function parseLayoutElement(elem: any): LayoutElement | null {
+  if (!elem) return null;
+  
+  if (typeof elem === 'string') {
+    const original = props.fields.find(f => f.key === elem);
+    if (original) {
+      return {
+        type: 'field',
+        key: elem,
+        label: original.label,
+        required: original.required,
+        disabled: false,
+        originalField: original
+      };
+    }
+    return null;
+  }
+
+  // Si c'est un objet simple sans type mais avec une key, c'est un champ
+  if (elem.key && !elem.type) {
+    const original = props.fields.find(f => f.key === elem.key);
+    if (original) {
+      return {
+        type: 'field',
+        key: elem.key,
+        label: elem.overrideLabel || original.label,
+        required: elem.required === true,
+        disabled: elem.readOnly === true,
+        originalField: original
+      };
+    }
+  }
+
+  if (elem.type === 'field') {
+    const original = props.fields.find(f => f.key === elem.key);
+    if (original) {
+      return {
+        type: 'field',
+        key: elem.key,
+        label: elem.overrideLabel || original.label,
+        required: elem.required === true,
+        disabled: elem.readOnly === true,
+        originalField: original
+      };
+    }
+  }
+
+  if (elem.type === 'group') {
+    const children: LayoutElement[] = [];
+    if (Array.isArray(elem.children)) {
+      elem.children.forEach((child: any) => {
+        const parsed = parseLayoutElement(child);
+        if (parsed) children.push(parsed);
+      });
+    }
+    return {
+      type: 'group',
+      string: elem.string,
+      col: elem.col || 2,
+      children
+    };
+  }
+
+  if (elem.type === 'separator') {
+    return {
+      type: 'separator',
+      string: elem.string
+    };
+  }
+
+  if (elem.type === 'newline') {
+    return {
+      type: 'newline'
+    };
+  }
+
+  return null;
+}
+
+const layoutTree = computed<LayoutElement[]>(() => {
+  if (props.formConfig?.fields && props.formConfig.fields.length > 0) {
+    const parsed: LayoutElement[] = [];
+    props.formConfig.fields.forEach((item: any) => {
+      const parsedItem = parseLayoutElement(item);
+      if (parsedItem) parsed.push(parsedItem);
+    });
+    return parsed;
+  }
+
+  // Fallback par défaut : tous les champs dans un layout plat
+  return props.fields.map(f => ({
+    type: 'field',
+    key: f.key,
+    label: f.label,
+    required: f.required,
+    disabled: false,
+    originalField: f
+  }));
+});
+
+// Déclarer localement le composant récursif de rendu avec h() pour éviter les limitations du compilateur de template
+const FormLayoutGrid: any = defineComponent({
+  name: 'FormLayoutGrid',
+  props: {
+    elements: {
+      type: Array as () => LayoutElement[],
+      required: true
+    },
+    localModel: {
+      type: Object as () => Record<string, any>,
+      required: true
+    },
+    isEditableForm: {
+      type: Boolean,
+      required: true
+    },
+    inline: {
+      type: Boolean,
+      default: false
+    },
+    isNested: {
+      type: Boolean,
+      default: false
+    }
+  },
+  setup(props) {
+    return () => {
+      // Si inline : 150px 1fr
+      // Si non inline : 150px 1fr 150px 1fr
+      const gridTemplate = props.inline
+        ? '150px 1fr'
+        : '150px 1fr 150px 1fr';
+
+      return h('div', {
+        class: 'fields-layout-container',
+        style: props.isNested ? {
+          display: 'contents'
+        } : {
+          display: 'grid',
+          gridTemplateColumns: gridTemplate,
+          gap: '16px',
+          alignItems: 'center',
+          width: '100%'
+        }
+      },
+        props.elements.flatMap(elem => {
+          if (elem.type === 'newline') {
+            return [ h('div', {
+              class: 'form-layout-newline',
+              style: {
+                gridColumn: '1 / -1',
+                height: '0',
+                width: '100%',
+                margin: '0',
+                padding: '0'
+              }
+            }) ];
+          }
+
+          if (elem.type === 'separator') {
+            return [
+              h('div', {
+                class: 'form-layout-separator',
+                style: {
+                  gridColumn: '1 / -1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  margin: '0',
+                  width: '100%'
+                }
+              }, [
+                elem.string ? h('span', { class: 'separator-title' }, elem.string) : null,
+                h('hr', { class: 'separator-hr' })
+              ])
+            ];
+          }
+
+          if (elem.type === 'group') {
+            const cols = props.inline ? 1 : (elem.col || 2);
+            const groupGridTemplate = cols === 1 ? '150px 1fr' : '150px 1fr 150px 1fr';
+            return [
+              h('div', {
+                class: 'form-layout-group',
+                style: {
+                  display: 'grid',
+                  gridTemplateColumns: groupGridTemplate,
+                  gap: '16px',
+                  gridColumn: '1 / -1',
+                  alignItems: 'center',
+                  margin: '0',
+                  padding: '8px 12px',
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1px dashed var(--border-color)',
+                  borderRadius: '6px'
+                }
+              }, [
+                elem.string ? h('h4', {
+                  class: 'group-title',
+                  style: {
+                    gridColumn: '1 / -1',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    color: 'var(--accent-primary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.7px',
+                    margin: '0 0 12px 0',
+                    paddingLeft: '8px',
+                    borderLeft: '3px solid var(--accent-primary)'
+                  }
+                }, elem.string) : null,
+                h(FormLayoutGrid, {
+                  elements: elem.children || [],
+                  localModel: props.localModel,
+                  isEditableForm: props.isEditableForm,
+                  inline: props.inline,
+                  isNested: true
+                })
+              ])
+            ];
+          }
+
+          if (elem.type === 'field' && elem.originalField) {
+            const field = elem.originalField;
+            const key = elem.key!;
+            const required = elem.required === true;
+            const disabled = props.isEditableForm === false || elem.disabled === true;
+            const label = elem.label || field.label;
+
+            const isFull = field.fullWidth === true;
+            const inputStyle = {
+              gridColumn: (isFull && !props.inline) ? 'span 3' : 'auto'
+            };
+
+            let inputElement: any = null;
+
+            if (field.type === 'text') {
+              inputElement = h('input', {
+                type: 'text',
+                class: 'form-input',
+                style: inputStyle,
+                value: props.localModel[key] || '',
+                required: required,
+                disabled: disabled,
+                placeholder: field.placeholder || '',
+                onInput: (e: Event) => {
+                  props.localModel[key] = (e.target as HTMLInputElement).value;
+                }
+              });
+            } else if (field.type === 'number') {
+              inputElement = h('input', {
+                type: 'number',
+                class: 'form-input',
+                style: inputStyle,
+                value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
+                required: required,
+                disabled: disabled,
+                min: field.min,
+                max: field.max,
+                step: field.step || '1',
+                onInput: (e: Event) => {
+                  const val = (e.target as HTMLInputElement).value;
+                  props.localModel[key] = val !== '' ? Number(val) : null;
+                }
+              });
+            } else if (field.type === 'date') {
+              inputElement = h('input', {
+                type: 'date',
+                class: 'form-input',
+                style: inputStyle,
+                value: props.localModel[key] || '',
+                required: required,
+                disabled: disabled,
+                onInput: (e: Event) => {
+                  props.localModel[key] = (e.target as HTMLInputElement).value;
+                }
+              });
+            } else if (field.type === 'boolean') {
+              inputElement = h('div', {
+                class: 'toggle-wrapper',
+                style: inputStyle
+              }, [
+                h('label', { class: ['switch', disabled ? 'disabled-switch' : ''] }, [
+                  h('input', {
+                    type: 'checkbox',
+                    checked: !!props.localModel[key],
+                    disabled: disabled,
+                    onChange: (e: Event) => {
+                      props.localModel[key] = (e.target as HTMLInputElement).checked;
+                    }
+                  }),
+                  h('span', { class: 'slider round' })
+                ]),
+                h('span', { class: 'toggle-status' }, props.localModel[key] ? 'Oui' : 'Non')
+              ]);
+            } else if (field.type === 'select') {
+              inputElement = h('select', {
+                class: 'select-custom form-select',
+                style: inputStyle,
+                value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
+                required: required,
+                disabled: disabled,
+                onChange: (e: Event) => {
+                  const val = (e.target as HTMLSelectElement).value;
+                  props.localModel[key] = val === '' ? null : Number(val);
+                }
+              }, [
+                h('option', { value: '' }, '-- Choisir --'),
+                ...(field.options || []).map(opt =>
+                  h('option', { value: opt.value }, opt.label)
+                )
+              ]);
+            } else if (field.type === 'color') {
+              inputElement = h('div', {
+                class: ['form-color-swatch-wrapper', disabled ? 'readonly-swatch' : ''],
+                style: inputStyle
+              }, [
+                h(ColorSwatchPicker, {
+                  modelValue: props.localModel[key] || '#3B82F6',
+                  onChange: (val: string) => {
+                    props.localModel[key] = val;
+                  }
+                })
+              ]);
+            }
+
+            const labelElement = h('label', {
+              class: 'form-label',
+              for: key,
+              style: {
+                gridColumn: 'auto'
+              }
+            }, [
+              label,
+              required ? h('span', { class: 'required-indicator' }, ' *') : null
+            ]);
+
+            return [ labelElement, inputElement ];
+          }
+
+          return [];
+        })
+      );
+    };
+  }
 });
 
 // Copie locale réactive pour éviter de modifier directement le modèle parent avant soumission
@@ -186,9 +466,13 @@ function handleSubmit() {
   emit('update:modelValue', localModel.value);
   emit('submit', localModel.value);
 }
+
+function handleDelete() {
+  emit('delete', localModel.value);
+}
 </script>
 
-<style scoped>
+<style>
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -254,21 +538,7 @@ function handleSubmit() {
   overflow-y: auto;
 }
 
-.fields-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-}
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.form-group.full-width {
-  grid-column: span 2;
-}
 
 .form-label {
   font-size: 13px;
@@ -282,6 +552,8 @@ function handleSubmit() {
 }
 
 .form-input, .form-select {
+  width: 100%;
+  box-sizing: border-box;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -379,6 +651,10 @@ input:checked + .slider:before {
   padding-top: 16px;
 }
 
+.btn-delete {
+  margin-right: auto;
+}
+
 .glass-morphism {
   background: var(--bg-card);
   backdrop-filter: blur(12px);
@@ -444,5 +720,75 @@ input:checked + .slider:before {
 
 .generic-form-inline .form-label {
   color: #475569;
+}
+
+.form-input:disabled, .form-select:disabled, .select-custom:disabled {
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 0.75;
+  box-shadow: none !important;
+}
+
+.disabled-switch {
+  cursor: not-allowed !important;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Odoo-style layout structural styles */
+.form-layout-group {
+  margin: 0;
+  padding: 8px 12px;
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+}
+
+.group-title {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  margin: 0 0 12px 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent-primary);
+}
+
+.form-layout-separator {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  width: 100%;
+}
+
+.separator-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.separator-hr {
+  flex: 1;
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 0;
+}
+
+.form-layout-newline {
+  grid-column: 1 / -1;
+  height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 </style>

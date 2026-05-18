@@ -140,6 +140,7 @@
             :inline="true"
             :formConfig="panel.formConfig"
             @submit="onSubmitGeneric"
+            @delete="onDeleteGeneric"
           />
         </div>
       </template>
@@ -153,6 +154,7 @@
       v-model="formModel"
       @submit="onSubmitGeneric"
       @cancel="showFormModal = false"
+      @delete="onDeleteGeneric"
     />
 
     <!-- Boîte de dialogue de confirmation d'impact de dépositionnement (T018b) -->
@@ -511,6 +513,8 @@ async function onDeleteGeneric(item: any) {
           await api.applyChange("DELETE_RESOURCE", resourceType, item.id);
           await api.deleteGenericItem(activeAdminModel.value, item.id);
           showNotification('success', 'Ressource supprimée et séances dépositionnées avec succès !');
+          showFormModal.value = false;
+          formModel.value = {};
           loadGenericItems();
           loadTimetableData();
         };
@@ -525,6 +529,8 @@ async function onDeleteGeneric(item: any) {
     try {
       await api.deleteGenericItem(activeAdminModel.value, item.id);
       showNotification('success', 'Ressource supprimée avec succès !');
+      showFormModal.value = false;
+      formModel.value = {};
       loadGenericItems();
       if (activeAdminModel.value === 'schools') {
         loadSchools();

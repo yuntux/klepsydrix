@@ -134,9 +134,19 @@ Concernant le composant `GenericList`, il doit offrir nativement les fonctionnal
         - `visibleByDefault` : booléen (par défaut `true`) coché par défaut dans le sélecteur de colonnes.
         - `overrideLabel` : intitulé optionnel surchargé (s'il est spécifié).
         - `readOnly` : booléen (par défaut `false`) pour rendre un champ ou une colonne non modifiable en ligne.
-Concernant le composant `GenericForm`, il doit offrir la fonctionnalité suivante :
+        - `required` : booléen (par défaut `false`) indiquant si la saisie est obligatoire pour cette colonne lors de l'édition en ligne.
+Concernant le composant `GenericForm`, il doit offrir les fonctionnalités suivantes :
   1. **Structure de configuration optionnelle (`formConfig`)** :
      - `editableForm` : booléen indiquant si l'on peut éditer les enregistrements dans le formulaire (par défaut `true`).
+     - `fields` : configuration fine et structurée pour la mise en page et la sélection des éléments du formulaire. Si non spécifié, tous les attributs du modèle sont intégrés par défaut. Cette structure supporte les balises de structure de type Odoo suivantes pour organiser les formulaires de manière professionnelle :
+       - **Champs standards** :
+         - `key` : clé de l'attribut (ex: `code`, `last_name`).
+         - `readOnly` : booléen (par défaut `false`) indiquant si l'attribut est en lecture seule dans le formulaire.
+         - `required` : booléen (par défaut `false`) indiquant si la saisie de l'attribut est obligatoire dans le formulaire.
+         - `overrideLabel` : intitulé textuel optionnel pour surcharger l'étiquette par défaut.
+       - **Structure `group`** : Définit un conteneur organisant ses enfants sous forme de colonnes (par exemple un layout sur 2 colonnes ou plus, avec un alignement soigné des étiquettes et des champs). Un groupe peut éventuellement porter une étiquette de titre (`string`). Les éléments enfants (`children`) d'un groupe peuvent être des champs ou d'autres sous-structures.
+       - **Balise `separator`** : Ajoute un séparateur visuel horizontal (`<hr>`) accompagné d'un titre optionnel, idéal pour structurer les différentes sections logiques d'un formulaire dense.
+       - **Balise `newline`** : Force un saut de ligne dans le layout en cours, permettant aux éléments suivants de commencer sur une nouvelle ligne de la grille (utile dans les mises en page multi-colonnes).
 - **FR-004**: **Gestion des Alternances (Quinzaine)** : Le modèle de données et le solveur doivent supporter les alternances temporelles (Semaine A / Semaine B / Toutes les semaines).
 - **FR-005**: **Gestion des Groupes et Sous-groupes** : Les divisions doivent pouvoir être partitionnées en sous-groupes (ex: demi-classes, groupes de spécialités), avec support des conflits d'intersection d'élèves par le solveur.
 - **FR-006**: **Fiche Cours Cumulée (Fiche T)** : Une popin métier unifiée doit permettre de visualiser et de consulter de manière synthétique et consolidée les caractéristiques d'une sélection multiple de cours. Les ressources communes (ex: même matière) s'affichent de façon standard, tandis que les ressources divergentes (ex: enseignants ou salles différents) sont regroupées sous forme de pastilles (chips) stylisées dotées d'un indicateur visuel de divergence (bordure ou couleur contrastée) et d'un badge de proportion (ex: `[2/3]`). **La popin doit être déplaçable (draggable) par glisser-déposer (drag-and-drop) de son en-tête**, afin de permettre au planificateur de dégager la vue sur la grille horaire sous-jacente.

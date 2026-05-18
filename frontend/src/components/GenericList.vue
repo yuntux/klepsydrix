@@ -39,7 +39,7 @@
               ></div>
             </th>
             <th class="header-th actions-th">
-              <div class="actions-header-wrapper" style="justify-content: flex-end;">
+              <div class="actions-header-wrapper" style="justify-content: center;">
                 
                 <!-- Sélecteur de colonnes (déplacé dans l'en-tête Action) -->
                 <div class="column-selector-wrapper" ref="dropdownRef">
@@ -160,6 +160,7 @@
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
                   :value="item[col.key]" 
                   :disabled="isColumnReadOnly(col.key)"
+                  :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value ? Number($event.target.value) : null)"
                   class="inline-select"
                 >
@@ -182,6 +183,7 @@
                   :max="getFieldDef(col.key)?.max"
                   :step="getFieldDef(col.key)?.step || '1'"
                   :disabled="isColumnReadOnly(col.key)"
+                  :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value !== '' ? Number($event.target.value) : null)"
                   class="inline-input inline-number"
                 />
@@ -192,6 +194,7 @@
                   type="text" 
                   :value="item[col.key] || ''" 
                   :disabled="isColumnReadOnly(col.key)"
+                  :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value)"
                   class="inline-input"
                 />
@@ -296,6 +299,7 @@ interface ColumnConfig {
   visibleByDefault?: boolean;
   overrideLabel?: string;
   readOnly?: boolean;
+  required?: boolean;
 }
 
 interface ListConfig {
@@ -334,6 +338,11 @@ function isColumnReadOnly(key: string): boolean {
   const colConf = props.listConfig?.columns?.[key];
   if (colConf?.readOnly === true) return true;
   return false;
+}
+
+function isColumnRequired(key: string): boolean {
+  const colConf = props.listConfig?.columns?.[key];
+  return colConf?.required === true;
 }
 
 function onRowClick(item: any, event: MouseEvent) {
@@ -1054,9 +1063,11 @@ function onDrop(event: DragEvent, index: number) {
   font-size: 14px;
 }
 
-/* Actions */
 .actions-th {
-  width: 100px;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  padding: 8px 4px !important;
   text-align: center;
   position: sticky;
   right: 0;
@@ -1066,7 +1077,10 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .actions-td {
-  width: 100px;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  padding: 0 4px !important;
   text-align: center;
   position: sticky;
   right: 0;

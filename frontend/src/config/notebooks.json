@@ -95,11 +95,13 @@
                     },
                     "last_name": {
                       "visibleByDefault": true,
-                      "overrideLabel": "Nom de famille"
+                      "overrideLabel": "Nom de famille",
+                      "required": true
                     },
                     "first_name": {
                       "visibleByDefault": true,
-                      "overrideLabel": "Prénom"
+                      "overrideLabel": "Prénom",
+                      "required": true
                     }
                   }
                 }
@@ -107,15 +109,66 @@
               {
                 "id": "teachers_pref_grid",
                 "component": "PreferenceGrid",
-                "width": "50%"
+                "width": "40%"
               },
               {
                 "id": "teachers_pref_form",
                 "component": "GenericForm",
                 "resourceKey": "teachers",
-                "width": "30%",
+                "width": "40%",
                 "formConfig": {
-                  "editableForm": true
+                  "editableForm": true,
+                  "fields": [
+                    {
+                      "type": "separator",
+                      "string": "État Civil"
+                    },
+                    {
+                      "type": "group",
+                      "string": "Identité de l'Enseignant",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "last_name",
+                          "overrideLabel": "Nom de famille",
+                          "required": true,
+                          "readOnly": true
+                        },
+                        {
+                          "key": "first_name",
+                          "overrideLabel": "Prénom",
+                          "required": true,
+                          "readOnly": true
+                        }
+                      ]
+                    },
+                    {
+                      "type": "newline"
+                    },
+                    {
+                      "type": "separator",
+                      "string": "Paramètres Contractuels"
+                    },
+                    {
+                      "type": "group",
+                      "string": "Contrat & Rattachement",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_weekly_hours",
+                          "overrideLabel": "Heures de cours max par semaine",
+                          "required": true,
+                          "readOnly": false
+                        },
+                        {
+                          "key": "school_id",
+                          "overrideLabel": "Établissement principal",
+                          "required": true,
+                          "readOnly": true
+                        }
+                      ]
+                    }
+                  ]
                 }
               }
             ]
