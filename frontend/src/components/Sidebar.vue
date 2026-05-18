@@ -19,18 +19,19 @@
       >
         <div class="course-subject">{{ course.subject }}</div>
         <div class="course-meta">
-          <div class="meta-item">
+          <span class="meta-item">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
             </svg>
-            <span>{{ getTeacherName(course.teacher_id) }}</span>
-          </div>
-          <div class="meta-item">
+            {{ getTeacherName(course.teacher_id) }}
+          </span>
+          <span class="meta-separator">•</span>
+          <span class="meta-item">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.57 50.57 0 0 0-2.658-.813A5.905 5.905 0 0 1 1.75 9.149a4.89 4.89 0 0 1 4.409-4.891c1.85-.14 3.719-.211 5.591-.211 1.872 0 3.74.072 5.592.211a4.89 4.89 0 0 1 4.409 4.892 5.905 5.905 0 0 1-1.096 1.028m-15.482 0a48.584 48.584 0 0 1 15.482 0m-15.482 0v2.93m15.482-2.93v2.93m-15.482 0a50.58 50.58 0 0 1 2.658-.814m12.824.814a50.58 50.58 0 0 0-2.658-.814m-9.966.814v2.644m9.966-2.644v2.644m-9.966 0a48.58 48.58 0 0 1 9.966 0" />
             </svg>
-            <span>{{ getDivisionName(course.division_id) }}</span>
-          </div>
+            {{ getDivisionName(course.division_id) }}
+          </span>
         </div>
       </div>
 

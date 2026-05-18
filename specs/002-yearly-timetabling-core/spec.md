@@ -84,7 +84,7 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 
 ### User Story 5 - Navigation fluide et structurée via Notebooks Imbriqués et Multi-panneaux (Priority: P2)
 
-En tant que planificateur, je veux naviguer dans l'application via une interface structurée sous forme d'onglets (notebooks) imbriqués configurables dynamiquement, et pouvoir diviser mes écrans de travail les plus bas en plusieurs panneaux redimensionnables verticalement par glisser-déposer, afin de visualiser et d'éditer simultanément différentes données du socle (par exemple, afficher la liste des enseignants à côté de leur formulaire d'édition).
+En tant que planificateur, je veux naviguer dans l'application via une interface structurée sous forme d'onglets (notebooks) imbriqués configurables dynamiquement, et pouvoir diviser mes écrans de travail les plus bas en plusieurs panneaux redimensionnables verticalement par glisser-déposer, afin de visualiser et d'éditer simultanément différentes données (par exemple, afficher la liste des enseignants à côté de leur formulaire d'édition).
 
 **Why this priority**: Cette ergonomie moderne élimine la navigation complexe par menus séparés, améliore la productivité en permettant le multi-panneaux côte à côte (ex: liste + formulaire), et standardise le squelette visuel complet de l'application sous forme de configuration déclarative.
 
@@ -112,14 +112,20 @@ Charger une configuration JSON décrivant un arbre de notebooks avec au niveau 1
 - **FR-001**: **Moteur CRUD Générique (Socle)** : Le système doit fournir un mécanisme générique côté backend et frontend pour générer les formulaires et les listes pour toutes les entités de base (y compris les nomenclatures) : *Matières, Professeurs, Groupes, Salles, Classes, Parties de classe, Alternances, Sites, Matériels, Créneaux, MEFs, Disciplines, Missions, Méthodes d'élection et Périodes*.
 - **FR-002**: **APIs Génériques** : Le backend doit exposer des points d'accès API unifiés, typés et réutilisables pour les opérations CRUD de chaque type de ressource de base.
 - **FR-003**: **Composants Frontend Réutilisables** : Le frontend doit utiliser des composants de tableau (`GenericList`) et de formulaire (`GenericForm`) paramétrables pour éviter la duplication de code pour tous les types de ressources.
-Concernant le composant `GenericList`, il est fortement recommandé d'intégrer une librairie VueJS existante sur internet (ex: PrimeVue DataTable, AG Grid ou Tabulator) pour offrir nativement les fonctionnalités suivantes :
+Concernant le composant `GenericList`, il doit offrir nativement les fonctionnalités suivantes :
   1. Pagination (par défaut 30 éléments par page, avec possibilité de modifier ce nombre).
   2. Redimensionnement manuel de la largeur des colonnes.
   3. Réordonnancement des colonnes via glisser-déposer (drag-and-drop) de leurs en-têtes.
-  4. Sélecteur de colonnes accessible via un bouton en haut à droite permettant de cocher/décocher les colonnes à afficher.
+  4. Sélecteur de colonnes accessible via un bouton icône dans l'en-tête Action permettant de cocher/décocher les colonnes à afficher.
   5. Tri des données en cliquant sur l'en-tête de n'importe quelle colonne.
   6. Recherche / filtrage spécifique sur chaque colonne.
-  *(Note : L'implémentation d'une fonction de regroupement de lignes n'est pas requise).*
+  7. **Multisélection par cases à cocher** : Une colonne de cases à cocher à gauche de la liste, avec une case à cocher globale dans l'en-tête pour tout cocher/décocher.
+  8. **Mise en surbrillance** : Toute ligne sélectionnée par sa case à cocher ou via les raccourcis se colore de manière distincte en surbrillance.
+  9. **Badge de comptage de sélection** : Dès qu'au moins un élément est sélectionné, un badge affiche le nombre d'éléments sélectionnés en bas dans la zone de pagination.
+  10. **Raccourcis de sélection (EDT Page 41)** :
+      - *Maj + Clic* : Sélectionne tous les éléments contigus entre le premier et le dernier élément cliqué.
+      - *Ctrl + Clic / Cmd + Clic* : Sélectionne/désélectionne des éléments non contigus.
+      - *Ctrl + A / Cmd + A* : Sélectionne d'un coup tous les éléments affichés de la liste.
 - **FR-004**: **Gestion des Alternances (Quinzaine)** : Le modèle de données et le solveur doivent supporter les alternances temporelles (Semaine A / Semaine B / Toutes les semaines).
 - **FR-005**: **Gestion des Groupes et Sous-groupes** : Les divisions doivent pouvoir être partitionnées en sous-groupes (ex: demi-classes, groupes de spécialités), avec support des conflits d'intersection d'élèves par le solveur.
 - **FR-006**: **Fiche Cours Cumulée (Fiche T)** : Une popin métier unifiée doit permettre de visualiser et de consulter de manière synthétique et consolidée les caractéristiques d'une sélection multiple de cours. Les ressources communes (ex: même matière) s'affichent de façon standard, tandis que les ressources divergentes (ex: enseignants ou salles différents) sont regroupées sous forme de pastilles (chips) stylisées dotées d'un indicateur visuel de divergence (bordure ou couleur contrastée) et d'un badge de proportion (ex: `[2/3]`). **La popin doit être déplaçable (draggable) par glisser-déposer (drag-and-drop) de son en-tête**, afin de permettre au planificateur de dégager la vue sur la grille horaire sous-jacente.

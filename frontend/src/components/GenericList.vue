@@ -5,6 +5,14 @@
       <table class="premium-table">
         <thead>
           <tr class="header-tr">
+            <th class="header-th checkbox-th" style="width: 40px; text-align: center; border-right: 1px solid var(--border-color); padding: 8px 4px;">
+              <input 
+                type="checkbox" 
+                :checked="isAllSelected" 
+                ref="selectAllCheckbox"
+                @change="toggleSelectAll($event.target.checked)"
+              />
+            </th>
             <th 
               v-for="(col, index) in visibleColumns" 
               :key="col.key"
@@ -61,6 +69,7 @@
 
           <!-- Ligne de filtrage / recherche spécifique par colonne -->
           <tr class="filter-tr">
+            <td class="filter-td checkbox-filter-td" style="width: 40px; border-right: 1px solid var(--border-color); padding: 6px 4px;"></td>
             <td v-for="col in visibleColumns" :key="'filter-' + col.key" class="filter-td">
               <!-- Si c'est un champ couleur, on propose le composant swatch -->
               <color-swatch-picker
@@ -83,7 +92,7 @@
         <tbody>
           <!-- Ligne virtuelle interactive "+ Ajouter une ligne" -->
           <tr class="add-row-tr" @click="$emit('add')">
-            <td :colspan="visibleColumns.length + 1" class="add-row-td">
+            <td :colspan="visibleColumns.length + 2" class="add-row-td">
               <div class="add-row-wrapper">
                 <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
@@ -94,7 +103,7 @@
           </tr>
 
           <tr v-if="paginatedItems.length === 0" class="empty-tr">
-            <td :colspan="visibleColumns.length + 1" class="empty-td">
+            <td :colspan="visibleColumns.length + 2" class="empty-td">
               Aucune donnée à afficher.
             </td>
           </tr>
@@ -102,8 +111,16 @@
             v-for="item in paginatedItems" 
             :key="item.id" 
             class="body-tr"
+            :class="{ 'selected-row': selectedIds.has(item.id) }"
             @click="onRowClick(item, $event)"
           >
+            <td class="body-td checkbox-td" style="text-align: center; width: 40px; border-right: 1px solid var(--border-color); padding: 0 4px;">
+              <input 
+                type="checkbox" 
+                :checked="selectedIds.has(item.id)" 
+                style="pointer-events: none;"
+              />
+            </td>
             <td 
               v-for="col in visibleColumns" 
               :key="col.key"
@@ -194,6 +211,9 @@
     <div class="list-pagination">
       <div class="pagination-left">
         <span class="toolbar-badge">{{ filteredItems.length }} éléments</span>
+        <span v-if="selectedIds.size > 0" class="toolbar-badge selection-badge">
+          {{ selectedIds.size }} sélectionné(s)
+        </span>
         <label class="per-page-selector">
           Afficher
           <select v-model="perPage" class="select-custom">
@@ -285,15 +305,94 @@ const emit = defineEmits<{
 
 function onRowClick(item: any, event: MouseEvent) {
   const target = event.target as HTMLElement;
+
+  // Si c'est un clic d'action (boutons, swatches), on ignore pour l'action spécifique
   if (
-    target.closest('input') || 
-    target.closest('select') || 
     target.closest('button') || 
     target.closest('.inline-color-swatch-wrapper') || 
     target.closest('.btn-action')
   ) {
     return;
   }
+
+  const isCheckboxClick = !!target.closest('.checkbox-td');
+  const isSelectionShortcut = event.ctrlKey || event.metaKey || event.shiftKey;
+
+  // Si c'est un clic normal sur un input ou un select (hors checkbox-td), on ignore pour laisser l'édition en ligne
+  if (!isCheckboxClick && (target.closest('input') || target.closest('select'))) {
+    if (!isSelectionShortcut) {
+      return;
+    }
+  }
+
+  // Si clic sur la checkbox ou sa cellule : 
+  // - Clic normal ou Ctrl+Clic : coche/décoche la ligne, mais n'ouvre pas le formulaire d'édition
+  // - Shift+Clic : sélectionne la plage de lignes correspondante
+  if (isCheckboxClick) {
+    event.preventDefault();
+    if (event.shiftKey) {
+      if (lastClickedItem.value) {
+        const idx1 = filteredItems.value.findIndex(x => x.id === lastClickedItem.value.id);
+        const idx2 = filteredItems.value.findIndex(x => x.id === item.id);
+        if (idx1 !== -1 && idx2 !== -1) {
+          const start = Math.min(idx1, idx2);
+          const end = Math.max(idx1, idx2);
+          for (let i = start; i <= end; i++) {
+            selectedIds.value.add(filteredItems.value[i].id);
+          }
+        } else {
+          selectedIds.value.add(item.id);
+        }
+      } else {
+        selectedIds.value.add(item.id);
+      }
+      lastClickedItem.value = item;
+    } else {
+      if (selectedIds.value.has(item.id)) {
+        selectedIds.value.delete(item.id);
+      } else {
+        selectedIds.value.add(item.id);
+      }
+      lastClickedItem.value = item;
+    }
+    return;
+  }
+
+  // EDT Raccourcis page 41 pour le clic hors checkbox
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault();
+    if (selectedIds.value.has(item.id)) {
+      selectedIds.value.delete(item.id);
+    } else {
+      selectedIds.value.add(item.id);
+    }
+    lastClickedItem.value = item;
+    return;
+  }
+
+  if (event.shiftKey) {
+    event.preventDefault();
+    if (lastClickedItem.value) {
+      const idx1 = filteredItems.value.findIndex(x => x.id === lastClickedItem.value.id);
+      const idx2 = filteredItems.value.findIndex(x => x.id === item.id);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        for (let i = start; i <= end; i++) {
+          selectedIds.value.add(filteredItems.value[i].id);
+        }
+      } else {
+        selectedIds.value.add(item.id);
+      }
+    } else {
+      selectedIds.value.add(item.id);
+    }
+    lastClickedItem.value = item;
+    return;
+  }
+
+  // Clic normal sur le reste de la ligne -> ouvre le formulaire d'édition
+  lastClickedItem.value = item;
   emit('row-click', item);
 }
 
@@ -364,13 +463,12 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
-onMounted(() => {
-  document.addEventListener('mousedown', handleClickOutside);
-});
+// Multisélection (Actions groupées & Raccourcis EDT p.41)
+const selectedIds = ref<Set<number | string>>(new Set());
+const lastClickedItem = ref<any>(null);
+const selectAllCheckbox = ref<HTMLInputElement | null>(null);
 
-onUnmounted(() => {
-  document.removeEventListener('mousedown', handleClickOutside);
-});
+// Les fonctions dépendantes de filteredItems sont déclarées plus bas après l'initialisation de filteredItems.
 
 // Pagination
 const currentPage = ref(1);
@@ -453,6 +551,80 @@ const totalPages = computed(() => {
 const paginatedItems = computed(() => {
   const start = (currentPage.value - 1) * perPage.value;
   return filteredItems.value.slice(start, start + perPage.value);
+});
+
+// Multisélection (Actions groupées & Raccourcis EDT p.41) dépendantes de filteredItems
+const isAllSelected = computed(() => {
+  if (filteredItems.value.length === 0) return false;
+  return filteredItems.value.every(item => selectedIds.value.has(item.id));
+});
+
+const isSomeSelected = computed(() => {
+  if (filteredItems.value.length === 0) return false;
+  const numSelected = filteredItems.value.filter(item => selectedIds.value.has(item.id)).length;
+  return numSelected > 0 && numSelected < filteredItems.value.length;
+});
+
+function toggleSelectAll(checked: boolean) {
+  if (checked) {
+    filteredItems.value.forEach(item => {
+      selectedIds.value.add(item.id);
+    });
+  } else {
+    filteredItems.value.forEach(item => {
+      selectedIds.value.delete(item.id);
+    });
+  }
+}
+
+function toggleSelectRow(item: any, checked: boolean) {
+  if (checked) {
+    selectedIds.value.add(item.id);
+  } else {
+    selectedIds.value.delete(item.id);
+  }
+  lastClickedItem.value = item;
+}
+
+function handleGlobalKeyDown(event: KeyboardEvent) {
+  const target = event.target as HTMLElement;
+  if (
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.tagName === 'SELECT' ||
+    target.isContentEditable
+  ) {
+    return;
+  }
+
+  // Ctrl+A ou Cmd+A
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A')) {
+    event.preventDefault();
+    filteredItems.value.forEach(item => {
+      selectedIds.value.add(item.id);
+    });
+  }
+}
+
+watch(isSomeSelected, (val) => {
+  if (selectAllCheckbox.value) {
+    selectAllCheckbox.value.indeterminate = val;
+  }
+});
+
+watch([() => props.items, () => props.title], () => {
+  selectedIds.value.clear();
+  lastClickedItem.value = null;
+});
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleClickOutside);
+  window.addEventListener('keydown', handleGlobalKeyDown);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside);
+  window.removeEventListener('keydown', handleGlobalKeyDown);
 });
 
 // Reset page on filter/limit changes
@@ -573,6 +745,13 @@ function onDrop(event: DragEvent, index: number) {
   border-radius: 9999px;
   font-size: 12px;
   font-weight: 600;
+}
+
+.selection-badge {
+  background-color: rgba(99, 102, 241, 0.25) !important;
+  color: var(--accent-primary) !important;
+  border: 1px solid var(--accent-primary) !important;
+  font-weight: bold;
 }
 
 .toolbar-right {
@@ -763,6 +942,14 @@ function onDrop(event: DragEvent, index: number) {
 
 .body-tr:hover {
   background-color: var(--bg-secondary);
+}
+
+.body-tr.selected-row {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
+
+.body-tr.selected-row:hover {
+  background-color: rgba(99, 102, 241, 0.18) !important;
 }
 
 .body-td {
