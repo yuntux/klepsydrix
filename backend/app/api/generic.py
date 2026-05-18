@@ -280,8 +280,10 @@ def make_class_call_endpoint(model):
             
         try:
             result = func(*args, **kwargs)
+            db.commit()
             return serialize_execution_result(result)
         except Exception as e:
+            db.rollback()
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode de classe : {e}")
             
     return class_call_endpoint
@@ -321,8 +323,10 @@ def make_instance_call_endpoint(model):
             
         try:
             result = func(*args, **kwargs)
+            db.commit()
             return serialize_execution_result(result)
         except Exception as e:
+            db.rollback()
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode d'instance : {e}")
             
     return instance_call_endpoint

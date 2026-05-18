@@ -104,7 +104,7 @@
             :divisions="divisions"
             :timeslots="timeslots"
             :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : 'Teacher'))"
-            :resourceIdProp="formModel && formModel.id ? formModel.id : null"
+            :resourceIdProp="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : (formModel && formModel.id ? formModel.id : null)"
             :hideSelectors="['teachers_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab'].includes(activeLeaf?.id)"
           />
         </main>
@@ -135,7 +135,7 @@
         <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
           <GenericForm
             :title="inlineFormTitle"
-            :fields="formFieldsConfig"
+            :fields="getFormFieldsConfig(panel.resourceKey)"
             v-model="formModel"
             :inline="true"
             :formConfig="panel.formConfig"
@@ -265,9 +265,10 @@ function onLeafChange(leaf: any) {
       activeAdminModel.value = listPanel.resourceKey;
       loadGenericItems();
       
-      // Réinitialiser le formulaire inline
+      // Réinitialiser le formulaire inline et la sélection
       formModel.value = {};
       isEditing.value = false;
+      selectedParentIds.value = [];
     }
   }
 }
@@ -302,6 +303,7 @@ const modelToResourceType: Record<string, string> = {
   classrooms: 'Classroom',
   divisions: 'Division',
   schools: 'School',
+  resource_constraints: 'ResourceConstraint',
 };
 
 // Notifications
@@ -402,6 +404,7 @@ const showFormModal = ref(false);
 const formTitle = ref('');
 const formModel = ref<Record<string, any>>({});
 const isEditing = ref(false);
+const selectedParentIds = ref<any[]>([]);
 
 function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
@@ -427,16 +430,37 @@ function onRowClickGeneric(item: any) {
   }
 }
 
-function onSelectionChangeGeneric(ids: any[]) {
+async function onSelectionChangeGeneric(ids: any[]) {
+  selectedParentIds.value = ids;
   if (ids.length > 1) {
-    // Si plusieurs profs sont sélectionnés, les deux volets de droite n'affichent rien
+    // Si plusieurs éléments sont sélectionnés, les deux volets de droite n'affichent rien
     formModel.value = {};
     isEditing.value = false;
   } else if (ids.length === 1) {
-    // Si un seul prof est sélectionné, on le charge dans le formulaire et la grille de voeux
+    // Si un seul élément est sélectionné, on le charge dans le formulaire
     const item = genericItems.value.find(x => x.id === ids[0]);
     if (item) {
-      onEditGeneric(item);
+      const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
+      if (formPanel && formPanel.relationName) {
+        try {
+          const res = await api.callInstanceMethod(activeAdminModel.value, item.id, 'ensure_related_record', {
+            args: [formPanel.relationName]
+          });
+          if (res) {
+            formModel.value = { ...res };
+            isEditing.value = true;
+          } else {
+            formModel.value = {};
+            isEditing.value = false;
+          }
+        } catch (e) {
+          console.error("Échec de la récupération de la relation liée", e);
+          formModel.value = {};
+          isEditing.value = false;
+        }
+      } else {
+        onEditGeneric(item);
+      }
     }
   } else {
     // Aucun élément sélectionné
@@ -446,19 +470,35 @@ function onSelectionChangeGeneric(ids: any[]) {
 }
 
 async function onSubmitGeneric(value: Record<string, any>) {
+  // Déterminer la ressource réelle en fonction de l'inline form panel, sinon fallback sur activeAdminModel
+  const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
+  const targetResource = (isInlineMode.value && formPanel?.resourceKey) || activeAdminModel.value;
+
   try {
     if (isEditing.value) {
-      await api.updateGenericItem(activeAdminModel.value, value.id, value);
+      await api.updateGenericItem(targetResource, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
       
+      // Recharger la liste de gauche (activeAdminModel)
       await loadGenericItems();
       
       if (isInlineMode.value) {
         // En mode inline, on conserve l'élément sélectionné actif
-        const updated = genericItems.value.find(x => x.id === value.id);
-        if (updated) {
-          formModel.value = { ...updated };
-          isEditing.value = true;
+        if (formPanel?.relationName && selectedParentIds.value.length === 1) {
+          // Recharger le record lié au parent actuellement sélectionné
+          const res = await api.callInstanceMethod(activeAdminModel.value, selectedParentIds.value[0], 'ensure_related_record', {
+            args: [formPanel.relationName]
+          });
+          if (res) {
+            formModel.value = { ...res };
+            isEditing.value = true;
+          }
+        } else {
+          const updated = genericItems.value.find(x => x.id === value.id);
+          if (updated) {
+            formModel.value = { ...updated };
+            isEditing.value = true;
+          }
         }
       } else {
         showFormModal.value = false;
@@ -466,7 +506,7 @@ async function onSubmitGeneric(value: Record<string, any>) {
         isEditing.value = false;
       }
     } else {
-      await api.createGenericItem(activeAdminModel.value, value);
+      await api.createGenericItem(targetResource, value);
       showNotification('success', 'Ressource créée avec succès !');
       
       await loadGenericItems();
@@ -629,8 +669,8 @@ const columnsConfig = computed(() => {
 });
 
 // Configurations dynamiques de champs pour GenericForm
-const formFieldsConfig = computed(() => {
-  const model = activeAdminModel.value;
+function getFormFieldsConfig(resourceKey?: string) {
+  const model = resourceKey || activeAdminModel.value;
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
 
   if (model === 'schools') {
@@ -664,6 +704,24 @@ const formFieldsConfig = computed(() => {
       { key: 'max_weekly_hours', label: 'Heures max hebdomadaires', type: 'number', min: 1, max: 40, step: '0.5' },
       { key: 'school_id', label: 'Établissement Principal', type: 'select', required: true, options: schoolOptions },
       // Contraintes (US3 / Preferences)
+      { key: 'max_hours_per_day', label: 'Max Heures par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
+      { key: 'max_hours_per_am', label: 'Max Heures par Matinée', type: 'number', min: 0, max: 8, step: '0.5' },
+      { key: 'max_hours_per_pm', label: 'Max Heures par Après-midi', type: 'number', min: 0, max: 8, step: '0.5' },
+      { key: 'max_presence_days_per_week', label: 'Max Jours Présence par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'max_presence_hours_per_day', label: 'Max Heures Présence par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
+      { key: 'late_start_days_per_week', label: 'Jours de démarrage tardif par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'text', placeholder: 'ex: 09:00' },
+      { key: 'early_end_days_per_week', label: 'Jours de fin précoce par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'text', placeholder: 'ex: 16:30' },
+      { key: 'min_free_days_per_week', label: 'Jours libres minimum par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'min_free_half_days_per_week', label: 'Demi-jours libres minimum par Semaine', type: 'number', min: 0, max: 12 },
+      { key: 'max_worked_am_per_week', label: 'Max Matinées travaillées par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'max_worked_pm_per_week', label: 'Max Après-midis travaillées par Semaine', type: 'number', min: 0, max: 6 },
+      { key: 'only_one_half_day_per_day', label: 'Ne travailler qu\'une demi-journée par jour', type: 'boolean' },
+      { key: 'max_gap_hours_per_week', label: 'Max heures creuses (trous) par Semaine', type: 'number', min: 0, max: 20 }
+    ];
+  } else if (model === 'resource_constraints') {
+    return [
       { key: 'max_hours_per_day', label: 'Max Heures par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
       { key: 'max_hours_per_am', label: 'Max Heures par Matinée', type: 'number', min: 0, max: 8, step: '0.5' },
       { key: 'max_hours_per_pm', label: 'Max Heures par Après-midi', type: 'number', min: 0, max: 8, step: '0.5' },
@@ -721,6 +779,10 @@ const formFieldsConfig = computed(() => {
     ];
   }
   return [];
+}
+
+const formFieldsConfig = computed(() => {
+  return getFormFieldsConfig();
 });
 
 const constraintTranslations: Record<string, string> = {
