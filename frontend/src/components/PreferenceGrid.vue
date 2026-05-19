@@ -99,7 +99,7 @@
 
       <div class="toolbar-sub-group">
         <label class="selector-item">
-          <span>Type Période :</span>
+          <span>Période :</span>
           <select v-model="selectedPeriodTypeId" class="select-custom select-small" @change="onPeriodTypeChange">
             <option :value="null">Annuelle (Toute l'année)</option>
             <option v-for="pt in filteredPeriodTypes" :key="pt.id" :value="pt.id">
@@ -107,11 +107,8 @@
             </option>
           </select>
         </label>
-      </div>
 
-      <div v-if="selectedPeriodTypeId && periodsOfType.length > 0" class="toolbar-sub-group periods-checkboxes-group">
-        <span class="periods-label">Périodes :</span>
-        <div class="checkbox-list">
+        <template v-if="selectedPeriodTypeId && periodsOfType.length > 0">
           <label v-for="p in periodsOfType" :key="p.id" class="checkbox-wrapper">
             <input 
               type="checkbox" 
@@ -122,7 +119,7 @@
             />
             <span class="checkbox-text">{{ p.name }}</span>
           </label>
-        </div>
+        </template>
       </div>
     </div>
 
@@ -1198,24 +1195,6 @@ watch(resourceOptions, () => {
   font-size: 12px;
 }
 
-.periods-checkboxes-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.periods-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.checkbox-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
 
 .checkbox-wrapper {
   display: flex;
