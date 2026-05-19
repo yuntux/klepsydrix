@@ -117,7 +117,7 @@ export async function createGenericItem(resourceName: string, payload: any): Pro
 
 export async function updateGenericItem(resourceName: string, id: number, payload: any): Promise<any> {
   const response = await fetch(`/api/generic/${resourceName}/${id}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
     },

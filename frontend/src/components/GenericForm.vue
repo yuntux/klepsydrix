@@ -3,7 +3,7 @@
     <div :class="inline ? 'generic-form-inline' : 'generic-form-modal glass-morphism'">
       <div class="form-header">
         <h3 class="form-title">{{ title }}</h3>
-        <button v-if="!inline" class="btn-close" @click="$emit('cancel')">×</button>
+        <button v-if="!inline" class="btn-close" @click="handleCancel">×</button>
       </div>
 
       <form @submit.prevent="handleSubmit" class="form-body">
@@ -18,7 +18,7 @@
           <button v-if="localModel && localModel.id" type="button" class="btn btn-danger btn-delete" @click="handleDelete">
             Supprimer
           </button>
-          <button v-if="!inline" type="button" class="btn btn-secondary" @click="$emit('cancel')">
+          <button type="button" class="btn btn-secondary" @click="handleCancel">
             Annuler
           </button>
           <button v-if="isEditableForm" type="submit" class="btn btn-primary">
@@ -501,6 +501,7 @@ const FormLayoutGrid: any = defineComponent({
 
 // Copie locale réactive pour éviter de modifier directement le modèle parent avant soumission
 const localModel = ref<Record<string, any>>({});
+const initialModelValue = ref<Record<string, any>>({});
 
 // Watch props.modelValue pour mettre à jour la copie locale
 watch(() => props.modelValue, (newVal) => {
@@ -508,17 +509,21 @@ watch(() => props.modelValue, (newVal) => {
   if (JSON.stringify(cleanNewVal) === JSON.stringify(localModel.value)) return;
   
   localModel.value = cleanNewVal;
+  initialModelValue.value = JSON.parse(JSON.stringify(cleanNewVal));
   
   // Initialiser les champs booléens et couleur par défaut
   props.fields.forEach(field => {
     if (field.type === 'boolean' && localModel.value[field.key] === undefined) {
       localModel.value[field.key] = false;
+      initialModelValue.value[field.key] = false;
     }
     if (field.type === 'color' && !localModel.value[field.key]) {
       localModel.value[field.key] = '#3498DB'; // couleur par défaut premium
+      initialModelValue.value[field.key] = '#3498DB';
     }
     if (field.type === 'select' && localModel.value[field.key] === undefined) {
       localModel.value[field.key] = null;
+      initialModelValue.value[field.key] = null;
     }
   });
 }, { immediate: true, deep: true });
@@ -530,8 +535,14 @@ watch(localModel, (newVal) => {
 }, { deep: true });
 
 function handleSubmit() {
+  initialModelValue.value = JSON.parse(JSON.stringify(localModel.value));
   emit('update:modelValue', localModel.value);
   emit('submit', localModel.value);
+}
+
+function handleCancel() {
+  localModel.value = JSON.parse(JSON.stringify(initialModelValue.value));
+  emit('cancel');
 }
 
 function handleDelete() {

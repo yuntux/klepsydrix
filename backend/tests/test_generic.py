@@ -80,12 +80,12 @@ def test_generic_crud_flow(db_session: Session):
     assert item["id"] == material_id
     assert item["name"] == "Valise iPad Pro"
     
-    # 5. Mettre à jour le material via PUT generic
+    # 5. Mettre à jour le material via PATCH generic
     update_payload = {
         "name": "Valise iPad Pro V2",
         "quantity": 12
     }
-    response = client.put(f"/api/generic/materials/{material_id}", json=update_payload)
+    response = client.patch(f"/api/generic/materials/{material_id}", json=update_payload)
     assert response.status_code == 200
     updated_item = response.json()
     assert updated_item["name"] == "Valise iPad Pro V2"
@@ -195,13 +195,13 @@ def test_teacher_constraints_crud(db_session: Session):
     
     teacher_id = data["id"]
     
-    # 3. Mettre à jour les contraintes via PUT generic
+    # 3. Mettre à jour les contraintes via PATCH generic
     update_payload = {
         "max_hours_per_day": 7.0,
         "late_start_time": "10:00",
         "only_one_half_day_per_day": False
     }
-    response = client.put(f"/api/generic/teachers/{teacher_id}", json=update_payload)
+    response = client.patch(f"/api/generic/teachers/{teacher_id}", json=update_payload)
     assert response.status_code == 200
     updated_data = response.json()
     assert updated_data["max_hours_per_day"] == 7.0

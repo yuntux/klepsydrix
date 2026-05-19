@@ -214,7 +214,7 @@ def make_update_endpoint(model, payload_schema):
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
 
-        cleaned_vals = clean_payload(model, payload.model_dump())
+        cleaned_vals = clean_payload(model, payload.model_dump(exclude_unset=True))
         try:
             updated_item = item.update(db, cleaned_vals)
             if updated_item is None:
@@ -366,11 +366,11 @@ for resource_name, model in MODEL_MAP.items():
         tags=[resource_name]
     )
     
-    # 4. Mettre à jour une ressource (PUT /api/generic/{resource_name}/{item_id})
+    # 4. Mettre à jour une ressource (PATCH /api/generic/{resource_name}/{item_id})
     router.add_api_route(
         path=f"/{resource_name}/{{item_id}}",
         endpoint=make_update_endpoint(model, update_schema),
-        methods=["PUT"],
+        methods=["PATCH"],
         response_model=Dict[str, Any],
         summary=f"Mettre à jour un(e) {resource_name} par ID",
         tags=[resource_name]

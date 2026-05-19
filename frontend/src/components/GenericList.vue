@@ -423,8 +423,11 @@ function onRowClick(item: any, event: MouseEvent) {
 
   // Si c'est un clic normal sur un input ou un select (hors checkbox-td), on ignore pour laisser l'édition en ligne
   if (!isCheckboxClick && (target.closest('input') || target.closest('select'))) {
-    if (!isSelectionShortcut) {
-      return;
+    const inputEl = (target.closest('input') || target.closest('select')) as HTMLInputElement | HTMLSelectElement;
+    if (inputEl && !inputEl.disabled && !inputEl.readOnly) {
+      if (!isSelectionShortcut) {
+        return;
+      }
     }
   }
 
@@ -502,7 +505,9 @@ function onRowClick(item: any, event: MouseEvent) {
     return;
   }
 
-  // Clic normal sur le reste de la ligne -> ouvre le formulaire d'édition
+  // Clic normal sur le reste de la ligne -> sélectionne uniquement cette ligne et ouvre le formulaire d'édition
+  selectedIds.value.clear();
+  selectedIds.value.add(item.id);
   lastClickedItem.value = item;
   emit('row-click', item);
 }
