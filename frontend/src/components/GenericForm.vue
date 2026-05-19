@@ -2,20 +2,32 @@
   <div :class="inline ? 'inline-form-container' : 'modal-overlay'">
     <div :class="inline ? 'generic-form-inline' : 'generic-form-modal glass-morphism'">
       <div class="form-header">
-        <h3 class="form-title">{{ title }}</h3>
+        <h3 class="form-title">{{ isMultiEdit ? 'Modification groupée' : title }}</h3>
         <button v-if="!inline" class="btn-close" @click="handleCancel">×</button>
       </div>
 
       <form @submit.prevent="handleSubmit" class="form-body">
+        <div v-if="isMultiEdit" class="multi-edit-banner">
+          <span class="multi-edit-banner-icon">✏️</span>
+          <div class="multi-edit-banner-content">
+            <div class="multi-edit-banner-title">Modification groupée ({{ selectedRecords.length }} éléments)</div>
+            <div class="multi-edit-banner-text">
+              Seuls les champs marqués du badge <span class="field-modified-badge-inline">✏️ Modifié</span> seront enregistrés pour tous les éléments sélectionnés. Les autres resteront inchangés.
+            </div>
+          </div>
+        </div>
+
         <FormLayoutGrid
           :elements="layoutTree"
           :localModel="localModel"
           :isEditableForm="isEditableForm"
           :inline="inline"
+          :isMultiEdit="isMultiEdit"
+          :initialModelValue="initialModelValue"
         />
 
         <div class="form-actions">
-          <button v-if="localModel && localModel.id" type="button" class="btn btn-danger btn-delete" @click="handleDelete">
+          <button v-if="localModel && localModel.id && !isMultiEdit" type="button" class="btn btn-danger btn-delete" @click="handleDelete">
             Supprimer
           </button>
           <button type="button" class="btn btn-secondary" @click="handleCancel">
@@ -120,6 +132,7 @@ const props = defineProps<{
   modelValue: Record<string, any>;
   inline?: boolean;
   formConfig?: FormConfig;
+  selectedRecords?: any[];
 }>();
 
 const emit = defineEmits<{
@@ -261,6 +274,14 @@ const FormLayoutGrid: any = defineComponent({
     isNested: {
       type: Boolean,
       default: false
+    },
+    isMultiEdit: {
+      type: Boolean,
+      default: false
+    },
+    initialModelValue: {
+      type: Object as () => Record<string, any>,
+      default: () => ({})
     }
   },
   setup(props) {
@@ -270,6 +291,18 @@ const FormLayoutGrid: any = defineComponent({
       const gridTemplate = props.inline
         ? 'max-content 1fr'
         : 'max-content 1fr max-content 1fr';
+
+      const isDivergent = (key: string) => {
+        return props.isMultiEdit && props.initialModelValue[key] === undefined;
+      };
+
+      const isModified = (key: string) => {
+        if (!props.isMultiEdit) return false;
+        const current = props.localModel[key];
+        const initial = props.initialModelValue[key];
+        if (current === undefined && initial === undefined) return false;
+        return current !== initial;
+      };
 
       return h('div', {
         class: 'fields-layout-container',
@@ -358,7 +391,9 @@ const FormLayoutGrid: any = defineComponent({
                   localModel: props.localModel,
                   isEditableForm: props.isEditableForm,
                   inline: props.inline,
-                  isNested: true
+                  isNested: true,
+                  isMultiEdit: props.isMultiEdit,
+                  initialModelValue: props.initialModelValue
                 })
               ])
             ];
@@ -381,12 +416,18 @@ const FormLayoutGrid: any = defineComponent({
             if (field.type === 'text') {
               inputElement = h('input', {
                 type: 'text',
-                class: 'form-input',
+                class: [
+                  'form-input',
+                  isDivergent(key) && !isModified(key) ? 'form-input-divergent' : '',
+                  isModified(key) ? 'form-input-modified' : ''
+                ],
                 style: inputStyle,
-                value: props.localModel[key] || '',
-                required: required,
+                value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
+                required: required && !props.isMultiEdit,
                 disabled: disabled,
-                placeholder: field.placeholder || '',
+                placeholder: isDivergent(key) && !isModified(key)
+                  ? '(Valeurs multiples - Saisir pour modifier)'
+                  : (field.placeholder || ''),
                 onInput: (e: Event) => {
                   props.localModel[key] = (e.target as HTMLInputElement).value;
                 }
@@ -394,14 +435,19 @@ const FormLayoutGrid: any = defineComponent({
             } else if (field.type === 'number') {
               inputElement = h('input', {
                 type: 'number',
-                class: 'form-input',
+                class: [
+                  'form-input',
+                  isDivergent(key) && !isModified(key) ? 'form-input-divergent' : '',
+                  isModified(key) ? 'form-input-modified' : ''
+                ],
                 style: inputStyle,
                 value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
-                required: required,
+                required: required && !props.isMultiEdit,
                 disabled: disabled,
                 min: field.min,
                 max: field.max,
                 step: field.step || '1',
+                placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : '',
                 onInput: (e: Event) => {
                   const val = (e.target as HTMLInputElement).value;
                   props.localModel[key] = val !== '' ? Number(val) : null;
@@ -410,10 +456,14 @@ const FormLayoutGrid: any = defineComponent({
             } else if (field.type === 'date') {
               inputElement = h('input', {
                 type: 'date',
-                class: 'form-input',
+                class: [
+                  'form-input',
+                  isDivergent(key) && !isModified(key) ? 'form-input-divergent' : '',
+                  isModified(key) ? 'form-input-modified' : ''
+                ],
                 style: inputStyle,
                 value: props.localModel[key] || '',
-                required: required,
+                required: required && !props.isMultiEdit,
                 disabled: disabled,
                 onInput: (e: Event) => {
                   props.localModel[key] = (e.target as HTMLInputElement).value;
@@ -424,7 +474,7 @@ const FormLayoutGrid: any = defineComponent({
                 class: 'toggle-wrapper',
                 style: inputStyle
               }, [
-                h('label', { class: ['switch', disabled ? 'disabled-switch' : ''] }, [
+                h('label', { class: ['switch', disabled ? 'disabled-switch' : '', isDivergent(key) && !isModified(key) ? 'switch-divergent' : '', isModified(key) ? 'switch-modified' : ''] }, [
                   h('input', {
                     type: 'checkbox',
                     checked: !!props.localModel[key],
@@ -435,36 +485,53 @@ const FormLayoutGrid: any = defineComponent({
                   }),
                   h('span', { class: 'slider round' })
                 ]),
-                h('span', { class: 'toggle-status' }, props.localModel[key] ? 'Oui' : 'Non')
+                h('span', {
+                  class: [
+                    'toggle-status',
+                    isDivergent(key) && !isModified(key) ? 'status-divergent' : ''
+                  ]
+                }, props.localModel[key] === undefined ? 'Divergent (cliquez pour cocher)' : (props.localModel[key] ? 'Oui' : 'Non'))
               ]);
             } else if (field.type === 'select') {
               inputElement = h('select', {
-                class: 'select-custom form-select',
+                class: [
+                  'select-custom form-select',
+                  isDivergent(key) && !isModified(key) ? 'form-select-divergent' : '',
+                  isModified(key) ? 'form-select-modified' : ''
+                ],
                 style: inputStyle,
                 value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
-                required: required,
+                required: required && !props.isMultiEdit,
                 disabled: disabled,
                 onChange: (e: Event) => {
                   const val = (e.target as HTMLSelectElement).value;
                   props.localModel[key] = val === '' ? null : Number(val);
                 }
               }, [
-                h('option', { value: '' }, '-- Choisir --'),
+                h('option', { value: '' }, isDivergent(key) && !isModified(key) ? '-- Divergent (Modifier) --' : '-- Choisir --'),
                 ...(field.options || []).map(opt =>
                   h('option', { value: opt.value }, opt.label)
                 )
               ]);
             } else if (field.type === 'color') {
               inputElement = h('div', {
-                class: ['form-color-swatch-wrapper', disabled ? 'readonly-swatch' : ''],
+                class: [
+                  'form-color-swatch-wrapper',
+                  disabled ? 'readonly-swatch' : '',
+                  isDivergent(key) && !isModified(key) ? 'color-swatch-divergent' : '',
+                  isModified(key) ? 'color-swatch-modified' : ''
+                ],
                 style: inputStyle
               }, [
                 h(ColorSwatchPicker, {
-                  modelValue: props.localModel[key] || '#3B82F6',
+                  modelValue: props.localModel[key] !== undefined ? props.localModel[key] : '',
                   onChange: (val: string) => {
                     props.localModel[key] = val;
                   }
-                })
+                }),
+                isDivergent(key) && !isModified(key)
+                  ? h('span', { class: 'color-divergent-text' }, 'Divergent (cliquez pour choisir)')
+                  : null
               ]);
             }
 
@@ -477,6 +544,7 @@ const FormLayoutGrid: any = defineComponent({
             }, [
               h('span', {}, label),
               required ? h('span', { class: 'required-indicator' }, ' *') : null,
+              isModified(key) ? h('span', { class: 'field-modified-badge' }, '✏️ Modifié') : null,
               elem.help ? h('span', {
                 class: 'help-tooltip-wrapper',
                 onClick: (e: Event) => e.stopPropagation()
@@ -503,41 +571,79 @@ const FormLayoutGrid: any = defineComponent({
 const localModel = ref<Record<string, any>>({});
 const initialModelValue = ref<Record<string, any>>({});
 
-// Watch props.modelValue pour mettre à jour la copie locale
-watch(() => props.modelValue, (newVal) => {
-  const cleanNewVal = newVal ? { ...newVal } : {};
-  if (JSON.stringify(cleanNewVal) === JSON.stringify(localModel.value)) return;
-  
-  localModel.value = cleanNewVal;
-  initialModelValue.value = JSON.parse(JSON.stringify(cleanNewVal));
-  
-  // Initialiser les champs booléens et couleur par défaut
-  props.fields.forEach(field => {
-    if (field.type === 'boolean' && localModel.value[field.key] === undefined) {
-      localModel.value[field.key] = false;
-      initialModelValue.value[field.key] = false;
-    }
-    if (field.type === 'color' && !localModel.value[field.key]) {
-      localModel.value[field.key] = '#3498DB'; // couleur par défaut premium
-      initialModelValue.value[field.key] = '#3498DB';
-    }
-    if (field.type === 'select' && localModel.value[field.key] === undefined) {
-      localModel.value[field.key] = null;
-      initialModelValue.value[field.key] = null;
-    }
-  });
+const isMultiEdit = computed(() => {
+  return props.selectedRecords && props.selectedRecords.length > 1;
+});
+
+function initializeModel() {
+  if (isMultiEdit.value) {
+    const model: Record<string, any> = {};
+    props.fields.forEach(field => {
+      const key = field.key;
+      if (!props.selectedRecords || props.selectedRecords.length === 0) return;
+      const firstVal = props.selectedRecords[0][key];
+      const isIdentical = props.selectedRecords.every(rec => rec[key] === firstVal);
+      if (isIdentical) {
+        model[key] = firstVal;
+      } else {
+        model[key] = undefined;
+      }
+    });
+    localModel.value = model;
+    initialModelValue.value = JSON.parse(JSON.stringify(model));
+  } else {
+    const cleanNewVal = props.modelValue ? { ...props.modelValue } : {};
+    
+    localModel.value = cleanNewVal;
+    initialModelValue.value = JSON.parse(JSON.stringify(cleanNewVal));
+    
+    props.fields.forEach(field => {
+      if (field.type === 'boolean' && localModel.value[field.key] === undefined) {
+        localModel.value[field.key] = false;
+        initialModelValue.value[field.key] = false;
+      }
+      if (field.type === 'color' && !localModel.value[field.key]) {
+        localModel.value[field.key] = '#3498DB'; // couleur par défaut premium
+        initialModelValue.value[field.key] = '#3498DB';
+      }
+      if (field.type === 'select' && localModel.value[field.key] === undefined) {
+        localModel.value[field.key] = null;
+        initialModelValue.value[field.key] = null;
+      }
+    });
+  }
+}
+
+// Watch props.modelValue et props.selectedRecords pour mettre à jour la copie locale
+watch([() => props.modelValue, () => props.selectedRecords], () => {
+  initializeModel();
 }, { immediate: true, deep: true });
 
-// Synchroniser les saisies locales en temps réel avec le parent pour forcer la réactivité du bouton d'ajout
+// Synchroniser les saisies locales en temps réel avec le parent pour forcer la réactivité du bouton d'ajout (uniquement hors modification groupée)
 watch(localModel, (newVal) => {
+  if (isMultiEdit.value) return;
   if (JSON.stringify(newVal) === JSON.stringify(props.modelValue)) return;
   emit('update:modelValue', { ...newVal });
 }, { deep: true });
 
 function handleSubmit() {
-  initialModelValue.value = JSON.parse(JSON.stringify(localModel.value));
-  emit('update:modelValue', localModel.value);
-  emit('submit', localModel.value);
+  if (isMultiEdit.value) {
+    const submitPayload: Record<string, any> = {};
+    props.fields.forEach(field => {
+      const key = field.key;
+      const current = localModel.value[key];
+      const initial = initialModelValue.value[key];
+      const isFieldModified = (current !== undefined || initial !== undefined) && current !== initial;
+      if (isFieldModified) {
+        submitPayload[key] = current;
+      }
+    });
+    emit('submit', submitPayload);
+  } else {
+    initialModelValue.value = JSON.parse(JSON.stringify(localModel.value));
+    emit('update:modelValue', localModel.value);
+    emit('submit', localModel.value);
+  }
 }
 
 function handleCancel() {
@@ -970,5 +1076,92 @@ input:checked + .slider:before {
 
 .help-tooltip li {
   margin-bottom: 4px;
+}
+
+/* Modification groupée */
+.multi-edit-banner {
+  display: flex;
+  gap: 12px;
+  background-color: #f0fdf4; /* Light green background */
+  border: 1px solid #bbf7d0; /* Green border */
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 15px;
+}
+.multi-edit-banner-icon {
+  font-size: 20px;
+  align-self: flex-start;
+}
+.multi-edit-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.multi-edit-banner-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #166534; /* Dark green text */
+}
+.multi-edit-banner-text {
+  font-size: 12px;
+  color: #15803d;
+  line-height: 1.4;
+}
+.field-modified-badge {
+  background-color: #d1fae5; /* Green 100 */
+  color: #065f46; /* Green 800 */
+  border: 1px solid #a7f3d0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.field-modified-badge-inline {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.form-input-divergent, .form-select-divergent {
+  background-color: #e5e7eb !important;
+  border-style: dashed !important;
+  color: #9ca3af !important;
+}
+.form-input-modified, .form-select-modified {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
+}
+.switch-divergent {
+  opacity: 0.6;
+}
+.switch-modified {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  border-radius: 34px;
+}
+.status-divergent {
+  color: #9ca3af !important;
+  font-style: italic;
+}
+.color-swatch-divergent {
+  opacity: 0.6;
+  border: 1px dashed #9ca3af;
+}
+.color-swatch-modified {
+  border: 2px solid #10b981;
+}
+.color-divergent-text {
+  font-size: 12px;
+  color: #9ca3af;
+  font-style: italic;
+  margin-left: 8px;
 }
 </style>

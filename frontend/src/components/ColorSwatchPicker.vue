@@ -69,7 +69,7 @@ const emit = defineEmits<{
   (e: 'change', value: string): void;
 }>();
 
-const localValue = ref(props.modelValue || '#3B82F6');
+const localValue = ref(props.modelValue || '');
 const isOpen = ref(false);
 const triggerRef = ref<HTMLElement | null>(null);
 
@@ -86,7 +86,7 @@ const panelStyle = computed(() => ({
 // Sync prop → local
 import { watch } from 'vue';
 watch(() => props.modelValue, (v) => {
-  localValue.value = v || '#3B82F6';
+  localValue.value = v || '';
 });
 
 function togglePicker() {

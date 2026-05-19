@@ -134,11 +134,11 @@
 
         <!-- 4. Composant Formulaire Générique Inline -->
         <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
-          <div v-if="selectedParentIds.length !== 1" class="pref-placeholder">
+          <div v-if="selectedParentIds.length === 0" class="pref-placeholder">
             <div class="placeholder-icon">👈</div>
             <div class="placeholder-title">Sélectionnez un élément</div>
             <div class="placeholder-subtitle">
-              {{ selectedParentIds.length === 0 ? (panel.placeholderText || "Veuillez choisir un élément dans la liste de gauche.") : "Veuillez sélectionner un seul élément." }}
+              {{ panel.placeholderText || "Veuillez choisir un élément dans la liste de gauche." }}
             </div>
           </div>
           <GenericForm
@@ -148,6 +148,7 @@
             v-model="formModel"
             :inline="true"
             :formConfig="panel.formConfig"
+            :selectedRecords="selectedRelatedRecords"
             @submit="onSubmitGeneric"
             @delete="onDeleteGeneric"
           />
@@ -161,6 +162,7 @@
       :title="formTitle"
       :fields="formFieldsConfig"
       v-model="formModel"
+      :selectedRecords="selectedRelatedRecords"
       @submit="onSubmitGeneric"
       @cancel="showFormModal = false"
       @delete="onDeleteGeneric"
@@ -414,10 +416,12 @@ const formTitle = ref('');
 const formModel = ref<Record<string, any>>({});
 const isEditing = ref(false);
 const selectedParentIds = ref<any[]>([]);
+const selectedRelatedRecords = ref<any[]>([]);
 
 function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
   formModel.value = {};
+  selectedRelatedRecords.value = [];
   isEditing.value = false;
   if (!isInlineMode.value) {
     showFormModal.value = true;
@@ -427,6 +431,7 @@ function onAddGeneric() {
 function onEditGeneric(item: any) {
   formTitle.value = `Modifier l'élément`;
   formModel.value = { ...item };
+  selectedRelatedRecords.value = [];
   isEditing.value = true;
   if (!isInlineMode.value) {
     showFormModal.value = true;
@@ -441,15 +446,30 @@ function onRowClickGeneric(item: any) {
 
 async function onSelectionChangeGeneric(ids: any[]) {
   selectedParentIds.value = ids;
+  const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
+
   if (ids.length > 1) {
-    // Si plusieurs éléments sont sélectionnés, les deux volets de droite n'affichent rien
+    isEditing.value = true; // Activer le mode édition pour modification groupée
+    if (formPanel && formPanel.relationName) {
+      try {
+        const resList = await Promise.all(
+          ids.map(id => api.callInstanceMethod(activeAdminModel.value, id, 'ensure_related_record', {
+            args: [formPanel.relationName]
+          }))
+        );
+        selectedRelatedRecords.value = resList.filter(Boolean);
+      } catch (e) {
+        console.error("Échec de la récupération des relations liées", e);
+        selectedRelatedRecords.value = [];
+      }
+    } else {
+      selectedRelatedRecords.value = ids.map(id => genericItems.value.find(x => x.id === id)).filter(Boolean);
+    }
     formModel.value = {};
-    isEditing.value = false;
   } else if (ids.length === 1) {
-    // Si un seul élément est sélectionné, on le charge dans le formulaire
+    selectedRelatedRecords.value = [];
     const item = genericItems.value.find(x => x.id === ids[0]);
     if (item) {
-      const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
       if (formPanel && formPanel.relationName) {
         try {
           const res = await api.callInstanceMethod(activeAdminModel.value, item.id, 'ensure_related_record', {
@@ -472,7 +492,7 @@ async function onSelectionChangeGeneric(ids: any[]) {
       }
     }
   } else {
-    // Aucun élément sélectionné
+    selectedRelatedRecords.value = [];
     formModel.value = {};
     isEditing.value = false;
   }
@@ -484,7 +504,31 @@ async function onSubmitGeneric(value: Record<string, any>) {
   const targetResource = (isInlineMode.value && formPanel?.resourceKey) || activeAdminModel.value;
 
   try {
-    if (isEditing.value) {
+    if (selectedParentIds.value.length > 1) {
+      if (Object.keys(value).length === 0) {
+        showNotification('info', 'Aucun champ modifié n\'a été détecté.');
+        return;
+      }
+      if (formPanel && formPanel.relationName) {
+        await Promise.all(
+          selectedParentIds.value.map(async (parentId) => {
+            const res = await api.callInstanceMethod(activeAdminModel.value, parentId, 'ensure_related_record', {
+              args: [formPanel.relationName]
+            });
+            if (res && res.id) {
+              await api.updateGenericItem(targetResource, res.id, value);
+            }
+          })
+        );
+      } else {
+        await Promise.all(
+          selectedParentIds.value.map(id => api.updateGenericItem(targetResource, id, value))
+        );
+      }
+      showNotification('success', 'Ressources modifiées en masse avec succès !');
+      await loadGenericItems();
+      await onSelectionChangeGeneric([...selectedParentIds.value]);
+    } else if (isEditing.value) {
       await api.updateGenericItem(targetResource, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
       
