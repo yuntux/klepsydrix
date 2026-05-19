@@ -1,131 +1,98 @@
 <template>
   <div class="period-transition-manager glass-morphism">
     <div class="manager-header">
-      <h3>📅 Saisie des Périodes par Transitions</h3>
-      <p class="subtitle">Conformément aux contraintes, l'union des périodes doit couvrir l'année scolaire de l'établissement sans trou ni chevauchement.</p>
+      <h3 class="title">📅 Calendrier des Périodes</h3>
+      <div v-if="activeSchool && hasSchoolDates" class="school-year-badge">
+        Année scolaire : <strong>{{ formatDateNice(activeSchool.student_start_date) }}</strong> au <strong>{{ formatDateNice(activeSchool.student_end_date) }}</strong>
+      </div>
     </div>
 
     <div v-if="!periodTypeId" class="placeholder-view">
       <div class="placeholder-icon">👈</div>
-      <div class="placeholder-title">Sélectionnez un type de période</div>
-      <div class="placeholder-subtitle">Veuillez choisir un type de période dans la liste de gauche pour configurer son calendrier.</div>
+      <p class="placeholder-text">Sélectionnez un type de période à gauche pour configurer son calendrier.</p>
     </div>
 
     <div v-else class="manager-content">
-      <!-- Sélecteur d'établissement pour récupérer les dates scolaires -->
-      <div class="school-selector-bar">
-        <label for="school-select">Établissement de référence :</label>
-        <select id="school-select" v-model="selectedSchoolId" class="select-custom">
-          <option v-for="school in schools" :key="school.id" :value="school.id">
-            {{ school.name }} ({{ school.uai }})
-          </option>
-        </select>
-
-        <div v-if="activeSchool" class="school-dates-info">
-          <span>Rentrée : <strong>{{ formatDateNice(activeSchool.student_start_date) }}</strong></span>
-          <span>Sortie : <strong>{{ formatDateNice(activeSchool.student_end_date) }}</strong></span>
-        </div>
+      <div v-if="!hasSchoolDates" class="alert-warning">
+        ⚠️ Renseignez d'abord les dates de rentrée et de sortie dans la fiche établissement.
       </div>
 
-      <div v-if="!hasSchoolDates" class="alert-warning-card">
-        ⚠️ L'établissement sélectionné n'a pas de dates de rentrée/sortie configurées. Veuillez les renseigner dans la fiche établissement d'abord.
-      </div>
-
-      <div v-else class="periods-timeline-container">
-        <!-- Visualisation sous forme de frise chronologique premium -->
-        <div class="timeline-visual">
-          <div 
-            v-for="(p, index) in localPeriods" 
-            :key="index"
-            class="timeline-segment"
-            :style="{ flex: getSegmentWeight(p) }"
-          >
-            <div class="segment-card">
-              <span class="segment-code">{{ p.code || '?' }}</span>
-              <span class="segment-dates">{{ formatDateNice(p.start_date) }} - {{ formatDateNice(p.end_date) }}</span>
-            </div>
-            <div v-if="index < localPeriods.length - 1" class="timeline-connector">
-              <span class="connector-arrow">➔</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Formulaire d'édition de chaque période et de ses transitions -->
-        <div class="periods-list-editor">
-          <div v-for="(p, index) in localPeriods" :key="index" class="period-editor-row-wrapper">
-            
-            <!-- Carte d'édition d'une Période -->
-            <div class="period-item-card premium-card">
-              <div class="card-header-bar">
-                <h4>Période {{ index + 1 }}</h4>
-                <button 
-                  v-if="localPeriods.length > 1" 
-                  class="btn-delete-period"
-                  @click="deletePeriod(index)"
-                  title="Supprimer cette période et fusionner l'espace temporel"
-                >
-                  Supprimer
-                </button>
-              </div>
-              
-              <div class="card-grid">
-                <div class="form-field-group">
-                  <label>Code</label>
-                  <input type="text" v-model="p.code" placeholder="ex: S1" required class="input-custom" />
-                </div>
-                
-                <div class="form-field-group">
-                  <label>Nom complet</label>
-                  <input type="text" v-model="p.name" placeholder="ex: Semestre 1" required class="input-custom" />
-                </div>
-
-                <div class="form-field-group read-only">
-                  <label>Date Début</label>
-                  <div class="date-badge">{{ formatDateNice(p.start_date) }}</div>
-                </div>
-
-                <div class="form-field-group read-only">
-                  <label>Date Fin</label>
-                  <div class="date-badge">{{ formatDateNice(p.end_date) }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Transition Date Input : affiché uniquement entre la période N et N+1 -->
-            <div v-if="index < localPeriods.length - 1" class="transition-editor-card">
-              <div class="transition-line"></div>
-              <div class="transition-input-wrapper">
-                <label>Date de transition {{ index + 1 }} ➔ {{ index + 2 }}</label>
+      <div v-else class="table-wrapper">
+        <table class="premium-table">
+          <thead>
+            <tr class="header-tr">
+              <th style="width: 15%;" class="header-th">Code</th>
+              <th style="width: 40%;" class="header-th">Nom de la période</th>
+              <th style="width: 20%;" class="header-th">Date Début</th>
+              <th style="width: 20%;" class="header-th">Date Fin (Transition)</th>
+              <th style="width: 5%;" class="header-th actions-th"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(p, index) in localPeriods" :key="index" class="body-tr">
+              <td class="body-td">
+                <input type="text" v-model="p.code" class="inline-input" placeholder="ex: S1" required />
+              </td>
+              <td class="body-td">
+                <input type="text" v-model="p.name" class="inline-input" placeholder="ex: Semestre 1" required />
+              </td>
+              <td class="body-td">
+                <span v-if="index === 0" class="date-text locked">
+                  {{ formatDateNice(p.start_date) }} (Rentrée - Verrouillée)
+                </span>
+                <span v-else class="date-text">
+                  {{ formatDateNice(p.start_date) }}
+                </span>
+              </td>
+              <td class="body-td">
+                <span v-if="index === localPeriods.length - 1" class="date-text locked">
+                  {{ formatDateNice(p.end_date) }} (Sortie - Verrouillée)
+                </span>
                 <input 
+                  v-else 
                   type="date" 
                   :value="p.end_date"
                   :min="p.start_date"
                   :max="addDays(localPeriods[index + 1].end_date, -1)"
                   @change="handleTransitionChange(index, $event.target.value)"
-                  class="input-date-custom"
+                  class="input-date-inline"
                 />
-                <span class="help-text">Décale la fin de la période {{ index + 1 }} et le début de la période {{ index + 2 }}.</span>
-              </div>
-              <div class="transition-line"></div>
-            </div>
+              </td>
+              <td class="body-td actions-td">
+                <div class="actions-group">
+                  <button 
+                    v-if="localPeriods.length > 1" 
+                    class="btn-action btn-delete" 
+                    @click.stop="deletePeriod(index)"
+                    title="Supprimer (fusionne l'intervalle)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="localPeriods.length === 0">
+              <td colspan="5" class="empty-row text-center" style="padding: 20px;">
+                Aucune période définie. Cliquez sur "Ajouter une période" pour commencer.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-          </div>
-        </div>
-
-        <!-- Boutons d'actions -->
-        <div class="actions-bar">
-          <button class="btn btn-secondary" @click="addPeriod">
-            ➕ Ajouter une période (scission)
-          </button>
-          
-          <button 
-            class="btn btn-primary" 
-            :disabled="saving || localPeriods.length === 0" 
-            @click="savePeriods"
-          >
-            {{ saving ? 'Enregistrement...' : '💾 Enregistrer le calendrier' }}
-          </button>
-        </div>
+      <div class="actions-footer">
+        <button class="btn btn-secondary btn-sm" @click="addPeriod">
+          ➕ Ajouter une période
+        </button>
+        <button 
+          class="btn btn-primary btn-sm" 
+          :disabled="saving" 
+          @click="savePeriods"
+        >
+          {{ saving ? 'Enregistrement...' : '💾 Enregistrer' }}
+        </button>
       </div>
     </div>
   </div>
@@ -162,63 +129,43 @@ const emit = defineEmits<{
   (e: 'change'): void;
 }>();
 
-const selectedSchoolId = ref<number | null>(null);
 const localPeriods = ref<Period[]>([]);
 const deletedPeriodIds = ref<number[]>([]);
 const saving = ref(false);
 
-// Sélectionner la première école par défaut
-watch(() => props.schools, (newSchools) => {
-  if (newSchools && newSchools.length > 0 && selectedSchoolId.value === null) {
-    selectedSchoolId.value = newSchools[0].id;
-  }
-}, { immediate: true });
-
 const activeSchool = computed(() => {
-  if (!selectedSchoolId.value) return null;
-  return props.schools.find(s => s.id === selectedSchoolId.value) || null;
+  return props.schools && props.schools.length > 0 ? props.schools[0] : null;
 });
 
 const hasSchoolDates = computed(() => {
   return !!activeSchool.value?.student_start_date && !!activeSchool.value?.student_end_date;
 });
 
-// Charger les périodes de ce type
 async function loadPeriods() {
   if (!props.periodTypeId) {
     localPeriods.value = [];
     deletedPeriodIds.value = [];
     return;
   }
-
   try {
     const res = await api.fetchGenericList('periods', 0, 1000);
-    // Filtrer par le type de période sélectionné et trier chronologiquement
-    const filtered = res.items
+    localPeriods.value = res.items
       .filter((p: any) => p.period_type_id === props.periodTypeId)
       .sort((a: any, b: any) => a.start_date.localeCompare(b.start_date));
-
-    localPeriods.value = filtered;
     deletedPeriodIds.value = [];
-
-    // Ajuster aux bornes de l'école si nécessaire et si valide
     adjustPeriodsToSchoolDates();
   } catch (e) {
-    console.error("Impossible de charger les périodes", e);
+    console.error("Erreur de chargement des périodes", e);
   }
 }
 
 watch(() => props.periodTypeId, loadPeriods, { immediate: true });
 watch(activeSchool, adjustPeriodsToSchoolDates);
 
-// Aligner la première et la dernière période sur les dates de l'établissement
 function adjustPeriodsToSchoolDates() {
   if (!hasSchoolDates.value || localPeriods.value.length === 0 || !activeSchool.value) return;
-
   const start = activeSchool.value.student_start_date;
   const end = activeSchool.value.student_end_date;
-
-  // Si on a des périodes mais que la première ou dernière n'est pas alignée, on réaligne
   if (localPeriods.value[0].start_date !== start) {
     localPeriods.value[0].start_date = start;
   }
@@ -227,19 +174,6 @@ function adjustPeriodsToSchoolDates() {
   }
 }
 
-// Fonction de calcul de poids d'un segment pour la frise
-function getSegmentWeight(p: Period): number {
-  try {
-    const s = new Date(p.start_date).getTime();
-    const e = new Date(p.end_date).getTime();
-    const diff = Math.max(1, e - s);
-    return diff;
-  } catch {
-    return 1;
-  }
-}
-
-// Date helpers
 function formatDateNice(dateStr: string): string {
   if (!dateStr) return '';
   try {
@@ -263,25 +197,17 @@ function addDays(dateStr: string, days: number): string {
   return formatDateISO(d);
 }
 
-// Gérer la modification de transition
 function handleTransitionChange(index: number, newEndDate: string) {
   if (index < 0 || index >= localPeriods.value.length - 1) return;
-
-  // Mettre à jour la fin de la période index
   localPeriods.value[index].end_date = newEndDate;
-
-  // Mettre à jour automatiquement le début de la période index + 1 au jour suivant
   localPeriods.value[index + 1].start_date = addDays(newEndDate, 1);
 }
 
-// Ajouter une période par scission de la dernière
 function addPeriod() {
   if (!hasSchoolDates.value || !activeSchool.value || !props.periodTypeId) return;
-
   const typeId = props.periodTypeId;
 
   if (localPeriods.value.length === 0) {
-    // Si pas encore de périodes, on crée une période couvrant toute l'année scolaire
     localPeriods.value.push({
       period_type_id: typeId,
       code: 'P1',
@@ -293,27 +219,23 @@ function addPeriod() {
     return;
   }
 
-  // Scission de la dernière période en deux
   const lastIndex = localPeriods.value.length - 1;
   const lastPeriod = localPeriods.value[lastIndex];
-
   const start = new Date(lastPeriod.start_date);
   const end = new Date(lastPeriod.end_date);
   const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 
   if (diffDays <= 2) {
-    alert("La dernière période est trop courte pour être divisée.");
+    alert("La période est trop courte pour être divisée.");
     return;
   }
 
   const midDays = Math.floor(diffDays / 2);
   const midDateStr = addDays(lastPeriod.start_date, midDays);
 
-  // L'ancienne période se termine à midDateStr
   const oldEndDate = lastPeriod.end_date;
   lastPeriod.end_date = midDateStr;
 
-  // Création de la nouvelle période à la suite
   const nextNum = localPeriods.value.length + 1;
   localPeriods.value.push({
     period_type_id: typeId,
@@ -325,39 +247,27 @@ function addPeriod() {
   });
 }
 
-// Supprimer une période et fusionner son espace temporel
 function deletePeriod(index: number) {
   if (localPeriods.value.length <= 1) return;
-
   const deleted = localPeriods.value[index];
   if (deleted.id && !deleted.isNew) {
     deletedPeriodIds.value.push(deleted.id);
   }
-
   if (index === 0) {
-    // Si premier élément, on étend le début du deuxième à student_start_date
     localPeriods.value[1].start_date = deleted.start_date;
   } else {
-    // Sinon, on étend la fin du précédent à la fin du supprimé
     localPeriods.value[index - 1].end_date = deleted.end_date;
   }
-
   localPeriods.value.splice(index, 1);
-
-  // Renommer les codes si besoin, ou simplement garder l'ordre
   adjustPeriodsToSchoolDates();
 }
 
-// Enregistrer les changements
 async function savePeriods() {
   saving.value = true;
   try {
-    // 1. Supprimer les périodes supprimées
     for (const id of deletedPeriodIds.value) {
       await api.deleteGenericItem('periods', id);
     }
-
-    // 2. Créer ou Mettre à jour les périodes locales
     for (const p of localPeriods.value) {
       const payload = {
         code: p.code,
@@ -366,19 +276,17 @@ async function savePeriods() {
         start_date: p.start_date,
         end_date: p.end_date
       };
-
       if (p.isNew) {
         await api.createGenericItem('periods', payload);
       } else if (p.id) {
         await api.updateGenericItem('periods', p.id, payload);
       }
     }
-
-    alert("Calendrier des périodes enregistré avec succès !");
+    alert("Enregistré avec succès !");
     emit('change');
     await loadPeriods();
   } catch (e: any) {
-    alert("Erreur lors de l'enregistrement : " + (e.message || e));
+    alert("Erreur : " + (e.message || e));
   } finally {
     saving.value = false;
   }
@@ -390,27 +298,34 @@ async function savePeriods() {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 24px;
+  padding: 20px;
   box-sizing: border-box;
   overflow-y: auto;
   color: var(--text-primary);
 }
 
 .manager-header {
-  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
 }
 
-.manager-header h3 {
-  font-size: 18px;
+.title {
+  font-size: 16px;
   font-weight: 600;
-  margin: 0 0 6px 0;
-  color: var(--text-primary);
+  margin: 0;
 }
 
-.manager-header .subtitle {
-  font-size: 13.5px;
+.school-year-badge {
+  font-size: 12px;
   color: var(--text-secondary);
-  margin: 0;
+  background: var(--bg-primary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
 }
 
 .placeholder-view {
@@ -419,291 +334,209 @@ async function savePeriods() {
   align-items: center;
   justify-content: center;
   flex: 1;
-  padding: 40px;
+  color: var(--text-secondary);
   text-align: center;
+  padding: 40px;
 }
 
 .placeholder-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  font-size: 32px;
+  margin-bottom: 10px;
 }
 
-.placeholder-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
+.placeholder-text {
+  font-size: 13px;
+  max-width: 250px;
 }
 
-.placeholder-subtitle {
-  font-size: 13.5px;
-  color: var(--text-secondary);
-  max-width: 320px;
-}
-
-.school-selector-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background-color: var(--bg-card);
-  padding: 12px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  margin-bottom: 20px;
-}
-
-.school-selector-bar label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.select-custom {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13.5px;
-  min-width: 250px;
-}
-
-.school-dates-info {
-  display: flex;
-  gap: 20px;
-  font-size: 13.5px;
-  color: var(--text-secondary);
-  margin-left: auto;
-  border-left: 1px solid var(--border-color);
-  padding-left: 20px;
-}
-
-.alert-warning-card {
+.alert-warning {
   background-color: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
   color: #F59E0B;
-  padding: 16px;
-  border-radius: 8px;
-  font-size: 14px;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 15px;
+}
+
+.table-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  background-color: var(--bg-card);
   margin-bottom: 20px;
 }
 
-.periods-timeline-container {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  flex: 1;
+.premium-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
 }
 
-/* Frise chronologique visuelle */
-.timeline-visual {
-  display: flex;
-  align-items: center;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  min-height: 80px;
-  overflow-x: auto;
+.header-tr {
+  background-color: var(--bg-surface);
+  border-bottom: 2px solid var(--border-color);
 }
 
-.timeline-segment {
-  display: flex;
-  align-items: center;
-}
-
-.segment-card {
-  background: linear-gradient(135deg, var(--accent-color, #8B5CF6) 0%, rgba(139, 92, 246, 0.8) 100%);
-  color: white;
-  padding: 12px 16px;
-  border-radius: 6px;
-  text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  min-width: 120px;
-  flex: 1;
-}
-
-.segment-code {
-  display: block;
-  font-weight: 700;
-  font-size: 15px;
-  margin-bottom: 2px;
-}
-
-.segment-dates {
-  font-size: 11.5px;
-  opacity: 0.9;
-}
-
-.timeline-connector {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
+.header-th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-surface);
+  backdrop-filter: blur(8px);
+  z-index: 10;
   color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  user-select: none;
+  border-right: 1px solid var(--border-color);
 }
 
-.connector-arrow {
-  font-size: 18px;
+.body-tr {
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color var(--transition-fast, 0.15s);
+  background-color: var(--bg-card);
 }
 
-/* Editeur vertical */
-.periods-list-editor {
+.body-tr:hover {
+  background-color: var(--bg-secondary);
+}
+
+.body-td {
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-right: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.actions-th {
+  width: 45px !important;
+  min-width: 45px !important;
+  max-width: 45px !important;
+  padding: 8px 4px !important;
+  text-align: center;
+  border-right: none;
+}
+
+.actions-td {
+  width: 45px !important;
+  min-width: 45px !important;
+  max-width: 45px !important;
+  padding: 0 4px !important;
+  text-align: center;
+  border-right: none;
+}
+
+.actions-group {
   display: flex;
-  flex-direction: column;
+  justify-content: center;
   gap: 8px;
 }
 
-.period-editor-row-wrapper {
-  display: flex;
-  flex-direction: column;
-}
-
-.period-item-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 20px;
-}
-
-.card-header-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 8px;
-}
-
-.card-header-bar h4 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--accent-color, #8B5CF6);
-}
-
-.btn-delete-period {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #EF4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
+.btn-action {
+  background: transparent;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
   cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-delete-period:hover {
-  background-color: #EF4444;
-  color: white;
-}
-
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.form-field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-field-group label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.input-custom {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13.5px;
-}
-
-.form-field-group.read-only .date-badge {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13.5px;
-  font-family: monospace;
-}
-
-/* Connecteur de transition graphique */
-.transition-editor-card {
   display: flex;
   align-items: center;
-  margin: 12px 0;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast, 0.15s);
 }
 
-.transition-line {
-  flex: 1;
-  height: 2px;
-  background: repeating-linear-gradient(to right, var(--border-color) 0px, var(--border-color) 4px, transparent 4px, transparent 8px);
+.btn-action svg {
+  width: 16px;
+  height: 16px;
 }
 
-.transition-input-wrapper {
+.btn-delete:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: var(--accent-danger, #EF4444);
+}
+
+.inline-input {
+  width: 100%;
+  background-color: transparent;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 0;
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  transition: all var(--transition-fast, 0.15s);
+  box-sizing: border-box;
+}
+
+.inline-input:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+.inline-input:focus {
   background-color: var(--bg-card);
-  border: 1.5px dashed var(--accent-color, #8B5CF6);
-  border-radius: 8px;
-  padding: 12px 20px;
-  text-align: center;
-  min-width: 320px;
-  margin: 0 16px;
+  border-color: var(--accent-color, #8B5CF6);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
 }
 
-.transition-input-wrapper label {
+.date-text {
+  font-family: monospace;
+  color: var(--text-secondary);
+  font-size: 12.5px;
   display: block;
-  font-size: 11.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--accent-color, #8B5CF6);
-  margin-bottom: 6px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
 }
 
-.input-date-custom {
-  background-color: var(--bg-primary);
+.date-text.locked {
+  font-style: italic;
+  color: var(--text-muted, #9CA3AF);
+}
+
+.input-date-inline {
+  background: var(--bg-primary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 6px 12px;
+  padding: 4px 8px;
   border-radius: 4px;
-  font-size: 13px;
-  width: 150px;
-  text-align: center;
+  font-family: monospace;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color var(--transition-fast, 0.15s);
+  margin: 4px 12px;
 }
 
-.transition-input-wrapper .help-text {
-  display: block;
-  font-size: 10.5px;
-  color: var(--text-secondary);
-  margin-top: 4px;
+.input-date-inline:focus {
+  border-color: var(--accent-color, #8B5CF6);
 }
 
-.actions-bar {
+.actions-footer {
   display: flex;
   justify-content: space-between;
-  margin-top: 16px;
-  border-top: 1px solid var(--border-color);
-  padding-top: 20px;
+  align-items: center;
 }
 
 .btn {
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 13.5px;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 12.5px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
+}
+
+.btn-sm {
+  padding: 5px 12px;
 }
 
 .btn-secondary {
-  background-color: var(--bg-card);
+  background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
 }
@@ -725,5 +558,9 @@ async function savePeriods() {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.text-center {
+  text-align: center;
 }
 </style>

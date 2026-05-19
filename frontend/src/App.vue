@@ -264,6 +264,13 @@ const isInlineMode = computed(() => {
   return activeLeaf.value.panels.some((p: any) => p.component === 'GenericForm');
 });
 
+const isListEditableInline = computed(() => {
+  if (!activeLeaf.value || !activeLeaf.value.panels) return false;
+  const listPanel = activeLeaf.value.panels.find((p: any) => p.component === 'GenericList');
+  if (!listPanel) return false;
+  return listPanel.listConfig?.editableInline !== false;
+});
+
 const inlineFormTitle = computed(() => {
   return isEditing.value ? `Modifier l'élément` : `Ajouter un élément`;
 });
@@ -454,7 +461,7 @@ function onEditGeneric(item: any) {
   formModel.value = { ...item };
   selectedRelatedRecords.value = [];
   isEditing.value = true;
-  if (!isInlineMode.value) {
+  if (!isInlineMode.value && !isListEditableInline.value) {
     showFormModal.value = true;
   }
 }
@@ -508,7 +515,7 @@ async function onSelectionChangeGeneric(ids: any[]) {
           formModel.value = {};
           isEditing.value = false;
         }
-      } else {
+      } else if (!isListEditableInline.value) {
         onEditGeneric(item);
       }
     }
