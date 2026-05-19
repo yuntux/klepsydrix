@@ -45,6 +45,7 @@ interface FormField {
   step?: string;
   fullWidth?: boolean;
   options?: Array<{ value: any; label: string }>;
+  help?: string;
 }
 
 interface LayoutElement {
@@ -59,6 +60,54 @@ interface LayoutElement {
   label?: string;
   disabled?: boolean;
   originalField?: FormField;
+  help?: string;
+}
+
+function renderMarkdown(md: string | undefined): string {
+  if (!md) return '';
+  let html = md;
+  html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Echap HTML pour securite
+  html = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Inline markdown
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  
+  // Listes et retours ligne
+  const lines = html.split('\n');
+  let inList = false;
+  const processedLines: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const content = trimmed.substring(2);
+      if (!inList) {
+        inList = true;
+        processedLines.push('<ul><li>' + content + '</li>');
+      } else {
+        processedLines.push('<li>' + content + '</li>');
+      }
+    } else {
+      if (inList) {
+        inList = false;
+        processedLines.push('</ul>');
+      }
+      processedLines.push(trimmed + (i < lines.length - 1 && trimmed ? '<br/>' : ''));
+    }
+  }
+  if (inList) {
+    processedLines.push('</ul>');
+  }
+  
+  return processedLines.join('\n');
 }
 
 interface FormConfig {
@@ -97,7 +146,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: original.label,
         required: original.required,
         disabled: false,
-        originalField: original
+        originalField: original,
+        help: original.help
       };
     }
     return null;
@@ -113,7 +163,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: elem.overrideLabel || original.label,
         required: elem.required === true,
         disabled: elem.readOnly === true,
-        originalField: original
+        originalField: original,
+        help: elem.help || original.help
       };
     }
   }
@@ -127,7 +178,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: elem.overrideLabel || original.label,
         required: elem.required === true,
         disabled: elem.readOnly === true,
-        originalField: original
+        originalField: original,
+        help: elem.help || original.help
       };
     }
   }
@@ -181,7 +233,8 @@ const layoutTree = computed<LayoutElement[]>(() => {
     label: f.label,
     required: f.required,
     disabled: false,
-    originalField: f
+    originalField: f,
+    help: f.help
   }));
 });
 
@@ -418,8 +471,18 @@ const FormLayoutGrid: any = defineComponent({
                 gridColumn: 'auto'
               }
             }, [
-              label,
-              required ? h('span', { class: 'required-indicator' }, ' *') : null
+              h('span', {}, label),
+              required ? h('span', { class: 'required-indicator' }, ' *') : null,
+              elem.help ? h('span', {
+                class: 'help-tooltip-wrapper',
+                onClick: (e: Event) => e.stopPropagation()
+              }, [
+                h('span', { class: 'help-icon' }, '?'),
+                h('span', {
+                  class: 'help-tooltip',
+                  innerHTML: renderMarkdown(elem.help)
+                })
+              ]) : null
             ]);
 
             return [ labelElement, inputElement ];
@@ -544,6 +607,9 @@ function handleDelete() {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .required-indicator {
@@ -790,5 +856,104 @@ input:checked + .slider:before {
   width: 100%;
   margin: 0;
   padding: 0;
+}
+
+/* Bulle d'aide (tooltip help) */
+.help-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  cursor: help;
+}
+
+.help-icon {
+  color: rgba(1, 128, 165, 1);
+  background: rgba(1, 128, 165, 0.1);
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: bold;
+  transition: all var(--transition-fast);
+}
+
+.help-icon:hover {
+  background: rgba(1, 128, 165, 0.2);
+  transform: scale(1.1);
+}
+
+.help-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  width: 250px;
+  background-color: #1e293b; /* slate-800 dark background */
+  color: #f8fafc; /* slate-50 light text */
+  text-align: left;
+  border-radius: 6px;
+  padding: 10px 12px;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%; /* Position the tooltip above the text */
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.5;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  white-space: normal;
+}
+
+/* Tooltip arrow */
+.help-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%; /* At the bottom of the tooltip */
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: #1e293b transparent transparent transparent;
+}
+
+.help-tooltip-wrapper:hover .help-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Basic styling inside the parsed markdown tooltip */
+.help-tooltip strong {
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.help-tooltip em {
+  font-style: italic;
+}
+
+.help-tooltip code {
+  background-color: rgba(255, 255, 255, 0.15);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.help-tooltip ul {
+  margin: 6px 0 0 0;
+  padding-left: 16px;
+  list-style-type: disc;
+}
+
+.help-tooltip li {
+  margin-bottom: 4px;
 }
 </style>

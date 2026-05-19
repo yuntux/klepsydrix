@@ -156,12 +156,14 @@
                     "last_name": {
                       "visibleByDefault": true,
                       "overrideLabel": "Nom de famille",
-                      "required": true
+                      "required": true,
+                      "help": "Nom de famille de l'enseignant"
                     },
                     "first_name": {
                       "visibleByDefault": true,
                       "overrideLabel": "Prénom",
-                      "required": true
+                      "required": true,
+                      "help": "Prénom de l'enseignant"
                     }
                   }
                 }
@@ -192,17 +194,20 @@
                         {
                           "key": "max_hours_per_day",
                           "overrideLabel": "Journée (heures)",
-                          "readOnly": false
+                          "readOnly": false,
+                          "help": "Nombre maximum d'heures de cours qu'un enseignant peut effectuer par jour.\n- **Valeur type** : 6 à 8 heures.\n- **Impact** : Règle dure dans le solveur."
                         },
                         {
                           "key": "max_hours_per_am",
                           "overrideLabel": "Matin (heures)",
-                          "readOnly": false
+                          "readOnly": false,
+                          "help": "Volume d'heures maximum autorisées en matinée (avant 12h).\n- **Impact** : Permet de préserver la fatigue matinale."
                         },
                         {
                           "key": "max_hours_per_pm",
                           "overrideLabel": "Après-midi (heures)",
-                          "readOnly": false
+                          "readOnly": false,
+                          "help": "Volume d'heures maximum autorisées l'après-midi (à partir de 12h).\n- **Impact** : Permet d'éviter les surcharges de fin de journée."
                         }
                       ]
                     },
@@ -285,7 +290,8 @@
                         {
                           "key": "only_one_half_day_per_day",
                           "overrideLabel": "Ne travailler qu'une demi-journée/jour",
-                          "readOnly": false
+                          "readOnly": false,
+                          "help": "Interdire strictement d'avoir des cours prévus à la fois le matin et l'après-midi sur un même jour.\n- **Impact** : Règle dure du solveur."
                         }
                       ]
                     },

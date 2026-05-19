@@ -126,8 +126,9 @@ Concernant le composant `GenericList`, il doit offrir nativement les fonctionnal
       - *Maj + Clic* : Sélectionne tous les éléments contigus entre le premier et le dernier élément cliqué.
       - *Ctrl + Clic / Cmd + Clic* : Sélectionne/désélectionne des éléments non contigus.
       - *Ctrl + A / Cmd + A* : Sélectionne d'un coup tous les éléments affichés de la liste.
+  11. **Bulle d'aide Markdown (attribut `help`)** : Les colonnes peuvent être configurées avec un attribut optionnel `help` contenant du texte d'aide au format Markdown. Un point d'interrogation en exposant (couleur bleue `rgba(1, 128, 165)`) s'affiche alors à droite du libellé de l'en-tête de colonne. Au survol de la souris, un tooltip sur fond sombre s'affiche avec le texte d'aide formaté en HTML (Markdown converti, respectant les sauts de ligne).
 Concernant le composant `GenericList`, il doit offrir nativement les fonctionnalités suivantes :
-  11. **Structure de configuration optionnelle (`listConfig`)** :
+  12. **Structure de configuration optionnelle (`listConfig`)** :
       - `editableInline` : booléen indiquant si l'on peut éditer les enregistrements directement dans la liste (par défaut `true`).
       - `allowMultiSelect` : booléen permettant ou non d'activer la multisélection/les cases à cocher (par défaut `true`).
       - `columns` : configuration fine pour chaque colonne, comprenant :
@@ -135,8 +136,10 @@ Concernant le composant `GenericList`, il doit offrir nativement les fonctionnal
         - `overrideLabel` : intitulé optionnel surchargé (s'il est spécifié).
         - `readOnly` : booléen (par défaut `false`) pour rendre un champ ou une colonne non modifiable en ligne.
         - `required` : booléen (par défaut `false`) indiquant si la saisie est obligatoire pour cette colonne lors de l'édition en ligne.
+        - `help` : texte d'aide au format Markdown décrivant le rôle ou le fonctionnement de la colonne.
 Concernant le composant `GenericForm`, il doit offrir les fonctionnalités suivantes :
-  1. **Structure de configuration optionnelle (`formConfig`)** :
+  1. **Bulle d'aide Markdown (attribut `help`)** : Les champs de saisie peuvent être configurés avec un attribut optionnel `help` contenant du texte d'aide au format Markdown. Un point d'interrogation en exposant (couleur bleue `rgba(1, 128, 165)`) s'affiche à droite du libellé du champ. Au survol, un tooltip sur fond sombre affiche le texte Markdown formaté, y compris ses sauts de ligne.
+  2. **Structure de configuration optionnelle (`formConfig`)** :
      - `editableForm` : booléen indiquant si l'on peut éditer les enregistrements dans le formulaire (par défaut `true`).
      - `fields` : configuration fine et structurée pour la mise en page et la sélection des éléments du formulaire. Si non spécifié, tous les attributs du modèle sont intégrés par défaut. Cette structure supporte les balises de structure de type Odoo suivantes pour organiser les formulaires de manière professionnelle :
        - **Champs standards** :
@@ -144,6 +147,7 @@ Concernant le composant `GenericForm`, il doit offrir les fonctionnalités suiva
          - `readOnly` : booléen (par défaut `false`) indiquant si l'attribut est en lecture seule dans le formulaire.
          - `required` : booléen (par défaut `false`) indiquant si la saisie de l'attribut est obligatoire dans le formulaire.
          - `overrideLabel` : intitulé textuel optionnel pour surcharger l'étiquette par défaut.
+         - `help` : texte d'aide au format Markdown pour décrire le rôle ou le fonctionnement du champ.
        - **Structure `group`** : Définit un conteneur organisant ses enfants sous forme de colonnes (par exemple un layout sur 2 colonnes ou plus, avec un alignement soigné des étiquettes et des champs). Un groupe peut éventuellement porter une étiquette de titre (`string`). Les éléments enfants (`children`) d'un groupe peuvent être des champs ou d'autres sous-structures.
        - **Balise `separator`** : Ajoute un séparateur visuel horizontal (`<hr>`) accompagné d'un titre optionnel, idéal pour structurer les différentes sections logiques d'un formulaire dense.
        - **Balise `newline`** : Force un saut de ligne dans le layout en cours, permettant aux éléments suivants de commencer sur une nouvelle ligne de la grille (utile dans les mises en page multi-colonnes).

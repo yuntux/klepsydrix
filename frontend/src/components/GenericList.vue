@@ -26,6 +26,10 @@
               <!-- En-tête cliquable pour le tri -->
               <div class="th-content" @click="toggleSort(col.key)">
                 <span class="th-label">{{ col.label }}</span>
+                <span v-if="col.help" class="help-tooltip-wrapper" @click.stop>
+                  <span class="help-icon">?</span>
+                  <span class="help-tooltip tooltip-bottom" v-html="renderMarkdown(col.help)"></span>
+                </span>
                 <span class="sort-indicator" v-if="sortBy === col.key">
                   {{ sortDesc ? '▼' : '▲' }}
                 </span>
@@ -281,6 +285,7 @@ interface ColumnDef {
   label: string;
   width?: number;
   visible?: boolean;
+  help?: string;
 }
 
 interface FormField {
@@ -293,6 +298,7 @@ interface FormField {
   max?: number;
   step?: string;
   options?: Array<{ value: any; label: string }>;
+  help?: string;
 }
 
 interface ColumnConfig {
@@ -300,12 +306,60 @@ interface ColumnConfig {
   overrideLabel?: string;
   readOnly?: boolean;
   required?: boolean;
+  help?: string;
 }
 
 interface ListConfig {
   editableInline?: boolean;
   allowMultiSelect?: boolean;
   columns?: Record<string, ColumnConfig>;
+}
+
+function renderMarkdown(md: string | undefined): string {
+  if (!md) return '';
+  let html = md;
+  html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Echap HTML pour securite
+  html = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Inline markdown
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  
+  // Listes et retours ligne
+  const lines = html.split('\n');
+  let inList = false;
+  const processedLines: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const content = trimmed.substring(2);
+      if (!inList) {
+        inList = true;
+        processedLines.push('<ul><li>' + content + '</li>');
+      } else {
+        processedLines.push('<li>' + content + '</li>');
+      }
+    } else {
+      if (inList) {
+        inList = false;
+        processedLines.push('</ul>');
+      }
+      processedLines.push(trimmed + (i < lines.length - 1 && trimmed ? '<br/>' : ''));
+    }
+  }
+  if (inList) {
+    processedLines.push('</ul>');
+  }
+  
+  return processedLines.join('\n');
 }
 
 const props = defineProps<{
@@ -504,7 +558,8 @@ watch([() => props.columns, () => props.listConfig], () => {
           ...originalCol,
           label: overrideLabel,
           width: originalCol.width || 150,
-          visible: isVisible
+          visible: isVisible,
+          help: colConf.help || originalCol.help
         });
       }
     });
@@ -516,7 +571,8 @@ watch([() => props.columns, () => props.listConfig], () => {
       return {
         ...c,
         width: c.width || 150,
-        visible: c.visible !== false
+        visible: c.visible !== false,
+        help: c.help
       };
     });
   }
@@ -960,6 +1016,10 @@ function onDrop(event: DragEvent, index: number) {
   position: relative;
   user-select: none;
   border-right: 1px solid var(--border-color);
+}
+
+.header-th:hover {
+  z-index: 100;
 }
 
 .th-content {
@@ -1449,5 +1509,116 @@ input:checked + .inline-slider:before {
 .readonly-swatch {
   pointer-events: none;
   opacity: 0.6;
+}
+
+/* Bulle d'aide (tooltip help) */
+.help-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  cursor: help;
+}
+
+.help-icon {
+  color: rgba(1, 128, 165, 1);
+  background: rgba(1, 128, 165, 0.1);
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: bold;
+  transition: all var(--transition-fast);
+}
+
+.help-icon:hover {
+  background: rgba(1, 128, 165, 0.2);
+  transform: scale(1.1);
+}
+
+.help-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  width: 250px;
+  background-color: #1e293b; /* slate-800 dark background */
+  color: #f8fafc; /* slate-50 light text */
+  text-align: left;
+  border-radius: 6px;
+  padding: 10px 12px;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%; /* Position the tooltip above the text */
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.5;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  white-space: normal;
+}
+
+/* Tooltip arrow */
+.help-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%; /* At the bottom of the tooltip */
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: #1e293b transparent transparent transparent;
+}
+
+.help-tooltip-wrapper:hover .help-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Basic styling inside the parsed markdown tooltip */
+.help-tooltip strong {
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.help-tooltip em {
+  font-style: italic;
+}
+
+.help-tooltip code {
+  background-color: rgba(255, 255, 255, 0.15);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.help-tooltip ul {
+  margin: 6px 0 0 0;
+  padding-left: 16px;
+  list-style-type: disc;
+}
+
+.help-tooltip li {
+  margin-bottom: 4px;
+}
+
+/* Positionnement vers le bas pour eviter la troncature par le bord superieur du conteneur */
+.help-tooltip.tooltip-bottom {
+  bottom: auto;
+  top: 125%;
+}
+
+.help-tooltip.tooltip-bottom::after {
+  bottom: 100%;
+  top: auto;
+  border-color: transparent transparent #1e293b transparent;
 }
 </style>
