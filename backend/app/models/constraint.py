@@ -1,14 +1,6 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
-
-# Table de jointure Many-to-Many pour Constraint <-> Alternation
-constraint_alternations = Table(
-    "constraint_alternations",
-    Base.metadata,
-    Column("constraint_id", Integer, ForeignKey("resource_constraints.id", ondelete="CASCADE"), primary_key=True),
-    Column("alternation_id", Integer, ForeignKey("alternations.id", ondelete="CASCADE"), primary_key=True)
-)
 
 class ResourceConstraint(Base):
     __tablename__ = "resource_constraints"
@@ -52,4 +44,3 @@ class ResourceConstraint(Base):
 
     # Navigation
     target_subject_b = relationship("Subject", foreign_keys=[target_subject_b_id])
-    alternations = relationship("Alternation", secondary=constraint_alternations)

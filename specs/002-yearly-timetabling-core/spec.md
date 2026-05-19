@@ -207,12 +207,12 @@ Concernant le composant `GenericForm`, il doit offrir les fonctionnalités suiva
   *   **Divisions (Classes)** : La ou les classes d'élèves entières associées (regroupements de classes).
   *   **ClassParts (Parties de classe)** : Une ou plusieurs sous-parties de classes (ex : Demi-classe de 3ème A - Groupe 1).
   *   **Groups (Groupes)** : Un ou plusieurs regroupements d'élèves (ex : Groupe d'Allemand LV2, Spécialité Physique).
-  *   **Alternations (Alternances)** : La ou les alternances temporelles définissant le rythme (Semaine A, Semaine B, ou Toutes les semaines).
   *   **Sites** : Le ou les sites physiques ou campus géographiques associés à la séance.
   *   **Materials (Matériels / Équipements)** : Le ou les matériels mobiles ou fixes réservables (ex : Valise d'iPad, Projecteur 3D).
   *   **Classrooms (Salles)** : La ou les salles de classe affectées (ex : Salle 102, Labo SVT).
-- **ResourcePreference** : Association polymorphique entre n'importe quel type de ressource listé ci-dessus, un créneau (Timeslot) et un niveau de préférence (Disponible [Blanc], Souhait d'absence [Orange], Indisponible [Rouge], Souhait de présence [Vert]).
-- **Period (Période)** : Découpage temporel de l'année scolaire (trimestres, semestres, etc.).
+- **ResourcePreference** : Association polymorphique entre n'importe quel type de ressource listé ci-dessus, un créneau (Timeslot) et un niveau de préférence (Disponible [Blanc], Souhait d'absence [Orange], Indisponible [Rouge], Souhait de présence [Vert]), qualifiée par un type de semaine (Semaine A/B/Toutes) et associée à des périodes d'application.
+- **Period (Période)** : Découpage temporel séquentiel de l'année scolaire (trimestres, semestres, etc.).
+- **AlternationCalendar (Calendrier d'Alternance)** : Modélisation du rythme cyclique des semaines (Semaine A / Semaine B / Toutes) pour chaque établissement scolaire.
 - **ResourceConstraint (Contrainte de Ressource)** : Définition globale pour toute l'année des contraintes réglementaires, pédagogiques ou géographiques rattachées à une ressource unique (matière, enseignant, classe, etc.). Les caractéristiques de ces contraintes s'adaptent dynamiquement selon le type de ressource.
 
 ## Spécification Détaillée des Objets et de leurs Attributs
@@ -380,11 +380,20 @@ Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de cla
 *   `is_system_generated` : Vrai si le lien a été généré automatiquement par précaution par le système lors de la création de partitions croisées (Booléen, par défaut `True`)
 
 
-### 7. Alternation (Alternance)
+### 7. AlternationCalendar (Calendrier d'Alternance)
+Modélise pour un établissement donné le découpage hebdomadaire de l'année scolaire en attribuant à chaque semaine calendaire réelle un type de semaine spécifique.
 *   `id` : Clé primaire (Entier)
-*   `code` : Code unique (Chaîne, e.g. "WEEK_A", "WEEK_B")
-*   `name` : Libellé complet (Chaîne, e.g. "Semaine A", "Semaine B", "Hebdomadaire")
-*   `color` : Code couleur d'affichage (Chaîne)
+*   `school_id` : Clé étrangère vers l'**School** (Entier, relation 1-à-N)
+*   `start_date` : Date de début de la semaine (Date)
+*   `end_date` : Date de fin de la semaine (Date)
+*   `week_type` : Type d'alternance de semaine (Chaîne: 'A' pour Semaine A, 'B' pour Semaine B, ou 'T' pour Toutes les semaines / Hebdomadaire, par défaut 'T')
+
+> [!NOTE]
+> **Croisement Périodes vs Alternances :**
+> * **La Période (Découpage horizontal séquentiel)** : Tranche de dates continue dans l'année (ex: Trimestre 1 de Septembre à Décembre).
+> * **L'Alternance (Découpage vertical cyclique)** : Rythme cyclique récurrent des semaines (ex: Semaine A, Semaine B).
+>
+> Chaque semaine réelle de l'année appartient à **une (ou plusieurs) période(s)** et possède **un type d'alternance**. Les séances et les vœux de ressources s'appliquent sur des ensembles de semaines réelles par intersection. Par exemple, un vœu lié à la période "Trimestre 1" et à la semaine "A" s'appliquera uniquement lors des semaines de type A comprises entre septembre et décembre.
 
 ### 8. Site
 *   `id` : Clé primaire (Entier)
@@ -417,13 +426,14 @@ Représente soit une salle simple (ordinaire), soit un **Groupe de salles** inte
 *   *Relations (N-à-N ordonnée)* : `contained_classrooms` (Pour les groupes de salles (`quantity > 1`), liste ordonnée des salles simples de même capacité et situées obligatoirement sur le **même site** composant ce groupe. L'ordre d'affectation au sein du groupe est défini de manière séquentielle pour prioriser l'utilisation de certaines salles simples par rapport à d'autres).
 
 ### 11. ResourcePreference (Vœux / Préférence)
-Association polymorphique entre n'importe quel type de ressource, un créneau (Timeslot), un niveau de préférence (Disponible, Vœu, Indisponible), rattachée obligatoirement à **1 à N périodes** (Semaine A/B, Trimestre, Période spécifique).
+Association polymorphique entre n'importe quel type de ressource, un créneau (Timeslot), un niveau de préférence (Disponible, Vœu, Indisponible), rattachée obligatoirement à **1 à N périodes** (Trimestre, Période spécifique).
 *   `id` : Clé primaire (Entier)
 *   `resource_type` : Type de ressource concernée (Chaîne : `Teacher`, `Classroom`, `Division`, `Group`, `Material`, `ClassPart`, `Site`, `Subject`)
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
 *   `timeslot_id` : Clé étrangère vers le créneau **Timeslot** (Entier)
 *   `level` : Niveau de vœu (Enum : `RED` (Indisponibilité impérative / Rouge), `ORANGE` (Indisponibilité optionnelle / Orange), `GREEN` (Souhait de présence / Vert), `WHITE` (Disponible / Blanc))
-*   *Relations (N-à-N, min 1)* : `periods` (Liaison obligatoire vers **1 à N périodes** d'application de ce vœu ou indisponibilité)
+*   `week_type` : Type d'alternance de semaine (Chaîne: 'A', 'B' ou 'T' pour Toutes les semaines, par défaut 'T')
+*   *Relations (N-à-N)* : `periods` (Liaison vers **1 à N périodes** d'application de ce vœu ou indisponibilité)
 
 ### 12. Mission
 Mission d'enseignement ou d'accompagnement rattachée à un cours (ex : Professeur Principal).

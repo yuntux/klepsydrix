@@ -10,14 +10,6 @@ preference_periods = Table(
     Column("period_id", Integer, ForeignKey("periods.id", ondelete="CASCADE"), primary_key=True)
 )
 
-# Table de jointure Many-to-Many pour Preference <-> Alternation
-preference_alternations = Table(
-    "preference_alternations",
-    Base.metadata,
-    Column("preference_id", Integer, ForeignKey("resource_preferences.id", ondelete="CASCADE"), primary_key=True),
-    Column("alternation_id", Integer, ForeignKey("alternations.id", ondelete="CASCADE"), primary_key=True)
-)
-
 class ResourcePreference(Base):
     __tablename__ = "resource_preferences"
 
@@ -26,14 +18,14 @@ class ResourcePreference(Base):
     resource_id = Column(Integer, nullable=False)
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
     preference_level = Column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
+    week_type = Column(String(1), nullable=False, default="T") # 'A', 'B', 'T'
 
     # Navigation
     timeslot = relationship("Timeslot")
     periods = relationship("Period", secondary=preference_periods)
-    alternations = relationship("Alternation", secondary=preference_alternations)
 
     __table_args__ = (
-        UniqueConstraint("resource_type", "resource_id", "timeslot_id", name="uq_resource_timeslot_pref"),
+        UniqueConstraint("resource_type", "resource_id", "timeslot_id", "week_type", name="uq_resource_timeslot_pref_week"),
     )
 
     @classmethod
@@ -45,13 +37,15 @@ class ResourcePreference(Base):
         resource_type = vals.get("resource_type")
         resource_id = vals.get("resource_id")
         timeslot_id = vals.get("timeslot_id")
+        week_type = vals.get("week_type", "T")
 
         if level == "Neutral" or not level:
             # Si le niveau est Neutral, on supprime l'éventuelle ligne existante
             existing = db.query(cls).filter(
                 cls.resource_type == resource_type,
                 cls.resource_id == resource_id,
-                cls.timeslot_id == timeslot_id
+                cls.timeslot_id == timeslot_id,
+                cls.week_type == week_type
             ).first()
             if existing:
                 existing.delete(db)
@@ -61,7 +55,8 @@ class ResourcePreference(Base):
         existing = db.query(cls).filter(
             cls.resource_type == resource_type,
             cls.resource_id == resource_id,
-            cls.timeslot_id == timeslot_id
+            cls.timeslot_id == timeslot_id,
+            cls.week_type == week_type
         ).first()
         if existing:
             return existing.update(db, vals)

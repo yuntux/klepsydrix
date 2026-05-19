@@ -12,6 +12,7 @@ from backend.app.models.course import Course
 from backend.app.models.group import ClassPartLink
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.constraint import ResourceConstraint
+from backend.app.models.period import Period
 from backend.app.core.database import SessionLocal
 import threading
 from backend.app.solver.constraints import (
@@ -69,6 +70,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_links = db.query(ClassPartLink).all()
     db_preferences = db.query(ResourcePreference).all()
     db_constraints = db.query(ResourceConstraint).all()
+    db_periods = db.query(Period).all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
@@ -86,7 +88,9 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             resource_type=pref.resource_type,
             resource_id=pref.resource_id,
             timeslot_id=pref.timeslot_id,
-            preference_level=pref.preference_level
+            preference_level=pref.preference_level,
+            week_type=pref.week_type,
+            period_ids=[p.id for p in pref.periods]
         ) for pref in db_preferences
     ]
     constraints_list = [
@@ -167,6 +171,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             original_timeslot_id=c.timeslot_id,
             week_type=week_type,
             class_part_ids=class_part_ids,
+            period_ids=[p.id for p in db_periods]
         )
         courses_list.append(pc)
 

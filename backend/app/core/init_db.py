@@ -141,15 +141,14 @@ def seed_v2_data():
         if mercredi_8h_ts:
             for t_id, s_id in [teachers[0], teachers[20]]:
                 db.execute(text(
-                    "INSERT INTO resource_preferences (resource_type, resource_id, timeslot_id, preference_level) "
-                    "VALUES ('Teacher', :resource_id, :timeslot_id, 'Unsuited')"
+                    "INSERT INTO resource_preferences (resource_type, resource_id, timeslot_id, preference_level, week_type) "
+                    "VALUES ('Teacher', :resource_id, :timeslot_id, 'Unsuited', 'A')"
                 ), {"resource_id": t_id, "timeslot_id": mercredi_8h_ts})
                 db.commit()
-                pref_id = db.execute(text("SELECT id FROM resource_preferences WHERE resource_type = 'Teacher' AND resource_id = :resource_id"), {"resource_id": t_id}).scalar()
+                pref_id = db.execute(text("SELECT id FROM resource_preferences WHERE resource_type = 'Teacher' AND resource_id = :resource_id AND week_type = 'A'"), {"resource_id": t_id}).scalar()
                 
-                # Liaison Période S1 et Alternance A
+                # Liaison Période S1 uniquement
                 db.execute(text("INSERT INTO preference_periods (preference_id, period_id) VALUES (:pref_id, :s_id)"), {"pref_id": pref_id, "s_id": s1_id})
-                db.execute(text("INSERT INTO preference_alternations (preference_id, alternation_id) VALUES (:pref_id, :alt_id)"), {"pref_id": pref_id, "alt_id": week_a_id})
                 db.commit()
 
         # 11. Création des Divisions (Classes d'élèves) : 3 pour Collège, 3 pour Lycée

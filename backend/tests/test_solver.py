@@ -12,6 +12,7 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
 from backend.app.models.preference import ResourcePreference
+from backend.app.models.period import Period
 from backend.app.solver.solver import _solve_timetable_job
 
 # Moteur en mémoire vive dédié aux tests pour isolation totale et vitesse critique
@@ -267,4 +268,136 @@ def test_solver_preference_overrides_stability(db_session: Session):
     # 5. Assertion : Le cours DOIT avoir bougé de ts1 à ts2 car la préférence (+10 soft) l'emporte sur la stabilité (-1 soft)
     assert course.timeslot_id is not None
     assert course.timeslot_id == ts2.id
+
+
+def test_solver_respects_week_specific_preferences(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    # 1. Création Enseignant, Salle, Division, Créneaux
+    t1 = Teacher(code="PROF_WEEK", name="Prof Week", last_name="Week", school_id=school.id)
+    db_session.add(t1)
+    db_session.commit()
+
+    c1 = Classroom(code="ROOM_WEEK", name="Room Week", capacity=30, quantity=1, school_id=school.id)
+    db_session.add(c1)
+    db_session.commit()
+
+    d1 = Division(code="DIV_WEEK", name="Div Week", student_count=25, color="#CCCCCC", school_id=school.id)
+    db_session.add(d1)
+    db_session.commit()
+
+    ts1 = Timeslot(day_of_week=1, hour=8) # Indisponible uniquement en semaine A (Unsuited)
+    ts2 = Timeslot(day_of_week=1, hour=9) # Disponible (Neutre)
+    db_session.add_all([ts1, ts2])
+    db_session.commit()
+
+    # 2. Création du vœu "Unsuited" uniquement en semaine A pour ts1
+    p1 = ResourcePreference(resource_type="Teacher", resource_id=t1.id, timeslot_id=ts1.id, preference_level="Unsuited", week_type="A")
+    db_session.add(p1)
+    db_session.commit()
+
+    # 3. Création de deux cours : un pour la semaine A, un pour la semaine B
+    course_a = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    course_b = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    db_session.add_all([course_a, course_b])
+    db_session.commit()
+
+    course_a.sessions[0].week_type = "A"
+    course_b.sessions[0].week_type = "B"
+    db_session.commit()
+
+    # 4. Résoudre
+    _solve_timetable_job(db_session)
+    db_session.refresh(course_a)
+    db_session.refresh(course_b)
+
+    # 5. Assertions :
+    # course_a (week_type='A') ne doit PAS être planifié sur ts1 car ts1 est Unsuited pour la semaine A.
+    # course_b (week_type='B') PEUT être planifié sur ts1 car l'indisponibilité ne s'applique qu'à la semaine A.
+    assert course_a.timeslot_id is not None
+    assert course_b.timeslot_id is not None
+    assert course_a.timeslot_id == ts2.id
+    assert course_b.timeslot_id == ts1.id
+
+
+def test_solver_respects_period_specific_preferences(db_session: Session, monkeypatch):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    # 1. Création Enseignant, Salle, Division, Créneaux
+    t1 = Teacher(code="PROF_PERIOD", name="Prof Period", last_name="Period", school_id=school.id)
+    db_session.add(t1)
+    db_session.commit()
+
+    c1 = Classroom(code="ROOM_PERIOD", name="Room Period", capacity=30, quantity=1, school_id=school.id)
+    db_session.add(c1)
+    db_session.commit()
+
+    d1 = Division(code="DIV_PERIOD", name="Div Period", student_count=25, color="#CCCCCC", school_id=school.id)
+    db_session.add(d1)
+    db_session.commit()
+
+    ts1 = Timeslot(day_of_week=1, hour=8) # Indisponible uniquement sur la période 1 (Unsuited)
+    ts2 = Timeslot(day_of_week=1, hour=9) # Disponible
+    db_session.add_all([ts1, ts2])
+    db_session.commit()
+
+    # 2. Création de deux périodes
+    import datetime
+    per1 = Period(code="P1", name="Période 1", start_date=datetime.date(2026, 9, 1), end_date=datetime.date(2026, 12, 31))
+    per2 = Period(code="P2", name="Période 2", start_date=datetime.date(2027, 1, 1), end_date=datetime.date(2027, 6, 30))
+    db_session.add_all([per1, per2])
+    db_session.commit()
+
+    # 3. Création du vœu "Unsuited" uniquement sur P1 pour ts1
+    p1 = ResourcePreference(resource_type="Teacher", resource_id=t1.id, timeslot_id=ts1.id, preference_level="Unsuited")
+    p1.periods.append(per1)
+    db_session.add(p1)
+    db_session.commit()
+
+    # 4. Création d'un cours
+    course = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    db_session.add(course)
+    db_session.commit()
+
+    # Cas 1 : Pas d'intersection (Cours sur P2 uniquement)
+    from backend.app.solver import solver
+    original_build = solver._build_planning_problem
+
+    def patched_build(db, school_id=None):
+        problem = original_build(db, school_id)
+        for pc in problem.courses:
+            if pc.id == course.id:
+                pc.period_ids = [per2.id]
+        return problem
+
+    monkeypatch.setattr(solver, "_build_planning_problem", patched_build)
+    
+    _solve_timetable_job(db_session)
+    db_session.refresh(course)
+    
+    # Le cours doit être planifié sur ts1 car sans chevauchement avec P1, le vœu Unsuited est inactif.
+    assert course.timeslot_id == ts1.id
+
+    # Cas 2 : Intersection (Cours sur P1 uniquement)
+    def patched_build_overlap(db, school_id=None):
+        problem = original_build(db, school_id)
+        for pc in problem.courses:
+            if pc.id == course.id:
+                pc.period_ids = [per1.id]
+        return problem
+
+    monkeypatch.setattr(solver, "_build_planning_problem", patched_build_overlap)
+
+    # Réinitialiser le timeslot
+    course.timeslot_id = None
+    db_session.commit()
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(course)
+
+    # Le cours doit être planifié sur ts2 car le vœu Unsuited s'applique par intersection de périodes.
+    assert course.timeslot_id == ts2.id
+
 

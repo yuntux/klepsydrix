@@ -71,6 +71,8 @@ class PlanningPreference:
     resource_id: int
     timeslot_id: int
     preference_level: str
+    week_type: str = "T"
+    period_ids: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -125,6 +127,7 @@ class PlanningCourse:
     # Alternance et parties de classe (US2)
     week_type: str = "T"
     class_part_ids: List[int] = field(default_factory=list)
+    period_ids: List[int] = field(default_factory=list)
 
 
 @planning_solution
@@ -147,6 +150,12 @@ def weeks_overlap(w1: str, w2: str) -> bool:
     if w1 == "T" or w2 == "T":
         return True
     return w1 == w2
+
+
+def periods_overlap(periods_a: List[int], periods_b: List[int]) -> bool:
+    if not periods_a or not periods_b:
+        return True
+    return any(p in periods_b for p in periods_a)
 
 
 @constraint_provider
@@ -297,7 +306,7 @@ def resource_preference_hard(constraint_factory: ConstraintFactory) -> Constrain
             PlanningPreference,
             Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
         )
-        .filter(lambda course, pref: pref.preference_level == "Unsuited" and (
+        .filter(lambda course, pref: pref.preference_level == "Unsuited" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_ids, pref.period_ids) and (
             (pref.resource_type == "Teacher" and course.teacher is not None and pref.resource_id == course.teacher.id) or
             (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
             (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
@@ -315,7 +324,7 @@ def resource_preference_soft_penalty(constraint_factory: ConstraintFactory) -> C
             PlanningPreference,
             Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
         )
-        .filter(lambda course, pref: pref.preference_level == "Undesirable" and (
+        .filter(lambda course, pref: pref.preference_level == "Undesirable" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_ids, pref.period_ids) and (
             (pref.resource_type == "Teacher" and course.teacher is not None and pref.resource_id == course.teacher.id) or
             (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
             (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)
@@ -333,7 +342,7 @@ def resource_preference_soft_reward(constraint_factory: ConstraintFactory) -> Co
             PlanningPreference,
             Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
         )
-        .filter(lambda course, pref: pref.preference_level == "Preferred" and (
+        .filter(lambda course, pref: pref.preference_level == "Preferred" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_ids, pref.period_ids) and (
             (pref.resource_type == "Teacher" and course.teacher is not None and pref.resource_id == course.teacher.id) or
             (pref.resource_type == "Classroom" and course.classroom is not None and pref.resource_id == course.classroom.id) or
             (pref.resource_type == "Division" and course.division is not None and pref.resource_id == course.division.id)

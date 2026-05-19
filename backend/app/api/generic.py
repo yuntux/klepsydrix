@@ -89,7 +89,7 @@ def make_pydantic_model(model, all_optional=False):
         except Exception:
             py_type = Any
         
-        if all_optional or column.nullable:
+        if all_optional or column.nullable or column.default is not None or column.server_default is not None:
             fields[column.name] = (Optional[py_type], None)
         else:
             fields[column.name] = (py_type, ...)
