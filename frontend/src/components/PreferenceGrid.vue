@@ -616,14 +616,14 @@ async function paintCell(day: number, hour: number) {
     // Déterminer la période active / type de période
     let periodTypeId = null;
     if (selectedPeriodIds.value && selectedPeriodIds.value.length > 0) {
-      const pObj = props.periods.find(p => p.id === selectedPeriodIds.value[0]);
+      const pObj = allPeriods.value.find(p => p.id === selectedPeriodIds.value[0]);
       if (pObj) {
         periodTypeId = pObj.period_type_id;
       }
     } else {
       for (const ext of existings) {
         if (ext.period_ids && ext.period_ids.length > 0) {
-          const pObj = props.periods.find(p => p.id === ext.period_ids[0]);
+          const pObj = allPeriods.value.find(p => p.id === ext.period_ids[0]);
           if (pObj) {
             periodTypeId = pObj.period_type_id;
             break;
@@ -636,7 +636,7 @@ async function paintCell(day: number, hour: number) {
     const finalPrefs: any[] = [];
 
     if (periodTypeId !== null) {
-      const typePeriods = props.periods.filter(p => p.period_type_id === periodTypeId);
+      const typePeriods = allPeriods.value.filter(p => p.period_type_id === periodTypeId);
       const grid: Record<string, string> = {};
 
       for (const w of ["A", "B"]) {
@@ -903,7 +903,7 @@ function updateTooltip(day: number, hour: number, event: MouseEvent) {
     const details = prefs.map(pref => {
       const pNames = pref.period_ids && pref.period_ids.length > 0
         ? pref.period_ids.map((pid: number) => {
-            const pObj = props.periods.find(p => p.id === pid);
+            const pObj = allPeriods.value.find(p => p.id === pid);
             return pObj ? pObj.name : `Période ${pid}`;
           }).join(', ')
         : "Année entière";
