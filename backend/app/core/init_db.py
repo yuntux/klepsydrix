@@ -20,8 +20,8 @@ def seed_v2_data():
     db = SessionLocal()
     try:
         # 2. Création des Établissements de la Cité Scolaire
-        db.execute(text("INSERT INTO schools (uai, name, standard_timeslot_duration) VALUES ('0750001A', 'Collège Jean Jaurès', 30)"))
-        db.execute(text("INSERT INTO schools (uai, name, standard_timeslot_duration) VALUES ('0750002B', 'Lycée Jean Jaurès', 30)"))
+        db.execute(text("INSERT INTO schools (uai, name, standard_timeslot_duration, student_start_date, student_end_date) VALUES ('0750001A', 'Collège Jean Jaurès', 30, '2026-09-01', '2027-06-30')"))
+        db.execute(text("INSERT INTO schools (uai, name, standard_timeslot_duration, student_start_date, student_end_date) VALUES ('0750002B', 'Lycée Jean Jaurès', 30, '2026-09-01', '2027-06-30')"))
         db.commit()
         
         clg_id = db.execute(text("SELECT id FROM schools WHERE uai = '0750001A'")).scalar()
@@ -108,9 +108,15 @@ def seed_v2_data():
                 ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND hour = :hour"), {"day": day, "hour": hour}).scalar()
                 timeslots.append(ts_id)
 
-        # 8. Saisie des périodes temporelles (Semestres) et Alternances (Semaines A/B)
-        db.execute(text("INSERT INTO periods (code, name, start_date, end_date) VALUES ('S1', 'Semestre 1', '2026-09-01', '2027-01-31')"))
-        db.execute(text("INSERT INTO periods (code, name, start_date, end_date) VALUES ('S2', 'Semestre 2', '2027-02-01', '2027-06-30')"))
+        # 8. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
+        db.execute(text("INSERT INTO period_types (label) VALUES ('Trimestre')"))
+        db.execute(text("INSERT INTO period_types (label) VALUES ('Semestre')"))
+        db.commit()
+
+        sem_type_id = db.execute(text("SELECT id FROM period_types WHERE label = 'Semestre'")).scalar()
+
+        db.execute(text("INSERT INTO periods (period_type_id, code, name, start_date, end_date) VALUES (:type_id, 'S1', 'Semestre 1', '2026-09-01', '2027-01-31')"), {"type_id": sem_type_id})
+        db.execute(text("INSERT INTO periods (period_type_id, code, name, start_date, end_date) VALUES (:type_id, 'S2', 'Semestre 2', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id})
         db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('WEEK_A', 'Semaine A', '#3498DB')"))
         db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('WEEK_B', 'Semaine B', '#E74C3C')"))
         db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('HEBDO', 'Hebdomadaire', '#2ECC71')"))

@@ -295,12 +295,14 @@ const adminModels = [
   { key: 'materials', label: '🛠️ Matériels' },
   { key: 'missions', label: '🎯 Missions' },
   { key: 'election_methods', label: '🗳️ Méthodes d\'élection' },
-  { key: 'periods', label: '📅 Périodes' }
+  { key: 'periods', label: '📅 Périodes' },
+  { key: 'period_types', label: '🏷️ Types de périodes' }
 ];
 const activeAdminModel = ref('schools');
 const genericItems = ref<any[]>([]);
 const genericLoading = ref(false);
 const schoolsList = ref<any[]>([]);
+const periodTypesList = ref<any[]>([]);
 
 // États pour la boîte de dialogue de confirmation d'impact
 const showImpactModal = ref(false);
@@ -364,6 +366,15 @@ async function loadSchools() {
     schoolsList.value = res.items;
   } catch (e) {
     console.error("Échec du chargement des écoles", e);
+  }
+}
+
+async function loadPeriodTypes() {
+  try {
+    const res = await api.fetchGenericList('period_types', 0, 1000);
+    periodTypesList.value = res.items;
+  } catch (e) {
+    console.error("Échec du chargement des types de périodes", e);
   }
 }
 
@@ -570,6 +581,8 @@ async function onSubmitGeneric(value: Record<string, any>) {
     }
     if (activeAdminModel.value === 'schools') {
       loadSchools();
+    } else if (activeAdminModel.value === 'period_types') {
+      loadPeriodTypes();
     }
   } catch (err: any) {
     showNotification('error', err.message || 'Impossible d\'enregistrer la ressource.');
@@ -582,6 +595,8 @@ async function onUpdateGenericInline(item: any) {
     showNotification('success', 'Élément mis à jour directement !');
     if (activeAdminModel.value === 'schools') {
       loadSchools();
+    } else if (activeAdminModel.value === 'period_types') {
+      loadPeriodTypes();
     } else if (['teachers', 'classrooms', 'divisions'].includes(activeAdminModel.value)) {
       loadData();
     }
@@ -627,6 +642,8 @@ async function onDeleteGeneric(item: any) {
       loadGenericItems();
       if (activeAdminModel.value === 'schools') {
         loadSchools();
+      } else if (activeAdminModel.value === 'period_types') {
+        loadPeriodTypes();
       }
     } catch (err: any) {
       showNotification('error', err.message || 'Échec de la suppression de la ressource.');
@@ -654,7 +671,9 @@ const columnsConfig = computed(() => {
     return [
       { key: 'uai', label: 'UAI (RNE)', width: 120 },
       { key: 'name', label: 'Nom de l\'établissement', width: 250 },
-      { key: 'standard_timeslot_duration', label: 'Durée créneau (min)', width: 150 }
+      { key: 'standard_timeslot_duration', label: 'Durée créneau (min)', width: 150 },
+      { key: 'student_start_date', label: 'Début année élèves', width: 150 },
+      { key: 'student_end_date', label: 'Fin année élèves', width: 150 }
     ];
   } else if (model === 'disciplines') {
     return [
@@ -714,8 +733,13 @@ const columnsConfig = computed(() => {
     return [
       { key: 'code', label: 'Code', width: 120 },
       { key: 'name', label: 'Nom de la période', width: 200 },
+      { key: 'period_type_id', label: 'ID Type Période', width: 150 },
       { key: 'start_date', label: 'Date Début', width: 150 },
       { key: 'end_date', label: 'Date Fin', width: 150 }
+    ];
+  } else if (model === 'period_types') {
+    return [
+      { key: 'label', label: 'Libellé', width: 250 }
     ];
   }
   return [];
@@ -725,12 +749,15 @@ const columnsConfig = computed(() => {
 function getFormFieldsConfig(resourceKey?: string) {
   const model = resourceKey || activeAdminModel.value;
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
+  const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.label }));
 
   if (model === 'schools') {
     return [
       { key: 'uai', label: 'Code UAI (RNE)', type: 'text', required: true, placeholder: 'ex: 0750001A' },
       { key: 'name', label: 'Nom de l\'établissement', type: 'text', required: true, placeholder: 'ex: Collège Jean Jaurès' },
-      { key: 'standard_timeslot_duration', label: 'Durée standard de créneau (min)', type: 'number', required: true, min: 5, max: 120, step: '5' }
+      { key: 'standard_timeslot_duration', label: 'Durée standard de créneau (min)', type: 'number', required: true, min: 5, max: 120, step: '5' },
+      { key: 'student_start_date', label: 'Date de rentrée des élèves', type: 'date', required: false },
+      { key: 'student_end_date', label: 'Date de sortie des élèves', type: 'date', required: false }
     ];
   } else if (model === 'disciplines') {
     return [
@@ -827,8 +854,13 @@ function getFormFieldsConfig(resourceKey?: string) {
     return [
       { key: 'code', label: 'Code de la période', type: 'text', required: true, placeholder: 'ex: S1' },
       { key: 'name', label: 'Nom de la période', type: 'text', required: true, placeholder: 'ex: Semestre 1' },
+      { key: 'period_type_id', label: 'Type de Période', type: 'select', required: true, options: periodTypeOptions },
       { key: 'start_date', label: 'Date de début', type: 'date', required: true },
       { key: 'end_date', label: 'Date de fin', type: 'date', required: true }
+    ];
+  } else if (model === 'period_types') {
+    return [
+      { key: 'label', label: 'Libellé du type de période', type: 'text', required: true, placeholder: 'ex: Trimestre' }
     ];
   }
   return [];
@@ -1028,6 +1060,7 @@ async function onReset() {
 onMounted(() => {
   loadData();
   loadSchools();
+  loadPeriodTypes();
   checkStatus();
   if (!pollingInterval) {
     pollingInterval = window.setInterval(checkStatus, 3000);

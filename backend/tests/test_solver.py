@@ -345,8 +345,13 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
 
     # 2. Création de deux périodes
     import datetime
-    per1 = Period(code="P1", name="Période 1", start_date=datetime.date(2026, 9, 1), end_date=datetime.date(2026, 12, 31))
-    per2 = Period(code="P2", name="Période 2", start_date=datetime.date(2027, 1, 1), end_date=datetime.date(2027, 6, 30))
+    from backend.app.models.period_type import PeriodType
+    pt = PeriodType(label="Semestre")
+    db_session.add(pt)
+    db_session.commit()
+
+    per1 = Period(period_type_id=pt.id, code="P1", name="Période 1", start_date=datetime.date(2026, 9, 1), end_date=datetime.date(2026, 12, 31))
+    per2 = Period(period_type_id=pt.id, code="P2", name="Période 2", start_date=datetime.date(2027, 1, 1), end_date=datetime.date(2027, 6, 30))
     db_session.add_all([per1, per2])
     db_session.commit()
 

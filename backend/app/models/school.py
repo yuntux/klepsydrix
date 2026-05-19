@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Date
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
 
@@ -9,6 +9,8 @@ class School(Base):
     uai = Column(String(8), unique=True, index=True, nullable=False)
     name = Column(String(100), nullable=False)
     standard_timeslot_duration = Column(Integer, nullable=False, default=30)
+    student_start_date = Column(Date, nullable=True)
+    student_end_date = Column(Date, nullable=True)
 
     # Relations de navigation
     teachers = relationship("Teacher", back_populates="school", passive_deletes="all")
