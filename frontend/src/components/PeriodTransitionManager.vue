@@ -2,6 +2,16 @@
   <div class="period-transition-manager glass-morphism">
     <div class="manager-header">
       <h3 class="title">📅 Calendrier des Périodes</h3>
+      
+      <div class="school-selector-container">
+        <label for="school-select" class="selector-label">Établissement :</label>
+        <select id="school-select" v-model="selectedSchoolId" class="select-custom">
+          <option v-for="school in schools" :key="school.id" :value="school.id">
+            {{ school.name }}
+          </option>
+        </select>
+      </div>
+
       <div v-if="activeSchool && hasSchoolDates" class="school-year-badge">
         Année scolaire : <strong>{{ formatDateNice(activeSchool.student_start_date) }}</strong> au <strong>{{ formatDateNice(activeSchool.student_end_date) }}</strong>
       </div>
@@ -113,6 +123,7 @@ interface School {
 interface Period {
   id?: number;
   period_type_id: number;
+  school_id?: number;
   code: string;
   name: string;
   start_date: string;
@@ -132,9 +143,19 @@ const emit = defineEmits<{
 const localPeriods = ref<Period[]>([]);
 const deletedPeriodIds = ref<number[]>([]);
 const saving = ref(false);
+const selectedSchoolId = ref<number | null>(null);
+
+watch(() => props.schools, (newSchools) => {
+  if (newSchools && newSchools.length > 0) {
+    if (selectedSchoolId.value === null || !newSchools.some(s => s.id === selectedSchoolId.value)) {
+      selectedSchoolId.value = newSchools[0].id;
+    }
+  }
+}, { immediate: true });
 
 const activeSchool = computed(() => {
-  return props.schools && props.schools.length > 0 ? props.schools[0] : null;
+  if (!props.schools || !selectedSchoolId.value) return null;
+  return props.schools.find(s => s.id === selectedSchoolId.value) || null;
 });
 
 const hasSchoolDates = computed(() => {
@@ -142,16 +163,19 @@ const hasSchoolDates = computed(() => {
 });
 
 async function loadPeriods() {
-  if (!props.periodTypeId) {
+  console.log("[PeriodTransitionManager] loadPeriods - props.periodTypeId:", props.periodTypeId, "selectedSchoolId:", selectedSchoolId.value);
+  if (!props.periodTypeId || !selectedSchoolId.value) {
     localPeriods.value = [];
     deletedPeriodIds.value = [];
     return;
   }
   try {
-    const res = await api.fetchGenericList('periods', 0, 1000);
+    const res = await api.fetchGenericList('periods', 0, 1000, selectedSchoolId.value);
+    console.log("[PeriodTransitionManager] fetched periods list:", res.items);
     localPeriods.value = res.items
-      .filter((p: any) => p.period_type_id === props.periodTypeId)
+      .filter((p: any) => Number(p.period_type_id) === Number(props.periodTypeId))
       .sort((a: any, b: any) => a.start_date.localeCompare(b.start_date));
+    console.log("[PeriodTransitionManager] filtered periods:", localPeriods.value);
     deletedPeriodIds.value = [];
     adjustPeriodsToSchoolDates();
   } catch (e) {
@@ -159,7 +183,7 @@ async function loadPeriods() {
   }
 }
 
-watch(() => props.periodTypeId, loadPeriods, { immediate: true });
+watch([() => props.periodTypeId, selectedSchoolId], loadPeriods, { immediate: true });
 watch(activeSchool, adjustPeriodsToSchoolDates);
 
 function adjustPeriodsToSchoolDates() {
@@ -204,12 +228,13 @@ function handleTransitionChange(index: number, newEndDate: string) {
 }
 
 function addPeriod() {
-  if (!hasSchoolDates.value || !activeSchool.value || !props.periodTypeId) return;
+  if (!hasSchoolDates.value || !activeSchool.value || !props.periodTypeId || !selectedSchoolId.value) return;
   const typeId = props.periodTypeId;
 
   if (localPeriods.value.length === 0) {
     localPeriods.value.push({
       period_type_id: typeId,
+      school_id: selectedSchoolId.value,
       code: 'P1',
       name: 'Période 1',
       start_date: activeSchool.value.student_start_date,
@@ -239,6 +264,7 @@ function addPeriod() {
   const nextNum = localPeriods.value.length + 1;
   localPeriods.value.push({
     period_type_id: typeId,
+    school_id: selectedSchoolId.value,
     code: 'P' + nextNum,
     name: 'Période ' + nextNum,
     start_date: addDays(midDateStr, 1),
@@ -273,6 +299,7 @@ async function savePeriods() {
         code: p.code,
         name: p.name,
         period_type_id: p.period_type_id,
+        school_id: selectedSchoolId.value,
         start_date: p.start_date,
         end_date: p.end_date
       };
@@ -311,6 +338,18 @@ async function savePeriods() {
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 12px;
+}
+
+.school-selector-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selector-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .title {

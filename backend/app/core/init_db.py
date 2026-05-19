@@ -115,14 +115,16 @@ def seed_v2_data():
 
         sem_type_id = db.execute(text("SELECT id FROM period_types WHERE label = 'Semestre'")).scalar()
 
-        db.execute(text("INSERT INTO periods (period_type_id, code, name, start_date, end_date) VALUES (:type_id, 'S1', 'Semestre 1', '2026-09-01', '2027-01-31')"), {"type_id": sem_type_id})
-        db.execute(text("INSERT INTO periods (period_type_id, code, name, start_date, end_date) VALUES (:type_id, 'S2', 'Semestre 2', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id})
+        db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S1_CLG', 'Semestre 1 Collège', '2026-09-01', '2027-01-31')"), {"type_id": sem_type_id, "school_id": clg_id})
+        db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S2_CLG', 'Semestre 2 Collège', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id, "school_id": clg_id})
+        db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S1_LYC', 'Semestre 1 Lycée', '2026-09-01', '2027-01-31')"), {"type_id": sem_type_id, "school_id": lyc_id})
+        db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S2_LYC', 'Semestre 2 Lycée', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id, "school_id": lyc_id})
         db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('WEEK_A', 'Semaine A', '#3498DB')"))
         db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('WEEK_B', 'Semaine B', '#E74C3C')"))
         db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('HEBDO', 'Hebdomadaire', '#2ECC71')"))
         db.commit()
 
-        s1_id = db.execute(text("SELECT id FROM periods WHERE code = 'S1'")).scalar()
+        s1_id = db.execute(text("SELECT id FROM periods WHERE code = 'S1_CLG'")).scalar()
         week_a_id = db.execute(text("SELECT id FROM alternations WHERE code = 'WEEK_A'")).scalar()
 
         # 9. Création des Enseignants (40 profs : 20 collège, 20 lycée)

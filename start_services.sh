@@ -86,7 +86,8 @@ start_services() {
     echo "----------------------------------------------------------"
     echo " Les services sont configurés. Vous pouvez y accéder :"
     echo "  - Frontend : http://localhost:$FRONTEND_PORT"
-    echo "  - Backend  : http://localhost:$BACKEND_PORT/docs"
+    echo "  - Backend (Swagger UI) : http://localhost:$BACKEND_PORT/api/docs"
+    echo "  - Backend (ReDoc)      : http://localhost:$BACKEND_PORT/api/redoc"
     echo "=========================================================="
 }
 
@@ -100,11 +101,11 @@ stop_services() {
     if check_port $BACKEND_PORT; then
         local pid=$(get_pid_on_port $BACKEND_PORT)
         echo "🛑 Arrêt du backend (PID: $pid)..."
-        kill "$pid" 2>/dev/null
+        kill $pid 2>/dev/null
         sleep 1
         # Force kill si toujours vivant
         if check_port $BACKEND_PORT; then
-            kill -9 "$pid" 2>/dev/null
+            kill -9 $pid 2>/dev/null
         fi
         echo "✅ Backend arrêté."
         stopped=true
@@ -115,11 +116,11 @@ stop_services() {
     if check_port $FRONTEND_PORT; then
         local pid=$(get_pid_on_port $FRONTEND_PORT)
         echo "🛑 Arrêt du frontend (PID: $pid)..."
-        kill "$pid" 2>/dev/null
+        kill $pid 2>/dev/null
         sleep 1
         # Force kill si toujours vivant
         if check_port $FRONTEND_PORT; then
-            kill -9 "$pid" 2>/dev/null
+            kill -9 $pid 2>/dev/null
         fi
         echo "✅ Frontend arrêté."
         stopped=true

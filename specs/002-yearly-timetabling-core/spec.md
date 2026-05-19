@@ -456,6 +456,7 @@ Modalité pédagogique et administrative indispensable pour la reconnaissance de
 Découpage temporel de l'année d'enseignement (ex: Semestres, Trimestres, Périodes de stage).
 *   `id` : Clé primaire (Entier)
 *   `period_type_id` : Clé étrangère vers le **PeriodType** (Entier, relation N-à-1)
+*   `school_id` : Clé étrangère vers l'**School** (Entier, relation N-à-1)
 *   `code` : Code abrégé unique (Chaîne, e.g. "T1", "T2", "T3", "S1", "S2")
 *   `name` : Libellé de la période (Chaîne, e.g. "Trimestre 1", "Semestre 1")
 *   `start_date` : Date de début de la période (Date)
@@ -467,18 +468,19 @@ Représente une catégorie ou un modèle de découpage de l'année scolaire de l
 *   `label` : Libellé du type de période (Chaîne, e.g. "Trimestre", "Semestre")
 
 > [!IMPORTANT]
-> **Contraintes de cohérence temporelle pour un type de période :**
-> Pour chaque type de période (ex: "Trimestre") de l'établissement :
-> 1. **Couverture complète de l'année scolaire** : L'union temporelle de toutes les périodes rattachées à ce type doit couvrir exactement l'année scolaire des élèves. La date de début de la première période de ce type doit correspondre à la `student_start_date` de l'établissement, et la date de fin de la dernière période de ce type doit correspondre à la `student_end_date` de l'établissement.
-> 2. **Absence de recouvrement et de trou** : Il ne doit y avoir aucun trou ni aucun recouvrement entre les périodes d'un même type (l'intersection deux à deux des plages de dates doit être vide, et les périodes doivent être contiguës).
+> **Contraintes de cohérence temporelle pour un type de période et un établissement :**
+> Pour chaque type de période (ex: "Trimestre") de l'établissement sélectionné :
+> 1. **Couverture complète de l'année scolaire** : L'union temporelle de toutes les périodes rattachées à ce type pour cet établissement doit couvrir exactement son année scolaire. La date de début de la première période doit correspondre à la `student_start_date` de l'établissement, et la date de fin de la dernière période doit correspondre à la `student_end_date` de l'établissement.
+> 2. **Absence de recouvrement et de trou** : Il ne doit y avoir aucun trou ni aucun recouvrement entre les périodes d'un même type pour cet établissement (l'intersection deux à deux des plages de dates doit être vide, et les périodes doivent être contiguës).
 > 3. **Types par défaut à l'initialisation** : Par défaut, à la création de la base de données, deux types de périodes doivent être créés : "Trimestre" et "Semestre".
 >
 > **Facilitation de saisie dans l'IHM (UX) pour respecter ces contraintes :**
 > Afin de garantir le respect strict et sans effort de ces contraintes par l'utilisateur :
+> * Un sélecteur d'établissement est présent en haut du panel de droite pour filtrer les périodes configurées.
 > * Les dates de début et de fin individuelles de chaque période ne sont pas saisies de manière indépendante en texte libre.
 > * L'utilisateur édite uniquement les **dates de transition** (les dates de basculement entre deux périodes successives).
 > * La modification d'une date de fin d'une période $N$ met à jour automatiquement la date de début de la période suivante $N+1$ au jour suivant.
-> * Les bornes extérieures (début de la première période et fin de la dernière période) sont verrouillées sur les dates de rentrée (`student_start_date`) et de sortie (`student_end_date`) des élèves définies dans la fiche établissement.
+> * Les bornes extérieures (début de la première période et fin de la dernière période) sont verrouillées sur les dates de rentrée (`student_start_date`) et de sortie (`student_end_date`) de l'établissement sélectionné.
 
 ### 15. ResourceConstraint (Contrainte de Ressource)
 L'objet générique portant les contraintes spécifiques à une ressource, définies de manière globale pour toute l'année d'enseignement (sans liaison temporelle avec les périodes).

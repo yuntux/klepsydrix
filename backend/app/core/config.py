@@ -17,5 +17,17 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
+    def __init__(self, **values):
+        super().__init__(**values)
+        if self.DATABASE_URL.startswith("sqlite:///./"):
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            db_name = self.DATABASE_URL.replace("sqlite:///./", "")
+            self.DATABASE_URL = f"sqlite:///{os.path.abspath(os.path.join(base_dir, db_name))}"
+        elif self.DATABASE_URL.startswith("sqlite:///"):
+            path = self.DATABASE_URL.replace("sqlite:///", "")
+            if not os.path.isabs(path):
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+                self.DATABASE_URL = f"sqlite:///{os.path.abspath(os.path.join(base_dir, path))}"
+
 
 settings = Settings()

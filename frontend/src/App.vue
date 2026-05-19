@@ -750,6 +750,7 @@ const columnsConfig = computed(() => {
     return [
       { key: 'code', label: 'Code', width: 120 },
       { key: 'name', label: 'Nom de la période', width: 200 },
+      { key: 'school_id', label: 'ID Établissement', width: 150 },
       { key: 'period_type_id', label: 'ID Type Période', width: 150 },
       { key: 'start_date', label: 'Date Début', width: 150 },
       { key: 'end_date', label: 'Date Fin', width: 150 }
@@ -871,6 +872,7 @@ function getFormFieldsConfig(resourceKey?: string) {
     return [
       { key: 'code', label: 'Code de la période', type: 'text', required: true, placeholder: 'ex: S1' },
       { key: 'name', label: 'Nom de la période', type: 'text', required: true, placeholder: 'ex: Semestre 1' },
+      { key: 'school_id', label: 'Établissement', type: 'select', required: true, options: schoolOptions },
       { key: 'period_type_id', label: 'Type de Période', type: 'select', required: true, options: periodTypeOptions },
       { key: 'start_date', label: 'Date de début', type: 'date', required: true },
       { key: 'end_date', label: 'Date de fin', type: 'date', required: true }
