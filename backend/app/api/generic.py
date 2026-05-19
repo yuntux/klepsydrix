@@ -205,10 +205,23 @@ def clean_payload(model, payload_dict: dict) -> dict:
     cleaned = {}
     valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
     extra_fields = getattr(model, "_fields", [])
-    all_keys = valid_keys + extra_fields
+    
+    relationship_keys = []
+    from sqlalchemy.orm import Mapper
+    if hasattr(model, "__mapper__") and isinstance(model.__mapper__, Mapper):
+        for rel in model.__mapper__.relationships:
+            if rel.uselist:
+                field_name = f"{rel.key}_ids"
+                if rel.key.endswith("s"):
+                    field_name = f"{rel.key[:-1]}_ids"
+                elif rel.key.endswith("ies"):
+                    field_name = f"{rel.key[:-3]}y_ids"
+                relationship_keys.append(field_name)
+
+    all_keys = valid_keys + extra_fields + relationship_keys
     for k, v in payload_dict.items():
         if k in all_keys and v is not None:
-            if k in extra_fields:
+            if k in extra_fields or k in relationship_keys:
                 cleaned[k] = v
                 continue
             column_type = model.__table__.columns[k].type

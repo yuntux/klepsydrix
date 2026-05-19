@@ -115,6 +115,7 @@
               :value="p.id" 
               v-model="selectedPeriodIds" 
               @change="loadPreferences"
+              :disabled="selectedPeriodIds.length === 1 && selectedPeriodIds.includes(p.id)"
               class="checkbox-custom"
             />
             <span class="checkbox-text">{{ p.name }}</span>
@@ -157,6 +158,8 @@
             :class="getCellClass(day.value, hour)"
             @mousedown="onCellMouseDown(day.value, hour, $event)"
             @mouseenter="onCellMouseEnter(day.value, hour)"
+            @mousemove="onCellMouseMove(day.value, hour, $event)"
+            @mouseleave="onCellMouseLeave(day.value, hour)"
           >
             <div class="cell-label">
               {{ getCellLabel(day.value, hour) }}
@@ -180,7 +183,14 @@
           <div class="legend-modal-body">
             <div class="legend-tip">
               <strong>Astuce de saisie :</strong><br>
-              En restant cliqué, vous pouvez colorer plusieurs cases d'affilée en déplaçant votre souris, sans avoir à cliquer sur chaque créneau survolé.
+              En restant cliqué, vous pouvez colorer plusieurs cases d'affilée en déplaçant votre souris.
+              <br><br>
+              <strong>Cohérence &amp; Combinatoire :</strong>
+              <ul style="margin: 6px 0 0 16px; padding: 0; list-style-type: disc;">
+                <li><strong>Scission (Semaines A/B) :</strong> Si vous passez en semaine A et coloriez un créneau, l'ancienne préférence globale (Toutes semaines) est automatiquement scindée en deux enregistrements distincts (A et B) pour préserver la semaine B.</li>
+                <li><strong>Scission (Périodes) :</strong> Si vous appliquez une contrainte sur une période spécifique, le vœu annuel est scindé pour maintenir l'ancienne préférence sur les autres périodes.</li>
+                <li><strong>Visualisation :</strong> Lorsqu'au moins une des ressources ou des périodes diffère, la case apparaît hachurée. Un compteur numérique indique le nombre de ressources impactées (ex: <code>2/3</code>). Survolez la case pour voir le détail par enseignant/période !</li>
+              </ul>
             </div>
             
             <div class="legend-items-list">
@@ -236,7 +246,34 @@
                   Pour les groupes de salles, nombre d'occurrences du groupe occupées par un cours.
                 </div>
               </div>
+
+              <div class="legend-item">
+                <div class="legend-color-box" style="display: flex; align-items: center; justify-content: center; font-weight: bold; background: #e5e7eb; border: 1px solid #d1d5db; color: #374151;">2/3</div>
+                <div class="legend-text">
+                  Indique le nombre de ressources impactées (ex: 2 enseignants sur 3) lorsqu'une sélection multiple est active.
+                </div>
+              </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Tooltip Flottant -->
+    <Teleport to="body">
+      <div 
+        v-if="tooltipData && tooltipData.visible" 
+        class="pref-tooltip glass-morphism"
+        :style="{ left: tooltipData.x + 'px', top: tooltipData.y + 'px' }"
+      >
+        <div class="tooltip-title">
+          Détails des vœux
+        </div>
+        <div v-for="res in tooltipData.content" :key="res.resourceName" class="tooltip-resource">
+          <div class="tooltip-resource-name">{{ res.resourceName }}</div>
+          <div v-for="(det, idx) in res.details" :key="idx" class="tooltip-detail-item">
+            <span class="tooltip-badge" :class="det.levelClass">{{ det.level }}</span>
+            <span class="tooltip-text">{{ det.week }} - {{ det.periods }}</span>
           </div>
         </div>
       </div>
@@ -351,7 +388,11 @@ watch(schoolId, () => {
 }, { immediate: true });
 
 function onPeriodTypeChange() {
-  selectedPeriodIds.value = [];
+  if (selectedPeriodTypeId.value) {
+    selectedPeriodIds.value = periodsOfType.value.map(p => p.id);
+  } else {
+    selectedPeriodIds.value = [];
+  }
   loadPreferences();
 }
 
@@ -437,17 +478,19 @@ function findMatchingPreferences(resourceId: number, day: number, hour: number):
   }
   
   // 3. Filtrer par périodes
-  const filterPeriodIds = selectedPeriodIds.value;
-  if (filterPeriodIds.length === 0) {
-    // Si aucune période n'est cochée, on ne garde que les contraintes annuelles
-    matches = matches.filter(p => !p.period_ids || p.period_ids.length === 0);
-  } else {
-    // Si des périodes sont cochées, la contrainte s'applique si elle est annuelle
-    // OU si elle intersecte les périodes sélectionnées
-    matches = matches.filter(p => {
-      const pIds = p.period_ids || [];
-      return pIds.length === 0 || pIds.some(pid => filterPeriodIds.includes(pid));
-    });
+  if (selectedPeriodTypeId.value !== null) {
+    const filterPeriodIds = selectedPeriodIds.value;
+    if (filterPeriodIds.length === 0) {
+      // Si aucune période n'est cochée, on ne garde que les contraintes annuelles
+      matches = matches.filter(p => !p.period_ids || p.period_ids.length === 0);
+    } else {
+      // Si des périodes sont cochées, la contrainte s'applique si elle est annuelle
+      // OU si elle intersecte les périodes sélectionnées
+      matches = matches.filter(p => {
+        const pIds = p.period_ids || [];
+        return pIds.length === 0 || pIds.some(pid => filterPeriodIds.includes(pid));
+      });
+    }
   }
   
   return matches;
@@ -559,56 +602,170 @@ async function paintCell(day: number, hour: number) {
     if (!rawPreferences.value[id]) {
       rawPreferences.value[id] = [];
     }
-    
 
-    if (selectedWeekType.value === 'W') {
-      // Si Toutes (W) : on retire toutes les préférences existantes pour ce créneau (A, B et W)
-      rawPreferences.value[id] = rawPreferences.value[id].filter(
-        (p: any) => p.timeslot_id !== ts.id
-      );
+    const existings = rawPreferences.value[id].filter(
+      (p: any) => p.timeslot_id === ts.id
+    );
+
+    // Déterminer la période active / type de période
+    let periodTypeId = null;
+    if (selectedPeriodIds.value && selectedPeriodIds.value.length > 0) {
+      const pObj = props.periods.find(p => p.id === selectedPeriodIds.value[0]);
+      if (pObj) {
+        periodTypeId = pObj.period_type_id;
+      }
     } else {
-      // Si on définit une contrainte sur une semaine spécifique (A ou B)
-      // et qu'il existe une préférence hebdomadaire 'W' (Toutes), on doit scinder
-      // la préférence 'W' en conservant sa valeur pour l'autre semaine.
-      const existingW = rawPreferences.value[id].find(
-        (p: any) => p.timeslot_id === ts.id && p.week_type === 'W'
-      );
-      if (existingW) {
-        const oldLevel = existingW.preference_level;
-        const otherWeek = selectedWeekType.value === 'A' ? 'B' : 'A';
-        // On retire la préférence 'W'
-        rawPreferences.value[id] = rawPreferences.value[id].filter(
-          (p: any) => !(p.timeslot_id === ts.id && p.week_type === 'W')
-        );
-        // On crée la préférence pour l'autre semaine si elle n'est pas neutre
-        if (oldLevel !== 'Neutral') {
-          rawPreferences.value[id].push({
-            resource_type: resourceType.value,
-            resource_id: id,
-            timeslot_id: ts.id,
-            preference_level: oldLevel,
-            week_type: otherWeek,
-            period_ids: [...(existingW.period_ids || [])]
-          });
+      for (const ext of existings) {
+        if (ext.period_ids && ext.period_ids.length > 0) {
+          const pObj = props.periods.find(p => p.id === ext.period_ids[0]);
+          if (pObj) {
+            periodTypeId = pObj.period_type_id;
+            break;
+          }
         }
       }
-      // On retire également une éventuelle préférence déjà existante pour la semaine en cours
-      rawPreferences.value[id] = rawPreferences.value[id].filter(
-        (p: any) => !(p.timeslot_id === ts.id && p.week_type === selectedWeekType.value)
-      );
     }
-    
-    if (newLevel !== 'Neutral') {
-      const updatedPref = {
+
+    const isAnnual = !selectedPeriodIds.value || selectedPeriodIds.value.length === 0;
+    const finalPrefs: any[] = [];
+
+    if (periodTypeId !== null) {
+      const typePeriods = props.periods.filter(p => p.period_type_id === periodTypeId);
+      const grid: Record<string, string> = {};
+
+      for (const w of ["A", "B"]) {
+        for (const p of typePeriods) {
+          let matchedLevel = "Neutral";
+          let bestScore = -1;
+          for (const ext of existings) {
+            const extW = ext.week_type;
+            const coversW = (extW === 'W' || extW === w);
+            const coversP = (!ext.period_ids || ext.period_ids.length === 0 || ext.period_ids.includes(p.id));
+            if (coversW && coversP) {
+              let score = 0;
+              if (extW !== 'W') score += 2;
+              if (ext.period_ids && ext.period_ids.length > 0) score += 1;
+              if (score > bestScore) {
+                bestScore = score;
+                matchedLevel = ext.preference_level;
+              }
+            }
+          }
+          grid[`${w}-${p.id}`] = matchedLevel;
+        }
+      }
+
+      // Appliquer le nouveau niveau
+      const targetWeeks = selectedWeekType.value === 'W' ? ["A", "B"] : [selectedWeekType.value];
+      const targetPIds = isAnnual ? typePeriods.map(p => p.id) : selectedPeriodIds.value;
+
+      for (const w of targetWeeks) {
+        for (const pid of targetPIds) {
+          grid[`${w}-${pid}`] = newLevel;
+        }
+      }
+
+      // Reconstruire candidats
+      const candidates: any[] = [];
+      for (const w of ["A", "B"]) {
+        const levelsInW = new Set(typePeriods.map(p => grid[`${w}-${p.id}`]));
+        levelsInW.forEach(lvl => {
+          if (lvl === "Neutral") return;
+          const pids = typePeriods.filter(p => grid[`${w}-${p.id}`] === lvl).map(p => p.id);
+          if (pids.length === typePeriods.length) {
+            candidates.push({ w, lvl, pids: [] });
+          } else if (pids.length > 0) {
+            candidates.push({ w, lvl, pids });
+          }
+        });
+      }
+
+      // Fusionner A et B en W
+      const byKey: Record<string, string[]> = {};
+      candidates.forEach(c => {
+        const key = `${c.lvl}-${JSON.stringify(c.pids.slice().sort())}`;
+        if (!byKey[key]) byKey[key] = [];
+        byKey[key].push(c.w);
+      });
+
+      Object.entries(byKey).forEach(([key, weeks]) => {
+        const dashIdx = key.indexOf('-');
+        const lvl = key.substring(0, dashIdx);
+        const pids = JSON.parse(key.substring(dashIdx + 1));
+        if (weeks.length === 2) {
+          finalPrefs.push({ week_type: 'W', preference_level: lvl, period_ids: pids });
+        } else {
+          finalPrefs.push({ week_type: weeks[0], preference_level: lvl, period_ids: pids });
+        }
+      });
+
+    } else {
+      // Cas sans période
+      const grid: Record<string, string> = {};
+      for (const w of ["A", "B"]) {
+        let matchedLevel = "Neutral";
+        let bestScore = -1;
+        for (const ext of existings) {
+          const extW = ext.week_type;
+          const coversW = (extW === 'W' || extW === w);
+          if (coversW) {
+            const score = extW !== 'W' ? 1 : 0;
+            if (score > bestScore) {
+              bestScore = score;
+              matchedLevel = ext.preference_level;
+            }
+          }
+        }
+        grid[w] = matchedLevel;
+      }
+
+      // Appliquer cible
+      const targetWeeks = selectedWeekType.value === 'W' ? ["A", "B"] : [selectedWeekType.value];
+      for (const w of targetWeeks) {
+        grid[w] = newLevel;
+      }
+
+      // Reconstruire candidats
+      const candidates: any[] = [];
+      for (const w of ["A", "B"]) {
+        const lvl = grid[w];
+        if (lvl !== "Neutral") {
+          candidates.push({ w, lvl });
+        }
+      }
+
+      // Fusionner A et B en W
+      const byLvl: Record<string, string[]> = {};
+      candidates.forEach(c => {
+        if (!byLvl[c.lvl]) byLvl[c.lvl] = [];
+        byLvl[c.lvl].push(c.w);
+      });
+
+      Object.entries(byLvl).forEach(([lvl, weeks]) => {
+        if (weeks.length === 2) {
+          finalPrefs.push({ week_type: 'W', preference_level: lvl, period_ids: [] });
+        } else {
+          finalPrefs.push({ week_type: weeks[0], preference_level: lvl, period_ids: [] });
+        }
+      });
+    }
+
+    // Retirer les anciennes préférences pour ce créneau
+    rawPreferences.value[id] = rawPreferences.value[id].filter(
+      (p: any) => p.timeslot_id !== ts.id
+    );
+
+    // Ajouter les nouvelles préférences construites
+    finalPrefs.forEach(fp => {
+      rawPreferences.value[id].push({
         resource_type: resourceType.value,
         resource_id: id,
         timeslot_id: ts.id,
-        preference_level: newLevel,
-        week_type: selectedWeekType.value,
-        period_ids: [...selectedPeriodIds.value]
-      };
-      rawPreferences.value[id].push(updatedPref);
-    }
+        preference_level: fp.preference_level,
+        week_type: fp.week_type,
+        period_ids: fp.period_ids
+      });
+    });
   });
 
   updateCombinedPreferences();
@@ -658,9 +815,28 @@ function getCellClass(day: number, hour: number): string {
   return 'pref-level-neutral';
 }
 
+function getCellCounter(day: number, hour: number): string {
+  const ids = resourceIds.value;
+  if (ids.length <= 1) return '';
+  
+  let nonNeutralCount = 0;
+  ids.forEach(id => {
+    const matches = findMatchingPreferences(id, day, hour);
+    if (matches.length > 0) {
+      nonNeutralCount++;
+    }
+  });
+  
+  if (nonNeutralCount === 0) return '';
+  return `${nonNeutralCount}/${ids.length}`;
+}
+
 function getCellLabel(day: number, hour: number): string {
   const key = `${day}-${hour}`;
   const level = preferencesMap.value[key];
+  if (resourceIds.value.length > 1) {
+    return getCellCounter(day, hour);
+  }
   if (level === 'Preferred') return 'Vert / Préféré';
   if (level === 'Undesirable') return 'Orange / Indésirable';
   if (level === 'Unsuited') return 'Rouge / Indisponible';
@@ -673,17 +849,123 @@ function getCellLabel(day: number, hour: number): string {
 
 const isMouseDown = ref(false);
 
+const tooltipData = ref<{
+  visible: boolean;
+  x: number;
+  y: number;
+  day: number;
+  hour: number;
+  content: Array<{
+    resourceName: string;
+    details: Array<{
+      week: string;
+      level: string;
+      periods: string;
+      levelClass: string;
+    }>;
+  }>;
+} | null>(null);
+
+function hideTooltip() {
+  tooltipData.value = null;
+}
+
+function updateTooltip(day: number, hour: number, event: MouseEvent) {
+  if (isMouseDown.value || resourceIds.value.length === 0) {
+    tooltipData.value = null;
+    return;
+  }
+  
+  const key = `${day}-${hour}`;
+  const cellLevel = preferencesMap.value[key] || 'Neutral';
+  if (!cellLevel.endsWith('-hashed')) {
+    tooltipData.value = null;
+    return;
+  }
+  
+  const ts = props.timeslots.find(t => t.day_of_week === day && t.hour === hour);
+  if (!ts) {
+    tooltipData.value = null;
+    return;
+  }
+  
+  const content = resourceIds.value.map(id => {
+    const resOpt = resourceOptions.value.find(o => o.id === id);
+    const resourceName = resOpt ? resOpt.name : `Ressource ${id}`;
+    const prefs = (rawPreferences.value[id] || []).filter(p => p.timeslot_id === ts.id);
+    
+    const details = prefs.map(pref => {
+      const pNames = pref.period_ids && pref.period_ids.length > 0
+        ? pref.period_ids.map((pid: number) => {
+            const pObj = props.periods.find(p => p.id === pid);
+            return pObj ? pObj.name : `Période ${pid}`;
+          }).join(', ')
+        : "Année entière";
+        
+      let weekLabel = 'Toutes semaines';
+      if (pref.week_type === 'A') weekLabel = 'Semaine A';
+      if (pref.week_type === 'B') weekLabel = 'Semaine B';
+      
+      let lvlLabel = 'Neutre';
+      if (pref.preference_level === 'Preferred') lvlLabel = 'Préféré';
+      if (pref.preference_level === 'Undesirable') lvlLabel = 'Indésirable';
+      if (pref.preference_level === 'Unsuited') lvlLabel = 'Indisponible';
+      
+      return {
+        week: weekLabel,
+        level: lvlLabel,
+        periods: pNames,
+        levelClass: `tooltip-level-${pref.preference_level.toLowerCase()}`
+      };
+    });
+    
+    if (details.length === 0) {
+      details.push({
+        week: 'Toutes semaines',
+        level: 'Neutre',
+        periods: 'Année entière',
+        levelClass: 'tooltip-level-neutral'
+      });
+    }
+    
+    return { resourceName, details };
+  });
+  
+  tooltipData.value = {
+    visible: true,
+    x: event.clientX + 15,
+    y: event.clientY + 15,
+    day,
+    hour,
+    content
+  };
+}
+
 function onCellMouseDown(day: number, hour: number, event: MouseEvent) {
   if (event.button !== 0) return; // Seul le clic gauche dessine
   event.preventDefault();
   isMouseDown.value = true;
+  hideTooltip();
   paintCell(day, hour);
 }
 
 function onCellMouseEnter(day: number, hour: number) {
   if (isMouseDown.value) {
+    hideTooltip();
     paintCell(day, hour);
   }
+}
+
+function onCellMouseMove(day: number, hour: number, event: MouseEvent) {
+  if (isMouseDown.value) {
+    hideTooltip();
+    return;
+  }
+  updateTooltip(day, hour, event);
+}
+
+function onCellMouseLeave(day: number, hour: number) {
+  hideTooltip();
 }
 
 const handleGlobalMouseUp = () => {
@@ -1268,7 +1550,101 @@ watch(resourceOptions, () => {
   accent-color: var(--accent-primary);
 }
 
+.checkbox-custom:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.checkbox-wrapper:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .checkbox-text {
   font-weight: 500;
+}
+
+/* Tooltip Flottant */
+.pref-tooltip {
+  position: fixed;
+  z-index: 10000;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  padding: 12px;
+  max-width: 320px;
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  backdrop-filter: blur(8px);
+}
+
+.tooltip-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+  color: var(--accent-primary);
+  font-size: 13px;
+}
+
+.tooltip-resource {
+  margin-bottom: 8px;
+}
+
+.tooltip-resource:last-child {
+  margin-bottom: 0;
+}
+
+.tooltip-resource-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.tooltip-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  margin-bottom: 2px;
+}
+
+.tooltip-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tooltip-level-preferred {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.tooltip-level-undesirable {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.tooltip-level-unsuited {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.tooltip-level-neutral {
+  background-color: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.tooltip-text {
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 </style>

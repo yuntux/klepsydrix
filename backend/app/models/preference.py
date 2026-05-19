@@ -31,90 +31,197 @@ class ResourcePreference(Base):
     timeslot = relationship("Timeslot")
     periods = relationship("Period", secondary=preference_periods)
 
-    __table_args__ = (
-        UniqueConstraint("resource_type", "resource_id", "timeslot_id", "week_type", name="uq_resource_timeslot_pref_week"),
-    )
-
     @classmethod
     def create(cls, db: "Session", vals: dict):
         """
-        Surcharge de create pour implémenter l'upsert et le nettoyage Neutral.
+        Surcharge de create pour implémenter l'upsert, la scission et le nettoyage Neutral.
         """
         level = vals.get("preference_level")
         resource_type = vals.get("resource_type")
         resource_id = vals.get("resource_id")
         timeslot_id = vals.get("timeslot_id")
         week_type = vals.get("week_type", "W")
+        period_ids = vals.get("period_ids", [])
+        is_annual = not period_ids
 
-        # Si on definit une preference sur une semaine specifique (A ou B)
-        # et qu'il existe une preference hebdomadaire 'W' (Toutes), on doit scinder
-        # la preference hebdomadaire 'W' en conservant sa valeur sur l'autre semaine.
-        if week_type in ("A", "B"):
-            existing_w = db.query(cls).filter(
-                cls.resource_type == resource_type,
-                cls.resource_id == resource_id,
-                cls.timeslot_id == timeslot_id,
-                cls.week_type == "W"
-            ).first()
-            if existing_w:
-                other_week = "B" if week_type == "A" else "A"
-                old_level = existing_w.preference_level
-                existing_w.delete(db)
-                if old_level and old_level != "Neutral":
-                    other_pref = cls(
-                        resource_type=resource_type,
-                        resource_id=resource_id,
-                        timeslot_id=timeslot_id,
-                        preference_level=old_level,
-                        week_type=other_week
-                    )
-                    db.add(other_pref)
+        # 1. Récupérer toutes les préférences existantes pour ce créneau/ressource
+        existings = db.query(cls).filter(
+            cls.resource_type == resource_type,
+            cls.resource_id == resource_id,
+            cls.timeslot_id == timeslot_id
+        ).all()
 
-        if level == "Neutral" or not level:
-            # Si le niveau est Neutral, on supprime l'éventuelle ligne existante
-            if week_type == "W":
-                # Supprimer TOUTES les préférences spécifiques (A, B et W)
-                existings = db.query(cls).filter(
-                    cls.resource_type == resource_type,
-                    cls.resource_id == resource_id,
-                    cls.timeslot_id == timeslot_id
-                ).all()
-                for ext in existings:
-                    ext.delete(db)
-            else:
-                existing = db.query(cls).filter(
-                    cls.resource_type == resource_type,
-                    cls.resource_id == resource_id,
-                    cls.timeslot_id == timeslot_id,
-                    cls.week_type == week_type
-                ).first()
-                if existing:
-                    existing.delete(db)
-            return None
+        # 2. Déterminer si un type de période est concerné
+        from backend.app.models.period import Period
+        period_type_id = None
+        school_id = None
 
-        # Comportement d'Upsert : si existe déjà, on appelle update à la place
-        # Si on crée une contrainte 'W' (Hebdo), on supprime d'abord les anciennes contraintes spécifiques A et B pour repartir propre
-        if week_type == "W":
-            existings = db.query(cls).filter(
-                cls.resource_type == resource_type,
-                cls.resource_id == resource_id,
-                cls.timeslot_id == timeslot_id,
-                cls.week_type.in_(["A", "B"])
+        # Récupérer le school_id de la ressource
+        if resource_type == "Teacher":
+            from backend.app.models.teacher import Teacher
+            res = db.query(Teacher).filter_by(id=resource_id).first()
+            if res:
+                school_id = res.school_id
+        elif resource_type == "Classroom":
+            from backend.app.models.classroom import Classroom
+            res = db.query(Classroom).filter_by(id=resource_id).first()
+            if res:
+                school_id = res.school_id
+        elif resource_type == "Division":
+            from backend.app.models.division import Division
+            res = db.query(Division).filter_by(id=resource_id).first()
+            if res:
+                school_id = res.school_id
+
+        if period_ids:
+            first_p = db.query(Period).filter(Period.id == period_ids[0]).first()
+            if first_p:
+                period_type_id = first_p.period_type_id
+        else:
+            for ext in existings:
+                if ext.periods:
+                    period_type_id = ext.periods[0].period_type_id
+                    break
+
+        # 3. Évaluation de la grille et reconstruction
+        final_prefs = [] # liste de tuples (w, lvl, list_of_pids)
+
+        if school_id and period_type_id:
+            # On a des périodes spécifiques d'un type donné
+            type_periods = db.query(Period).filter_by(
+                school_id=school_id,
+                period_type_id=period_type_id
             ).all()
+            
+            grid = {}
+            for w in ["A", "B"]:
+                for p in type_periods:
+                    matched_level = "Neutral"
+                    best_score = -1
+                    for ext in existings:
+                        ext_w = ext.week_type.value if hasattr(ext.week_type, "value") else ext.week_type
+                        covers_w = (ext_w == "W" or ext_w == w)
+                        covers_p = (not ext.periods or p.id in [item.id for item in ext.periods])
+                        if covers_w and covers_p:
+                            score = 0
+                            if ext_w != "W":
+                                score += 2
+                            if ext.periods:
+                                score += 1
+                            if score > best_score:
+                                best_score = score
+                                matched_level = ext.preference_level
+                    grid[(w, p.id)] = matched_level
+
+            # Appliquer le nouveau niveau sur les cellules cibles
+            target_weeks = ["A", "B"] if week_type == "W" else [week_type]
+            target_p_ids = [p.id for p in type_periods] if is_annual else period_ids
+
+            for w in target_weeks:
+                for pid in target_p_ids:
+                    grid[(w, pid)] = level
+
+            # Supprimer tous les existants pour repartir propre
             for ext in existings:
                 ext.delete(db)
 
-        existing = db.query(cls).filter(
-            cls.resource_type == resource_type,
-            cls.resource_id == resource_id,
-            cls.timeslot_id == timeslot_id,
-            cls.week_type == week_type
-        ).first()
-        
-        if existing:
-            return existing.update(db, vals)
+            # Reconstruire les candidats
+            candidates = []
+            for w in ["A", "B"]:
+                levels_in_w = set(grid[(w, p.id)] for p in type_periods)
+                for lvl in levels_in_w:
+                    if lvl == "Neutral":
+                        continue
+                    pids = [p.id for p in type_periods if grid[(w, p.id)] == lvl]
+                    if len(pids) == len(type_periods):
+                        candidates.append((w, lvl, frozenset()))
+                    elif pids:
+                        candidates.append((w, lvl, frozenset(pids)))
 
-        return super().create(db, vals)
+            # Fusionner A et B en W si possible
+            by_key = {}
+            for w, lvl, pids in candidates:
+                by_key.setdefault((lvl, pids), []).append(w)
+
+            for (lvl, pids), weeks in by_key.items():
+                if len(weeks) == 2:
+                    final_prefs.append(("W", lvl, list(pids)))
+                else:
+                    final_prefs.append((weeks[0], lvl, list(pids)))
+
+        else:
+            # Cas sans dimension de période (uniquement semaine A/B/W)
+            grid = {}
+            for w in ["A", "B"]:
+                matched_level = "Neutral"
+                best_score = -1
+                for ext in existings:
+                    ext_w = ext.week_type.value if hasattr(ext.week_type, "value") else ext.week_type
+                    covers_w = (ext_w == "W" or ext_w == w)
+                    if covers_w:
+                        score = 1 if ext_w != "W" else 0
+                        if score > best_score:
+                            best_score = score
+                            matched_level = ext.preference_level
+                grid[w] = matched_level
+
+            # Appliquer la cible
+            target_weeks = ["A", "B"] if week_type == "W" else [week_type]
+            for w in target_weeks:
+                grid[w] = level
+
+            # Supprimer existants
+            for ext in existings:
+                ext.delete(db)
+
+            # Reconstruire candidats
+            candidates = []
+            for w in ["A", "B"]:
+                lvl = grid[w]
+                if lvl != "Neutral":
+                    candidates.append((w, lvl))
+
+            # Fusionner A et B en W
+            by_lvl = {}
+            for w, lvl in candidates:
+                by_lvl.setdefault(lvl, []).append(w)
+
+            for lvl, weeks in by_lvl.items():
+                if len(weeks) == 2:
+                    final_prefs.append(("W", lvl, []))
+                else:
+                    final_prefs.append((weeks[0], lvl, []))
+
+        # 4. Créer les nouveaux enregistrements
+        created_instances = []
+        for w, lvl, pids in final_prefs:
+            pref = cls(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                timeslot_id=timeslot_id,
+                preference_level=lvl,
+                week_type=w
+            )
+            if pids:
+                pref.periods = db.query(Period).filter(Period.id.in_(pids)).all()
+            db.add(pref)
+            created_instances.append(pref)
+
+        # 5. Retourner l'instance principale
+        main_instance = None
+        for inst in created_instances:
+            inst_w = inst.week_type.value if hasattr(inst.week_type, "value") else inst.week_type
+            req_w = week_type.value if hasattr(week_type, "value") else week_type
+            if inst_w == req_w:
+                main_instance = inst
+                break
+        if not main_instance and created_instances:
+            main_instance = created_instances[0]
+
+        db.commit()
+        if main_instance:
+            db.refresh(main_instance)
+        return main_instance
 
     def update(self, db: "Session", vals: dict):
         """

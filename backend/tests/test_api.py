@@ -380,6 +380,67 @@ def test_preferences_split_logic(db_session: Session):
     assert pref_b["preference_level"] == "Preferred"
 
 
+def test_preferences_period_split_logic(db_session: Session):
+    from backend.app.models.teacher import Teacher
+    from backend.app.models.period import Period
+    from backend.app.models.period_type import PeriodType
+    from backend.app.models.timeslot import Timeslot
+    from datetime import date
+
+    school = db_session.query(School).first()
+    
+    # 1. Créer le type de période et les périodes
+    pt = PeriodType(label="Trimestres")
+    db_session.add(pt)
+    db_session.commit()
+    
+    p1 = Period(school_id=school.id, period_type_id=pt.id, code="T1", name="Trimestre 1", start_date=date(2026, 9, 1), end_date=date(2026, 12, 1))
+    p2 = Period(school_id=school.id, period_type_id=pt.id, code="T2", name="Trimestre 2", start_date=date(2026, 12, 2), end_date=date(2027, 3, 1))
+    db_session.add_all([p1, p2])
+    db_session.commit()
+
+    teacher = Teacher(code="TESTPER", name="Prof Test", last_name="Test", school_id=school.id)
+    db_session.add(teacher)
+    
+    ts = Timeslot(day_of_week=1, hour=8)
+    db_session.add(ts)
+    db_session.commit()
+
+    # 1. Créer une préférence annuelle
+    response = client.post("/api/generic/resource_preferences", json={
+        "resource_type": "Teacher",
+        "resource_id": teacher.id,
+        "timeslot_id": ts.id,
+        "preference_level": "Preferred",
+        "week_type": "W"
+    })
+    assert response.status_code == 200
+
+    # 2. Créer une préférence spécifique pour la période p1 (Unsuited)
+    response = client.post("/api/generic/resource_preferences", json={
+        "resource_type": "Teacher",
+        "resource_id": teacher.id,
+        "timeslot_id": ts.id,
+        "preference_level": "Unsuited",
+        "week_type": "W",
+        "period_ids": [p1.id]
+    })
+    assert response.status_code == 200
+
+    # 3. Vérifier la scission
+    response = client.get(f"/api/generic/resource_preferences?resource_type=Teacher&resource_id={teacher.id}&timeslot_id={ts.id}")
+    assert response.status_code == 200
+    prefs = response.json()["items"]
+    
+    assert len(prefs) == 2
+    pref_p1 = next(p for p in prefs if p1.id in p["period_ids"])
+    pref_p2 = next(p for p in prefs if p2.id in p["period_ids"])
+    
+    assert pref_p1["preference_level"] == "Unsuited"
+    assert pref_p2["preference_level"] == "Preferred"
+
+
+
 
 def test_trmd_budget_synthesis(db_session: Session):
     from backend.app.models.trmd_budget import TrmdBudget
