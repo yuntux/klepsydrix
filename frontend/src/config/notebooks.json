@@ -478,16 +478,15 @@
         "layout": "VERTICAL",
         "panels": [
           {
-            "id": "periods_list",
+            "id": "period_types_list",
             "component": "GenericList",
-            "resourceKey": "periods",
-            "width": "60%"
+            "resourceKey": "period_types",
+            "width": "35%"
           },
           {
-            "id": "periods_form",
-            "component": "GenericForm",
-            "resourceKey": "periods",
-            "width": "40%"
+            "id": "periods_transition_manager",
+            "component": "PeriodTransitionManager",
+            "width": "65%"
           }
         ]
       },

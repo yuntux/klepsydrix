@@ -132,6 +132,15 @@
           />
         </section>
 
+        <!-- 4bis. Composant de gestion des transitions de periodes -->
+        <div v-else-if="panel.component === 'PeriodTransitionManager'" class="panel-content-wrapper inline-form-panel">
+          <PeriodTransitionManager
+            :periodTypeId="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : null"
+            :schools="schoolsList"
+            @change="loadGenericItems"
+          />
+        </div>
+
         <!-- 4. Composant Formulaire Générique Inline -->
         <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
           <div v-if="selectedParentIds.length === 0" class="pref-placeholder">
@@ -220,6 +229,7 @@ import GenericForm from './components/GenericForm.vue';
 import ImpactConfirmDialog from './components/ImpactConfirmDialog.vue';
 import CoursePopin from './components/CoursePopin.vue';
 import PreferenceGrid from './components/PreferenceGrid.vue';
+import PeriodTransitionManager from './components/PeriodTransitionManager.vue';
 import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, Division, Classroom } from './types';
 import * as api from './services/api';
