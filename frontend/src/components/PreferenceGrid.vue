@@ -96,7 +96,7 @@
 
       <div v-else class="timetable-grid">
         <!-- Coin supérieur gauche -->
-        <div class="grid-header-cell">Horaire</div>
+        <div class="grid-header-cell corner-header-cell">Horaire</div>
 
         <!-- En-têtes des jours (Lundi au Samedi) -->
         <div v-for="day in days" :key="day.value" class="grid-header-cell">
@@ -769,7 +769,7 @@ watch(resourceOptions, () => {
   color: var(--text-primary);
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
 }
 
 .grid-time-cell {
@@ -785,6 +785,13 @@ watch(resourceOptions, () => {
   position: sticky;
   left: 0;
   z-index: 2;
+}
+
+.corner-header-cell {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 4;
 }
 
 .grid-cell {

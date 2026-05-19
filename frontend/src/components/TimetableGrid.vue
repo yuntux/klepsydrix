@@ -3,7 +3,7 @@
     <div class="grid-wrapper">
       <div class="timetable-grid">
         <!-- Coin supérieur gauche -->
-        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 3;">Horaire</div>
+        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;">Horaire</div>
 
         <!-- En-têtes des jours (Lundi au Samedi) -->
         <div v-for="day in days" :key="day.value" class="grid-header-cell">

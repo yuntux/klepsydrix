@@ -280,7 +280,7 @@ body {
   color: var(--text-primary);
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
 }
 
 .grid-header-cell:last-child {

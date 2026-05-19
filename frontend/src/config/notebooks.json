@@ -171,14 +171,14 @@
               {
                 "id": "teachers_pref_grid",
                 "component": "PreferenceGrid",
-                "width": "40%"
+                "width": "50%"
               },
               {
                 "id": "teachers_pref_form",
                 "component": "GenericForm",
                 "resourceKey": "resource_constraints",
                 "relationName": "constraint_record",
-                "width": "40%",
+                "width": "30%",
                 "placeholderText": "Veuillez choisir un enseignant dans la liste de gauche pour configurer ses contraintes.",
                 "formConfig": {
                   "editableForm": true,
