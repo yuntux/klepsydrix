@@ -117,7 +117,14 @@ Pour la définition exhaustive et fonctionnelle de tous les attributs de ces obj
 * **`frontend/src/components/FicheT.vue`** : La popin de consultation cumulée. Elle est rendue en position absolue CSS.
   * **Comportement Déplaçable** : Géré via des écouteurs `mousedown` sur son en-tête pour calculer le delta souris et repositionner la popin sur l'écran en temps réel.
   * **Visualisation par Puces (Chips)** : Analyse des attributs des cours sélectionnés. Les attributs divergents affichent des chips contrastées dotées de badges de proportions (ex: `M. Martin [2/3]`, `Mme. Petit [1/3]`).
-* **`frontend/src/components/VoeuxGrid.vue`** : Grille horaire interactive tricolore permettant à un enseignant ou pour une salle de définir graphiquement ses préférences par clic/glisser (Rouge = indisponible, Orange = évitable, Vert = préféré, Gris = neutre).
+* **`frontend/src/components/VoeuxGrid.vue`** (implémenté sous `PreferenceGrid.vue`) : Grille horaire interactive tricolore permettant à un enseignant ou pour une salle de définir graphiquement ses préférences par clic/glisser (Rouge = indisponible, Orange = évitable, Vert = préféré, Gris = neutre).
+  * **Évolution Multi-sélection** :
+    * Chargement en parallèle (`Promise.all`) des vœux de tous les enseignants sélectionnés si le tableau d'IDs comporte plusieurs éléments.
+    * Algorithme de consolidation de la couleur par créneau :
+      * Couleur unie si tous les enseignants sélectionnés partagent la même préférence.
+      * Motif hachuré léger (via CSS `repeating-linear-gradient`) si les préférences sont partielles (hachuré vert/orange/rouge mélangé avec du neutre) ou divergentes (hachuré bleu).
+    * Peinture en lot : application du changement de vœu sur l'ensemble des enseignants sélectionnés en parallèle avec rollback en cas d'échec.
+    * Bouton d'aide ❓ et popin modale affichant la légende complète illustrée.
 * **`frontend/src/components/NotebooksTree.vue`** : Composant de navigation dynamique par onglets (notebooks) imbriqués, alimenté par le JSON de configuration. Il gère l'application des styles spécifiques (en-tête à fond coloré ou liseré supérieur).
 * **`frontend/src/components/SplitPanel.vue`** : Conteneur de mise en page capable de scinder son espace en 1 à N panneaux verticaux séparés par des barres de redimensionnement interactif (splitter) gérées par glisser-déposer de la souris.
 * **`frontend/src/config/notebooks.json`** : Fichier de configuration déclarative décrivant l'arbre complet des onglets, leur style et leurs panneaux de contenu.

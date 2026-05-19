@@ -110,6 +110,10 @@ description: "Task list for feature implementation"
 - [X] T024 [US4] Créer la grille interactive de saisie (Rouge/Orange/Vert) `PreferenceGrid.vue` dans `frontend/src/components/`
 - [X] T025 [US4] Ajouter les pénalités / récompenses souples (Soft Constraints) et dures (Hard Constraints) dans `backend/app/solver/solver.py`
 - [X] T025b [US4] Implémenter l'alerte UI lors du placement manuel d'un cours sur un créneau "Rouge" verrouillé dans `frontend/src/components/`
+- [X] T025c [US4] Gérer le chargement en parallèle des préférences multiples dans `frontend/src/components/PreferenceGrid.vue`
+- [X] T025d [US4] Implémenter l'algorithme de consolidation de la couleur (couleur pleine / hachuré) dans `frontend/src/components/PreferenceGrid.vue`
+- [X] T025e [US4] Adapter la peinture de cellule pour appliquer le vœu en lot sur toutes les ressources sélectionnées en parallèle dans `frontend/src/components/PreferenceGrid.vue`
+- [X] T025f [US4] Créer le bouton d'aide et la popin de légende de grille dans `frontend/src/components/PreferenceGrid.vue`
 
 **Checkpoint**: All user stories should now be independently functional
 

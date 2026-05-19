@@ -82,6 +82,23 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 2. **Given** une ressource affectée à un cours sur un créneau marqué en rouge pour elle, **When** le solveur tente de placer le cours, **Then** une contrainte dure (Hard Constraint) bloque ce placement.
 3. **Given** une ressource affectée à un cours sur un créneau marqué en orange ou vert, **When** le solveur arbitre la solution, **Then** le score souple (Soft Constraint) est respectivement pénalisé ou récompensé en fonction de la préférence.
 
+### User Story 4b - Grille de Vœux en Multi-sélection et Légende Interactive (Priority: P2)
+
+En tant que planificateur, je veux pouvoir sélectionner plusieurs enseignants (ou autres ressources) simultanément et visualiser une synthèse de leurs vœux sur la grille horaire du milieu :
+- Si un créneau a la même couleur (vert, orange, rouge ou neutre) pour tous les enseignants sélectionnés, le créneau s'affiche dans cette couleur pleine.
+- Si le créneau a des préférences différentes ou partielles, il s'affiche dans un motif hachuré :
+  - **Hachuré rouge** : au moins un enseignant est indisponible (rouge) sur ce créneau et les autres sont neutres.
+  - **Hachuré orange** : au moins un enseignant souhaite éviter ce créneau (orange) et les autres sont neutres.
+  - **Hachuré vert** : au moins un enseignant préfère ce créneau (vert) et les autres sont neutres.
+  - **Hachuré bleu** : les contraintes diffèrent entre les enseignants (mélange de différentes couleurs actives, par exemple vert + orange, vert + rouge, etc.).
+- Si je peins un créneau de la grille en multi-sélection, le vœu s'applique simultanément à l'ensemble des enseignants sélectionnés (ce qui le transforme en couleur pleine lors de l'actualisation).
+- Je veux pouvoir ouvrir une popin d'aide contenant la légende complète de la grille en cliquant sur un bouton d'aide (point d'interrogation ❓) en haut à droite du composant.
+
+**Acceptance Scenarios**:
+1. **Given** plusieurs enseignants sélectionnés, **When** la grille des vœux est affichée, **Then** les créneaux avec des préférences identiques sont colorés en couleur pleine, et les créneaux avec des préférences mixtes/partielles s'affichent sous forme hachurée (rouge, orange, vert ou bleu selon la règle).
+2. **Given** plusieurs enseignants sélectionnés, **When** l'utilisateur clique ou glisse pour peindre un créneau, **Then** le vœu est sauvegardé en base de données pour chacun des enseignants sélectionnés en parallèle.
+3. **Given** la grille de vœux, **When** l'utilisateur clique sur le bouton d'aide ❓ en haut à droite, **Then** une popin d'aide s'ouvre, affichant la légende des couleurs et hachures conformément à la maquette de référence.
+
 ### User Story 5 - Navigation fluide et structurée via Notebooks Imbriqués et Multi-panneaux (Priority: P2)
 
 En tant que planificateur, je veux naviguer dans l'application via une interface structurée sous forme d'onglets (notebooks) imbriqués configurables dynamiquement, et pouvoir diviser mes écrans de travail les plus bas en plusieurs panneaux redimensionnables verticalement par glisser-déposer, afin de visualiser et d'éditer simultanément différentes données (par exemple, afficher la liste des enseignants à côté de leur formulaire d'édition).

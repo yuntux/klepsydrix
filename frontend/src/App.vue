@@ -105,6 +105,7 @@
             :timeslots="timeslots"
             :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : 'Teacher'))"
             :resourceIdProp="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : (formModel && formModel.id ? formModel.id : null)"
+            :resourceIdsProp="selectedParentIds || []"
             :hideSelectors="['teachers_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab'].includes(activeLeaf?.id)"
           />
         </main>

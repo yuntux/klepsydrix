@@ -147,7 +147,7 @@
                 "width": "20%",
                 "listConfig": {
                   "editableInline": false,
-                  "allowMultiSelect": false,
+                  "allowMultiSelect": true,
                   "columns": {
                     "code": {
                       "visibleByDefault": false,
