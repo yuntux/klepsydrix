@@ -70,6 +70,16 @@ Le backend utilise un système de configuration par variables d'environnement ce
   - `DATABASE_TYPE` : Indique le type de moteur SQL (ex: `sqlite` pour le développement, `postgresql` pour la production).
   - `DATABASE_URL` : Chaîne de connexion SQLAlchemy (ex: `sqlite:///./klepsydrix.db` en local, ou `postgresql://user:pass@host/db` en production).
 
+### D. Script d'automatisation unifié (`start_services.sh`)
+Pour simplifier les redémarrages de la machine virtuelle (VM) ou de l'environnement de développement, un script d'automatisation complet est disponible à la racine du projet :
+- **Chemin** : `./start_services.sh`
+- **Fonctionnalités** :
+  - `start` : Lance le backend FastAPI et le frontend Vite en tâche de fond, redirigeant les sorties dans `backend.log` et `frontend.log`.
+  - `stop` : Arrête proprement les processus écoutant sur les ports standard (`8000` et `3000`).
+  - `status` : Affiche l'état des ports et les PIDs des services en cours d'exécution.
+  - `logs` : Affiche les 10 dernières lignes de logs pour chaque service.
+  - `restart` : Enchaîne un arrêt et un démarrage propre des services.
+
 ---
 
 ## 4. Flux d'Optimisation de l'Emploi du Temps
