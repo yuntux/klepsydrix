@@ -1,7 +1,13 @@
+import enum
 from typing import List
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Table, Enum
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
+
+class WeekType(str, enum.Enum):
+    A = "A"
+    B = "B"
+    W = "W"
 
 # Table de jointure Many-to-Many pour Preference <-> Period
 preference_periods = Table(
@@ -19,7 +25,7 @@ class ResourcePreference(Base):
     resource_id = Column(Integer, nullable=False)
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
     preference_level = Column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
-    week_type = Column(String(1), nullable=False, default="W") # 'A', 'B', 'W'
+    week_type = Column(Enum(WeekType, name="week_type_enum"), nullable=False, default=WeekType.W) # 'A', 'B', 'W'
 
     # Navigation
     timeslot = relationship("Timeslot")
@@ -39,6 +45,30 @@ class ResourcePreference(Base):
         resource_id = vals.get("resource_id")
         timeslot_id = vals.get("timeslot_id")
         week_type = vals.get("week_type", "W")
+
+        # Si on definit une preference sur une semaine specifique (A ou B)
+        # et qu'il existe une preference hebdomadaire 'W' (Toutes), on doit scinder
+        # la preference hebdomadaire 'W' en conservant sa valeur sur l'autre semaine.
+        if week_type in ("A", "B"):
+            existing_w = db.query(cls).filter(
+                cls.resource_type == resource_type,
+                cls.resource_id == resource_id,
+                cls.timeslot_id == timeslot_id,
+                cls.week_type == "W"
+            ).first()
+            if existing_w:
+                other_week = "B" if week_type == "A" else "A"
+                old_level = existing_w.preference_level
+                existing_w.delete(db)
+                if old_level and old_level != "Neutral":
+                    other_pref = cls(
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        timeslot_id=timeslot_id,
+                        preference_level=old_level,
+                        week_type=other_week
+                    )
+                    db.add(other_pref)
 
         if level == "Neutral" or not level:
             # Si le niveau est Neutral, on supprime l'éventuelle ligne existante

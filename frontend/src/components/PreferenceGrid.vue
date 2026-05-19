@@ -180,7 +180,7 @@
           <div class="legend-modal-body">
             <div class="legend-tip">
               <strong>Astuce de saisie :</strong><br>
-              [Shift + Clic] sur un créneau permet de colorer ce créneau sur tous les jours de la semaine.
+              En restant cliqué, vous pouvez colorer plusieurs cases d'affilée en déplaçant votre souris, sans avoir à cliquer sur chaque créneau survolé.
             </div>
             
             <div class="legend-items-list">
@@ -560,13 +560,39 @@ async function paintCell(day: number, hour: number) {
       rawPreferences.value[id] = [];
     }
     
+
     if (selectedWeekType.value === 'W') {
       // Si Toutes (W) : on retire toutes les préférences existantes pour ce créneau (A, B et W)
       rawPreferences.value[id] = rawPreferences.value[id].filter(
         (p: any) => p.timeslot_id !== ts.id
       );
     } else {
-      // Sinon on retire uniquement celle du type de semaine sélectionné (A ou B)
+      // Si on définit une contrainte sur une semaine spécifique (A ou B)
+      // et qu'il existe une préférence hebdomadaire 'W' (Toutes), on doit scinder
+      // la préférence 'W' en conservant sa valeur pour l'autre semaine.
+      const existingW = rawPreferences.value[id].find(
+        (p: any) => p.timeslot_id === ts.id && p.week_type === 'W'
+      );
+      if (existingW) {
+        const oldLevel = existingW.preference_level;
+        const otherWeek = selectedWeekType.value === 'A' ? 'B' : 'A';
+        // On retire la préférence 'W'
+        rawPreferences.value[id] = rawPreferences.value[id].filter(
+          (p: any) => !(p.timeslot_id === ts.id && p.week_type === 'W')
+        );
+        // On crée la préférence pour l'autre semaine si elle n'est pas neutre
+        if (oldLevel !== 'Neutral') {
+          rawPreferences.value[id].push({
+            resource_type: resourceType.value,
+            resource_id: id,
+            timeslot_id: ts.id,
+            preference_level: oldLevel,
+            week_type: otherWeek,
+            period_ids: [...(existingW.period_ids || [])]
+          });
+        }
+      }
+      // On retire également une éventuelle préférence déjà existante pour la semaine en cours
       rawPreferences.value[id] = rawPreferences.value[id].filter(
         (p: any) => !(p.timeslot_id === ts.id && p.week_type === selectedWeekType.value)
       );

@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Table, Enum
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
+from backend.app.models.preference import WeekType
 
 # Tables associatives Many-to-Many pour les co-ressources et co-destinataires des séances
 
@@ -55,7 +56,7 @@ class Session(Base):
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
     classroom_id = Column(Integer, ForeignKey("classrooms.id", ondelete="SET NULL"), nullable=True)
     
-    week_type = Column(String(1), nullable=False, default="W") # 'A', 'B', 'W'
+    week_type = Column(Enum(WeekType, name="session_week_type_enum"), nullable=False, default=WeekType.W) # 'A', 'B', 'W'
     is_pinned = Column(Boolean, nullable=False, default=False)
     is_co_teaching = Column(Boolean, nullable=False, default=False)
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)

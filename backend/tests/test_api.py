@@ -340,6 +340,47 @@ def test_preferences_crud(db_session: Session):
     assert len(response.json()["items"]) == 0
 
 
+def test_preferences_split_logic(db_session: Session):
+    ts = Timeslot(day_of_week=1, hour=8)
+    db_session.add(ts)
+    db_session.commit()
+
+    # 1. Créer une préférence W (Preferred)
+    response = client.post("/api/generic/resource_preferences", json={
+        "resource_type": "Teacher",
+        "resource_id": 888,
+        "timeslot_id": ts.id,
+        "preference_level": "Preferred",
+        "week_type": "W"
+    })
+    assert response.status_code == 200
+
+    # 2. Créer une préférence spécifique pour la semaine A (Unsuited)
+    response = client.post("/api/generic/resource_preferences", json={
+        "resource_type": "Teacher",
+        "resource_id": 888,
+        "timeslot_id": ts.id,
+        "preference_level": "Unsuited",
+        "week_type": "A"
+    })
+    assert response.status_code == 200
+
+    # 3. Vérifier qu'il y a désormais deux préférences distinctes en base :
+    #    - une préférence A (Unsuited)
+    #    - une préférence B (Preferred), générée par la scission de W
+    response = client.get("/api/generic/resource_preferences?resource_type=Teacher&resource_id=888")
+    assert response.status_code == 200
+    prefs = response.json()["items"]
+    assert len(prefs) == 2
+    
+    pref_a = next(p for p in prefs if p["week_type"] == "A")
+    pref_b = next(p for p in prefs if p["week_type"] == "B")
+    
+    assert pref_a["preference_level"] == "Unsuited"
+    assert pref_b["preference_level"] == "Preferred"
+
+
+
 def test_trmd_budget_synthesis(db_session: Session):
     from backend.app.models.trmd_budget import TrmdBudget
     from backend.app.models.school import School
