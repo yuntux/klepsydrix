@@ -179,33 +179,30 @@
                 "resourceKey": "resource_constraints",
                 "relationName": "constraint_record",
                 "width": "40%",
+                "placeholderText": "Veuillez choisir un enseignant dans la liste de gauche pour configurer ses contraintes.",
                 "formConfig": {
                   "editableForm": true,
                   "fields": [
                     {
-                      "type": "separator",
-                      "string": "Contraintes Règlementaires"
-                    },
-                    {
                       "type": "group",
                       "string": "Max Horaire [M]",
-                      "col": 2,
+                      "col": 3,
                       "children": [
                         {
                           "key": "max_hours_per_day",
-                          "overrideLabel": "Journée (heures)",
+                          "overrideLabel": "Journée",
                           "readOnly": false,
                           "help": "Nombre maximum d'heures de cours qu'un enseignant peut effectuer par jour.\n- **Valeur type** : 6 à 8 heures.\n- **Impact** : Règle dure dans le solveur."
                         },
                         {
                           "key": "max_hours_per_am",
-                          "overrideLabel": "Matin (heures)",
+                          "overrideLabel": "Matin",
                           "readOnly": false,
                           "help": "Volume d'heures maximum autorisées en matinée (avant 12h).\n- **Impact** : Permet de préserver la fatigue matinale."
                         },
                         {
                           "key": "max_hours_per_pm",
-                          "overrideLabel": "Après-midi (heures)",
+                          "overrideLabel": "Après-midi",
                           "readOnly": false,
                           "help": "Volume d'heures maximum autorisées l'après-midi (à partir de 12h).\n- **Impact** : Permet d'éviter les surcharges de fin de journée."
                         }
@@ -262,34 +259,34 @@
                       "children": [
                         {
                           "key": "min_free_days_per_week",
-                          "overrideLabel": "Journées libres garanties",
+                          "overrideLabel": "Garantir (journées)",
                           "readOnly": false
                         },
                         {
                           "key": "min_free_half_days_per_week",
-                          "overrideLabel": "Demi-journées libres gar.",
+                          "overrideLabel": "Demi-journées libres",
                           "readOnly": false
                         }
                       ]
                     },
                     {
                       "type": "group",
-                      "string": "Maximum Demi-Journées de Travail [J]",
+                      "string": "Maximum de demi-journées de travail [J]",
                       "col": 2,
                       "children": [
                         {
                           "key": "max_worked_am_per_week",
-                          "overrideLabel": "Matinées max travaillées",
+                          "overrideLabel": "Matin",
                           "readOnly": false
                         },
                         {
                           "key": "max_worked_pm_per_week",
-                          "overrideLabel": "Après-midis max travaillées",
+                          "overrideLabel": "Après-midi",
                           "readOnly": false
                         },
                         {
                           "key": "only_one_half_day_per_day",
-                          "overrideLabel": "Ne travailler qu'une demi-journée/jour",
+                          "overrideLabel": "Ne travailler qu'une demi-journée par jour",
                           "readOnly": false,
                           "help": "Interdire strictement d'avoir des cours prévus à la fois le matin et l'après-midi sur un même jour.\n- **Impact** : Règle dure du solveur."
                         }

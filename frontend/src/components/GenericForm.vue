@@ -47,12 +47,12 @@ interface FormField {
   options?: Array<{ value: any; label: string }>;
   help?: string;
 }
-
 interface LayoutElement {
   type: 'field' | 'group' | 'separator' | 'newline';
   key?: string;
   string?: string;
   col?: number;
+  span?: number;
   children?: LayoutElement[];
   readOnly?: boolean;
   required?: boolean;
@@ -62,7 +62,6 @@ interface LayoutElement {
   originalField?: FormField;
   help?: string;
 }
-
 function renderMarkdown(md: string | undefined): string {
   if (!md) return '';
   let html = md;
@@ -196,6 +195,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
       type: 'group',
       string: elem.string,
       col: elem.col || 2,
+      span: elem.span,
       children
     };
   }
@@ -265,11 +265,11 @@ const FormLayoutGrid: any = defineComponent({
   },
   setup(props) {
     return () => {
-      // Si inline : 150px 1fr
-      // Si non inline : 150px 1fr 150px 1fr
+      // Si inline : max-content 1fr
+      // Si non inline : max-content 1fr max-content 1fr
       const gridTemplate = props.inline
-        ? '150px 1fr'
-        : '150px 1fr 150px 1fr';
+        ? 'max-content 1fr'
+        : 'max-content 1fr max-content 1fr';
 
       return h('div', {
         class: 'fields-layout-container',
@@ -278,7 +278,7 @@ const FormLayoutGrid: any = defineComponent({
         } : {
           display: 'grid',
           gridTemplateColumns: gridTemplate,
-          gap: '16px',
+          gap: '10px',
           alignItems: 'center',
           width: '100%'
         }
@@ -317,16 +317,20 @@ const FormLayoutGrid: any = defineComponent({
           }
 
           if (elem.type === 'group') {
-            const cols = props.inline ? 1 : (elem.col || 2);
-            const groupGridTemplate = cols === 1 ? '150px 1fr' : '150px 1fr 150px 1fr';
+            const cols = elem.col || (props.inline ? 1 : 2);
+            const groupGridTemplate = Array(cols).fill('max-content 1fr').join(' ');
+            let gridCol = '1 / -1';
+            if (elem.span) {
+              gridCol = `span ${elem.span * 2}`;
+            }
             return [
               h('div', {
                 class: 'form-layout-group',
                 style: {
                   display: 'grid',
                   gridTemplateColumns: groupGridTemplate,
-                  gap: '16px',
-                  gridColumn: '1 / -1',
+                  gap: '10px',
+                  gridColumn: gridCol,
                   alignItems: 'center',
                   margin: '0',
                   padding: '8px 12px',
@@ -344,7 +348,7 @@ const FormLayoutGrid: any = defineComponent({
                     color: 'var(--accent-primary)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.7px',
-                    margin: '0 0 12px 0',
+                    margin: '0',
                     paddingLeft: '8px',
                     borderLeft: '3px solid var(--accent-primary)'
                   }
@@ -593,7 +597,7 @@ function handleDelete() {
 }
 
 .form-body {
-  padding: 24px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -765,7 +769,7 @@ input:checked + .slider:before {
 }
 
 .generic-form-inline .form-body {
-  padding: 20px;
+  padding: 10px;
   background-color: #FFFFFF;
   overflow-y: auto;
   flex: 1;
@@ -820,7 +824,7 @@ input:checked + .slider:before {
   color: var(--accent-primary);
   text-transform: uppercase;
   letter-spacing: 0.7px;
-  margin: 0 0 12px 0;
+  margin: 0;
   padding-left: 8px;
   border-left: 3px solid var(--accent-primary);
 }

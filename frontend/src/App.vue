@@ -133,7 +133,15 @@
 
         <!-- 4. Composant Formulaire Générique Inline -->
         <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
+          <div v-if="selectedParentIds.length !== 1" class="pref-placeholder">
+            <div class="placeholder-icon">👈</div>
+            <div class="placeholder-title">Sélectionnez un élément</div>
+            <div class="placeholder-subtitle">
+              {{ selectedParentIds.length === 0 ? (panel.placeholderText || "Veuillez choisir un élément dans la liste de gauche.") : "Veuillez sélectionner un seul élément." }}
+            </div>
+          </div>
           <GenericForm
+            v-else
             :title="inlineFormTitle"
             :fields="getFormFieldsConfig(panel.resourceKey)"
             v-model="formModel"
@@ -1135,5 +1143,41 @@ onMounted(() => {
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+}
+
+/* Styles pour le placeholder de selection */
+.pref-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  background-color: var(--bg-card);
+}
+
+.placeholder-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  animation: float 2s ease-in-out infinite;
+}
+
+.placeholder-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.placeholder-subtitle {
+  font-size: 13.5px;
+  max-width: 320px;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-8px); }
 }
 </style>
