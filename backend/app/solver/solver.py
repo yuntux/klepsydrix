@@ -11,6 +11,7 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import ClassPartLink
 from backend.app.models.preference import ResourcePreference
+from backend.app.models.constraint import ResourceConstraint
 from backend.app.core.database import SessionLocal
 import threading
 from backend.app.solver.constraints import (
@@ -21,6 +22,7 @@ from backend.app.solver.constraints import (
     PlanningCourse,
     PlanningClassPartLink,
     PlanningPreference,
+    PlanningResourceConstraint,
     PlanningTimetable,
     define_constraints,
 )
@@ -66,6 +68,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_courses = db.query(Course).all()
     db_links = db.query(ClassPartLink).all()
     db_preferences = db.query(ResourcePreference).all()
+    db_constraints = db.query(ResourceConstraint).all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
@@ -85,6 +88,39 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             timeslot_id=pref.timeslot_id,
             preference_level=pref.preference_level
         ) for pref in db_preferences
+    ]
+    constraints_list = [
+        PlanningResourceConstraint(
+            id=rc.id,
+            resource_type=rc.resource_type,
+            resource_id=rc.resource_id,
+            target_subject_b_id=rc.target_subject_b_id,
+            incompatible_same_half_day=rc.incompatible_same_half_day,
+            incompatible_same_day=rc.incompatible_same_day,
+            incompatible_two_consecutive_days=rc.incompatible_two_consecutive_days,
+            min_free_half_days_between=rc.min_free_half_days_between,
+            prevent_consecutive_a_then_b=rc.prevent_consecutive_a_then_b,
+            prevent_consecutive_b_then_a=rc.prevent_consecutive_b_then_a,
+            max_hours_per_day=rc.max_hours_per_day,
+            max_hours_per_half_day=rc.max_hours_per_half_day,
+            weekly_order_a_before_b=rc.weekly_order_a_before_b,
+            weekly_order_b_before_a=rc.weekly_order_b_before_a,
+            group_course_order=rc.group_course_order,
+            max_hours_per_am=rc.max_hours_per_am,
+            max_hours_per_pm=rc.max_hours_per_pm,
+            max_presence_days_per_week=rc.max_presence_days_per_week,
+            max_presence_hours_per_day=rc.max_presence_hours_per_day,
+            late_start_days_per_week=rc.late_start_days_per_week,
+            late_start_time=rc.late_start_time,
+            early_end_days_per_week=rc.early_end_days_per_week,
+            early_end_time=rc.early_end_time,
+            min_free_days_per_week=rc.min_free_days_per_week,
+            min_free_half_days_per_week=rc.min_free_half_days_per_week,
+            max_worked_am_per_week=rc.max_worked_am_per_week,
+            max_worked_pm_per_week=rc.max_worked_pm_per_week,
+            only_one_half_day_per_day=rc.only_one_half_day_per_day,
+            max_gap_hours_per_week=rc.max_gap_hours_per_week or 2
+        ) for rc in db_constraints
     ]
 
     courses_list = []
@@ -142,6 +178,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         courses=courses_list,
         class_part_links=links_list,
         preferences=preferences_list,
+        resource_constraints=constraints_list,
         score=None,
     )
 

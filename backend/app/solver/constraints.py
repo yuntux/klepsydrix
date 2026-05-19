@@ -27,6 +27,7 @@ def patched_planning_score_init(self, *args, **kwargs):
     original_planning_score_init(self, *args, **kwargs)
     self.field_type_override = JavaHardSoftLongScore
 PlanningScore.__init__ = patched_planning_score_init
+from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore, ConstraintCollectors
 
 
 # --- ENTITÉS DE PLANIFICATION TIMEFOLD ---
@@ -72,6 +73,43 @@ class PlanningPreference:
     preference_level: str
 
 
+@dataclass
+class PlanningResourceConstraint:
+    id: int
+    resource_type: str
+    resource_id: typing.Optional[int]
+    
+    # Subject constraints
+    target_subject_b_id: typing.Optional[int] = None
+    incompatible_same_half_day: bool = False
+    incompatible_same_day: bool = False
+    incompatible_two_consecutive_days: bool = False
+    min_free_half_days_between: typing.Optional[int] = None
+    prevent_consecutive_a_then_b: bool = False
+    prevent_consecutive_b_then_a: bool = False
+    max_hours_per_day: typing.Optional[float] = None
+    max_hours_per_half_day: typing.Optional[float] = None
+    weekly_order_a_before_b: bool = False
+    weekly_order_b_before_a: bool = False
+    group_course_order: str = "NONE"
+
+    # Teacher / Division constraints
+    max_hours_per_am: typing.Optional[float] = None
+    max_hours_per_pm: typing.Optional[float] = None
+    max_presence_days_per_week: typing.Optional[int] = None
+    max_presence_hours_per_day: typing.Optional[float] = None
+    late_start_days_per_week: typing.Optional[int] = None
+    late_start_time: typing.Optional[str] = None
+    early_end_days_per_week: typing.Optional[int] = None
+    early_end_time: typing.Optional[str] = None
+    min_free_days_per_week: typing.Optional[int] = None
+    min_free_half_days_per_week: typing.Optional[int] = None
+    max_worked_am_per_week: typing.Optional[int] = None
+    max_worked_pm_per_week: typing.Optional[int] = None
+    only_one_half_day_per_day: bool = False
+    max_gap_hours_per_week: int = 2
+
+
 @planning_entity
 @dataclass
 class PlanningCourse:
@@ -99,6 +137,7 @@ class PlanningTimetable:
     courses: Annotated[List[PlanningCourse], PlanningEntityCollectionProperty]
     class_part_links: Annotated[List[PlanningClassPartLink], ProblemFactCollectionProperty] = field(default_factory=list)
     preferences: Annotated[List[PlanningPreference], ProblemFactCollectionProperty] = field(default_factory=list)
+    resource_constraints: Annotated[List[PlanningResourceConstraint], ProblemFactCollectionProperty] = field(default_factory=list)
     score: Annotated[HardSoftScore, PlanningScore] = None
 
 
@@ -125,6 +164,19 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         resource_preference_hard(constraint_factory),
         resource_preference_soft_penalty(constraint_factory),
         resource_preference_soft_reward(constraint_factory),
+        teacher_max_hours_per_day(constraint_factory),
+        teacher_max_hours_per_am(constraint_factory),
+        teacher_max_hours_per_pm(constraint_factory),
+        teacher_only_one_half_day_per_day(constraint_factory),
+        teacher_late_start_limit(constraint_factory),
+        teacher_early_end_limit(constraint_factory),
+        teacher_max_presence_days(constraint_factory),
+        teacher_min_free_days(constraint_factory),
+        teacher_max_worked_am(constraint_factory),
+        teacher_max_worked_pm(constraint_factory),
+        division_max_hours_per_day(constraint_factory),
+        division_max_hours_per_am(constraint_factory),
+        division_max_hours_per_pm(constraint_factory),
     ]
 
 def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
@@ -289,4 +341,303 @@ def resource_preference_soft_reward(constraint_factory: ConstraintFactory) -> Co
         .reward(HardSoftScore.of_soft(10))
         .as_constraint("Resource preference preferred")
     )
+
+
+def teacher_max_hours_per_day(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            lambda course: course.timeslot.day_of_week,
+            ConstraintCollectors.count()
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, day, count: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, day, count: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, day, count, rc: rc.max_hours_per_day is not None and count > rc.max_hours_per_day)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, day, count, rc: int((count - rc.max_hours_per_day) * 10)
+        )
+        .as_constraint("Teacher max hours per day")
+    )
+
+
+def teacher_max_hours_per_am(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None and course.timeslot.hour < 12)
+        .group_by(
+            lambda course: course.teacher,
+            lambda course: course.timeslot.day_of_week,
+            ConstraintCollectors.count()
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, day, count: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, day, count: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, day, count, rc: rc.max_hours_per_am is not None and count > rc.max_hours_per_am)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, day, count, rc: int((count - rc.max_hours_per_am) * 10)
+        )
+        .as_constraint("Teacher max hours per morning")
+    )
+
+
+def teacher_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None and course.timeslot.hour >= 12)
+        .group_by(
+            lambda course: course.teacher,
+            lambda course: course.timeslot.day_of_week,
+            ConstraintCollectors.count()
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, day, count: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, day, count: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, day, count, rc: rc.max_hours_per_pm is not None and count > rc.max_hours_per_pm)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, day, count, rc: int((count - rc.max_hours_per_pm) * 10)
+        )
+        .as_constraint("Teacher max hours per afternoon")
+    )
+
+
+def teacher_only_one_half_day_per_day(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.teacher),
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
+        )
+        .filter(lambda c1, c2: c1.timeslot is not None and c2.timeslot is not None and (
+            (c1.timeslot.hour < 12 and c2.timeslot.hour >= 12) or 
+            (c1.timeslot.hour >= 12 and c2.timeslot.hour < 12)
+        ))
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda c1, c2: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda c1, c2: c1.teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda c1, c2, rc: rc.only_one_half_day_per_day)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Teacher only one half day per day")
+    )
+
+
+def teacher_late_start_limit(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            ConstraintCollectors.to_set(lambda course: course.timeslot)
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, timeslots_set: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, timeslots_set, rc: rc.late_start_time is not None and rc.late_start_days_per_week is not None)
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour < int(rc.late_start_time.split(':')[0])}) > (5 - rc.late_start_days_per_week))
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour < int(rc.late_start_time.split(':')[0])}) - (5 - rc.late_start_days_per_week)) * 10
+        )
+        .as_constraint("Teacher late start limit")
+    )
+
+
+def teacher_early_end_limit(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            ConstraintCollectors.to_set(lambda course: course.timeslot)
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, timeslots_set: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, timeslots_set, rc: rc.early_end_time is not None and rc.early_end_days_per_week is not None)
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour >= float(rc.early_end_time.split(':')[0]) + (0.5 if rc.early_end_time.split(':')[1] == '30' else 0.0)}) > (5 - rc.early_end_days_per_week))
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour >= float(rc.early_end_time.split(':')[0]) + (0.5 if rc.early_end_time.split(':')[1] == '30' else 0.0)}) - (5 - rc.early_end_days_per_week)) * 10
+        )
+        .as_constraint("Teacher early end limit")
+    )
+
+
+def teacher_max_presence_days(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            ConstraintCollectors.to_set(lambda course: course.timeslot)
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, timeslots_set: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, timeslots_set, rc: rc.max_presence_days_per_week is not None)
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set}) > rc.max_presence_days_per_week)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set}) - rc.max_presence_days_per_week) * 10
+        )
+        .as_constraint("Teacher max presence days per week")
+    )
+
+
+def teacher_min_free_days(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            ConstraintCollectors.to_set(lambda course: course.timeslot)
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, timeslots_set: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, timeslots_set, rc: rc.min_free_days_per_week is not None)
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set}) > (5 - rc.min_free_days_per_week))
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set}) - (5 - rc.min_free_days_per_week)) * 10
+        )
+        .as_constraint("Teacher min free days per week")
+    )
+
+
+def teacher_max_worked_am(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            ConstraintCollectors.to_set(lambda course: course.timeslot)
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, timeslots_set: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, timeslots_set, rc: rc.max_worked_am_per_week is not None)
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour < 12}) > rc.max_worked_am_per_week)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour < 12}) - rc.max_worked_am_per_week) * 10
+        )
+        .as_constraint("Teacher max worked mornings per week")
+    )
+
+
+def teacher_max_worked_pm(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.teacher is not None)
+        .group_by(
+            lambda course: course.teacher,
+            ConstraintCollectors.to_set(lambda course: course.timeslot)
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda teacher, timeslots_set: "Teacher", lambda rc: rc.resource_type),
+            Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda teacher, timeslots_set, rc: rc.max_worked_pm_per_week is not None)
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour >= 12}) > rc.max_worked_pm_per_week)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour >= 12}) - rc.max_worked_pm_per_week) * 10
+        )
+        .as_constraint("Teacher max worked afternoons per week")
+    )
+
+
+def division_max_hours_per_day(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.division is not None)
+        .group_by(
+            lambda course: course.division,
+            lambda course: course.timeslot.day_of_week,
+            ConstraintCollectors.count()
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda division, day, count: "Division", lambda rc: rc.resource_type),
+            Joiners.equal(lambda division, day, count: division.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda division, day, count, rc: rc.max_hours_per_day is not None and count > rc.max_hours_per_day)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda division, day, count, rc: int((count - rc.max_hours_per_day) * 10)
+        )
+        .as_constraint("Division max hours per day")
+    )
+
+
+def division_max_hours_per_am(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.division is not None and course.timeslot.hour < 12)
+        .group_by(
+            lambda course: course.division,
+            lambda course: course.timeslot.day_of_week,
+            ConstraintCollectors.count()
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda division, day, count: "Division", lambda rc: rc.resource_type),
+            Joiners.equal(lambda division, day, count: division.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda division, day, count, rc: rc.max_hours_per_am is not None and count > rc.max_hours_per_am)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda division, day, count, rc: int((count - rc.max_hours_per_am) * 10)
+        )
+        .as_constraint("Division max hours per morning")
+    )
+
+
+def division_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None and course.division is not None and course.timeslot.hour >= 12)
+        .group_by(
+            lambda course: course.division,
+            lambda course: course.timeslot.day_of_week,
+            ConstraintCollectors.count()
+        )
+        .join(
+            PlanningResourceConstraint,
+            Joiners.equal(lambda division, day, count: "Division", lambda rc: rc.resource_type),
+            Joiners.equal(lambda division, day, count: division.id, lambda rc: rc.resource_id)
+        )
+        .filter(lambda division, day, count, rc: rc.max_hours_per_pm is not None and count > rc.max_hours_per_pm)
+        .penalize(
+            HardSoftScore.ONE_HARD,
+            lambda division, day, count, rc: int((count - rc.max_hours_per_pm) * 10)
+        )
+        .as_constraint("Division max hours per afternoon")
+    )
+
 
