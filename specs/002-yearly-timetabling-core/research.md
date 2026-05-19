@@ -16,7 +16,7 @@ Dans la V1, un cours est représenté par une unique entité `Course` directemen
 * **Séparation Course / Session** :
   Le modèle est scindé en deux entités distinctes :
   * `Course` : Entité pédagogique racine stockant la matière, le volume global ou la durée, et les ressources de référence (matière, enseignant principal).
-  * `Session` : Séance d'enseignement physique d'une durée d'1h ou 2h, rattachée au cours, portant `timeslot_id`, `classroom_id`, `week_type` (`A`, `B`, ou `T` pour toutes les semaines), et un booléen `is_pinned`.
+  * `Session` : Séance d'enseignement physique d'une durée d'1h ou 2h, rattachée au cours, portant `timeslot_id`, `classroom_id`, `week_type` (`A`, `B`, ou `W` pour toutes les semaines), et un booléen `is_pinned`.
 * **Modélisation de l'Intersection de Groupes (`ClassPartLink`)** :
   Pour éviter d'affecter individuellement chaque élève (hors scope), nous modélisons les exclusions logiques. Si la classe de 3ème A est divisée en `Groupe 1` (demi-classe) et `Groupe 2` (demi-classe), ils sont compatibles. Si elle est aussi divisée en `LV1 Allemand` et `LV1 Anglais`, les élèves d'allemand peuvent être dans le groupe 1. La table d'association `class_part_links` déclare explicitement les groupes qui possèdent au moins un élève en commun. Si deux groupes sont liés par cette table, ils sont déclarés **incompatibles** et ne peuvent pas partager le même créneau sur la même semaine.
 
@@ -34,7 +34,7 @@ Le solveur de la V1 manipule des `PlanningCourse` simples. Il doit désormais ma
   * **Teacher / Room Collision** : Deux séances `s1` et `s2` partageant le même enseignant ou la même salle sont en conflit si et seulement si leurs semaines s'intersectent :
     ```python
     def weeks_overlap(s1, s2):
-        return s1.week_type == "T" or s2.week_type == "T" or s1.week_type == s2.week_type
+        return s1.week_type == "W" or s2.week_type == "W" or s1.week_type == s2.week_type
     ```
   * **Student Collision (Groupes & Classes)** : Deux séances s'exécutant sur la même semaine s'intersectent s'il y a conflit de division (même classe) OU si les groupes visés possèdent un lien d'incompatibilité dans `ClassPartLink`.
 

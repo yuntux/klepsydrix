@@ -147,7 +147,7 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     db_session.add_all([g1, g2])
     db_session.commit()
 
-    # 3. Premier cas : les deux cours sont hebdomadaires (week_type='T')
+    # 3. Premier cas : les deux cours sont hebdomadaires (week_type='W')
     # Comme il n'y a qu'un seul créneau disponible, ils ne peuvent pas coexister sans pénalité Hard.
     course1 = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, group_id=g1.id, school_id=school.id)
     course2 = Course(subject_id=subject.id, teacher_id=t2.id, division_id=d1.id, group_id=g2.id, school_id=school.id)
@@ -155,8 +155,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     db_session.commit()
 
     # Modifier le type de semaine sur la session sous-jacente
-    course1.sessions[0].week_type = "T"
-    course2.sessions[0].week_type = "T"
+    course1.sessions[0].week_type = "W"
+    course2.sessions[0].week_type = "W"
     db_session.commit()
 
     # Exécution du solveur

@@ -140,10 +140,10 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             is_pinned = True
             
         # Charger week_type et class_part_ids
-        week_type = "T"
+        week_type = "W"
         class_part_ids = []
         if c.sessions:
-            week_type = c.sessions[0].week_type or "T"
+            week_type = c.sessions[0].week_type or "W"
             
         if c.group_id and c.group:
             class_part_ids.extend([cp.id for cp in c.group.class_parts])

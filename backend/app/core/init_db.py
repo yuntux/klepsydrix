@@ -228,7 +228,7 @@ def seed_v2_data():
                 # Créer une séance non placée par défaut
                 db.execute(text(
                     "INSERT INTO sessions (course_id, timeslot_id, classroom_id, week_type, is_pinned, is_co_teaching, school_id) "
-                    "VALUES (:course_id, NULL, NULL, 'T', 0, 0, :school_id)"
+                    "VALUES (:course_id, NULL, NULL, 'W', 0, 0, :school_id)"
                 ), {"course_id": course_id, "school_id": s_id})
                 course_count += 1
                 

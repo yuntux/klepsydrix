@@ -213,9 +213,9 @@ const consolidatedTimeslots = computed(() => {
 const consolidatedWeeks = computed(() => {
   return consolidate(c => {
     const sess = c.sessions && c.sessions[0];
-    if (!sess) return 'Semaine T (Hebdo)';
+    if (!sess) return 'Semaine W (Hebdo)';
     const w = sess.week_type;
-    return w === 'A' ? 'Semaine A' : w === 'B' ? 'Semaine B' : 'Semaine T (Hebdo)';
+    return w === 'A' ? 'Semaine A' : w === 'B' ? 'Semaine B' : 'Semaine W (Hebdo)';
   });
 });
 </script>

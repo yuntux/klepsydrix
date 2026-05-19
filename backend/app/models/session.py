@@ -55,7 +55,7 @@ class Session(Base):
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
     classroom_id = Column(Integer, ForeignKey("classrooms.id", ondelete="SET NULL"), nullable=True)
     
-    week_type = Column(String(1), nullable=False, default="T") # 'A', 'B', 'T'
+    week_type = Column(String(1), nullable=False, default="W") # 'A', 'B', 'W'
     is_pinned = Column(Boolean, nullable=False, default=False)
     is_co_teaching = Column(Boolean, nullable=False, default=False)
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)

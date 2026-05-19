@@ -60,7 +60,7 @@ class Course(Base):
             classroom_id=classroom_val,
             is_pinned=is_pinned_val,
             school_id=self.school_id if getattr(self, 'school_id', None) else 1,
-            week_type="T"
+            week_type="W"
         )
         self.sessions.append(session)
 
@@ -90,7 +90,7 @@ class Course(Base):
     def timeslot_id(self, value):
         if not self.sessions:
             from backend.app.models.session import Session as DbSession
-            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="T")
+            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="W")
             self.sessions.append(session)
         self.sessions[0].timeslot_id = value
 
@@ -107,7 +107,7 @@ class Course(Base):
     def classroom_id(self, value):
         if not self.sessions:
             from backend.app.models.session import Session as DbSession
-            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="T")
+            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="W")
             self.sessions.append(session)
         self.sessions[0].classroom_id = value
 
@@ -124,7 +124,7 @@ class Course(Base):
     def is_pinned(self, value):
         if not self.sessions:
             from backend.app.models.session import Session as DbSession
-            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="T")
+            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="W")
             self.sessions.append(session)
         self.sessions[0].is_pinned = value
 

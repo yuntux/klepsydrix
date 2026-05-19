@@ -71,7 +71,7 @@ class PlanningPreference:
     resource_id: int
     timeslot_id: int
     preference_level: str
-    week_type: str = "T"
+    week_type: str = "W"
     period_ids: List[int] = field(default_factory=list)
 
 
@@ -125,7 +125,7 @@ class PlanningCourse:
     original_timeslot_id: typing.Optional[int] = None
     
     # Alternance et parties de classe (US2)
-    week_type: str = "T"
+    week_type: str = "W"
     class_part_ids: List[int] = field(default_factory=list)
     period_ids: List[int] = field(default_factory=list)
 
@@ -147,7 +147,7 @@ class PlanningTimetable:
 # --- RÈGLES DE CONTRAINTES ---
 
 def weeks_overlap(w1: str, w2: str) -> bool:
-    if w1 == "T" or w2 == "T":
+    if w1 == "W" or w2 == "W":
         return True
     return w1 == w2
 

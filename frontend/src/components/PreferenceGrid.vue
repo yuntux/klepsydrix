@@ -90,7 +90,7 @@
         <label class="selector-item">
           <span>Semaine :</span>
           <select v-model="selectedWeekType" class="select-custom select-small" @change="loadPreferences">
-            <option value="T">Toutes (Hebdomadaire)</option>
+            <option value="W">Toutes (Hebdomadaire)</option>
             <option value="A">Semaine A</option>
             <option value="B">Semaine B</option>
           </select>
@@ -276,7 +276,7 @@ const rawPreferences = ref<Record<number, any[]>>({});
 const preferencesMap = ref<Record<string, string>>({});
 
 // États additionnels pour les semaines et périodes
-const selectedWeekType = ref<'T' | 'A' | 'B'>('T');
+const selectedWeekType = ref<'W' | 'A' | 'B'>('W');
 const selectedPeriodTypeId = ref<number | null>(null);
 const selectedPeriodIds = ref<number[]>([]);
 
@@ -418,28 +418,39 @@ function onResourceChange() {
   }
 }
 
-function findMatchingPreference(resourceId: number, day: number, hour: number) {
+function findMatchingPreferences(resourceId: number, day: number, hour: number): any[] {
   const ts = props.timeslots.find(t => t.day_of_week === day && t.hour === hour);
-  if (!ts) return null;
+  if (!ts) return [];
   
   const prefs = rawPreferences.value[resourceId] || [];
   
-  // Trouver la préf qui correspond au créneau et au type de semaine sélectionné
-  const match = prefs.find(p => p.timeslot_id === ts.id && p.week_type === selectedWeekType.value);
-  if (!match) return null;
+  // 1. Filtrer par timeslot
+  let matches = prefs.filter(p => p.timeslot_id === ts.id);
   
-  // Vérifier la correspondance des périodes
-  const prefPeriodIds = match.period_ids || [];
+  // 2. Filtrer par week_type
+  if (selectedWeekType.value === 'A') {
+    matches = matches.filter(p => p.week_type === 'A' || p.week_type === 'W');
+  } else if (selectedWeekType.value === 'B') {
+    matches = matches.filter(p => p.week_type === 'B' || p.week_type === 'W');
+  } else {
+    // selectedWeekType.value === 'W' (Toutes) : on accepte 'A', 'B' et 'W'
+  }
   
-  if (selectedPeriodIds.value.length === 0) {
-    // Si aucune période n'est cochée, on ne montre que les contraintes annuelles (sans périodes spécifiques)
-    return prefPeriodIds.length === 0 ? match : null;
+  // 3. Filtrer par périodes
+  const filterPeriodIds = selectedPeriodIds.value;
+  if (filterPeriodIds.length === 0) {
+    // Si aucune période n'est cochée, on ne garde que les contraintes annuelles
+    matches = matches.filter(p => !p.period_ids || p.period_ids.length === 0);
   } else {
     // Si des périodes sont cochées, la contrainte s'applique si elle est annuelle
     // OU si elle intersecte les périodes sélectionnées
-    const hasIntersection = prefPeriodIds.some(pid => selectedPeriodIds.value.includes(pid));
-    return (prefPeriodIds.length === 0 || hasIntersection) ? match : null;
+    matches = matches.filter(p => {
+      const pIds = p.period_ids || [];
+      return pIds.length === 0 || pIds.some(pid => filterPeriodIds.includes(pid));
+    });
   }
+  
+  return matches;
 }
 
 // Consolider les préférences de toutes les ressources sélectionnées
@@ -456,8 +467,16 @@ function updateCombinedPreferences() {
     hours.forEach(h => {
       const key = `${d.value}-${h}`;
       
-      const matchedPrefs = ids.map(id => findMatchingPreference(id, d.value, h));
-      const levels = matchedPrefs.map(p => p ? p.preference_level : 'Neutral');
+      const levels: string[] = [];
+      ids.forEach(id => {
+        const matches = findMatchingPreferences(id, d.value, h);
+        if (matches.length === 0) {
+          levels.push('Neutral');
+        } else {
+          matches.forEach(m => levels.push(m.preference_level));
+        }
+      });
+      
       const activeLevels = levels.filter(lvl => lvl !== 'Neutral');
       const uniqueLevels = Array.from(new Set(levels));
       
@@ -468,7 +487,15 @@ function updateCombinedPreferences() {
         if (uniqueActive.length === 0) {
           combined[key] = 'Neutral';
         } else if (uniqueActive.length === 1) {
-          combined[key] = `${uniqueActive[0]}-hashed`;
+          const allMatches = ids.flatMap(id => findMatchingPreferences(id, d.value, h));
+          const hasNonHebdo = allMatches.some(m => m.week_type !== 'W');
+          const isPartial = allMatches.length < ids.length;
+          
+          if ((selectedWeekType.value === 'W' && hasNonHebdo) || isPartial) {
+            combined[key] = `${uniqueActive[0]}-hashed`;
+          } else {
+            combined[key] = uniqueActive[0];
+          }
         } else {
           combined[key] = 'Mixed-hashed';
         }
@@ -533,16 +560,19 @@ async function paintCell(day: number, hour: number) {
       rawPreferences.value[id] = [];
     }
     
-    // Trouver si une préférence existe déjà pour ce créneau et ce type de semaine
-    const existingIdx = rawPreferences.value[id].findIndex(
-      (p: any) => p.timeslot_id === ts.id && p.week_type === selectedWeekType.value
-    );
-    
-    if (newLevel === 'Neutral') {
-      if (existingIdx !== -1) {
-        rawPreferences.value[id].splice(existingIdx, 1);
-      }
+    if (selectedWeekType.value === 'W') {
+      // Si Toutes (W) : on retire toutes les préférences existantes pour ce créneau (A, B et W)
+      rawPreferences.value[id] = rawPreferences.value[id].filter(
+        (p: any) => p.timeslot_id !== ts.id
+      );
     } else {
+      // Sinon on retire uniquement celle du type de semaine sélectionné (A ou B)
+      rawPreferences.value[id] = rawPreferences.value[id].filter(
+        (p: any) => !(p.timeslot_id === ts.id && p.week_type === selectedWeekType.value)
+      );
+    }
+    
+    if (newLevel !== 'Neutral') {
       const updatedPref = {
         resource_type: resourceType.value,
         resource_id: id,
@@ -551,14 +581,7 @@ async function paintCell(day: number, hour: number) {
         week_type: selectedWeekType.value,
         period_ids: [...selectedPeriodIds.value]
       };
-      if (existingIdx !== -1) {
-        rawPreferences.value[id][existingIdx] = {
-          ...rawPreferences.value[id][existingIdx],
-          ...updatedPref
-        };
-      } else {
-        rawPreferences.value[id].push(updatedPref);
-      }
+      rawPreferences.value[id].push(updatedPref);
     }
   });
 

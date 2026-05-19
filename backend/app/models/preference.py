@@ -19,7 +19,7 @@ class ResourcePreference(Base):
     resource_id = Column(Integer, nullable=False)
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
     preference_level = Column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
-    week_type = Column(String(1), nullable=False, default="T") # 'A', 'B', 'T'
+    week_type = Column(String(1), nullable=False, default="W") # 'A', 'B', 'W'
 
     # Navigation
     timeslot = relationship("Timeslot")
@@ -38,21 +38,42 @@ class ResourcePreference(Base):
         resource_type = vals.get("resource_type")
         resource_id = vals.get("resource_id")
         timeslot_id = vals.get("timeslot_id")
-        week_type = vals.get("week_type", "T")
+        week_type = vals.get("week_type", "W")
 
         if level == "Neutral" or not level:
             # Si le niveau est Neutral, on supprime l'éventuelle ligne existante
-            existing = db.query(cls).filter(
-                cls.resource_type == resource_type,
-                cls.resource_id == resource_id,
-                cls.timeslot_id == timeslot_id,
-                cls.week_type == week_type
-            ).first()
-            if existing:
-                existing.delete(db)
+            if week_type == "W":
+                # Supprimer TOUTES les préférences spécifiques (A, B et W)
+                existings = db.query(cls).filter(
+                    cls.resource_type == resource_type,
+                    cls.resource_id == resource_id,
+                    cls.timeslot_id == timeslot_id
+                ).all()
+                for ext in existings:
+                    ext.delete(db)
+            else:
+                existing = db.query(cls).filter(
+                    cls.resource_type == resource_type,
+                    cls.resource_id == resource_id,
+                    cls.timeslot_id == timeslot_id,
+                    cls.week_type == week_type
+                ).first()
+                if existing:
+                    existing.delete(db)
             return None
 
         # Comportement d'Upsert : si existe déjà, on appelle update à la place
+        # Si on crée une contrainte 'W' (Hebdo), on supprime d'abord les anciennes contraintes spécifiques A et B pour repartir propre
+        if week_type == "W":
+            existings = db.query(cls).filter(
+                cls.resource_type == resource_type,
+                cls.resource_id == resource_id,
+                cls.timeslot_id == timeslot_id,
+                cls.week_type.in_(["A", "B"])
+            ).all()
+            for ext in existings:
+                ext.delete(db)
+
         existing = db.query(cls).filter(
             cls.resource_type == resource_type,
             cls.resource_id == resource_id,

@@ -262,7 +262,7 @@ L'unité opérationnelle et planifiée d'un cours.
 *   `course_id` : Clé étrangère vers le **Course** parent (Entier, relation 1-à-N)
 *   `timeslot_id` : Clé étrangère optionnelle vers un **Timeslot** (0 ou 1 créneau). Dans le cas d'une séance planifiée sur la grille, `timeslot_id` désigne le créneau de départ (Start Timeslot), et la séance s'étend de manière contiguë sur une longueur égale à la `duration_minutes` du cours parent.
 *   `classroom_id` : Clé étrangère optionnelle vers la **Salle** principale de la séance (Entier, relation N-à-1)
-*   `week_type` : Type d'alternance de semaine (Chaîne, 'A', 'B' ou 'T' pour Toutes les semaines, par défaut 'T')
+*   `week_type` : Type d'alternance de semaine (Chaîne, 'A', 'B' ou 'W' pour Toutes les semaines, par défaut 'W')
 *   `is_pinned` : Indicateur si la séance est verrouillée statiquement sur ce créneau et cette salle, ignorée par le solveur (Booléen, par défaut `False`)
 *   `is_co_teaching` : Indicateur si la séance est dispensée en co-enseignement (Booléen, par défaut `False`)
 *   *Relations (N-à-N)* : `subjects`, `teachers`, `divisions`, `class_parts`, `groups`, `alternations`, `sites`, `materials`, `classrooms` (les ressources affectées à cette séance)
@@ -389,7 +389,7 @@ Modélise pour un établissement donné le découpage hebdomadaire de l'année s
 *   `school_id` : Clé étrangère vers l'**School** (Entier, relation 1-à-N)
 *   `start_date` : Date de début de la semaine (Date)
 *   `end_date` : Date de fin de la semaine (Date)
-*   `week_type` : Type d'alternance de semaine (Chaîne: 'A' pour Semaine A, 'B' pour Semaine B, ou 'T' pour Toutes les semaines / Hebdomadaire, par défaut 'T')
+*   `week_type` : Type d'alternance de semaine (Chaîne: 'A' pour Semaine A, 'B' pour Semaine B, ou 'W' pour Toutes les semaines / Hebdomadaire, par défaut 'W')
 
 > [!NOTE]
 > **Croisement Périodes vs Alternances :**
@@ -435,7 +435,7 @@ Association polymorphique entre n'importe quel type de ressource, un créneau (T
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
 *   `timeslot_id` : Clé étrangère vers le créneau **Timeslot** (Entier)
 *   `level` : Niveau de vœu (Enum : `RED` (Indisponibilité impérative / Rouge), `ORANGE` (Indisponibilité optionnelle / Orange), `GREEN` (Souhait de présence / Vert), `WHITE` (Disponible / Blanc))
-*   `week_type` : Type d'alternance de semaine (Chaîne: 'A', 'B' ou 'T' pour Toutes les semaines, par défaut 'T')
+*   `week_type` : Type d'alternance de semaine (Chaîne: 'A', 'B' ou 'W' pour Toutes les semaines, par défaut 'W')
 *   *Relations (N-à-N)* : `periods` (Liaison vers **1 à N périodes** d'application de ce vœu ou indisponibilité)
 
 ### 12. Mission

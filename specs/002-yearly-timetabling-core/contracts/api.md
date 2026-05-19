@@ -39,7 +39,7 @@ Le point d'accès est enrichi d'un filtre `school_id` permettant de charger l'en
             "id": 10,
             "timeslot_id": 12,
             "classroom_id": 5,
-            "week_type": "T", // T = Toutes les semaines, A = Semaine A, B = Semaine B
+            "week_type": "W", // W = Toutes les semaines, A = Semaine A, B = Semaine B
             "is_pinned": false,
             "is_co_teaching": true,
             "co_teachers": [4] // IDs des enseignants associés en co-enseignement
