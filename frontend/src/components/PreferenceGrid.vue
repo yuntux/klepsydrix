@@ -84,6 +84,48 @@
       </div>
     </div>
 
+    <!-- Sélecteurs de Semaine et Périodes -->
+    <div v-if="resourceIds.length > 0" class="pref-toolbar-sub">
+      <div class="toolbar-sub-group">
+        <label class="selector-item">
+          <span>Semaine :</span>
+          <select v-model="selectedWeekType" class="select-custom select-small" @change="loadPreferences">
+            <option value="T">Toutes (Hebdomadaire)</option>
+            <option value="A">Semaine A</option>
+            <option value="B">Semaine B</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="toolbar-sub-group">
+        <label class="selector-item">
+          <span>Type Période :</span>
+          <select v-model="selectedPeriodTypeId" class="select-custom select-small" @change="onPeriodTypeChange">
+            <option :value="null">Annuelle (Toute l'année)</option>
+            <option v-for="pt in filteredPeriodTypes" :key="pt.id" :value="pt.id">
+              {{ pt.label }}
+            </option>
+          </select>
+        </label>
+      </div>
+
+      <div v-if="selectedPeriodTypeId && periodsOfType.length > 0" class="toolbar-sub-group periods-checkboxes-group">
+        <span class="periods-label">Périodes :</span>
+        <div class="checkbox-list">
+          <label v-for="p in periodsOfType" :key="p.id" class="checkbox-wrapper">
+            <input 
+              type="checkbox" 
+              :value="p.id" 
+              v-model="selectedPeriodIds" 
+              @change="loadPreferences"
+              class="checkbox-custom"
+            />
+            <span class="checkbox-text">{{ p.name }}</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <!-- Grille interactive des voeux ou Placeholder -->
     <div class="grid-wrapper">
       <div v-if="resourceIds.length === 0" class="pref-placeholder">
@@ -230,13 +272,19 @@ const resourceIds = ref<number[]>([]);
 const activeBrush = ref<'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'>('Unsuited');
 const showLegendModal = ref(false);
 
-// Dictionnaire local complet indexe par resource_id
-// Clé: resourceId, Valeur: Record<"day-hour", PreferenceLevel>
-const allPreferences = ref<Record<number, Record<string, string>>>({});
+// Dictionnaire local complet des préférences brutes par resource_id
+const rawPreferences = ref<Record<number, any[]>>({});
 
 // Dictionnaire local des préférences consolidées pour affichage réactif
-// Clé: "day-hour", Valeur: PreferenceLevel ou motif ('Preferred', 'Undesirable', 'Unsuited', 'Preferred-hashed', 'Undesirable-hashed', 'Unsuited-hashed', 'Mixed-hashed', 'Neutral')
 const preferencesMap = ref<Record<string, string>>({});
+
+// États additionnels pour les semaines et périodes
+const selectedWeekType = ref<'T' | 'A' | 'B'>('T');
+const selectedPeriodTypeId = ref<number | null>(null);
+const selectedPeriodIds = ref<number[]>([]);
+
+const allPeriodTypes = ref<any[]>([]);
+const allPeriods = ref<any[]>([]);
 
 const days = [
   { value: 1, label: 'Lundi' },
@@ -251,13 +299,64 @@ const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
 const resourceOptions = computed(() => {
   if (resourceType.value === 'Teacher') {
-    return props.teachers.map(t => ({ id: t.id, name: t.name }));
+    return props.teachers.map(t => ({ id: t.id, name: t.name, school_id: t.school_id }));
   } else if (resourceType.value === 'Classroom') {
-    return props.classrooms.map(c => ({ id: c.id, name: c.name }));
+    return props.classrooms.map(c => ({ id: c.id, name: c.name, school_id: c.school_id }));
   } else {
-    return props.divisions.map(d => ({ id: d.id, name: d.name }));
+    return props.divisions.map(d => ({ id: d.id, name: d.name, school_id: d.school_id }));
   }
 });
+
+const activeResource = computed(() => {
+  if (resourceIds.value.length === 0) return null;
+  const id = resourceIds.value[0];
+  if (resourceType.value === 'Teacher') {
+    return props.teachers.find(t => t.id === id);
+  } else if (resourceType.value === 'Classroom') {
+    return props.classrooms.find(c => c.id === id);
+  } else {
+    return props.divisions.find(d => d.id === id);
+  }
+});
+
+const schoolId = computed(() => activeResource.value?.school_id || null);
+
+const filteredPeriodTypes = computed(() => {
+  const activePtIds = Array.from(new Set(allPeriods.value.map(p => p.period_type_id)));
+  return allPeriodTypes.value.filter(pt => activePtIds.includes(pt.id));
+});
+
+const periodsOfType = computed(() => {
+  if (!selectedPeriodTypeId.value) return [];
+  return allPeriods.value.filter(p => p.period_type_id === selectedPeriodTypeId.value);
+});
+
+async function loadPeriodsAndTypes() {
+  try {
+    const ptRes = await fetch('/api/generic/period_types?limit=1000').then(r => r.json());
+    allPeriodTypes.value = ptRes.items || [];
+    
+    if (schoolId.value) {
+      const pRes = await fetch(`/api/generic/periods?limit=1000&school_id=${schoolId.value}`).then(r => r.json());
+      allPeriods.value = pRes.items || [];
+    } else {
+      allPeriods.value = [];
+    }
+  } catch (err) {
+    console.error("Erreur de chargement des periodes/types", err);
+  }
+}
+
+watch(schoolId, () => {
+  loadPeriodsAndTypes();
+  selectedPeriodTypeId.value = null;
+  selectedPeriodIds.value = [];
+}, { immediate: true });
+
+function onPeriodTypeChange() {
+  selectedPeriodIds.value = [];
+  loadPreferences();
+}
 
 const currentResourceName = computed(() => {
   if (resourceIds.value.length > 1) {
@@ -289,7 +388,7 @@ watch(() => props.resourceIdsProp, (newVal) => {
       resourceId.value = '';
       resourceIds.value = [];
       preferencesMap.value = {};
-      allPreferences.value = {};
+      rawPreferences.value = {};
     }
   }
 }, { immediate: true, deep: true });
@@ -305,7 +404,7 @@ watch(() => props.resourceIdProp, (newVal) => {
     resourceId.value = '';
     resourceIds.value = [];
     preferencesMap.value = {};
-    allPreferences.value = {};
+    rawPreferences.value = {};
   }
 }, { immediate: true });
 
@@ -318,7 +417,31 @@ function onResourceChange() {
     resourceId.value = '';
     resourceIds.value = [];
     preferencesMap.value = {};
-    allPreferences.value = {};
+    rawPreferences.value = {};
+  }
+}
+
+function findMatchingPreference(resourceId: number, day: number, hour: number) {
+  const ts = props.timeslots.find(t => t.day_of_week === day && t.hour === hour);
+  if (!ts) return null;
+  
+  const prefs = rawPreferences.value[resourceId] || [];
+  
+  // Trouver la préf qui correspond au créneau et au type de semaine sélectionné
+  const match = prefs.find(p => p.timeslot_id === ts.id && p.week_type === selectedWeekType.value);
+  if (!match) return null;
+  
+  // Vérifier la correspondance des périodes
+  const prefPeriodIds = match.period_ids || [];
+  
+  if (selectedPeriodIds.value.length === 0) {
+    // Si aucune période n'est cochée, on ne montre que les contraintes annuelles (sans périodes spécifiques)
+    return prefPeriodIds.length === 0 ? match : null;
+  } else {
+    // Si des périodes sont cochées, la contrainte s'applique si elle est annuelle
+    // OU si elle intersecte les périodes sélectionnées
+    const hasIntersection = prefPeriodIds.some(pid => selectedPeriodIds.value.includes(pid));
+    return (prefPeriodIds.length === 0 || hasIntersection) ? match : null;
   }
 }
 
@@ -336,7 +459,8 @@ function updateCombinedPreferences() {
     hours.forEach(h => {
       const key = `${d.value}-${h}`;
       
-      const levels = ids.map(id => (allPreferences.value[id] && allPreferences.value[id][key]) || 'Neutral');
+      const matchedPrefs = ids.map(id => findMatchingPreference(id, d.value, h));
+      const levels = matchedPrefs.map(p => p ? p.preference_level : 'Neutral');
       const activeLevels = levels.filter(lvl => lvl !== 'Neutral');
       const uniqueLevels = Array.from(new Set(levels));
       
@@ -362,7 +486,7 @@ function updateCombinedPreferences() {
 async function loadPreferences() {
   const ids = resourceIds.value;
   if (ids.length === 0) {
-    allPreferences.value = {};
+    rawPreferences.value = {};
     preferencesMap.value = {};
     return;
   }
@@ -370,7 +494,7 @@ async function loadPreferences() {
   try {
     const results = await Promise.all(
       ids.map(id =>
-        fetch(`/api/generic/resource_preferences?resource_type=${resourceType.value}&resource_id=${id}`)
+        fetch(`/api/generic/resource_preferences?limit=1000&resource_type=${resourceType.value}&resource_id=${id}`)
           .then(res => {
             if (!res.ok) throw new Error();
             return res.json();
@@ -380,20 +504,12 @@ async function loadPreferences() {
       )
     );
     
-    const newAllPrefs: Record<number, Record<string, string>> = {};
-    
+    const newRawPrefs: Record<number, any[]> = {};
     results.forEach(({ id, items }) => {
-      const teacherPrefs: Record<string, string> = {};
-      items.forEach((pref: any) => {
-        const ts = props.timeslots.find(t => t.id === pref.timeslot_id);
-        if (ts) {
-          teacherPrefs[`${ts.day_of_week}-${ts.hour}`] = pref.preference_level;
-        }
-      });
-      newAllPrefs[id] = teacherPrefs;
+      newRawPrefs[id] = items;
     });
     
-    allPreferences.value = newAllPrefs;
+    rawPreferences.value = newRawPrefs;
     updateCombinedPreferences();
   } catch (err) {
     console.error("Erreur de chargement des préférences", err);
@@ -412,20 +528,40 @@ async function paintCell(day: number, hour: number) {
   const newLevel = activeBrush.value;
 
   // Sauvegarder les valeurs precedentes en cas d'erreur (rollback)
-  const previousLevels: Record<number, string> = {};
-  ids.forEach(id => {
-    previousLevels[id] = (allPreferences.value[id] && allPreferences.value[id][key]) || 'Neutral';
-  });
+  const previousRawPrefs = JSON.parse(JSON.stringify(rawPreferences.value));
 
   // Optimistic UI update
   ids.forEach(id => {
-    if (!allPreferences.value[id]) {
-      allPreferences.value[id] = {};
+    if (!rawPreferences.value[id]) {
+      rawPreferences.value[id] = [];
     }
+    
+    // Trouver si une préférence existe déjà pour ce créneau et ce type de semaine
+    const existingIdx = rawPreferences.value[id].findIndex(
+      (p: any) => p.timeslot_id === ts.id && p.week_type === selectedWeekType.value
+    );
+    
     if (newLevel === 'Neutral') {
-      delete allPreferences.value[id][key];
+      if (existingIdx !== -1) {
+        rawPreferences.value[id].splice(existingIdx, 1);
+      }
     } else {
-      allPreferences.value[id][key] = newLevel;
+      const updatedPref = {
+        resource_type: resourceType.value,
+        resource_id: id,
+        timeslot_id: ts.id,
+        preference_level: newLevel,
+        week_type: selectedWeekType.value,
+        period_ids: [...selectedPeriodIds.value]
+      };
+      if (existingIdx !== -1) {
+        rawPreferences.value[id][existingIdx] = {
+          ...rawPreferences.value[id][existingIdx],
+          ...updatedPref
+        };
+      } else {
+        rawPreferences.value[id].push(updatedPref);
+      }
     }
   });
 
@@ -444,26 +580,18 @@ async function paintCell(day: number, hour: number) {
             resource_id: id,
             timeslot_id: ts.id,
             preference_level: newLevel,
+            week_type: selectedWeekType.value,
+            period_ids: [...selectedPeriodIds.value]
           }),
         }).then(res => {
           if (!res.ok) throw new Error();
         })
       )
     );
+    await loadPreferences();
   } catch (err) {
     // Rollback en cas d'erreur
-    ids.forEach(id => {
-      if (previousLevels[id] === 'Neutral') {
-        if (allPreferences.value[id]) {
-          delete allPreferences.value[id][key];
-        }
-      } else {
-        if (!allPreferences.value[id]) {
-          allPreferences.value[id] = {};
-        }
-        allPreferences.value[id][key] = previousLevels[id];
-      }
-    });
+    rawPreferences.value = previousRawPrefs;
     updateCombinedPreferences();
     alert("Impossible d'enregistrer le vœu pour toutes les ressources sélectionnées. Veuillez réessayer.");
   }
@@ -1046,5 +1174,73 @@ watch(resourceOptions, () => {
   font-weight: 500;
   color: #6b7280;
   padding: 0 4px;
+}
+
+.pref-toolbar-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 20px;
+}
+
+.toolbar-sub-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-small {
+  min-width: 140px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.periods-checkboxes-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.periods-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.checkbox-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  background-color: var(--bg-secondary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.checkbox-wrapper:hover {
+  background-color: var(--border-color);
+}
+
+.checkbox-custom {
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.checkbox-text {
+  font-weight: 500;
 }
 </style>

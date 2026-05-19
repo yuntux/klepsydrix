@@ -1,17 +1,20 @@
 export interface Teacher {
   id: number;
   name: string;
+  school_id: number;
 }
 
 export interface Classroom {
   id: number;
   name: string;
   capacity: number;
+  school_id: number;
 }
 
 export interface Division {
   id: number;
   name: string;
+  school_id: number;
 }
 
 export interface Timeslot {

@@ -25,7 +25,27 @@ class CRUDMixin:
         Méthode de création standard surchargeable avec gestion des related_fields.
         """
         try:
-            # 1. Séparer les champs related des champs locaux
+            # 1. Inspecter et extraire les relations de type collection (Many-to-Many / One-to-Many)
+            from sqlalchemy import inspect
+            collection_updates = {}
+            if hasattr(cls, "__mapper__"):
+                mapper = inspect(cls)
+                for rel in mapper.relationships:
+                    if rel.uselist:
+                        possible_keys = [f"{rel.key}_ids"]
+                        if rel.key.endswith("s"):
+                            possible_keys.append(f"{rel.key[:-1]}_ids")
+                        if rel.key.endswith("ies"):
+                            possible_keys.append(f"{rel.key[:-3]}y_ids")
+                        
+                        for pk in possible_keys:
+                            if pk in vals:
+                                ids = vals.pop(pk)
+                                if ids is not None:
+                                    collection_updates[rel.key] = (rel.mapper.class_, ids)
+                                break
+
+            # 2. Séparer les champs related des champs locaux
             related_vals = {}
             local_vals = {}
             for k, v in vals.items():
@@ -38,18 +58,23 @@ class CRUDMixin:
                 else:
                     local_vals[k] = v
 
-            # 2. Créer l'enregistrement local principal
+            # 3. Créer l'enregistrement local principal
             instance = cls(**local_vals)
             db.add(instance)
             db.flush() # Génère l'ID en base sans commiter tout de suite
 
-            # 3. Assurer l'existence et mettre à jour les enregistrements liés
+            # 4. Assurer l'existence et mettre à jour les enregistrements liés
             for relation_name, fields in related_vals.items():
                 related_obj = instance.ensure_related_record(relation_name)
                 if related_obj:
                     for k, v in fields.items():
                         prop = getattr(cls, k)
                         setattr(related_obj, prop.target_field, v)
+
+            # 5. Mettre à jour les relations collection
+            for rel_key, (target_cls, ids) in collection_updates.items():
+                items = db.query(target_cls).filter(target_cls.id.in_(ids)).all()
+                setattr(instance, rel_key, items)
 
             db.commit()
             db.refresh(instance)
@@ -81,7 +106,27 @@ class CRUDMixin:
         Méthode de mise à jour standard surchargeable avec gestion des related_fields.
         """
         try:
-            # 1. Séparer les champs related des champs locaux
+            # 1. Inspecter et extraire les relations de type collection (Many-to-Many / One-to-Many)
+            from sqlalchemy import inspect
+            collection_updates = {}
+            if hasattr(self, "__mapper__"):
+                mapper = inspect(self.__class__)
+                for rel in mapper.relationships:
+                    if rel.uselist:
+                        possible_keys = [f"{rel.key}_ids"]
+                        if rel.key.endswith("s"):
+                            possible_keys.append(f"{rel.key[:-1]}_ids")
+                        if rel.key.endswith("ies"):
+                            possible_keys.append(f"{rel.key[:-3]}y_ids")
+                        
+                        for pk in possible_keys:
+                            if pk in vals:
+                                ids = vals.pop(pk)
+                                if ids is not None:
+                                    collection_updates[rel.key] = (rel.mapper.class_, ids)
+                                break
+
+            # 2. Séparer les champs related des champs locaux
             related_vals = {}
             local_vals = {}
             for k, v in vals.items():
@@ -94,18 +139,23 @@ class CRUDMixin:
                 else:
                     local_vals[k] = v
 
-            # 2. Mettre à jour l'enregistrement principal
+            # 3. Mettre à jour l'enregistrement principal
             for key, value in local_vals.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
 
-            # 3. Assurer l'existence et mettre à jour les enregistrements liés
+            # 4. Assurer l'existence et mettre à jour les enregistrements liés
             for relation_name, fields in related_vals.items():
                 related_obj = self.ensure_related_record(relation_name)
                 if related_obj:
                     for k, v in fields.items():
                         prop = getattr(self.__class__, k)
                         setattr(related_obj, prop.target_field, v)
+
+            # 5. Mettre à jour les relations collection
+            for rel_key, (target_cls, ids) in collection_updates.items():
+                items = db.query(target_cls).filter(target_cls.id.in_(ids)).all()
+                setattr(self, rel_key, items)
 
             db.commit()
             db.refresh(self)

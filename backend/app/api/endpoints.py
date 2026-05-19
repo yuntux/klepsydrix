@@ -31,9 +31,9 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
     courses = courses_query.all()
 
     return {
-        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.name} for t in teachers],
-        "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "name": c.name, "capacity": c.capacity} for c in classrooms],
-        "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "name": d.name} for d in divisions],
+        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.name, "school_id": t.school_id} for t in teachers],
+        "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "name": c.name, "capacity": c.capacity, "school_id": c.school_id} for c in classrooms],
+        "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "name": d.name, "school_id": d.school_id} for d in divisions],
         "timeslots": [ts.to_dict() if hasattr(ts, "to_dict") else {"id": ts.id, "day_of_week": ts.day_of_week, "hour": ts.hour} for ts in timeslots],
         "courses": [
             {

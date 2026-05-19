@@ -1,3 +1,4 @@
+from typing import List
 from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Table
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
@@ -58,6 +59,7 @@ class ResourcePreference(Base):
             cls.timeslot_id == timeslot_id,
             cls.week_type == week_type
         ).first()
+        
         if existing:
             return existing.update(db, vals)
 
@@ -71,6 +73,7 @@ class ResourcePreference(Base):
         if level == "Neutral" or not level:
             self.delete(db)
             return None
+            
         return super().update(db, vals)
 
 

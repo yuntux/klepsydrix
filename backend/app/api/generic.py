@@ -52,9 +52,9 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
     if hasattr(obj, "__table__"):
         fields = [c.name for c in obj.__table__.columns]
         
-    extra_fields = getattr(obj, "_fields", None)
+    extra_fields = list(getattr(obj, "_fields", [])) + list(getattr(obj, "_extra_fields", []))
     if extra_fields:
-        # Pour un TransientModel, _fields est la source principale, pour les autres c'est en plus des colonnes
+        # Pour un TransientModel, _fields/extra_fields est la source principale, pour les autres c'est en plus des colonnes
         from backend.app.models.base import TransientModel
         if isinstance(obj, TransientModel):
             fields = list(extra_fields)
@@ -71,6 +71,21 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
             d[field] = val.isoformat()
         else:
             d[field] = val
+        
+    # Sérialiser automatiquement toutes les relations de type collection en *_ids
+    if hasattr(obj, "__mapper__"):
+        for rel in obj.__mapper__.relationships:
+            if rel.uselist:
+                # Déterminer la clé du champ virtuel
+                field_name = f"{rel.key}_ids"
+                if rel.key.endswith("s"):
+                    field_name = f"{rel.key[:-1]}_ids"
+                if rel.key.endswith("ies"):
+                    field_name = f"{rel.key[:-3]}y_ids"
+                
+                related_objs = getattr(obj, rel.key, [])
+                d[field_name] = [item.id for item in related_objs if hasattr(item, "id")]
+
     return d
 
 def make_pydantic_model(model, all_optional=False):
@@ -94,9 +109,24 @@ def make_pydantic_model(model, all_optional=False):
         else:
             fields[column.name] = (py_type, ...)
             
-    # Inclure également les champs virtuels dans le schéma Pydantic
-    for field in getattr(model, "_fields", []):
-        fields[field] = (Optional[Any], None)
+    # Inclure également les champs virtuels et extra dans le schéma Pydantic
+    extra_fields = list(getattr(model, "_fields", [])) + list(getattr(model, "_extra_fields", []))
+    for field in extra_fields:
+        field_type = getattr(model, "_extra_field_types", {}).get(field, Any)
+        fields[field] = (Optional[field_type], None)
+        
+    # Détecter et inclure automatiquement toutes les relations collection dans le schéma Pydantic
+    from sqlalchemy.orm import Mapper
+    if hasattr(model, "__mapper__") and isinstance(model.__mapper__, Mapper):
+        for rel in model.__mapper__.relationships:
+            if rel.uselist:
+                field_name = f"{rel.key}_ids"
+                if rel.key.endswith("s"):
+                    field_name = f"{rel.key[:-1]}_ids"
+                if rel.key.endswith("ies"):
+                    field_name = f"{rel.key[:-3]}y_ids"
+                
+                fields[field_name] = (Optional[List[int]], None)
             
     suffix = "UpdatePayload" if all_optional else "CreatePayload"
     return create_model(f"{model.__name__}{suffix}", **fields)
