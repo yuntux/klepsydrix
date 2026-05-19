@@ -52,11 +52,9 @@ start_services() {
             exit 1
         fi
 
-        cd "$BACKEND_DIR" || exit 1
         PYTHONPATH="$BASE_DIR" uvicorn backend.app.main:app --host 0.0.0.0 --port $BACKEND_PORT > "$BACKEND_LOG" 2>&1 &
         local backend_pid=$!
         deactivate
-        cd "$BASE_DIR" || exit 1
 
         sleep 2
         if ps -p $backend_pid > /dev/null; then

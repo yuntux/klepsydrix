@@ -8,10 +8,14 @@ from backend.app.models.base import Base
 from backend.app.models.school import School
 from backend.app.models.material import Material
 
-# Utilisation d'une base SQLite fichier pour éviter le gotcha des connexions multiples en mémoire
-TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///./test_generic.db"
+from sqlalchemy.pool import StaticPool
+
+# Moteur en mémoire vive SQLite partagé via StaticPool pour éviter le gotcha des connexions multiples
+TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 test_engine = create_engine(
-    TEST_SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    TEST_SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
 )
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 

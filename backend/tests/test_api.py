@@ -17,9 +17,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app.core.database import get_db
 
-TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///./test_sqlite.db"
+from sqlalchemy.pool import StaticPool
+
+# Moteur en mémoire vive SQLite partagé via StaticPool pour éviter le gotcha des connexions multiples
+TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 test_engine = create_engine(
-    TEST_SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    TEST_SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
 )
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
