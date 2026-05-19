@@ -114,8 +114,7 @@
               type="checkbox" 
               :value="p.id" 
               v-model="selectedPeriodIds" 
-              @change="loadPreferences"
-              :disabled="selectedPeriodIds.length === 1 && selectedPeriodIds.includes(p.id)"
+              @change="onPeriodCheckboxChange(p.id)"
               class="checkbox-custom"
             />
             <span class="checkbox-text">{{ p.name }}</span>
@@ -392,6 +391,13 @@ function onPeriodTypeChange() {
     selectedPeriodIds.value = periodsOfType.value.map(p => p.id);
   } else {
     selectedPeriodIds.value = [];
+  }
+  loadPreferences();
+}
+
+function onPeriodCheckboxChange(pId: number) {
+  if (selectedPeriodIds.value.length === 0) {
+    selectedPeriodIds.value = [pId];
   }
   loadPreferences();
 }
