@@ -53,31 +53,31 @@ const tooltipText = computed(() => {
   cursor: help;
 }
 
-/* Attribut divergent : style orange/jaune chaud texturé avec légère lueur */
+/* Attribut divergent */
 .consolidated-chip.is-divergent {
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.45);
-  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #d97706;
 }
 
 .consolidated-chip.is-divergent:hover {
-  background: rgba(245, 158, 11, 0.2);
-  border-color: rgba(245, 158, 11, 0.7);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.6);
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.15);
   transform: translateY(-1px);
 }
 
-/* Attribut commun : style violet/indigo doux */
+/* Attribut commun */
 .consolidated-chip.is-common {
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  color: #818cf8;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--accent-primary);
 }
 
 .consolidated-chip.is-common:hover {
-  background: rgba(99, 102, 241, 0.2);
-  border-color: rgba(99, 102, 241, 0.6);
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.15);
   transform: translateY(-1px);
 }
 
@@ -88,16 +88,16 @@ const tooltipText = computed(() => {
 .proportion-badge {
   font-family: monospace;
   font-size: 11px;
-  background-color: rgba(245, 158, 11, 0.2);
+  background-color: rgba(245, 158, 11, 0.15);
   padding: 1px 5px;
   border-radius: 4px;
-  color: #fbbf24;
+  color: #d97706;
   font-weight: 700;
 }
 
 .common-check {
   font-size: 11px;
-  color: #818cf8;
+  color: var(--accent-primary);
   font-weight: 700;
 }
 </style>

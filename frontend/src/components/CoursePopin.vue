@@ -12,7 +12,7 @@
         </svg>
         <span class="header-text">Fiche T Cumulée</span>
         <span class="header-badge">{{ courses.length }} sélectionnés</span>
-        <span class="header-badge duration-badge" style="background-color: rgba(16, 185, 129, 0.18); color: #34d399; border-color: rgba(16, 185, 129, 0.25);">⏱️ {{ totalDurationHours }}</span>
+        <span class="header-badge duration-badge" style="background-color: rgba(16, 185, 129, 0.08); color: #059669; border-color: rgba(16, 185, 129, 0.2);">⏱️ {{ totalDurationHours }}</span>
       </div>
       <button class="btn-close" @click="$emit('close')">×</button>
     </div>
@@ -236,10 +236,10 @@ const consolidatedWeeks = computed(() => {
 .course-popin-container {
   position: fixed;
   width: 360px;
-  background: rgba(22, 28, 38, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border-color);
   border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: var(--shadow-lg), 0 10px 30px rgba(15, 23, 42, 0.15);
   z-index: 5000;
   overflow: hidden;
 }
@@ -269,8 +269,8 @@ const consolidatedWeeks = computed(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid var(--border-color);
   cursor: grab;
 }
 
@@ -293,16 +293,16 @@ const consolidatedWeeks = computed(() => {
 .header-text {
   font-size: 13.5px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: 0.2px;
 }
 
 .header-badge {
   font-size: 10.5px;
   font-weight: 600;
-  background-color: rgba(99, 102, 241, 0.18);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background-color: rgba(99, 102, 241, 0.08);
+  color: var(--accent-primary);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   padding: 1px 6px;
   border-radius: 6px;
 }
@@ -320,8 +320,8 @@ const consolidatedWeeks = computed(() => {
 }
 
 .btn-close:hover {
-  color: #fff;
-  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 /* Corps de popin scrollable */
