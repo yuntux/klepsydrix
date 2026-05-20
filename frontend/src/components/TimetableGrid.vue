@@ -1,97 +1,132 @@
 <template>
-  <div class="grid-container">
-    <div class="grid-wrapper">
-      <div class="timetable-grid">
-        <!-- Coin supérieur gauche -->
-        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;">Horaire</div>
-
-        <!-- En-têtes des jours (Lundi au Samedi) -->
-        <div v-for="day in days" :key="day.value" class="grid-header-cell">
-          {{ day.label }}
-        </div>
-
-        <!-- Lignes d'heures (8h à 17h) -->
-        <template v-for="hour in hours" :key="hour">
-          <!-- Cellule d'heure à gauche -->
-          <div class="grid-time-cell">
-            {{ hour }}h00 - {{ hour + 1 }}h00
+  <div class="timetable-grid-wrapper" style="height: 100%; display: flex; flex-direction: column;">
+    <GridContainer
+      preferenceMode="readonly"
+      :showSidebar="true"
+      :schools="schools"
+      :teachers="teachers"
+      :divisions="divisions"
+      :classrooms="classrooms"
+      :periodTypes="[]"
+      :periods="[]"
+      :viewMode="viewMode"
+      @update:viewMode="$emit('update:viewMode', $event)"
+      :selectedId="selectedId"
+      @update:selectedId="$emit('update:selectedId', $event)"
+      :hideResourceSelectors="false"
+      :hideSchoolSelector="false"
+    >
+      <template #actions>
+        <div class="controls-group" style="display: flex; gap: 12px; align-items: center;">
+          <div class="score-pill" :class="{ 'score-perfect': scoreData && scoreData.hard_score === 0 && scoreData.soft_score === 0, 'score-warning': scoreData && (scoreData.hard_score < 0 || scoreData.soft_score < 0) }" :title="scoreData ? scoreData.summary : 'En attente...'">
+            Score: {{ scoreData ? scoreData.hard_score : '?' }}H / {{ scoreData ? scoreData.soft_score : '?' }}S
           </div>
 
-          <!-- Cellules de la grille pour chaque jour -->
-          <div
-            v-for="day in days"
-            :key="day.value"
-            class="grid-cell"
-            :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }"
-          >
-            <div
-              v-for="idx in subCellCount"
-              :key="idx"
-              class="sub-cell"
-              :class="{ 'drag-over': isDragOver(day.value, hour + (idx - 1) * (currentStandardDuration / 60)) }"
-              @dragover.prevent="onDragOver($event, day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-              @dragleave="onDragLeave(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-              @drop="onDrop($event, day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-            >
-              <div
-                v-for="course in getCoursesAt(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-                :key="course.id"
-                class="placed-course"
-                :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
-                :style="{
-                  backgroundColor: getCourseColor(course.subject),
-                  height: getCourseHeight(course),
-                  bottom: 'auto',
-                  zIndex: 10
-                }"
-                draggable="true"
-                @dragstart="onDragStart($event, course.id)"
-                @click.stop="$emit('selectCourse', course.id)"
-              >
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
-                  <span class="placed-subject">{{ course.subject }}</span>
-                  <div style="display: flex; align-items: center; gap: 2px;">
-                    <!-- Bouton de verrouillage (Pin) -->
-                    <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
-                      <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
-                        <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
-                      </svg>
-                      <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="lock-icon">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
-                      </svg>
-                    </button>
-                    <!-- Bouton de retrait rapide (Unassign) -->
-                    <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
+          <button class="btn btn-secondary" @click="$emit('reset')" :disabled="loading">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Réinitialiser
+          </button>
 
-                <div class="placed-meta">
-                  <span v-if="viewMode !== 'teacher'">👤 {{ getTeacherName(course.teacher_id) }}</span>
-                  <span v-if="viewMode !== 'division'">👥 {{ getDivisionName(course.division_id) }}</span>
-                  <span v-if="viewMode !== 'classroom'">📍 {{ getClassroomName(course.classroom_id) }}</span>
+          <button v-if="!loading" class="btn btn-primary" @click="$emit('solve')">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 21l8.982-11.795M20.614 4c-.754.902-1.455 1.89-2.115 2.948m-2.115 2.948c-.07.112-.14.224-.21.336m-2.285 3.655A17.228 17.228 0 0 1 8.134 16m-4.82-4.48A17.185 17.185 0 0 1 11.25 8.134m0 0a17.185 17.185 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 0-3.116 7.866m0 0a17.22 17.22 0 0 0-4.819-4.48M12 8.5c.5-1 1.5-1.5 2.5-1.5s2 1 2.5 2c.5 1 .5 2-1 3.5s-2.5 2-3 3.5m0-7.5c-1-1-1.5-2.5-1.5-4s1-3 2.5-3s2.5 1.5 2.5 3c0 1.5-.5 3-1.5 4" />
+            </svg>
+            Résolution Auto
+          </button>
+
+          <button v-else class="btn btn-danger" @click="$emit('stop-solve')">
+            <span class="spinner-small"></span>
+            Arrêter
+          </button>
+        </div>
+      </template>
+      
+      <template #sidebar>
+        <Sidebar
+          :courses="courses"
+          :teachers="teachers"
+          :divisions="divisions"
+          :selectedCourseIds="selectedCourseIds"
+          @selectCourse="$emit('selectCourse', $event)"
+        />
+      </template>
+
+      <template #grid-content>
+        <BaseGrid
+          :dragOverCells="activeDragCells"
+          @cell-dragover="onDragOver"
+          @cell-dragleave="onDragLeave"
+          @cell-drop="onDrop"
+          style="height: 100%; border: none; border-radius: 0;"
+        >
+          <!-- Slot de contenu (Foreground) -->
+          <template #cell-content="{ day, time }">
+            <div
+              v-for="course in getCoursesAt(day, time)"
+              :key="course.id"
+              class="placed-course"
+              :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
+              :style="{
+                backgroundColor: getCourseColor(course.subject),
+                height: getCourseHeight(course),
+                bottom: 'auto',
+                zIndex: 10
+              }"
+              draggable="true"
+              @dragstart="onDragStart($event, course.id)"
+              @click.stop="$emit('selectCourse', course.id)"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
+                <span class="placed-subject">{{ course.subject }}</span>
+                <div style="display: flex; align-items: center; gap: 2px;">
+                  <!-- Bouton de verrouillage (Pin) -->
+                  <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
+                    <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
+                      <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
+                    </svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="lock-icon">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
+                    </svg>
+                  </button>
+                  <!-- Bouton de retrait rapide (Unassign) -->
+                  <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
               </div>
-            </div>
-          </div>
-        </template>
-      </div>
 
-      <!-- Overlay de chargement -->
-      <div class="loader-overlay" v-if="loading">
-        <div class="spinner"></div>
-        <div style="color: #fff; font-weight: 500; font-size: 16px;">Calcul de l'emploi du temps optimal...</div>
-      </div>
-    </div>
+              <div class="placed-meta">
+                <span v-if="viewMode !== 'teacher'">👤 {{ getTeacherName(course.teacher_id) }}</span>
+                <span v-if="viewMode !== 'division'">👥 {{ getDivisionName(course.division_id) }}</span>
+                <span v-if="viewMode !== 'classroom'">📍 {{ getClassroomName(course.classroom_id) }}</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- Overlay de chargement -->
+          <template #overlay>
+            <div class="loader-overlay" v-if="loading">
+              <div class="spinner"></div>
+              <div style="color: #fff; font-weight: 500; font-size: 16px;">Calcul de l'emploi du temps optimal...</div>
+            </div>
+          </template>
+        </BaseGrid>
+      </template>
+    </GridContainer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref } from 'vue';
 import { Course, Timeslot, Teacher, Division, Classroom } from '../types';
+import BaseGrid from './BaseGrid.vue';
+import GridContainer from './GridContainer.vue';
+import Sidebar from './Sidebar.vue';
+import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
 const props = defineProps<{
   courses: Course[];
@@ -104,6 +139,7 @@ const props = defineProps<{
   loading: boolean;
   selectedCourseIds?: number[];
   schools?: any[];
+  scoreData?: any;
 }>();
 
 const emit = defineEmits<{
@@ -111,35 +147,14 @@ const emit = defineEmits<{
   (e: 'unassign', courseId: number): void;
   (e: 'togglePin', courseId: number): void;
   (e: 'selectCourse', courseId: number): void;
+  (e: 'update:viewMode', value: string): void;
+  (e: 'update:selectedId', value: number | null): void;
+  (e: 'reset'): void;
+  (e: 'solve'): void;
+  (e: 'stop-solve'): void;
 }>();
 
-const days = [
-  { value: 1, label: 'Lundi' },
-  { value: 2, label: 'Mardi' },
-  { value: 3, label: 'Mercredi' },
-  { value: 4, label: 'Jeudi' },
-  { value: 5, label: 'Vendredi' },
-  { value: 6, label: 'Samedi' },
-];
-
-const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
-
-const currentStandardDuration = ref(30);
-
-onMounted(async () => {
-  try {
-    const res = await fetch('/api/generic/system_settings').then(r => r.json());
-    const items = res.items || [];
-    const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
-    currentStandardDuration.value = durationSetting ? Number(durationSetting.value) : 30;
-  } catch (e) {
-    console.error("Failed to load standard timeslot duration", e);
-  }
-});
-
-const subCellCount = computed(() => {
-  return Math.round(60 / currentStandardDuration.value);
-});
+const { currentStandardDuration, getCellKey } = useTimeslotGrid();
 
 function getCourseHeight(course: Course) {
   const duration = course.duration_minutes || 30;
@@ -149,19 +164,11 @@ function getCourseHeight(course: Course) {
 
 const activeDragCells = ref<Record<string, boolean>>({});
 
-function getCellKey(day: number, hour: number): string {
-  return `${day}-${hour}`;
-}
-
-function isDragOver(day: number, hour: number): boolean {
-  return !!activeDragCells.value[getCellKey(day, hour)];
-}
-
-function onDragOver(event: DragEvent, day: number, hour: number) {
+function onDragOver(day: number, hour: number, event: DragEvent) {
   activeDragCells.value[getCellKey(day, hour)] = true;
 }
 
-function onDragLeave(day: number, hour: number) {
+function onDragLeave(day: number, hour: number, event: DragEvent) {
   activeDragCells.value[getCellKey(day, hour)] = false;
 }
 
@@ -207,7 +214,7 @@ function onDragStart(event: DragEvent, courseId: number) {
   }
 }
 
-function onDrop(event: DragEvent, day: number, hour: number) {
+function onDrop(day: number, hour: number, event: DragEvent) {
   activeDragCells.value[getCellKey(day, hour)] = false;
   const ts = getTimeslot(day, hour);
   if (!ts) return;
@@ -254,22 +261,6 @@ function getCourseColor(subject: string): string {
 </script>
 
 <style scoped>
-.sub-cell {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  position: relative;
-  transition: all 0.2s;
-  padding: 2px;
-}
-
-.sub-cell:not(:last-child) {
-  border-bottom: 1px dotted var(--border-color);
-}
-
 .unassign-btn {
   background: transparent;
   border: none;

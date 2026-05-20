@@ -1,179 +1,62 @@
 <template>
   <div class="pref-grid-container glass-morphism">
-    <!-- Barre de configuration (Sélecteurs de ressource et d'outil) -->
-    <div class="pref-toolbar">
-      <div class="toolbar-section">
-        <h3 class="toolbar-title">Grille de Vœux & Indisponibilités</h3>
-      </div>
-
-      <!-- Sélecteurs standards (si non embarqués) -->
-      <div v-if="!hideSelectors" class="toolbar-section selectors-group">
-        <label class="selector-item">
-          <span>Type de Ressource :</span>
-          <select v-model="resourceType" class="select-custom" @change="onResourceChange">
-            <option value="Teacher">👨‍🏫 Enseignant</option>
-            <option value="Classroom">🏢 Salle</option>
-            <option value="Division">🎒 Classe (Division)</option>
-          </select>
-        </label>
-
-        <label class="selector-item">
-          <span>Ressource :</span>
-          <select v-model="resourceId" class="select-custom" @change="loadPreferences">
-            <option v-for="item in resourceOptions" :key="item.id" :value="item.id">
-              {{ item.name }}
-            </option>
-            <option v-if="resourceOptions.length === 0" value="">
-              Aucune ressource disponible
-            </option>
-          </select>
-        </label>
-      </div>
-
-      <!-- Palette de pinceaux (Gomme, Vert, Orange, Rouge) -->
-      <div v-if="resourceIds.length > 0" class="toolbar-section brush-palette">
-        <span class="palette-label">Outil Vœu :</span>
-        <div class="brush-buttons">
-          <button 
-            class="btn-brush brush-preferred" 
-            :class="{ active: activeBrush === 'Preferred' }"
-            @click="activeBrush = 'Preferred'"
-            title="Préféré (Vert - Bonus)"
-          >
-            <span class="brush-dot bg-green"></span>
-            Préféré
-          </button>
-          
-          <button 
-            class="btn-brush brush-undesirable" 
-            :class="{ active: activeBrush === 'Undesirable' }"
-            @click="activeBrush = 'Undesirable'"
-            title="Indésirable (Orange - Pénalité)"
-          >
-            <span class="brush-dot bg-orange"></span>
-            Indésirable
-          </button>
-          
-          <button 
-            class="btn-brush brush-unsuited" 
-            :class="{ active: activeBrush === 'Unsuited' }"
-            @click="activeBrush = 'Unsuited'"
-            title="Indisponible / Strict (Rouge - Interdit)"
-          >
-            <span class="brush-dot bg-red"></span>
-            Indisponible
-          </button>
-
-          <button 
-            class="btn-brush brush-neutral" 
-            :class="{ active: activeBrush === 'Neutral' }"
-            @click="activeBrush = 'Neutral'"
-            title="Gomme (Neutre - Pas de contrainte)"
-          >
-            <span class="brush-dot bg-neutral"></span>
-            Neutre
+    <GridContainer
+      v-model:brush="activeBrush"
+      preferenceMode="edit"
+      :schools="schools"
+      :teachers="teachers"
+      :divisions="divisions"
+      :classrooms="classrooms"
+      :periodTypes="allPeriodTypes"
+      :periods="allPeriods"
+      v-model:viewMode="resourceType"
+      v-model:selectedId="resourceId"
+      :schoolId="schoolId"
+      v-model:weekType="selectedWeekType"
+      v-model:periodTypeId="selectedPeriodTypeId"
+      v-model:periodIds="selectedPeriodIds"
+      :hideResourceSelectors="hideSelectors"
+      :hideSchoolSelector="true"
+      @cell-mousedown="onCellMouseDown"
+      @cell-mouseenter="onCellMouseEnter"
+      @cell-mouseleave="onCellMouseLeave"
+      @cell-mousemove="onCellMouseMove"
+    >
+      <template #actions>
+        <BrushPalette
+          v-if="resourceIds.length > 0"
+          v-model="activeBrush"
+        />
+        <div class="help-section">
+          <button class="btn-help" @click="showLegendModal = true" title="Légende de la grille">
+            ❓
           </button>
         </div>
-      </div>
+      </template>
 
-      <!-- Bouton d'aide -->
-      <div class="toolbar-section help-section">
-        <button class="btn-help" @click="showLegendModal = true" title="Légende de la grille">
-          ❓
-        </button>
-      </div>
-    </div>
-
-    <!-- Sélecteurs de Semaine et Périodes -->
-    <div v-if="resourceIds.length > 0" class="pref-toolbar-sub">
-      <div class="toolbar-sub-group">
-        <label class="selector-item">
-          <span>Semaine :</span>
-          <select v-model="selectedWeekType" class="select-custom select-small" @change="loadPreferences">
-            <option value="W">Toutes (Hebdomadaire)</option>
-            <option value="A">Semaine A</option>
-            <option value="B">Semaine B</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="toolbar-sub-group">
-        <label class="selector-item">
-          <span>Période :</span>
-          <select v-model="selectedPeriodTypeId" class="select-custom select-small" @change="onPeriodTypeChange">
-            <option :value="null">Annuelle (Toute l'année)</option>
-            <option v-for="pt in filteredPeriodTypes" :key="pt.id" :value="pt.id">
-              {{ pt.label }}
-            </option>
-          </select>
-        </label>
-
-        <template v-if="selectedPeriodTypeId && periodsOfType.length > 0">
-          <label v-for="p in periodsOfType" :key="p.id" class="checkbox-wrapper">
-            <input 
-              type="checkbox" 
-              :value="p.id" 
-              v-model="selectedPeriodIds" 
-              @change="onPeriodCheckboxChange(p.id)"
-              class="checkbox-custom"
-            />
-            <span class="checkbox-text">{{ p.name }}</span>
-          </label>
-        </template>
-      </div>
-    </div>
-
-    <!-- Grille interactive des voeux ou Placeholder -->
-    <div class="grid-wrapper">
-      <div v-if="resourceIds.length === 0" class="pref-placeholder">
-        <div class="placeholder-icon">👈</div>
-        <div class="placeholder-title">Sélectionnez un élément</div>
-        <div class="placeholder-subtitle">
-          Veuillez choisir un ou plusieurs éléments dans la liste de gauche pour configurer leurs vœux et contraintes horaires.
-        </div>
-      </div>
-
-      <div v-else class="timetable-grid">
-        <!-- Coin supérieur gauche -->
-        <div class="grid-header-cell corner-header-cell">Horaire</div>
-
-        <!-- En-têtes des jours (Lundi au Samedi) -->
-        <div v-for="day in days" :key="day.value" class="grid-header-cell">
-          {{ day.label }}
-        </div>
-
-        <!-- Lignes d'heures (8h à 17h) -->
-        <template v-for="hour in hours" :key="hour">
-          <!-- Cellule d'heure à gauche -->
-          <div class="grid-time-cell">
-            {{ hour }}h00 - {{ hour + 1 }}h00
+      <template #grid-content v-if="resourceIds.length === 0">
+        <div class="pref-placeholder">
+          <div class="placeholder-icon">👈</div>
+          <div class="placeholder-title">Sélectionnez un élément</div>
+          <div class="placeholder-subtitle">
+            Veuillez choisir un ou plusieurs éléments dans la liste de gauche pour configurer leurs vœux et contraintes horaires.
           </div>
+        </div>
+      </template>
 
-          <!-- Cellules de la grille de voeux -->
-          <div
-            v-for="day in days"
-            :key="day.value"
-            class="grid-cell"
-            :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }"
-          >
-            <div
-              v-for="idx in subCellCount"
-              :key="idx"
-              class="sub-cell clickable-cell"
-              :class="getCellClass(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-              @mousedown="onCellMouseDown(day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @mouseenter="onCellMouseEnter(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-              @mousemove="onCellMouseMove(day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @mouseleave="onCellMouseLeave(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
-            >
-              <div class="cell-label">
-                {{ getCellLabel(day.value, hour + (idx - 1) * (currentStandardDuration / 60)) }}
-              </div>
-            </div>
+      <template #cell-background="{ day, time }">
+        <div
+          v-if="resourceIds.length > 0"
+          class="sub-cell-inner"
+          :class="getCellClass(day, time)"
+          style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;"
+        >
+          <div class="cell-label">
+            {{ getCellLabel(day, time) }}
           </div>
-        </template>
-      </div>
-    </div>
+        </div>
+      </template>
+    </GridContainer>
 
     <!-- Modal de Légende -->
     <Teleport to="body">
@@ -222,9 +105,16 @@
               </div>
 
               <div class="legend-item">
+                <div class="legend-color-box pref-level-neutral-hashed"></div>
+                <div class="legend-text">
+                  Préférences neutres mais divergentes selon les ressources ou périodes
+                </div>
+              </div>
+
+              <div class="legend-item">
                 <div class="legend-color-box pref-level-mixed-hashed"></div>
                 <div class="legend-text">
-                  Contraintes différentes selon les périodes et/ou les ressources sélectionnées
+                  Conflit direct (ex: une ressource souhaite ce créneau alors qu'une autre y est indisponible)
                 </div>
               </div>
 
@@ -290,6 +180,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Teacher, Classroom, Division, Timeslot } from '../types';
+import GridContainer from './GridContainer.vue';
+import BrushPalette from './BrushPalette.vue';
 
 const props = withDefaults(defineProps<{
   teachers: Teacher[];
@@ -315,7 +207,7 @@ const currentStandardDuration = ref(30);
 const subCellCount = computed(() => {
   return Math.round(60 / currentStandardDuration.value);
 });
-const resourceId = ref<number | ''>('');
+const resourceId = ref<number | null>(null);
 const resourceIds = ref<number[]>([]);
 const activeBrush = ref<'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'>('Unsuited');
 const showLegendModal = ref(false);
@@ -395,8 +287,8 @@ async function loadPeriodsAndTypes() {
   }
 }
 
-watch(schoolId, () => {
-  loadPeriodsAndTypes();
+watch(schoolId, async () => {
+  await loadPeriodsAndTypes();
   selectedPeriodTypeId.value = null;
   selectedPeriodIds.value = [];
 }, { immediate: true });
@@ -416,6 +308,30 @@ function onPeriodCheckboxChange(pId: number) {
   }
   loadPreferences();
 }
+
+// Recharger les préférences quand les filtres changent via GridFilterBar (v-model)
+watch(selectedWeekType, () => {
+  if (resourceIds.value.length > 0) {
+    loadPreferences();
+  }
+});
+
+watch(selectedPeriodTypeId, (newVal) => {
+  if (newVal) {
+    selectedPeriodIds.value = periodsOfType.value.map(p => p.id);
+  } else {
+    selectedPeriodIds.value = [];
+  }
+  if (resourceIds.value.length > 0) {
+    loadPreferences();
+  }
+});
+
+watch(selectedPeriodIds, () => {
+  if (resourceIds.value.length > 0) {
+    loadPreferences();
+  }
+}, { deep: true });
 
 const currentResourceName = computed(() => {
   if (resourceIds.value.length > 1) {
@@ -444,7 +360,7 @@ watch(() => props.resourceIdsProp, (newVal) => {
       resourceIds.value = [props.resourceIdProp];
       loadPreferences();
     } else {
-      resourceId.value = '';
+      resourceId.value = null;
       resourceIds.value = [];
       preferencesMap.value = {};
       rawPreferences.value = {};
@@ -460,7 +376,7 @@ watch(() => props.resourceIdProp, (newVal) => {
     resourceIds.value = [newVal];
     loadPreferences();
   } else {
-    resourceId.value = '';
+    resourceId.value = null;
     resourceIds.value = [];
     preferencesMap.value = {};
     rawPreferences.value = {};
@@ -473,7 +389,7 @@ function onResourceChange() {
     resourceIds.value = [resourceId.value];
     loadPreferences();
   } else {
-    resourceId.value = '';
+    resourceId.value = null;
     resourceIds.value = [];
     preferencesMap.value = {};
     rawPreferences.value = {};
@@ -815,13 +731,25 @@ async function paintCell(day: number, hour: number) {
             week_type: selectedWeekType.value,
             period_ids: [...selectedPeriodIds.value]
           }),
-        }).then(res => {
-          if (!res.ok) throw new Error();
+        }).then(async res => {
+          if (!res.ok) {
+            const text = await res.text();
+            console.error('[paintCell] POST failed:', res.status, text, {
+              resource_type: resourceType.value,
+              resource_id: id,
+              timeslot_id: ts.id,
+              preference_level: newLevel,
+              week_type: selectedWeekType.value,
+              period_ids: [...selectedPeriodIds.value]
+            });
+            throw new Error(`HTTP ${res.status}: ${text}`);
+          }
         })
       )
     );
     await loadPreferences();
   } catch (err) {
+    console.error('[paintCell] Error:', err);
     // Rollback en cas d'erreur
     rawPreferences.value = previousRawPrefs;
     updateCombinedPreferences();

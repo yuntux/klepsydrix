@@ -72,6 +72,8 @@ En tant que planificateur, lorsque je sélectionne plusieurs cours sur ma grille
 
 En tant que planificateur ou enseignant, je veux pouvoir colorer une grille horaire réutilisable pour définir les préférences et indisponibilités de *n'importe quelle ressource* (enseignants, classes, groupes, salles, équipements) : rouge pour "Indisponible" (strictement bloquant), orange pour "Souhait d'absence" (pénalisé par le solveur), et vert pour "Souhait de présence" (favorisé/récompensé par le solveur), afin que l'emploi du temps généré respecte toutes les contraintes de l'établissement.
 
+*(Cette user story est implémentée via l'architecture modulaire de Grille Temporelle unifiée décrite dans la section "Spécifications de l'Architecture de la Grille Temporelle", en configurant la grille avec `preferenceMode = 'edit'` et `coursesMode = 'none'`)*
+
 **Why this priority**: C'est une fonctionnalité essentielle pour la flexibilité et la qualité globale de l'emploi du temps. La gestion générique évite de devoir réécrire un modèle de contrainte pour chaque type de ressource.
 
 **Independent Test**: Définir une salle de sport (Gymnase) indisponible le lundi matin (Rouge), un enseignant souhaitant ne pas travailler le mardi après-midi (Orange), et une classe de Terminale souhaitant être libérée le mercredi matin (Orange) mais favorisant le jeudi matin (Vert). Lancer le solveur et valider que toutes ces règles de ressources diverses sont arbitrées et respectées.
@@ -85,6 +87,9 @@ En tant que planificateur ou enseignant, je veux pouvoir colorer une grille hora
 ### User Story 4b - Grille de Vœux en Multi-sélection et Légende Interactive (Priority: P2)
 
 En tant que planificateur, je veux pouvoir sélectionner plusieurs enseignants (ou autres ressources) simultanément et visualiser une synthèse de leurs vœux sur la grille horaire du milieu :
+
+*(Cette user story est implémentée via le composant de filtrage multi-critères "GridFilterBar.vue" et la superposition des couches de la grille temporelle décrits dans la section "Spécifications de l'Architecture de la Grille Temporelle")*
+
 - Si un créneau a la même couleur (vert, orange, rouge ou neutre) pour tous les enseignants sélectionnés, le créneau s'affiche dans cette couleur pleine.
 - Si le créneau a des préférences différentes ou partielles, il s'affiche dans un motif hachuré :
   - **Hachuré rouge** : au moins un enseignant est indisponible (rouge) sur ce créneau et les autres sont neutres.
@@ -689,6 +694,62 @@ La structure générale de l'interface de l'application est définie par un arbr
   }
 ]
 ```
+
+---
+
+## Spécifications de l'Architecture de la Grille Temporelle (Multi-Couches & Composants)
+
+Afin d'assurer la convergence des besoins de planification (emploi du temps) et de configuration des contraintes (vœux) de manière cohérente, le système adopte une architecture modulaire multi-couches :
+
+### 1. Structure du Composant Grille (`BaseGrid.vue`)
+Le composant de rendu physique de la grille horaire est purement présentational (Dumb). Il est structuré en plusieurs couches superposées (Grid Stack) pour chaque sous-cellule :
+*   **Couche d'Arrière-plan (Background Layer)** : Dédiée à l'affichage des contraintes et préférences colorées (Vert, Orange, Rouge, Hachures).
+*   **Couche de Premier plan (Foreground Layer)** : Dédiée à l'affichage des cours assignés (Cartes de cours) et à l'interaction de déplacement (drag-and-drop).
+
+### 2. Paramétrage des Modes d'Interaction
+Le comportement de la grille est piloté par des axes de configuration orthogonaux :
+*   **`preferenceMode` (Axe Vœux & Contraintes)** :
+    *   `'none'` : La couche arrière reste neutre (classique).
+    *   `'readonly'` : Affiche les couleurs de préférence des ressources concernées pour guider le placement sans permettre le dessin.
+    *   `'edit'` : Affiche les couleurs de vœux, permet de peindre de nouvelles préférences (mode pinceau) et change le curseur en forme de pinceau au survol.
+*   **`coursesMode` (Axe Emploi du Temps)** :
+    *   `'none'` : Aucun cours n'est rendu au premier plan.
+    *   `'readonly'` : Affiche les cours de manière statique pour information uniquement.
+    *   `'edit'` : Affiche les cours et permet leur manipulation interactive (glisser-déposer, suppression rapide, pin).
+*   **`showSidebar` (Axe Layout)** :
+    *   `true` : Un panneau latéral (`Sidebar.vue`) contenant la liste des cours non planifiés est affiché à gauche (via le `SplitPanel.vue`).
+    *   `false` : La liste latérale est masquée, et la grille temporelle s'étire sur 100% de la largeur de l'écran.
+
+### 3. Correspondance des Modes d'Interaction avec les User Stories
+Le comportement unifié de la grille temporelle se configure selon le besoin métier :
+*   **Visualisation / Saisie des Vœux (US 4 & US 4b)** : `preferenceMode = 'edit'` (permet la peinture des cellules et change le curseur) et `coursesMode = 'none'` (ou `readonly` pour info).
+*   **Placement Opérationnel / Emploi du Temps (US 1)** : `preferenceMode = 'readonly'` (pour afficher en arrière-plan les contraintes et guider le placement sans pouvoir les modifier) et `coursesMode = 'edit'` (permet le déplacement des cartes par drag-and-drop).
+*   **Consultation simple de l'Emploi du Temps** : `preferenceMode = 'none'` et `coursesMode = 'readonly'`.
+
+### 4. Schéma d'Architecture (Composants et Flux)
+
+```mermaid
+graph TD
+    Parent["Page Emploi du Temps (App.vue)"] --> Container["GridContainer.vue (Coordinateur)"]
+    Container --> FilterBar["GridFilterBar.vue (Filtres)"]
+    Container --> BrushPalette["BrushPalette.vue (Palette de peinture)"]
+    Container --> BaseGrid["BaseGrid.vue (Trame temporelle nue)"]
+    
+    BaseGrid -.-> |"Fournit créneau via Scoped Slots"| SlotContent["Contenu de cellule"]
+    SlotContent --> |"Option A : Mode Emploi du Temps"| CourseCard["CourseCard.vue"]
+    SlotContent --> |"Option B : Mode Préférences"| PreferenceCell["PreferenceOverlay.vue"]
+    
+    useTimeslotGrid["composable: useTimeslotGrid.ts"] --> |"Partage la logique temporelle"| BaseGrid
+```
+
+### 5. Filtres Cumulatifs (`GridFilterBar.vue`)
+L'IHM de filtrage est isolée et permet de filtrer simultanément la grille temporelle selon les axes suivants :
+*   **L'alternance de semaine (Semaine A / Semaine B / Toutes)** : Sélecteur simple.
+*   **La période scolaire active (Sélection dynamique)** : 
+    *   Comportement : Sélection d'un type de période par menu déroulant, puis affichage de cases à cocher pour chaque période de ce type.
+    *   *Règles fonctionnelles associées* : Sélection obligatoire d'au moins une période (voir détails dans l'US 4b).
+*   **L'établissement** : Menu déroulant (ex: Collège Jean Jaurès, Lycée Jean Jaurès).
+*   **Les ressources cibles (Multi-sélection)** : Liste déroulante multi-sélection (avec des cases à cocher) par type de ressource (enseignant, classe, partie de classe, groupe, matériel, salle, personnel). Seules les ressources appartenant aux établissements sélectionnés s'affichent dans cette liste déroulante.
 
 ---
 

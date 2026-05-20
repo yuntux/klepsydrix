@@ -4,98 +4,29 @@
     <NotebooksTree @change-leaf="onLeafChange">
       <template #panel="{ panel }">
         <!-- 1. Grille interactive de l'Emploi du Temps -->
-        <div v-if="panel.component === 'TimetableGrid'" class="timetable-tab-wrapper">
-          <!-- Panneau latéral (Cours à planifier) à l'extrême gauche, sur toute la hauteur -->
-          <Sidebar
+        <!-- 1. Grille interactive de l'Emploi du Temps -->
+        <main v-if="panel.component === 'TimetableGrid'" class="main-layout" style="height: 100vh; overflow: hidden; display: flex; flex-direction: column;">
+          <TimetableGrid
             :courses="courses"
+            :timeslots="timeslots"
             :teachers="teachers"
             :divisions="divisions"
+            :classrooms="classrooms"
+            :schools="schoolsList"
+            v-model:viewMode="viewMode"
+            v-model:selectedId="selectedId"
+            :loading="loading"
+            :scoreData="scoreData"
             :selectedCourseIds="selectedCourseIds"
+            @move="onMoveCourse"
+            @unassign="onUnassignCourse"
+            @togglePin="onTogglePinCourse"
             @selectCourse="toggleCourseSelection"
+            @solve="onSolve"
+            @stop-solve="onStopSolve"
+            @reset="onReset"
           />
-
-          <!-- Zone de droite contenant la barre de filtres/actions ET la grille horaire -->
-          <div class="timetable-right-container">
-            <!-- Timetable Top Controls (Filter bar + Reset + Solve) -->
-            <div class="timetable-controls-bar">
-              <div class="filters-bar-wrapper">
-                <div class="filter-item">
-                  <label>Mode de vue :</label>
-                  <select v-model="viewMode" class="select-custom">
-                    <option value="division">Par Classe (Division)</option>
-                    <option value="teacher">Par Enseignant</option>
-                    <option value="classroom">Par Salle</option>
-                  </select>
-                </div>
-
-                <div class="filter-item" v-if="viewMode === 'division'">
-                  <label>Classe :</label>
-                  <select :value="selectedId" @change="selectedId = Number(($event.target as HTMLSelectElement).value)" class="select-custom">
-                    <option v-for="d in divisions" :key="d.id" :value="d.id">{{ d.name }}</option>
-                  </select>
-                </div>
-
-                <div class="filter-item" v-else-if="viewMode === 'teacher'">
-                  <label>Enseignant :</label>
-                  <select :value="selectedId" @change="selectedId = Number(($event.target as HTMLSelectElement).value)" class="select-custom">
-                    <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}</option>
-                  </select>
-                </div>
-
-                <div class="filter-item" v-else-if="viewMode === 'classroom'">
-                  <label>Salle :</label>
-                  <select :value="selectedId" @change="selectedId = Number(($event.target as HTMLSelectElement).value)" class="select-custom">
-                    <option v-for="c in classrooms" :key="c.id" :value="c.id">{{ c.name }} (Cap. {{ c.capacity }})</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Actions principales -->
-              <div class="controls-group">
-                <div class="score-pill" :class="{ 'score-perfect': scoreData && scoreData.hard_score === 0 && scoreData.soft_score === 0, 'score-warning': scoreData && (scoreData.hard_score < 0 || scoreData.soft_score < 0) }" :title="scoreData ? scoreData.summary : 'En attente...'">
-                  Score: {{ scoreData ? scoreData.hard_score : '?' }}H / {{ scoreData ? scoreData.soft_score : '?' }}S
-                </div>
-
-                <button class="btn btn-secondary" @click="onReset" :disabled="loading">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                  Réinitialiser
-                </button>
-
-                <button v-if="!loading" class="btn btn-primary" @click="onSolve">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 21l8.982-11.795M20.614 4c-.754.902-1.455 1.89-2.115 2.948m-2.115 2.948c-.07.112-.14.224-.21.336m-2.285 3.655A17.228 17.228 0 0 1 8.134 16m-4.82-4.48A17.185 17.185 0 0 1 11.25 8.134m0 0a17.185 17.185 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 0-3.116 7.866m0 0a17.22 17.22 0 0 0-4.819-4.48M12 8.5c.5-1 1.5-1.5 2.5-1.5s2 1 2.5 2c.5 1 .5 2-1 3.5s-2.5 2-3 3.5m0-7.5c-1-1-1.5-2.5-1.5-4s1-3 2.5-3s2.5 1.5 2.5 3c0 1.5-.5 3-1.5 4" />
-                  </svg>
-                  Résolution Auto
-                </button>
-
-                <button v-else class="btn btn-danger" @click="onStopSolve">
-                  <span class="spinner-small"></span>
-                  Arrêter
-                </button>
-              </div>
-            </div>
-
-            <!-- Grille horaire -->
-            <TimetableGrid
-              :courses="courses"
-              :timeslots="timeslots"
-              :teachers="teachers"
-              :divisions="divisions"
-              :classrooms="classrooms"
-              :viewMode="viewMode"
-              :selectedId="selectedId"
-              :loading="loading"
-              :selectedCourseIds="selectedCourseIds"
-              :schools="schoolsList"
-              @move="onMoveCourse"
-              @unassign="onUnassignCourse"
-              @togglePin="onTogglePinCourse"
-              @selectCourse="toggleCourseSelection"
-            />
-          </div>
-        </div>
+        </main>
 
         <!-- 2. Grille interactive de saisie des vœux -->
         <main v-else-if="panel.component === 'PreferenceGrid'" class="main-layout">
@@ -226,6 +157,7 @@
 import { ref, onMounted, watch, computed } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import TimetableGrid from './components/TimetableGrid.vue';
+import GridContainer from './components/GridContainer.vue';
 import GenericList from './components/GenericList.vue';
 import GenericForm from './components/GenericForm.vue';
 import ImpactConfirmDialog from './components/ImpactConfirmDialog.vue';
@@ -988,9 +920,9 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
     // Alerte en cas de placement sur un créneau indisponible (Rouge / Unsuited) - T025b
     if (courseObj) {
       try {
-        const prefRes = await fetch(`/api/timetable/preferences`).then(res => res.json());
+        const prefResData = await fetch(`/api/generic/resource_preferences?timeslot_id=${timeslotId}&limit=1000`).then(res => res.json());
+        const prefRes = prefResData.items || [];
         const unsuitedPref = prefRes.find((p: any) => 
-          p.timeslot_id === timeslotId && 
           p.preference_level === 'Unsuited' && (
             (p.resource_type === 'Teacher' && p.resource_id === courseObj.teacher_id) ||
             (p.resource_type === 'Classroom' && p.resource_id === classroomId) ||
