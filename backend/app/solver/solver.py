@@ -65,7 +65,18 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_teachers = db.query(Teacher).all()
     db_classrooms = db.query(Classroom).all()
     db_divisions = db.query(Division).all()
+    
+    from backend.app.models.system_setting import SystemSetting
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
+    duration = int(setting.value) if (setting and setting.value.isdigit()) else 30
+    
+    step = duration / 60.0
     db_timeslots = db.query(Timeslot).all()
+    db_timeslots = [
+        ts for ts in db_timeslots 
+        if abs((ts.hour / step) - round(ts.hour / step)) < 0.001
+    ]
+    
     db_courses = db.query(Course).all()
     db_links = db.query(ClassPartLink).all()
     db_preferences = db.query(ResourcePreference).all()
@@ -171,7 +182,8 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             original_timeslot_id=c.timeslot_id,
             week_type=week_type,
             class_part_ids=class_part_ids,
-            period_ids=[p.id for p in db_periods]
+            period_ids=[p.id for p in db_periods],
+            step=step
         )
         courses_list.append(pc)
 

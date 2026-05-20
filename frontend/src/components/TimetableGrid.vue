@@ -22,46 +22,53 @@
             v-for="day in days"
             :key="day.value"
             class="grid-cell"
-            :class="{ 'drag-over': isDragOver(day.value, hour) }"
-            @dragover.prevent="onDragOver($event, day.value, hour)"
-            @dragleave="onDragLeave(day.value, hour)"
-            @drop="onDrop($event, day.value, hour)"
+            :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }"
           >
             <div
-              v-for="course in getCoursesAt(day.value, hour)"
-              :key="course.id"
-              class="placed-course"
-              :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
-              :style="{ backgroundColor: getCourseColor(course.subject) }"
-              draggable="true"
-              @dragstart="onDragStart($event, course.id)"
-              @click.stop="$emit('selectCourse', course.id)"
+              v-for="idx in subCellCount"
+              :key="idx"
+              class="sub-cell"
+              :class="{ 'drag-over': isDragOver(day.value, hour + (idx - 1) * (currentStandardDuration / 60)) }"
+              @dragover.prevent="onDragOver($event, day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
+              @dragleave="onDragLeave(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
+              @drop="onDrop($event, day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
             >
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
-                <span class="placed-subject">{{ course.subject }}</span>
-                <div style="display: flex; align-items: center; gap: 2px;">
-                  <!-- Bouton de verrouillage (Pin) -->
-                  <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
-                    <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
-                      <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
-                    </svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="lock-icon">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
-                    </svg>
-                  </button>
-                  <!-- Bouton de retrait rapide (Unassign) -->
-                  <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+              <div
+                v-for="course in getCoursesAt(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
+                :key="course.id"
+                class="placed-course"
+                :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
+                :style="{ backgroundColor: getCourseColor(course.subject) }"
+                draggable="true"
+                @dragstart="onDragStart($event, course.id)"
+                @click.stop="$emit('selectCourse', course.id)"
+              >
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
+                  <span class="placed-subject">{{ course.subject }}</span>
+                  <div style="display: flex; align-items: center; gap: 2px;">
+                    <!-- Bouton de verrouillage (Pin) -->
+                    <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
+                      <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
+                        <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
+                      </svg>
+                      <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="lock-icon">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
+                      </svg>
+                    </button>
+                    <!-- Bouton de retrait rapide (Unassign) -->
+                    <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <div class="placed-meta">
-                <span v-if="viewMode !== 'teacher'">👤 {{ getTeacherName(course.teacher_id) }}</span>
-                <span v-if="viewMode !== 'division'">👥 {{ getDivisionName(course.division_id) }}</span>
-                <span v-if="viewMode !== 'classroom'">📍 {{ getClassroomName(course.classroom_id) }}</span>
+                <div class="placed-meta">
+                  <span v-if="viewMode !== 'teacher'">👤 {{ getTeacherName(course.teacher_id) }}</span>
+                  <span v-if="viewMode !== 'division'">👥 {{ getDivisionName(course.division_id) }}</span>
+                  <span v-if="viewMode !== 'classroom'">📍 {{ getClassroomName(course.classroom_id) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -78,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { Course, Timeslot, Teacher, Division, Classroom } from '../types';
 
 const props = defineProps<{
@@ -91,6 +98,7 @@ const props = defineProps<{
   selectedId: number | null;
   loading: boolean;
   selectedCourseIds?: number[];
+  schools?: any[];
 }>();
 
 const emit = defineEmits<{
@@ -111,6 +119,23 @@ const days = [
 
 const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
+const currentStandardDuration = ref(30);
+
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/generic/system_settings').then(r => r.json());
+    const items = res.items || [];
+    const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
+    currentStandardDuration.value = durationSetting ? Number(durationSetting.value) : 30;
+  } catch (e) {
+    console.error("Failed to load standard timeslot duration", e);
+  }
+});
+
+const subCellCount = computed(() => {
+  return Math.round(60 / currentStandardDuration.value);
+});
+
 const activeDragCells = ref<Record<string, boolean>>({});
 
 function getCellKey(day: number, hour: number): string {
@@ -130,7 +155,7 @@ function onDragLeave(day: number, hour: number) {
 }
 
 function getTimeslot(day: number, hour: number): Timeslot | undefined {
-  return props.timeslots.find(ts => ts.day_of_week === day && ts.hour === hour);
+  return props.timeslots.find(ts => ts.day_of_week === day && Math.abs(ts.hour - hour) < 0.001);
 }
 
 function getCoursesAt(day: number, hour: number): Course[] {
@@ -218,6 +243,22 @@ function getCourseColor(subject: string): string {
 </script>
 
 <style scoped>
+.sub-cell {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  transition: all 0.2s;
+  padding: 2px;
+}
+
+.sub-cell:not(:last-child) {
+  border-bottom: 1px dotted var(--border-color);
+}
+
 .unassign-btn {
   background: transparent;
   border: none;

@@ -8,7 +8,6 @@ class School(Base):
     id = Column(Integer, primary_key=True, index=True)
     uai = Column(String(8), unique=True, index=True, nullable=False)
     name = Column(String(100), nullable=False)
-    standard_timeslot_duration = Column(Integer, nullable=False, default=30)
     student_start_date = Column(Date, nullable=True)
     student_end_date = Column(Date, nullable=True)
 

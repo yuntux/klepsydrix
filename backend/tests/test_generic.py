@@ -45,7 +45,7 @@ def db_session():
 
 def test_generic_crud_flow(db_session: Session):
     # 1. Créer un établissement (School) requis pour le partitionnement
-    school = School(uai="1234567A", name="Lycée Test", standard_timeslot_duration=30)
+    school = School(uai="1234567A", name="Lycée Test")
     db_session.add(school)
     db_session.commit()
     db_session.refresh(school)
@@ -135,7 +135,7 @@ def test_generic_crud_dynamic_filtering(db_session: Session):
 
 def test_generic_dynamic_method_execution(db_session: Session):
     # 1. Créer un établissement de test
-    school = School(uai="8888888X", name="Ecole Test Dynamique", standard_timeslot_duration=45)
+    school = School(uai="8888888X", name="Ecole Test Dynamique")
     db_session.add(school)
     db_session.commit()
     db_session.refresh(school)
@@ -161,7 +161,7 @@ def test_generic_dynamic_method_execution(db_session: Session):
 
 def test_teacher_constraints_crud(db_session: Session):
     # 1. Créer un établissement requis pour le prof
-    school = School(uai="9999999Z", name="Lycée de la Forêt", standard_timeslot_duration=30)
+    school = School(uai="9999999Z", name="Lycée de la Forêt")
     db_session.add(school)
     db_session.commit()
     db_session.refresh(school)

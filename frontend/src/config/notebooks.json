@@ -501,6 +501,26 @@
             "width": "100%"
           }
         ]
+      },
+      {
+        "id": "system_settings_setting",
+        "title": "⚙️ Config globale",
+        "borderColor": "#6B7280",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "system_settings_list",
+            "component": "GenericList",
+            "resourceKey": "system_settings",
+            "width": "60%"
+          },
+          {
+            "id": "system_settings_form",
+            "component": "GenericForm",
+            "resourceKey": "system_settings",
+            "width": "40%"
+          }
+        ]
       }
     ]
   }

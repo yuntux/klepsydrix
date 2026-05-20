@@ -88,6 +88,7 @@
               :selectedId="selectedId"
               :loading="loading"
               :selectedCourseIds="selectedCourseIds"
+              :schools="schoolsList"
               @move="onMoveCourse"
               @unassign="onUnassignCourse"
               @togglePin="onTogglePinCourse"
@@ -103,6 +104,7 @@
             :classrooms="classrooms"
             :divisions="divisions"
             :timeslots="timeslots"
+            :schools="schoolsList"
             :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : 'Teacher'))"
             :resourceIdProp="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : (formModel && formModel.id ? formModel.id : null)"
             :resourceIdsProp="selectedParentIds || []"
@@ -313,13 +315,15 @@ const adminModels = [
   { key: 'missions', label: '🎯 Missions' },
   { key: 'election_methods', label: '🗳️ Méthodes d\'élection' },
   { key: 'periods', label: '📅 Périodes' },
-  { key: 'period_types', label: '🏷️ Types de périodes' }
+  { key: 'period_types', label: '🏷️ Types de périodes' },
+  { key: 'system_settings', label: '⚙️ Configuration globale' }
 ];
 const activeAdminModel = ref('schools');
 const genericItems = ref<any[]>([]);
 const genericLoading = ref(false);
 const schoolsList = ref<any[]>([]);
 const periodTypesList = ref<any[]>([]);
+const globalTimeslotDuration = ref(30);
 
 // États pour la boîte de dialogue de confirmation d'impact
 const showImpactModal = ref(false);
@@ -600,6 +604,8 @@ async function onSubmitGeneric(value: Record<string, any>) {
       loadSchools();
     } else if (activeAdminModel.value === 'period_types') {
       loadPeriodTypes();
+    } else if (activeAdminModel.value === 'system_settings') {
+      loadTimeslotConfig();
     }
   } catch (err: any) {
     showNotification('error', err.message || 'Impossible d\'enregistrer la ressource.');
@@ -614,6 +620,8 @@ async function onUpdateGenericInline(item: any) {
       loadSchools();
     } else if (activeAdminModel.value === 'period_types') {
       loadPeriodTypes();
+    } else if (activeAdminModel.value === 'system_settings') {
+      loadTimeslotConfig();
     } else if (['teachers', 'classrooms', 'divisions'].includes(activeAdminModel.value)) {
       loadData();
     }
@@ -661,6 +669,8 @@ async function onDeleteGeneric(item: any) {
         loadSchools();
       } else if (activeAdminModel.value === 'period_types') {
         loadPeriodTypes();
+      } else if (activeAdminModel.value === 'system_settings') {
+        loadTimeslotConfig();
       }
     } catch (err: any) {
       showNotification('error', err.message || 'Échec de la suppression de la ressource.');
@@ -688,7 +698,6 @@ const columnsConfig = computed(() => {
     return [
       { key: 'uai', label: 'UAI (RNE)', width: 120 },
       { key: 'name', label: 'Nom de l\'établissement', width: 250 },
-      { key: 'standard_timeslot_duration', label: 'Durée créneau (min)', width: 150 },
       { key: 'student_start_date', label: 'Début année élèves', width: 150 },
       { key: 'student_end_date', label: 'Fin année élèves', width: 150 }
     ];
@@ -759,6 +768,11 @@ const columnsConfig = computed(() => {
     return [
       { key: 'label', label: 'Libellé', width: 250 }
     ];
+  } else if (model === 'system_settings') {
+    return [
+      { key: 'key', label: 'Clé du paramètre', width: 250 },
+      { key: 'value', label: 'Valeur', width: 300 }
+    ];
   }
   return [];
 });
@@ -769,7 +783,7 @@ function getFormFieldsConfig(resourceKey?: string) {
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
   const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.label }));
 
-  const defaultDuration = schoolsList.value[0]?.standard_timeslot_duration || 30;
+  const defaultDuration = globalTimeslotDuration.value;
   const timeOptions: Array<{ value: string; label: string }> = [];
   let currentMinutes = 8 * 60; // 8h
   const endMinutes = 18 * 60; // 18h
@@ -786,7 +800,6 @@ function getFormFieldsConfig(resourceKey?: string) {
     return [
       { key: 'uai', label: 'Code UAI (RNE)', type: 'text', required: true, placeholder: 'ex: 0750001A' },
       { key: 'name', label: 'Nom de l\'établissement', type: 'text', required: true, placeholder: 'ex: Collège Jean Jaurès' },
-      { key: 'standard_timeslot_duration', label: 'Durée standard de créneau (min)', type: 'number', required: true, min: 5, max: 120, step: '5' },
       { key: 'student_start_date', label: 'Date de rentrée des élèves', type: 'date', required: false },
       { key: 'student_end_date', label: 'Date de sortie des élèves', type: 'date', required: false }
     ];
@@ -893,6 +906,11 @@ function getFormFieldsConfig(resourceKey?: string) {
   } else if (model === 'period_types') {
     return [
       { key: 'label', label: 'Libellé du type de période', type: 'text', required: true, placeholder: 'ex: Trimestre' }
+    ];
+  } else if (model === 'system_settings') {
+    return [
+      { key: 'key', label: 'Clé du paramètre', type: 'text', required: true, placeholder: 'ex: STANDARD_TIMESLOT_DURATION' },
+      { key: 'value', label: 'Valeur', type: 'text', required: true, placeholder: 'ex: 30' }
     ];
   }
   return [];
@@ -1089,7 +1107,19 @@ async function onReset() {
   }
 }
 
-onMounted(() => {
+async function loadTimeslotConfig() {
+  try {
+    const res = await fetch('/api/generic/system_settings').then(r => r.json());
+    const items = res.items || [];
+    const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
+    globalTimeslotDuration.value = durationSetting ? Number(durationSetting.value) : 30;
+  } catch (e) {
+    console.error("Failed to load standard timeslot duration config", e);
+  }
+}
+
+onMounted(async () => {
+  await loadTimeslotConfig();
   loadData();
   loadSchools();
   loadPeriodTypes();

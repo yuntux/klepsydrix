@@ -153,15 +153,22 @@
           <div
             v-for="day in days"
             :key="day.value"
-            class="grid-cell clickable-cell"
-            :class="getCellClass(day.value, hour)"
-            @mousedown="onCellMouseDown(day.value, hour, $event)"
-            @mouseenter="onCellMouseEnter(day.value, hour)"
-            @mousemove="onCellMouseMove(day.value, hour, $event)"
-            @mouseleave="onCellMouseLeave(day.value, hour)"
+            class="grid-cell"
+            :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }"
           >
-            <div class="cell-label">
-              {{ getCellLabel(day.value, hour) }}
+            <div
+              v-for="idx in subCellCount"
+              :key="idx"
+              class="sub-cell clickable-cell"
+              :class="getCellClass(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
+              @mousedown="onCellMouseDown(day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @mouseenter="onCellMouseEnter(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
+              @mousemove="onCellMouseMove(day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @mouseleave="onCellMouseLeave(day.value, hour + (idx - 1) * (currentStandardDuration / 60))"
+            >
+              <div class="cell-label">
+                {{ getCellLabel(day.value, hour + (idx - 1) * (currentStandardDuration / 60)) }}
+              </div>
             </div>
           </div>
         </template>
@@ -293,13 +300,21 @@ const props = withDefaults(defineProps<{
   resourceIdProp?: number | null;
   resourceIdsProp?: number[];
   hideSelectors?: boolean;
+  schools?: any[];
 }>(), {
   resourceTypeProp: 'Teacher',
   resourceIdsProp: () => [],
-  hideSelectors: false
+  hideSelectors: false,
+  schools: () => []
 });
 
 const resourceType = ref<'Teacher' | 'Classroom' | 'Division'>('Teacher');
+
+const currentStandardDuration = ref(30);
+
+const subCellCount = computed(() => {
+  return Math.round(60 / currentStandardDuration.value);
+});
 const resourceId = ref<number | ''>('');
 const resourceIds = ref<number[]>([]);
 const activeBrush = ref<'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'>('Unsuited');
@@ -466,7 +481,7 @@ function onResourceChange() {
 }
 
 function findMatchingPreferences(resourceId: number, day: number, hour: number): any[] {
-  const ts = props.timeslots.find(t => t.day_of_week === day && t.hour === hour);
+  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);
   if (!ts) return [];
   
   const prefs = rawPreferences.value[resourceId] || [];
@@ -511,9 +526,17 @@ function updateCombinedPreferences() {
   }
 
   const combined: Record<string, string> = {};
+  const subcellStep = currentStandardDuration.value / 60;
+  const targetHours: number[] = [];
+  hours.forEach(h => {
+    const count = Math.round(60 / currentStandardDuration.value);
+    for (let idx = 0; idx < count; idx++) {
+      targetHours.push(h + idx * subcellStep);
+    }
+  });
   
   days.forEach(d => {
-    hours.forEach(h => {
+    targetHours.forEach(h => {
       const key = `${d.value}-${h}`;
       
       const levels: string[] = [];
@@ -594,7 +617,7 @@ async function paintCell(day: number, hour: number) {
   const ids = resourceIds.value;
   if (ids.length === 0) return;
 
-  const ts = props.timeslots.find(t => t.day_of_week === day && t.hour === hour);
+  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);
   if (!ts) return;
 
   const key = `${day}-${hour}`;
@@ -843,6 +866,9 @@ function getCellLabel(day: number, hour: number): string {
   if (resourceIds.value.length > 1) {
     return getCellCounter(day, hour);
   }
+  if (currentStandardDuration.value < 60) {
+    return ''; // pas de texte dans les sous-cellules de 15/30 min pour un seul prof, la couleur suffit
+  }
   if (level === 'Preferred') return 'Vert / Préféré';
   if (level === 'Undesirable') return 'Orange / Indésirable';
   if (level === 'Unsuited') return 'Rouge / Indisponible';
@@ -889,7 +915,7 @@ function updateTooltip(day: number, hour: number, event: MouseEvent) {
     return;
   }
   
-  const ts = props.timeslots.find(t => t.day_of_week === day && t.hour === hour);
+  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);
   if (!ts) {
     tooltipData.value = null;
     return;
@@ -978,7 +1004,15 @@ const handleGlobalMouseUp = () => {
   isMouseDown.value = false;
 };
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/generic/system_settings').then(r => r.json());
+    const items = res.items || [];
+    const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
+    currentStandardDuration.value = durationSetting ? Number(durationSetting.value) : 30;
+  } catch (e) {
+    console.error("Failed to load standard timeslot duration", e);
+  }
   if (!props.hideSelectors) {
     onResourceChange();
   }
@@ -1265,6 +1299,21 @@ watch(resourceOptions, () => {
   transition: all 0.2s;
   position: relative;
   background-color: var(--bg-card);
+}
+
+.sub-cell {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.sub-cell:not(:last-child) {
+  border-bottom: 1px dotted var(--border-color);
 }
 
 .clickable-cell {

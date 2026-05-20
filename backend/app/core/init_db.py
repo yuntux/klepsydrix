@@ -20,8 +20,12 @@ def seed_v2_data():
     db = SessionLocal()
     try:
         # 2. Création des Établissements de la Cité Scolaire
-        db.execute(text("INSERT INTO schools (uai, name, standard_timeslot_duration, student_start_date, student_end_date) VALUES ('0750001A', 'Collège Jean Jaurès', 30, '2026-09-01', '2027-06-30')"))
-        db.execute(text("INSERT INTO schools (uai, name, standard_timeslot_duration, student_start_date, student_end_date) VALUES ('0750002B', 'Lycée Jean Jaurès', 30, '2026-09-01', '2027-06-30')"))
+        db.execute(text("INSERT INTO schools (uai, name, student_start_date, student_end_date) VALUES ('0750001A', 'Collège Jean Jaurès', '2026-09-01', '2027-06-30')"))
+        db.execute(text("INSERT INTO schools (uai, name, student_start_date, student_end_date) VALUES ('0750002B', 'Lycée Jean Jaurès', '2026-09-01', '2027-06-30')"))
+        db.commit()
+
+        # Seed global system settings
+        db.execute(text("INSERT INTO system_settings (key, value) VALUES ('STANDARD_TIMESLOT_DURATION', '30')"))
         db.commit()
         
         clg_id = db.execute(text("SELECT id FROM schools WHERE uai = '0750001A'")).scalar()
@@ -99,14 +103,16 @@ def seed_v2_data():
         mef_6_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '10010012110'")).scalar()
         mef_2_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '20010012110'")).scalar()
 
-        # 7. Création des Créneaux Temporels (Lundi index 1 au Samedi index 6, de 8h à 17h)
+        # 7. Création des Créneaux Temporels (Lundi index 1 au Samedi index 6, de 8h à 18h, pas de 15 minutes = 0.25h)
         timeslots = []
         for day in range(1, 7):
-            for hour in range(8, 18):
-                db.execute(text("INSERT INTO timeslots (day_of_week, hour) VALUES (:day, :hour)"), {"day": day, "hour": hour})
+            h_val = 8.0
+            while h_val < 18.0:
+                db.execute(text("INSERT INTO timeslots (day_of_week, hour) VALUES (:day, :hour)"), {"day": day, "hour": h_val})
                 db.commit()
-                ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND hour = :hour"), {"day": day, "hour": hour}).scalar()
+                ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND hour = :hour"), {"day": day, "hour": h_val}).scalar()
                 timeslots.append(ts_id)
+                h_val += 0.25
 
         # 8. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
         db.execute(text("INSERT INTO period_types (label) VALUES ('Trimestre')"))

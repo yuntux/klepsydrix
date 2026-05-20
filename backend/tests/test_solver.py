@@ -29,7 +29,7 @@ def db_session():
     db = TestSessionLocal()
     try:
         # Création des ressources socle indispensables (école, discipline, matière)
-        school = School(uai="1234567A", name="Lycée Test", standard_timeslot_duration=30)
+        school = School(uai="1234567A", name="Lycée Test")
         db.add(school)
         db.commit()
         

@@ -206,7 +206,10 @@ const consolidatedTimeslots = computed(() => {
     const ts = props.timeslots.find(item => item.id === c.timeslot_id);
     if (!ts) return 'Créneau Inconnu';
     const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-    return `${jours[ts.day_of_week]} ${ts.hour}h00`;
+    const hInt = Math.floor(ts.hour);
+    const mInt = Math.round((ts.hour - hInt) * 60);
+    const mStr = mInt > 0 ? String(mInt).padStart(2, '0') : '00';
+    return `${jours[ts.day_of_week]} ${hInt}h${mStr}`;
   });
 });
 

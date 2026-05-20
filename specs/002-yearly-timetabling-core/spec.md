@@ -233,9 +233,13 @@ Représente une entité administrative scolaire autonome (un collège, un lycée
 *   `type` : Type d'établissement (Enum : `COLLEGE`, `LYCEE`, `LYCEE_PRO`, `AUTRE`)
 *   `city` : Ville (Chaîne)
 *   `postal_code` : Code postal (Chaîne)
-*   `standard_timeslot_duration` : Durée standard d'un créneau élémentaire (Entier, exprimée en minutes, par défaut `30`). Cela permet au solveur de convertir dynamiquement les durées des cours en nombre de créneaux.
 *   `student_start_date` : Date de rentrée des élèves (Date, e.g. "2026-09-02")
 *   `student_end_date` : Date de sortie des élèves (Date, e.g. "2027-07-04")
+
+> [!NOTE]
+> **Gestion globale de la granularité et combinatoire :** 
+> La durée standard d'un créneau élémentaire (`STANDARD_TIMESLOT_DURATION`) est un paramètre global commun à toute la base de données, configuré au niveau de l'application (valeurs autorisées : `15`, `30`, `60` minutes, par défaut `30`).
+> Pour assurer une flexibilité maximale, la base de données est initialisée avec des créneaux temporels (`Timeslot`) au pas le plus fin (15 minutes, soit des incréments de `0.25`h). Lors de l'exécution, le solveur filtre immédiatement les créneaux disponibles (ex: uniquement les multiples de `0.5`h si la durée globale est de 30 minutes) avant de lancer l'optimisation. Ainsi, la combinatoire reste strictement limitée sans impact sur la performance.
 
 ### 1. Course (Cours)
 Le conteneur logique de cours.

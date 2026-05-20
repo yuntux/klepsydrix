@@ -55,7 +55,7 @@ class PlanningDivision:
 class PlanningTimeslot:
     id: int
     day_of_week: int
-    hour: int
+    hour: float
 
 
 @dataclass
@@ -119,6 +119,7 @@ class PlanningCourse:
     subject: str
     teacher: PlanningTeacher
     division: PlanningDivision
+    step: float
     timeslot: Annotated[PlanningTimeslot, PlanningVariable(value_range_provider_refs=['timeslotRange'])] = None
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
@@ -150,6 +151,11 @@ def weeks_overlap(w1: str, w2: str) -> bool:
     if w1 == "W" or w2 == "W":
         return True
     return w1 == w2
+
+
+def time_to_float(time_str: str) -> float:
+    parts = time_str.split(':')
+    return float(parts[0]) + float(parts[1]) / 60.0
 
 
 def periods_overlap(periods_a: List[int], periods_b: List[int]) -> bool:
@@ -268,7 +274,7 @@ def student_group_subject_variety(constraint_factory: ConstraintFactory) -> Cons
             Joiners.equal(lambda course: course.division),
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
-        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(course1.timeslot.hour - course2.timeslot.hour) == 1)
+        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(abs(course1.timeslot.hour - course2.timeslot.hour) - course1.step) < 0.001)
         .penalize(HardSoftScore.ONE_SOFT)
         .as_constraint("Student group subject variety")
     )
@@ -280,7 +286,7 @@ def teacher_time_efficiency(constraint_factory: ConstraintFactory) -> Constraint
             Joiners.equal(lambda course: course.teacher),
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
-        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(course1.timeslot.hour - course2.timeslot.hour) == 1)
+        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(abs(course1.timeslot.hour - course2.timeslot.hour) - course1.step) < 0.001)
         .reward(HardSoftScore.ONE_SOFT)
         .as_constraint("Teacher time efficiency")
     )
@@ -292,7 +298,7 @@ def division_time_efficiency(constraint_factory: ConstraintFactory) -> Constrain
             Joiners.equal(lambda course: course.division),
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
-        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(course1.timeslot.hour - course2.timeslot.hour) == 1)
+        .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(abs(course1.timeslot.hour - course2.timeslot.hour) - course1.step) < 0.001)
         .reward(HardSoftScore.ONE_SOFT)
         .as_constraint("Division time efficiency")
     )
@@ -457,10 +463,10 @@ def teacher_late_start_limit(constraint_factory: ConstraintFactory) -> Constrain
             Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
         )
         .filter(lambda teacher, timeslots_set, rc: rc.late_start_time is not None and rc.late_start_days_per_week is not None)
-        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour < int(rc.late_start_time.split(':')[0])}) > (5 - rc.late_start_days_per_week))
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour < time_to_float(rc.late_start_time)}) > (5 - rc.late_start_days_per_week))
         .penalize(
             HardSoftScore.ONE_HARD,
-            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour < int(rc.late_start_time.split(':')[0])}) - (5 - rc.late_start_days_per_week)) * 10
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour < time_to_float(rc.late_start_time)}) - (5 - rc.late_start_days_per_week)) * 10
         )
         .as_constraint("Teacher late start limit")
     )
@@ -480,10 +486,10 @@ def teacher_early_end_limit(constraint_factory: ConstraintFactory) -> Constraint
             Joiners.equal(lambda teacher, timeslots_set: teacher.id, lambda rc: rc.resource_id)
         )
         .filter(lambda teacher, timeslots_set, rc: rc.early_end_time is not None and rc.early_end_days_per_week is not None)
-        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour >= float(rc.early_end_time.split(':')[0]) + (0.5 if rc.early_end_time.split(':')[1] == '30' else 0.0)}) > (5 - rc.early_end_days_per_week))
+        .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour >= time_to_float(rc.early_end_time)}) > (5 - rc.early_end_days_per_week))
         .penalize(
             HardSoftScore.ONE_HARD,
-            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour >= float(rc.early_end_time.split(':')[0]) + (0.5 if rc.early_end_time.split(':')[1] == '30' else 0.0)}) - (5 - rc.early_end_days_per_week)) * 10
+            lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour >= time_to_float(rc.early_end_time)}) - (5 - rc.early_end_days_per_week)) * 10
         )
         .as_constraint("Teacher early end limit")
     )

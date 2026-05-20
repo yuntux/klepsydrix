@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, UniqueConstraint
+from sqlalchemy import Column, Integer, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
 
@@ -7,7 +7,7 @@ class Timeslot(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     day_of_week = Column(Integer, nullable=False) # 1 = Lundi, 6 = Samedi
-    hour = Column(Integer, nullable=False)        # 8 = 8h-9h, 17 = 17h-18h
+    hour = Column(Float, nullable=False)          # ex: 8.0 = 8h00, 8.5 = 8h30
 
     # Relation avec les séances planifiées sur ce créneau
     sessions = relationship("Session", back_populates="timeslot", passive_deletes="all")
