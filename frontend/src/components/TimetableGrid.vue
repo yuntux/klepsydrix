@@ -11,8 +11,8 @@
       :periods="[]"
       :viewMode="viewMode"
       @update:viewMode="$emit('update:viewMode', $event)"
-      :selectedId="selectedId"
-      @update:selectedId="$emit('update:selectedId', $event)"
+      :selectedIds="selectedIds"
+      @update:selectedIds="$emit('update:selectedIds', $event)"
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
     >
@@ -135,7 +135,7 @@ const props = defineProps<{
   divisions: Division[];
   classrooms: Classroom[];
   viewMode: string;
-  selectedId: number | null;
+  selectedIds: number[];
   loading: boolean;
   selectedCourseIds?: number[];
   schools?: any[];
@@ -148,7 +148,7 @@ const emit = defineEmits<{
   (e: 'togglePin', courseId: number): void;
   (e: 'selectCourse', courseId: number): void;
   (e: 'update:viewMode', value: string): void;
-  (e: 'update:selectedId', value: number | null): void;
+  (e: 'update:selectedIds', value: number[]): void;
   (e: 'reset'): void;
   (e: 'solve'): void;
   (e: 'stop-solve'): void;
@@ -184,11 +184,11 @@ function getCoursesAt(day: number, hour: number): Course[] {
     if (course.timeslot_id !== ts.id) return false;
 
     if (props.viewMode === 'division') {
-      return course.division_id === props.selectedId;
+      return props.selectedIds.includes(course.division_id);
     } else if (props.viewMode === 'teacher') {
-      return course.teacher_id === props.selectedId;
+      return props.selectedIds.includes(course.teacher_id);
     } else if (props.viewMode === 'classroom') {
-      return course.classroom_id === props.selectedId;
+      return course.classroom_id !== null && props.selectedIds.includes(course.classroom_id);
     }
     return false;
   });

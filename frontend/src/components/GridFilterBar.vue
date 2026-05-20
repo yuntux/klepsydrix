@@ -29,78 +29,77 @@
           </select>
         </div>
 
-        <div class="filter-item" v-if="viewMode === 'division'">
-          <label>Classe :</label>
-          <select 
-            :value="selectedId" 
-            @change="$emit('update:selectedId', Number(($event.target as HTMLSelectElement).value))" 
-            class="select-custom"
-          >
-            <option v-for="d in filteredDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
-            <option v-if="filteredDivisions.length === 0" value="">Aucune classe</option>
-          </select>
-        </div>
-
-        <div class="filter-item" v-else-if="viewMode === 'teacher'">
-          <label>Enseignant :</label>
-          <select 
-            :value="selectedId" 
-            @change="$emit('update:selectedId', Number(($event.target as HTMLSelectElement).value))" 
-            class="select-custom"
-          >
-            <option v-for="t in filteredTeachers" :key="t.id" :value="t.id">{{ t.name }}</option>
-            <option v-if="filteredTeachers.length === 0" value="">Aucun enseignant</option>
-          </select>
-        </div>
-
-        <div class="filter-item" v-else-if="viewMode === 'classroom'">
-          <label>Salle :</label>
-          <select 
-            :value="selectedId" 
-            @change="$emit('update:selectedId', Number(($event.target as HTMLSelectElement).value))" 
-            class="select-custom"
-          >
-            <option v-for="c in filteredClassrooms" :key="c.id" :value="c.id">{{ c.name }} (Cap. {{ c.capacity }})</option>
-            <option v-if="filteredClassrooms.length === 0" value="">Aucune salle</option>
-          </select>
-        </div>
       </template>
 
-      <!-- 3. Resource Selectors for 'preference' mode (optional) -->
-      <template v-if="mode === 'preference' && !hideResourceSelectors">
-        <div class="filter-item">
+      <template v-if="mode === 'timetable' || (mode === 'preference' && !hideResourceSelectors)">
+        <div class="filter-item" v-if="mode === 'preference'">
           <label>Type de Ressource :</label>
           <select 
             :value="viewMode" 
             @change="$emit('update:viewMode', ($event.target as HTMLSelectElement).value)" 
             class="select-custom"
           >
-            <option value="teacher">👨‍🏫 Enseignant</option>
-            <option value="classroom">🏢 Salle</option>
-            <option value="division">🎒 Classe (Division)</option>
+            <option value="Teacher">👨‍🏫 Enseignant</option>
+            <option value="Classroom">🏢 Salle</option>
+            <option value="Division">🎒 Classe (Division)</option>
           </select>
         </div>
 
-        <div class="filter-item">
-          <label>Ressource :</label>
-          <select 
-            :value="selectedId" 
-            @change="$emit('update:selectedId', Number(($event.target as HTMLSelectElement).value))" 
-            class="select-custom"
+        <div class="filter-item resource-multi-select" style="position: relative;">
+          <label v-if="mode === 'timetable'">
+            <span v-if="viewMode?.toLowerCase() === 'division'">Classe :</span>
+            <span v-else-if="viewMode?.toLowerCase() === 'teacher'">Enseignant :</span>
+            <span v-else-if="viewMode?.toLowerCase() === 'classroom'">Salle :</span>
+          </label>
+          <label v-else>Ressources :</label>
+          
+          <button 
+            class="select-custom" 
+            style="text-align: left; background-color: #fff; cursor: pointer; min-width: 200px; display: flex; justify-content: space-between; align-items: center;"
+            @click="openDropdown($event)"
           >
-            <template v-if="viewMode === 'teacher'">
-              <option v-for="t in filteredTeachers" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </template>
-            <template v-else-if="viewMode === 'classroom'">
-              <option v-for="c in filteredClassrooms" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </template>
-            <template v-else-if="viewMode === 'division'">
-              <option v-for="d in filteredDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
-            </template>
-            <option v-if="activeResourceOptionsCount === 0" value="">Aucune ressource disponible</option>
-          </select>
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">
+              {{ selectedIds.length === 0 ? 'Aucune sélection' : (selectedIds.length === 1 ? activeResourceList.find(r => r.id === selectedIds[0])?.name : selectedIds.length + ' sélectionnés') }}
+            </span>
+            <span style="font-size: 10px;">&#9660;</span>
+          </button>
+
+          <!-- Overlay transparent pour fermer au clic exterieur -->
+          <div 
+            v-if="showResourceDropdown"
+            style="position: fixed; inset: 0; z-index: 998;"
+            @click="showResourceDropdown = false"
+          />
+
+          <!-- Dropdown teleporté dans body pour éviter overflow:hidden -->
+          <Teleport to="body">
+            <div 
+              v-if="showResourceDropdown"
+              class="resource-dropdown-panel"
+              style="position: fixed; z-index: 999; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
+              :style="dropdownPos"
+              @click.stop
+            >
+              <div style="padding: 4px 8px; border-bottom: 1px solid #eee; display: flex; gap: 8px;">
+                <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="$emit('update:selectedIds', activeResourceList.map(r => r.id))">Tout</button>
+                <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="$emit('update:selectedIds', [])">Rien</button>
+              </div>
+              <label v-for="r in activeResourceList" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid #f3f4f6;">
+                <input 
+                  type="checkbox" 
+                  :value="r.id" 
+                  :checked="selectedIds.includes(r.id)"
+                  @change="onResourceCheckboxToggle(r.id, $event)"
+                />
+                <span style="flex: 1; font-size: 13px;">{{ r.name }}</span>
+              </label>
+              <div v-if="activeResourceList.length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
+            </div>
+          </Teleport>
         </div>
       </template>
+
+
 
       <!-- Right actions slot -->
       <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
@@ -157,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = withDefaults(defineProps<{
   mode?: 'timetable' | 'preference';
@@ -169,7 +168,7 @@ const props = withDefaults(defineProps<{
   periods?: any[];
   
   viewMode?: string;
-  selectedId?: number | null;
+  selectedIds?: number[];
   schoolId?: number | null;
   weekType?: 'W' | 'A' | 'B';
   periodTypeId?: number | null;
@@ -186,7 +185,7 @@ const props = withDefaults(defineProps<{
   periodTypes: () => [],
   periods: () => [],
   viewMode: 'division',
-  selectedId: null,
+  selectedIds: () => [],
   schoolId: null,
   weekType: 'W',
   periodTypeId: null,
@@ -197,7 +196,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:viewMode', value: string): void;
-  (e: 'update:selectedId', value: number | null): void;
+  (e: 'update:selectedIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;
@@ -220,12 +219,38 @@ const filteredClassrooms = computed(() => {
   return props.classrooms.filter(c => c.school_id === props.schoolId);
 });
 
-const activeResourceOptionsCount = computed(() => {
-  if (props.viewMode === 'teacher') return filteredTeachers.value.length;
-  if (props.viewMode === 'classroom') return filteredClassrooms.value.length;
-  if (props.viewMode === 'division') return filteredDivisions.value.length;
-  return 0;
+const activeResourceList = computed(() => {
+  const m = props.viewMode?.toLowerCase();
+  if (m === 'teacher') return filteredTeachers.value;
+  if (m === 'classroom') return filteredClassrooms.value;
+  if (m === 'division') return filteredDivisions.value;
+  return [];
 });
+
+const showResourceDropdown = ref(false);
+const dropdownPos = ref<Record<string, string>>({});
+
+function openDropdown(event: MouseEvent) {
+  const btn = (event.currentTarget as HTMLElement);
+  const rect = btn.getBoundingClientRect();
+  dropdownPos.value = {
+    top: (rect.bottom + 4) + 'px',
+    left: rect.left + 'px',
+    width: Math.max(rect.width, 240) + 'px',
+  };
+  showResourceDropdown.value = true;
+}
+
+function onResourceCheckboxToggle(id: number, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  let newIds = [...(props.selectedIds || [])];
+  if (checked) {
+    if (!newIds.includes(id)) newIds.push(id);
+  } else {
+    newIds = newIds.filter(x => x !== id);
+  }
+  emit('update:selectedIds', newIds);
+}
 
 // Period types selection logic
 const filteredPeriodTypes = computed(() => {

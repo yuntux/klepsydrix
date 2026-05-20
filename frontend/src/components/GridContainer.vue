@@ -10,7 +10,7 @@
       :periodTypes="periodTypes"
       :periods="periods"
       :viewMode="viewMode"
-      :selectedId="selectedId"
+      :selectedIds="selectedIds"
       :schoolId="schoolId"
       :weekType="weekType"
       :periodTypeId="periodTypeId"
@@ -18,7 +18,7 @@
       :hideResourceSelectors="hideResourceSelectors"
       :hideSchoolSelector="hideSchoolSelector"
       @update:viewMode="$emit('update:viewMode', $event)"
-      @update:selectedId="$emit('update:selectedId', $event)"
+      @update:selectedIds="$emit('update:selectedIds', $event)"
       @update:schoolId="$emit('update:schoolId', $event)"
       @update:weekType="$emit('update:weekType', $event)"
       @update:periodTypeId="$emit('update:periodTypeId', $event)"
@@ -97,7 +97,7 @@ withDefaults(defineProps<{
   periods?: any[];
   
   viewMode?: string;
-  selectedId?: number | null;
+  selectedIds?: number[];
   schoolId?: number | null;
   weekType?: 'W' | 'A' | 'B';
   periodTypeId?: number | null;
@@ -118,7 +118,7 @@ withDefaults(defineProps<{
   periodTypes: () => [],
   periods: () => [],
   viewMode: 'division',
-  selectedId: null,
+  selectedIds: () => [],
   schoolId: null,
   weekType: 'W',
   periodTypeId: null,
@@ -130,7 +130,7 @@ withDefaults(defineProps<{
 defineEmits<{
   (e: 'update:brush', value: 'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'): void;
   (e: 'update:viewMode', value: string): void;
-  (e: 'update:selectedId', value: number | null): void;
+  (e: 'update:selectedIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;

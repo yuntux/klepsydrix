@@ -10,7 +10,7 @@
       :periodTypes="allPeriodTypes"
       :periods="allPeriods"
       v-model:viewMode="resourceType"
-      v-model:selectedId="resourceId"
+      v-model:selectedIds="resourceIds"
       :schoolId="schoolId"
       v-model:weekType="selectedWeekType"
       v-model:periodTypeId="selectedPeriodTypeId"
@@ -207,7 +207,6 @@ const currentStandardDuration = ref(30);
 const subCellCount = computed(() => {
   return Math.round(60 / currentStandardDuration.value);
 });
-const resourceId = ref<number | null>(null);
 const resourceIds = ref<number[]>([]);
 const activeBrush = ref<'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'>('Unsuited');
 const showLegendModal = ref(false);
@@ -352,15 +351,12 @@ watch(() => props.resourceTypeProp, (newVal) => {
 watch(() => props.resourceIdsProp, (newVal) => {
   resourceIds.value = newVal || [];
   if (resourceIds.value.length > 0) {
-    resourceId.value = resourceIds.value[0];
     loadPreferences();
   } else {
     if (props.resourceIdProp !== undefined && props.resourceIdProp !== null) {
-      resourceId.value = props.resourceIdProp;
       resourceIds.value = [props.resourceIdProp];
       loadPreferences();
     } else {
-      resourceId.value = null;
       resourceIds.value = [];
       preferencesMap.value = {};
       rawPreferences.value = {};
@@ -372,29 +368,23 @@ watch(() => props.resourceIdProp, (newVal) => {
   if (props.resourceIdsProp && props.resourceIdsProp.length > 0) return;
   
   if (newVal !== undefined && newVal !== null) {
-    resourceId.value = newVal;
     resourceIds.value = [newVal];
     loadPreferences();
   } else {
-    resourceId.value = null;
     resourceIds.value = [];
     preferencesMap.value = {};
     rawPreferences.value = {};
   }
 }, { immediate: true });
 
-function onResourceChange() {
-  if (resourceOptions.value.length > 0) {
-    resourceId.value = resourceOptions.value[0].id;
-    resourceIds.value = [resourceId.value];
+watch(resourceIds, () => {
+  if (resourceIds.value.length > 0) {
     loadPreferences();
   } else {
-    resourceId.value = null;
-    resourceIds.value = [];
     preferencesMap.value = {};
     rawPreferences.value = {};
   }
-}
+}, { deep: true });
 
 function findMatchingPreferences(resourceId: number, day: number, hour: number): any[] {
   const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);

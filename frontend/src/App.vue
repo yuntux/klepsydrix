@@ -14,7 +14,7 @@
             :classrooms="classrooms"
             :schools="schoolsList"
             v-model:viewMode="viewMode"
-            v-model:selectedId="selectedId"
+            v-model:selectedIds="selectedIds"
             :loading="loading"
             :scoreData="scoreData"
             :selectedCourseIds="selectedCourseIds"
@@ -176,7 +176,7 @@ const divisions = ref<Division[]>([]);
 const classrooms = ref<Classroom[]>([]);
 
 const viewMode = ref<string>('division');
-const selectedId = ref<number | null>(null);
+const selectedIds = ref<number[]>([]);
 const loading = ref<boolean>(false);
 
 const selectedCourseIds = ref<number[]>([]);
@@ -343,13 +343,13 @@ async function loadGenericItems() {
 
 function updateDefaultSelection() {
   if (viewMode.value === 'division' && divisions.value.length > 0) {
-    selectedId.value = divisions.value[0].id;
+    selectedIds.value = [divisions.value[0].id];
   } else if (viewMode.value === 'teacher' && teachers.value.length > 0) {
-    selectedId.value = teachers.value[0].id;
+    selectedIds.value = [teachers.value[0].id];
   } else if (viewMode.value === 'classroom' && classrooms.value.length > 0) {
-    selectedId.value = classrooms.value[0].id;
+    selectedIds.value = [classrooms.value[0].id];
   } else {
-    selectedId.value = null;
+    selectedIds.value = [];
   }
 }
 
