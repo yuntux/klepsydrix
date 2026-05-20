@@ -208,8 +208,8 @@ def seed_v2_data():
         # Chaque classe a au moins 4 cours de base
         course_count = 0
         for d_id, s_id in divisions:
-            # Matières : Maths (MATHS), Français (FRAN), Hist-Géo (HG), Sciences (PC ou SVT)
-            selected_subjects = ["MATHS", "FRAN", "HG"]
+            # Matières : Maths (MATHS), Français (FRAN), Hist-Géo (HG), SVT (SVT), et PC/TECHNO
+            selected_subjects = ["MATHS", "FRAN", "HG", "SVT"]
             if s_id == clg_id:
                 selected_subjects.append("TECHNO")
                 # Associer des enseignants du collège (index 1 à 20)
@@ -223,10 +223,19 @@ def seed_v2_data():
                 subj_id = subject_ids[s_code]
                 t_id = random.choice(teacher_pool)
                 
+                # SVT, TECHNO, et PC durent 1h30 (90 minutes)
+                duration = 90 if s_code in ["SVT", "TECHNO", "PC"] else 55
+                
                 db.execute(text(
                     "INSERT INTO courses (subject_id, teacher_id, division_id, duration_minutes, is_complex, lock_sessions, school_id) "
-                    "VALUES (:subject_id, :teacher_id, :division_id, 55, 0, 0, :school_id)"
-                ), {"subject_id": subj_id, "teacher_id": t_id, "division_id": d_id, "school_id": s_id})
+                    "VALUES (:subject_id, :teacher_id, :division_id, :duration_minutes, 0, 0, :school_id)"
+                ), {
+                    "subject_id": subj_id,
+                    "teacher_id": t_id,
+                    "division_id": d_id,
+                    "duration_minutes": duration,
+                    "school_id": s_id
+                })
                 db.commit()
                 
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()

@@ -5,7 +5,7 @@
       'is-divergent': isDivergent, 
       'is-common': !isDivergent 
     }"
-    v-tooltip="tooltipText"
+    :title="tooltipText"
   >
     <!-- Label -->
     <span class="chip-label">{{ label }}</span>

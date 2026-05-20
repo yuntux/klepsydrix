@@ -17,7 +17,12 @@
         @dragstart="onDragStart($event, course.id)"
         @click.stop="$emit('selectCourse', course.id)"
       >
-        <div class="course-subject">{{ course.subject }}</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <div class="course-subject">{{ course.subject }}</div>
+          <span style="font-size: 11.5px; background: rgba(0, 0, 0, 0.05); padding: 2.5px 7px; border-radius: 6px; font-weight: bold; color: var(--text-secondary); font-family: monospace;">
+            ⏱️ {{ formatDuration(course.duration_minutes) }}
+          </span>
+        </div>
         <div class="course-meta">
           <span class="meta-item">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -60,6 +65,13 @@ const emit = defineEmits<{
 const unassignedCourses = computed(() => {
   return props.courses.filter(c => c.timeslot_id === null);
 });
+
+function formatDuration(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const mStr = String(m).padStart(2, '0');
+  return `${h}h${mStr}`;
+}
 
 function getTeacherName(id: number) {
   return props.teachers.find(t => t.id === id)?.name || 'Enseignant inconnu';

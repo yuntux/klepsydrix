@@ -44,6 +44,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
                 "timeslot_id": c.timeslot_id,
                 "classroom_id": c.classroom_id,
                 "is_pinned": c.is_pinned,
+                "duration_minutes": c.duration_minutes,
             }
             for c in courses
         ],

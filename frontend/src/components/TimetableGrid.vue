@@ -38,7 +38,12 @@
                 :key="course.id"
                 class="placed-course"
                 :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
-                :style="{ backgroundColor: getCourseColor(course.subject) }"
+                :style="{
+                  backgroundColor: getCourseColor(course.subject),
+                  height: getCourseHeight(course),
+                  bottom: 'auto',
+                  zIndex: 10
+                }"
                 draggable="true"
                 @dragstart="onDragStart($event, course.id)"
                 @click.stop="$emit('selectCourse', course.id)"
@@ -135,6 +140,12 @@ onMounted(async () => {
 const subCellCount = computed(() => {
   return Math.round(60 / currentStandardDuration.value);
 });
+
+function getCourseHeight(course: Course) {
+  const duration = course.duration_minutes || 30;
+  const span = Math.ceil(duration / currentStandardDuration.value);
+  return `calc(${span} * 100% - 8px + ${span - 1}px)`;
+}
 
 const activeDragCells = ref<Record<string, boolean>>({});
 

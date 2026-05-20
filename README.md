@@ -22,10 +22,16 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
     - Salles / sites / groupes de salles
     - Créneaux temporels
     - Cours
+    - Ajout d'un commentaire à l'objet préférence et à l'objet contrainte
 
 - Calculs : 
     - Intégration du moteur de contraintes pour la résolution de l'emploi du temps
     - Planification avancée annuelle (Alternances A/B, Groupes)
+    - Expliquer à l'utilisateur pourquoi il n'est pas possible de placer un cours sur tel créneau
+    - Montrer sur le calendrier les "poids" des différentes créeaux sur lesquels on pourrait placer un cours
+    - Lister tous les cours non placés qui peuvent aller dans ce créeaux (tet lees classer par "poiods")
+    - Afficher els permuttaions possibles de cours déjà placés.
+    - Voir les salles libres sur un créneau et les cours sans salles
 
 - Paramétrage : 
     - du calendrier de l'année (jours travaillés, horaires, etc) de chaque établissement
@@ -33,8 +39,14 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
     - des disciplines et de leurs enseignants
 
 
+### 3. Pré-rentrée
+- Gestion du TRMD
+- Paramétrage des spécificités et parcours de formation (Options 2ndes, Spécialités 1eres et Terminales...)
+- Génération automatique des cours
+- Affections automatique des élèves aux classes
+- Génération automatique des groupes et affectation automatique des élèves aux groupes
 
-### 3. Emploi du temps opérationnel (hebdomadaire)
+### 4. Emploi du temps opérationnel (hebdomadaire)
 - Déclinaison de l'emploi du temps annuel en emploi du temps hebdomadaire
 - Gestion des suppressions / ajouts de cours
 - Gestion des remplacements et absences de professeurs/personnels
@@ -43,13 +55,6 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Gestion des permanences
 - Recherche des salles disponibles
 - Gestion des statistiques
-
-### 4. Pré-rentrée
-- Gestion du TRMD
-- Paramétrage des spécificités et parcours de formation (Options 2ndes, Spécialités 1eres et Terminales...)
-- Génération automatique des cours
-- Affections automatique des élèves aux classes
-- Génération automatique des groupes et affectation automatique des élèves aux groupes
 
 ### 5. Rencontres parents professeurs
 - Paramétrage des rencontres parents professeurs
@@ -84,8 +89,10 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Intégration d'un "cockpit" pour visualiser les indicateurs clés du quotient
 - Intégration de tableaux de bord de suivi de la qualité des emplois du temps
 
-### 11. Mode déconnecté / gestion des gros volumes d'établissements
-- Verrouillage des données du serveur centralisé quand un planificateur travaille sur son poste en mode déconnecté.
-- Intégration dans la JVM locale ou bien capacité à faire tourner le moteur de calcul Timefold en local. Les résultats des calculs sont ensuite renvoyés au serveur centralisé à la reconnexion.
+### 11. Gestion des gros volumes d'établissements
+- Migration vers PostgreSQL
 - Possibilité de versionner / snapshot de la base de données (que l'on travaille en local ou sur le serveur centralisé)
 - IHM d'administration des bases de données et pilotage technique de l'infrastructure
+- Mode "calcul annuel" en local : 
+    - Verrouillage des données du serveur centralisé quand un planificateur travaille sur son poste en mode déconnecté.
+    - Intégration dans la JVM locale ou bien capacité à faire tourner le moteur de calcul Timefold en local. Les résultats des calculs sont ensuite renvoyés au serveur centralisé à la reconnexion.

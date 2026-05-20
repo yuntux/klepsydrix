@@ -31,6 +31,7 @@ export interface Course {
   timeslot_id: number | null;
   classroom_id: number | null;
   is_pinned: boolean;
+  duration_minutes: number;
 }
 
 export interface TimetableData {

@@ -491,18 +491,6 @@
         ]
       },
       {
-        "id": "preferences_setting",
-        "title": "🎨 Vœux",
-        "borderColor": "#EAB308",
-        "panels": [
-          {
-            "id": "preferences_grid",
-            "component": "PreferenceGrid",
-            "width": "100%"
-          }
-        ]
-      },
-      {
         "id": "system_settings_setting",
         "title": "⚙️ Config globale",
         "borderColor": "#6B7280",

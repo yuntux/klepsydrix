@@ -282,8 +282,6 @@ function onLeafChange(leaf: any) {
   
   if (leaf.id === 'timetable_root') {
     activeTab.value = 'timetable';
-  } else if (leaf.id === 'preferences_setting') {
-    activeTab.value = 'preferences';
   } else {
     activeTab.value = 'admin';
   }

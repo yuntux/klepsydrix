@@ -12,6 +12,7 @@
         </svg>
         <span class="header-text">Fiche T Cumulée</span>
         <span class="header-badge">{{ courses.length }} sélectionnés</span>
+        <span class="header-badge duration-badge" style="background-color: rgba(16, 185, 129, 0.18); color: #34d399; border-color: rgba(16, 185, 129, 0.25);">⏱️ {{ totalDurationHours }}</span>
       </div>
       <button class="btn-close" @click="$emit('close')">×</button>
     </div>
@@ -110,6 +111,14 @@ const props = defineProps<{
 defineEmits<{
   (e: 'close'): void;
 }>();
+
+const totalDurationHours = computed(() => {
+  const sumMinutes = props.courses.reduce((acc, c) => acc + (c.duration_minutes || 0), 0);
+  const h = Math.floor(sumMinutes / 60);
+  const m = sumMinutes % 60;
+  const mStr = String(m).padStart(2, '0');
+  return `${h}h${mStr}`;
+});
 
 // Coordonnées absolues du Popin
 const x = ref(100);
