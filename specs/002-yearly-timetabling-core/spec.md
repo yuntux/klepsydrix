@@ -531,9 +531,9 @@ Garantit les conditions de service et l'aménagement du temps de travail des pro
 
 *   **Horaires Aménagés** (Aménagements pour arrivées tardives ou départs précoces certains jours) :
     *   `late_start_days_per_week` : Nombre de jours par semaine concernés par l'arrivée tardive (Entier)
-    *   `late_start_time` : Heure minimale de début de journée pour ces jours (Timeslot / Heure, ex: pas avant `09h00`)
+    *   `late_start_time` : Heure minimale de début de journée pour ces jours (Sélection via une liste déroulante allant de `08h00` à `18h00` au format `HHhMM` avec un pas basé sur la durée standard d'un créneau de l'établissement, stockée en base sous la forme `HH:MM`, ex : `09:00`)
     *   `early_end_days_per_week` : Nombre de jours par semaine concernés par le départ anticipé (Entier)
-    *   `early_end_time` : Heure maximale de fin de journée pour ces jours (Timeslot / Heure, ex: pas après `17h00`)
+    *   `early_end_time` : Heure maximale de fin de journée pour ces jours (Sélection via une liste déroulante allant de `08h00` à `18h00` au format `HHhMM` avec un pas basé sur la durée standard d'un créneau de l'établissement, stockée en base sous la forme `HH:MM`, ex : `17:00`)
 
 *   **Plages Libres Garanties** (Garanties de repos et de jours libres) :
     *   `min_free_days_per_week` : Nombre minimal de journées libres garanties par semaine (Entier)

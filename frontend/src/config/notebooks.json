@@ -232,22 +232,22 @@
                       "children": [
                         {
                           "key": "late_start_days_per_week",
-                          "overrideLabel": "Démarrage tardif (jours / sem.)",
+                          "overrideLabel": "Commencer",
                           "readOnly": false
                         },
                         {
                           "key": "late_start_time",
-                          "overrideLabel": "Commencer au plus tôt à",
+                          "overrideLabel": "jours/sem. au plus tôt à",
                           "readOnly": false
                         },
                         {
                           "key": "early_end_days_per_week",
-                          "overrideLabel": "Fin précoce (jours / sem.)",
+                          "overrideLabel": "Terminer",
                           "readOnly": false
                         },
                         {
                           "key": "early_end_time",
-                          "overrideLabel": "Terminer au plus tard à",
+                          "overrideLabel": "jours/sem. au plus tard à",
                           "readOnly": false
                         }
                       ]
@@ -286,7 +286,7 @@
                         },
                         {
                           "key": "only_one_half_day_per_day",
-                          "overrideLabel": "Ne travailler qu'une demi-journée par jour",
+                          "overrideLabel": "Ne travailler \n qu'1/2 j. par j.",
                           "readOnly": false,
                           "help": "Interdire strictement d'avoir des cours prévus à la fois le matin et l'après-midi sur un même jour.\n- **Impact** : Règle dure du solveur."
                         }

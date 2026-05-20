@@ -769,6 +769,19 @@ function getFormFieldsConfig(resourceKey?: string) {
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
   const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.label }));
 
+  const defaultDuration = schoolsList.value[0]?.standard_timeslot_duration || 30;
+  const timeOptions: Array<{ value: string; label: string }> = [];
+  let currentMinutes = 8 * 60; // 8h
+  const endMinutes = 18 * 60; // 18h
+  while (currentMinutes <= endMinutes) {
+    const hours = Math.floor(currentMinutes / 60);
+    const minutes = currentMinutes % 60;
+    const valString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    const labelString = `${String(hours).padStart(2, '0')}h${String(minutes).padStart(2, '0')}`;
+    timeOptions.push({ value: valString, label: labelString });
+    currentMinutes += defaultDuration;
+  }
+
   if (model === 'schools') {
     return [
       { key: 'uai', label: 'Code UAI (RNE)', type: 'text', required: true, placeholder: 'ex: 0750001A' },
@@ -808,9 +821,9 @@ function getFormFieldsConfig(resourceKey?: string) {
       { key: 'max_presence_days_per_week', label: 'Max Jours Présence par Semaine', type: 'number', min: 0, max: 6 },
       { key: 'max_presence_hours_per_day', label: 'Max Heures Présence par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
       { key: 'late_start_days_per_week', label: 'Jours de démarrage tardif par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'text', placeholder: 'ex: 09:00' },
+      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'select', options: timeOptions, placeholder: 'ex: 08h30' },
       { key: 'early_end_days_per_week', label: 'Jours de fin précoce par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'text', placeholder: 'ex: 16:30' },
+      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'select', options: timeOptions, placeholder: 'ex: 16h30' },
       { key: 'min_free_days_per_week', label: 'Jours libres minimum par Semaine', type: 'number', min: 0, max: 6 },
       { key: 'min_free_half_days_per_week', label: 'Demi-jours libres minimum par Semaine', type: 'number', min: 0, max: 12 },
       { key: 'max_worked_am_per_week', label: 'Max Matinées travaillées par Semaine', type: 'number', min: 0, max: 6 },
@@ -826,9 +839,9 @@ function getFormFieldsConfig(resourceKey?: string) {
       { key: 'max_presence_days_per_week', label: 'Max Jours Présence par Semaine', type: 'number', min: 0, max: 6 },
       { key: 'max_presence_hours_per_day', label: 'Max Heures Présence par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
       { key: 'late_start_days_per_week', label: 'Jours de démarrage tardif par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'text', placeholder: 'ex: 09:00' },
+      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'select', options: timeOptions, placeholder: 'ex: 08h30' },
       { key: 'early_end_days_per_week', label: 'Jours de fin précoce par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'text', placeholder: 'ex: 16:30' },
+      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'select', options: timeOptions, placeholder: 'ex: 16h30' },
       { key: 'min_free_days_per_week', label: 'Jours libres minimum par Semaine', type: 'number', min: 0, max: 6 },
       { key: 'min_free_half_days_per_week', label: 'Demi-jours libres minimum par Semaine', type: 'number', min: 0, max: 12 },
       { key: 'max_worked_am_per_week', label: 'Max Matinées travaillées par Semaine', type: 'number', min: 0, max: 6 },

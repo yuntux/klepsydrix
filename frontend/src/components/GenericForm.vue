@@ -505,7 +505,12 @@ const FormLayoutGrid: any = defineComponent({
                 disabled: disabled,
                 onChange: (e: Event) => {
                   const val = (e.target as HTMLSelectElement).value;
-                  props.localModel[key] = val === '' ? null : Number(val);
+                  if (val === '') {
+                    props.localModel[key] = null;
+                  } else {
+                    const num = Number(val);
+                    props.localModel[key] = isNaN(num) ? val : num;
+                  }
                 }
               }, [
                 h('option', { value: '' }, isDivergent(key) && !isModified(key) ? '-- Divergent (Modifier) --' : '-- Choisir --'),
