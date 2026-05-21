@@ -39,10 +39,16 @@
       </div>
     </div>
 
-    <div class="placed-meta" style="color: var(--text-secondary)">
-      <span v-if="teachersText">👨‍🏫 {{ teachersText }}</span>
-      <span v-if="divisionsText">👥 {{ divisionsText }}</span>
-      <span v-if="classroomsText">📍 {{ classroomsText }}</span>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; flex: 1; min-height: 0; gap: 4px;">
+      <div class="placed-meta" style="color: var(--text-secondary)">
+        <span v-if="teachersText">👨‍🏫 {{ teachersText }}</span>
+        <span v-if="divisionsText">👥 {{ divisionsText }}</span>
+        <span v-if="classroomsText">📍 {{ classroomsText }}</span>
+      </div>
+
+      <div v-if="course.week_type === 'A' || course.week_type === 'B'" class="week-indicator" :class="'week-' + course.week_type">
+        {{ course.week_type }}
+      </div>
     </div>
   </div>
 </template>
@@ -183,5 +189,24 @@ const formattedDuration = computed(() => {
   border-radius: 6px;
   font-weight: bold;
   font-family: monospace;
+}
+
+.week-indicator {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1.1;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.week-indicator.week-A {
+  background: rgba(14, 165, 233, 0.2);
+  color: rgb(2, 132, 199);
+}
+
+.week-indicator.week-B {
+  background: rgba(245, 158, 11, 0.2);
+  color: rgb(180, 83, 9);
 }
 </style>
