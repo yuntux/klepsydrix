@@ -194,6 +194,15 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         division_max_hours_per_pm(constraint_factory),
     ]
 
+def _courses_overlap_in_time(c1, c2):
+    if c1.timeslot is None or c2.timeslot is None:
+        return False
+    start1 = round(c1.timeslot.hour * 60)
+    end1 = start1 + round(c1.step * 60)
+    start2 = round(c2.timeslot.hour * 60)
+    end2 = start2 + round(c2.step * 60)
+    return start1 < end2 and start2 < end1
+
 def _check_teacher_overlap(c1, c2):
     for t1 in c1.teachers:
         for t2 in c2.teachers:
@@ -205,9 +214,10 @@ def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
     return (
         constraint_factory.for_each_unique_pair(
             PlanningCourse,
-            Joiners.equal(lambda course: course.timeslot.id if course.timeslot is not None else -1)
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(_courses_overlap_in_time)
         .filter(_check_teacher_overlap)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Teacher conflict")
@@ -217,10 +227,11 @@ def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
     return (
         constraint_factory.for_each_unique_pair(
             PlanningCourse,
-            Joiners.equal(lambda course: course.timeslot.id if course.timeslot is not None else -1),
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1),
             Joiners.equal(lambda course: course.classroom.id if course.classroom is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(_courses_overlap_in_time)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Classroom conflict")
     )
@@ -236,9 +247,10 @@ def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
     return (
         constraint_factory.for_each_unique_pair(
             PlanningCourse,
-            Joiners.equal(lambda course: course.timeslot.id if course.timeslot is not None else -1)
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(_courses_overlap_in_time)
         .filter(_check_division_overlap)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Division conflict")
