@@ -158,7 +158,7 @@ defineEmits<{
 .workspace-layout {
   display: flex;
   flex: 1;
-  gap: 16px;
+  gap: 1px;
   min-height: 0;
 }
 

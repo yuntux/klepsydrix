@@ -6,10 +6,11 @@
       <div class="filter-item" v-if="!hideSchoolSelector && schools && schools.length > 0">
         <label>Établissement :</label>
         <select 
-          :value="schoolId" 
-          @change="$emit('update:schoolId', $event.target ? Number(($event.target as HTMLSelectElement).value) : null)" 
+          :value="schoolId === null ? '' : schoolId" 
+          @change="$emit('update:schoolId', ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null)" 
           class="select-custom"
         >
+          <option value="">Tous</option>
           <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
       </div>
@@ -111,7 +112,7 @@
     </div>
 
     <!-- Row 2: Secondary / Constraints Filters (Alternation & Periods) -->
-    <div class="filters-row sub-row" v-if="mode === 'preference'">
+    <div class="filters-row sub-row">
       <!-- Alternation (Week Type) -->
       <div class="filter-item">
         <label>Semaine :</label>
@@ -265,13 +266,21 @@ function onResourceCheckboxToggle(id: number, event: Event) {
 
 // Period types selection logic
 const filteredPeriodTypes = computed(() => {
-  const activePtIds = Array.from(new Set(props.periods.map(p => p.period_type_id)));
+  let relevantPeriods = props.periods;
+  if (props.schoolId) {
+    relevantPeriods = relevantPeriods.filter(p => p.school_id === props.schoolId);
+  }
+  const activePtIds = Array.from(new Set(relevantPeriods.map(p => p.period_type_id)));
   return props.periodTypes.filter(pt => activePtIds.includes(pt.id));
 });
 
 const periodsOfType = computed(() => {
   if (!props.periodTypeId) return [];
-  return props.periods.filter(p => p.period_type_id === props.periodTypeId);
+  let relevantPeriods = props.periods;
+  if (props.schoolId) {
+    relevantPeriods = relevantPeriods.filter(p => p.school_id === props.schoolId);
+  }
+  return relevantPeriods.filter(p => p.period_type_id === props.periodTypeId);
 });
 
 function onPeriodTypeSelect(event: Event) {
@@ -318,7 +327,6 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  margin-bottom: 16px;
 }
 
 .filters-row {

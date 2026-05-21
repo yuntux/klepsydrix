@@ -7,8 +7,14 @@
       :teachers="teachers"
       :divisions="divisions"
       :classrooms="classrooms"
-      :periodTypes="[]"
-      :periods="[]"
+      :schoolId="schoolId"
+      @update:schoolId="$emit('update:schoolId', $event)"
+      :periodTypes="periodTypes"
+      :periods="periods"
+      :periodTypeId="periodTypeId"
+      @update:periodTypeId="$emit('update:periodTypeId', $event)"
+      :periodIds="periodIds"
+      @update:periodIds="$emit('update:periodIds', $event)"
       :viewMode="viewMode"
       @update:viewMode="$emit('update:viewMode', $event)"
       :selectedIds="selectedIds"
@@ -143,7 +149,12 @@ const props = defineProps<{
   loading: boolean;
   selectedCourseIds?: number[];
   schools?: any[];
+  schoolId?: number | null;
   scoreData?: any;
+  periodTypes?: any[];
+  periods?: any[];
+  periodTypeId?: number | null;
+  periodIds?: number[];
 }>();
 
 const emit = defineEmits<{
@@ -157,6 +168,9 @@ const emit = defineEmits<{
   (e: 'reset'): void;
   (e: 'solve'): void;
   (e: 'stop-solve'): void;
+  (e: 'update:periodTypeId', value: number | null): void;
+  (e: 'update:periodIds', value: number[]): void;
+  (e: 'update:schoolId', value: number | null): void;
 }>();
 
 const { currentStandardDuration, getCellKey } = useTimeslotGrid();

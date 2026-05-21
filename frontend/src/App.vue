@@ -14,9 +14,14 @@
             :divisions="divisions"
             :classrooms="classrooms"
             :schools="schoolsList"
+            v-model:schoolId="schoolId"
             v-model:viewMode="viewMode"
             v-model:selectedIds="selectedIds"
             v-model:weekType="weekType"
+            v-model:periodTypeId="periodTypeId"
+            v-model:periodIds="periodIds"
+            :periodTypes="periodTypesList"
+            :periods="periodsList"
             :loading="loading"
             :scoreData="scoreData"
             :selectedCourseIds="selectedCourseIds"
@@ -182,9 +187,17 @@ const classrooms = ref<Classroom[]>([]);
 const viewMode = ref<string>('division');
 const selectedIds = ref<number[]>([]);
 const weekType = ref<'W' | 'A' | 'B'>('W');
+const periodTypeId = ref<number | null>(null);
+const periodIds = ref<number[]>([]);
+const periodsList = ref<any[]>([]);
+const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
 
 const selectedCourseIds = ref<number[]>([]);
+
+watch(schoolId, () => {
+  selectedIds.value = [];
+});
 
 function toggleCourseSelection(id: number) {
   if (selectedCourseIds.value.includes(id)) {
@@ -334,6 +347,15 @@ async function loadPeriodTypes() {
     periodTypesList.value = res.items;
   } catch (e) {
     console.error("Échec du chargement des types de périodes", e);
+  }
+}
+
+async function loadPeriods() {
+  try {
+    const res = await api.fetchGenericList('periods', 0, 1000);
+    periodsList.value = res.items;
+  } catch (e) {
+    console.error("Échec du chargement des périodes", e);
   }
 }
 
@@ -544,6 +566,8 @@ async function onSubmitGeneric(value: Record<string, any>) {
       loadSchools();
     } else if (activeAdminModel.value === 'period_types') {
       loadPeriodTypes();
+    } else if (activeAdminModel.value === 'periods') {
+      loadPeriods();
     } else if (activeAdminModel.value === 'system_settings') {
       loadTimeslotConfig();
     }
@@ -560,6 +584,8 @@ async function onUpdateGenericInline(item: any) {
       loadSchools();
     } else if (activeAdminModel.value === 'period_types') {
       loadPeriodTypes();
+    } else if (activeAdminModel.value === 'periods') {
+      loadPeriods();
     } else if (activeAdminModel.value === 'system_settings') {
       loadTimeslotConfig();
     } else if (['teachers', 'classrooms', 'divisions'].includes(activeAdminModel.value)) {
@@ -609,6 +635,8 @@ async function onDeleteGeneric(item: any) {
         loadSchools();
       } else if (activeAdminModel.value === 'period_types') {
         loadPeriodTypes();
+      } else if (activeAdminModel.value === 'periods') {
+        loadPeriods();
       } else if (activeAdminModel.value === 'system_settings') {
         loadTimeslotConfig();
       }
@@ -1061,6 +1089,7 @@ onMounted(async () => {
   loadData();
   loadSchools();
   loadPeriodTypes();
+  loadPeriods();
   checkStatus();
   if (!pollingInterval) {
     pollingInterval = window.setInterval(checkStatus, 3000);
