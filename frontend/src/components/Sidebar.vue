@@ -63,7 +63,7 @@ const emit = defineEmits<{
 }>();
 
 const unassignedCourses = computed(() => {
-  return props.courses.filter(c => c.timeslot_id === null);
+  return props.courses.filter(c => c.timeslot_id === null && !c.parent_id);
 });
 
 function formatDuration(minutes: number) {

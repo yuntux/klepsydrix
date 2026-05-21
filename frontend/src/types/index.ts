@@ -43,6 +43,7 @@ export interface Course {
   is_pinned: boolean;
   duration_minutes: number;
   week_type: 'A' | 'B' | 'W';
+  parent_id?: number | null;
 }
 
 export interface TimetableData {
