@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base
@@ -226,3 +226,15 @@ class Course(Base):
         db.commit()
         return parent
 
+
+def validate_course_child_constraints_listener(mapper, connection, target):
+    # 1. Si on modifie un enfant, il doit respecter son parent
+    target.validate_child_constraints()
+    
+    # 2. Si on modifie un parent, tous ses enfants existants doivent continuer à le respecter
+    if target.children:
+        for child in target.children:
+            child.validate_child_constraints()
+
+event.listen(Course, 'before_insert', validate_course_child_constraints_listener)
+event.listen(Course, 'before_update', validate_course_child_constraints_listener)
