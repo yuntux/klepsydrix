@@ -300,3 +300,26 @@ La couverture de code (Backend total à **88 %**) démontre l'excellence de la c
 ### E. Pourquoi ce système protège efficacement votre application
 * **Détection immédiate des régressions JVM/JPype** : Si un type de données converti en Python (par exemple via `to_set()`) n'était pas supporté par le moteur Java sous-jacent, le test lèverait immédiatement une erreur d'invocation de signature JPype.
 * **Rapidité** : La totalité des résolutions unitaires s'exécute en moins de 20 secondes grâce à la configuration RAM.
+
+---
+
+## 10. Gestion du Temps et Granularité de la Grille
+
+Le système opère une distinction fondamentale entre le stockage des créneaux temporels (Timeslots) et leur utilisation par le solveur afin de conjuguer flexibilité et performance.
+
+### A. Stockage BDD : Finesse maximale (15 minutes)
+Dans la base de données, les créneaux temporels (`Timeslots`) sont générés avec une granularité extrêmement fine (par pas de 15 minutes, ex: 8h00, 8h15, 8h30).
+**Objectifs de cette architecture :**
+- **S'adapter aux changements de configuration** : Si un établissement passe d'une grille de 30 minutes à 15 minutes, l'application fonctionne instantanément sans nécessiter de lourdes migrations de base de données.
+- **SaaS et Multi-établissement (Cité Scolaire)** : Un collège et un lycée partageant la même base peuvent avoir des sonneries décalées (ex: 8h00 pour le lycée, 8h15 pour le collège). Le socle de données universel de 15 minutes couvre les deux.
+- **Saisie précise des vœux** : Permettre aux professeurs de saisir des indisponibilités très granulaires (ex: "indisponible de 8h15 à 8h30") qui nécessitent l'existence physique du créneau élémentaire dans la base pour y rattacher la contrainte.
+
+### B. Solveur : Filtrage par le Pas de la Grille (STANDARD_TIMESLOT_DURATION)
+Avant de lancer le calcul d'optimisation, le solveur filtre les créneaux récupérés depuis la base pour ne conserver que ceux qui respectent la configuration de l'établissement (`STANDARD_TIMESLOT_DURATION`, ex: 30 minutes).
+**Objectif : Contrôle de l'explosion combinatoire.**
+Le solveur réduit drastiquement le champ des possibles en n'autorisant les cours à démarrer qu'à des heures rondes (8h00, 8h30, 9h00...). S'il devait évaluer chaque point de départ possible toutes les 15 minutes, le temps de calcul augmenterait de manière exponentielle.
+
+### C. Découplage entre Heure de Début et Durée Réelle
+Il ne faut pas confondre le pas de la grille (les heures de début autorisées) et la durée d'un cours une fois celui-ci démarré.
+- **Pas de la grille (`STANDARD_TIMESLOT_DURATION`)** : Détermine les points d'ancrage possibles (ex: démarrage autorisé à 8h00, 8h30).
+- **Durée réelle du cours (`c.duration_minutes`)** : Communiquée individuellement au solveur sous forme d'une variable `step` en heures (ex: `55 / 60.0 = 0.916`). Ainsi, un cours démarrant à 8h00 durera mathématiquement jusqu'à 8h55 pour le solveur, ce qui lui permettra de détecter précisément les chevauchements et conflits sans se laisser tromper par la taille des créneaux sous-jacents.

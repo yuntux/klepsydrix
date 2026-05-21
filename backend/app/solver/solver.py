@@ -191,7 +191,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             week_type=week_type,
             class_part_ids=class_part_ids,
             period_ids=[p.id for p in db_periods],
-            step=step
+            step=c.duration_minutes / 60.0
         )
         courses_list.append(pc)
 
