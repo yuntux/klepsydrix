@@ -59,7 +59,7 @@
           
           <button 
             class="select-custom" 
-            style="text-align: left; background-color: #fff; cursor: pointer; min-width: 200px; display: flex; justify-content: space-between; align-items: center;"
+            style="text-align: left; cursor: pointer; min-width: 200px; display: flex; justify-content: space-between; align-items: center;"
             @click="openDropdown($event)"
           >
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">

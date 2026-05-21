@@ -11,9 +11,9 @@
         </div>
 
         <!-- Lignes d'heures (8h à 17h) -->
-        <template v-for="hour in hours" :key="hour">
+        <template v-for="(hour, index) in hours" :key="hour">
           <!-- Cellule d'heure à gauche -->
-          <div class="grid-time-cell">
+          <div class="grid-time-cell" :ref="el => { if (index === 0) gridCellRef = el }">
             {{ hour }}h00 - {{ hour + 1 }}h00
           </div>
 
@@ -58,6 +58,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
 const { days, hours, currentStandardDuration, subCellCount, getCellKey } = useTimeslotGrid();
@@ -77,6 +78,28 @@ defineEmits<{
   (e: 'cell-mouseleave', day: number, time: number, event: MouseEvent): void;
   (e: 'cell-mousemove', day: number, time: number, event: MouseEvent): void;
 }>();
+
+const gridCellRef = ref<HTMLElement | null>(null);
+let resizeObserver: ResizeObserver | null = null;
+
+onMounted(() => {
+  if (gridCellRef.value) {
+    resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        // Obtenir la hauteur réelle (y compris les bordures/padding)
+        const height = entry.borderBoxSize?.[0]?.blockSize || entry.contentRect.height;
+        document.documentElement.style.setProperty('--grid-cell-height', `${height}px`);
+      }
+    });
+    resizeObserver.observe(gridCellRef.value);
+  }
+});
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+});
 </script>
 
 <style scoped>

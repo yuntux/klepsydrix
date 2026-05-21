@@ -56,7 +56,9 @@
           :courses="courses"
           :teachers="teachers"
           :divisions="divisions"
+          :classrooms="classrooms"
           :selectedCourseIds="selectedCourseIds"
+          :currentStandardDuration="currentStandardDuration"
           @selectCourse="$emit('selectCourse', $event)"
         />
       </template>
@@ -71,48 +73,22 @@
         >
           <!-- Slot de contenu (Foreground) -->
           <template #cell-content="{ day, time }">
-            <div
+            <CourseCard
               v-for="course in getCoursesAt(day, time)"
               :key="course.id"
-              class="placed-course"
-              :class="{ 'is-pinned-card': course.is_pinned, 'is-selected-card': (selectedCourseIds || []).includes(course.id) }"
-              :style="{
-                backgroundColor: getCourseColor(course.subject),
-                height: getCourseHeight(course),
-                bottom: 'auto',
-                zIndex: 10
-              }"
-              draggable="true"
-              @dragstart="onDragStart($event, course.id)"
-              @click.stop="$emit('selectCourse', course.id)"
-            >
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
-                <span class="placed-subject">{{ course.subject }}</span>
-                <div style="display: flex; align-items: center; gap: 2px;">
-                  <!-- Bouton de verrouillage (Pin) -->
-                  <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
-                    <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
-                      <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
-                    </svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="lock-icon">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
-                    </svg>
-                  </button>
-                  <!-- Bouton de retrait rapide (Unassign) -->
-                  <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div class="placed-meta">
-                <span v-if="viewMode !== 'teacher'">👤 {{ course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(", ") : "" }}</span>
-                <span v-if="viewMode !== 'division'">👥 {{ course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(", ") : "" }}</span>
-                <span v-if="viewMode !== 'classroom'">📍 {{ course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(", ") : "" }}</span>
-              </div>
-            </div>
+              :course="course"
+              :isPlaced="true"
+              :isSelected="(selectedCourseIds || []).includes(course.id)"
+              :backgroundColor="getCourseColor(course.subject)"
+              :height="getCourseHeight(course)"
+              :teachersText="(viewMode !== 'teacher' || selectedIds.length > 1) ? (course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '') : ''"
+              :divisionsText="(viewMode !== 'division' || selectedIds.length > 1) ? (course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '') : ''"
+              :classroomsText="(viewMode !== 'classroom' || selectedIds.length > 1) ? (course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '') : ''"
+              @dragstart="onDragStart"
+              @click="$emit('selectCourse', $event)"
+              @togglePin="$emit('togglePin', $event)"
+              @unassign="$emit('unassign', $event)"
+            />
           </template>
 
           <!-- Overlay de chargement -->
@@ -134,6 +110,7 @@ import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from
 import BaseGrid from './BaseGrid.vue';
 import GridContainer from './GridContainer.vue';
 import Sidebar from './Sidebar.vue';
+import CourseCard from './CourseCard.vue';
 import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
 const props = defineProps<{
@@ -177,7 +154,7 @@ const { currentStandardDuration, getCellKey } = useTimeslotGrid();
 
 function getCourseHeight(course: Course) {
   const duration = course.duration_minutes || 30;
-  const span = Math.ceil(duration / currentStandardDuration.value);
+  const span = duration / currentStandardDuration.value;
   return `calc(${span} * 100% - 8px + ${span - 1}px)`;
 }
 
