@@ -39,11 +39,13 @@
       </div>
     </div>
 
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; flex: 1; min-height: 0; gap: 4px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; flex: 1; min-height: 0; gap: 4px; overflow: hidden;">
       <div class="placed-meta" style="color: var(--text-secondary)">
-        <span v-if="teachersText">👨‍🏫 {{ teachersText }}</span>
-        <span v-if="divisionsText">👥 {{ divisionsText }}</span>
-        <span v-if="classroomsText">📍 {{ classroomsText }}</span>
+        <div v-if="teachersText" class="text-truncate">👨‍🏫 {{ teachersText }}</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <span v-if="divisionsText" class="text-truncate">👥 {{ divisionsText }}</span>
+          <span v-if="classroomsText" class="text-truncate">📍 {{ classroomsText }}</span>
+        </div>
       </div>
 
       <div v-if="course.week_type === 'A' || course.week_type === 'B'" class="week-indicator" :class="'week-' + course.week_type">
@@ -103,6 +105,7 @@ const formattedDuration = computed(() => {
   border: 1px solid var(--border-color);
   border-left-width: 4px;
   border-left-style: solid;
+  overflow: hidden;
 }
 
 .placed-course:hover {
@@ -117,7 +120,6 @@ const formattedDuration = computed(() => {
   right: auto;
   bottom: auto;
   border-left-width: 4px;
-  margin-bottom: 6px;
   flex-shrink: 0;
 }
 
@@ -144,6 +146,15 @@ const formattedDuration = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  overflow: hidden;
+}
+
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: inline-block;
 }
 
 .pin-btn, .unassign-btn {
