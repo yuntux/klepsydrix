@@ -10,7 +10,7 @@ class Timeslot(Base):
     hour = Column(Float, nullable=False)          # ex: 8.0 = 8h00, 8.5 = 8h30
 
     # Relation avec les séances planifiées sur ce créneau
-    sessions = relationship("Session", back_populates="timeslot", passive_deletes="all")
+
 
     # Index unique composé pour empêcher les doublons de créneaux
     __table_args__ = (

@@ -16,7 +16,7 @@ class School(Base):
     divisions = relationship("Division", back_populates="school", passive_deletes="all")
     classrooms = relationship("Classroom", back_populates="school", passive_deletes="all")
     courses = relationship("Course", back_populates="school", passive_deletes="all")
-    sessions = relationship("Session", back_populates="school", passive_deletes="all")
+
     periods = relationship("Period", back_populates="school", passive_deletes="all")
 
     @classmethod

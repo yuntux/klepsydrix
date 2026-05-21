@@ -207,10 +207,14 @@ Concernant le composant `GenericForm`, il doit offrir les fonctionnalités suiva
 ### Key Entities
 
 
-- **Course (Cours)** : Le conteneur logique de planification. Il peut être de deux types :
-  *   **Cours Simple** : Composé d'une seule **Séance** (Session).
-  *   **Cours Complexe** : Regroupe plusieurs **Séances** s'organisant à l'intérieur de ce cours. Ces séances peuvent être placées en parallèle (alignements, ex: barrettes de langues, groupes de spécialités) ou à la suite (pour forcer leur succession temporelle).
-- **Séance (Session)** : L'unité réelle de placement sur la grille horaire. Chaque séance possède ses propres ressources rattachées (matières, profs, classes, etc.) et est positionnée sur 0 ou 1 créneau.
+- **Course (Cours)** : Un cours porte des attributs propres définis en amont de son placement : une durée (exprimée en nombre de créneaux élémentaires ou minutes), un libellé (généré dynamiquement à partir des ressources rattachées), un mémo (texte libre), une liste de ressources rattachables (voir ci-dessous) et une planification sur la grille horaire via des séances rattachées (0 ou 1 créneau de départ, avec extension contiguë sur la durée du cours).
+  *   **Cours Simple** : Un cours qui n'est pas décomposé en cours simples enfants. Il est affiché comme un seul bloc sur la grille horaire.
+  *   **Cours Composé** : Un cours dont le détail des ressources est subdivisé en plusieurs **cours simples enfants** pour l'affichage. Ces cours simples enfants peuvent être organisées en parallèle (alignements, ex : barrettes de langues, groupes de spécialités) ou en succession temporelle contrainte.
+  Le solveur automatique travaille toujours au niveau du cours de premier niveau (CoursSimple ou CoursComposé). Il place et déplace ces cours de premier niveau sur la grille horaire.
+  La cinémaique de définition des cours simples enfants est souple et permet :
+  *   **Cinématique top-down** : Définir les ressources au niveau du cours → le marquer comme composé → créer ses cours simples enfants dans un second temps.
+  *   **Cinématique bottom-up** : Créer des cours simples indépendants non placés → les regrouper en cours composé. **Contrainte** : un cours simple déjà placé sur un créneau ne peut pas être intégré dans un cours composé ; il doit d'abord être dépositionné.
+  *   **Ajout post-placement** : Il est possible d'ajouter des ressources à un cours composé déjà positionné. La ventilation de ces ressources dans les cours simples enfants pourra être complété ultérieurement.
 - **Ressources de base rattachables à une séance (Relations N-à-N / Many-to-Many)** :
   *   **Subjects (Matières)** : La ou les matières enseignées lors de la séance (ex : Mathématiques, Physique-Chimie).
   *   **Teachers (Professeurs)** : Le ou les enseignants encadrant la séance (supportant le co-enseignement).

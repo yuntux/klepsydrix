@@ -190,22 +190,34 @@ const consolidatedSubjects = computed(() => {
 
 const consolidatedTeachers = computed(() => {
   return consolidate(c => {
-    const t = props.teachers.find(item => item.id === c.teacher_id);
-    return t ? t.name : 'Sans Enseignant';
+    if (!c.teacher_ids || c.teacher_ids.length === 0) return 'Sans Enseignant';
+    const ts = c.teacher_ids.map(id => {
+      const t = props.teachers.find(item => item.id === id);
+      return t ? t.name : '';
+    }).filter(Boolean);
+    return ts.join(', ') || 'Sans Enseignant';
   });
 });
 
 const consolidatedClassrooms = computed(() => {
   return consolidate(c => {
-    const rm = props.classrooms.find(item => item.id === c.classroom_id);
-    return rm ? rm.name : 'Sans Salle';
+    if (!c.classroom_ids || c.classroom_ids.length === 0) return 'Sans Salle';
+    const rms = c.classroom_ids.map(id => {
+      const rm = props.classrooms.find(item => item.id === id);
+      return rm ? rm.name : '';
+    }).filter(Boolean);
+    return rms.join(', ') || 'Sans Salle';
   });
 });
 
 const consolidatedDivisions = computed(() => {
   return consolidate(c => {
-    const d = props.divisions.find(item => item.id === c.division_id);
-    return d ? d.name : 'Sans Division';
+    if (!c.division_ids || c.division_ids.length === 0) return 'Sans Division';
+    const divs = c.division_ids.map(id => {
+      const d = props.divisions.find(item => item.id === id);
+      return d ? d.name : '';
+    }).filter(Boolean);
+    return divs.join(', ') || 'Sans Division';
   });
 });
 

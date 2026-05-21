@@ -1,16 +1,64 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base
+from backend.app.models.preference import WeekType
+
+course_teachers = Table(
+    "course_teachers",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True)
+)
+
+course_classrooms = Table(
+    "course_classrooms",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("classroom_id", Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), primary_key=True)
+)
+
+course_materials = Table(
+    "course_materials",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("material_id", Integer, ForeignKey("materials.id", ondelete="CASCADE"), primary_key=True)
+)
+
+course_divisions = Table(
+    "course_divisions",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("division_id", Integer, ForeignKey("divisions.id", ondelete="CASCADE"), primary_key=True)
+)
+
+course_class_parts = Table(
+    "course_class_parts",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("class_part_id", Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), primary_key=True)
+)
+
+course_groups = Table(
+    "course_groups",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("group_id", Integer, ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+)
 
 class Course(Base):
     __tablename__ = "courses"
 
     id = Column(Integer, primary_key=True, index=True)
+    parent_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
+    
     subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
-    teacher_id = Column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True)
-    division_id = Column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=True)
-    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=True)
+    
+    # Placements et attributs directs
+    timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
+    is_pinned = Column(Boolean, nullable=False, default=False)
+    week_type = Column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
+    is_co_teaching = Column(Boolean, nullable=False, default=False)
     
     duration_minutes = Column(Integer, nullable=False, default=55)
     label = Column(String(100), nullable=True)
@@ -23,46 +71,34 @@ class Course(Base):
     family_id = Column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True)
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
 
-    # Relations de navigation
+    # Relations de navigation hiérarchique
+    parent = relationship("Course", back_populates="children", remote_side=[id])
+    children = relationship("Course", back_populates="parent", cascade="all, delete-orphan")
+
+    # Relations de navigation Mto1
     subject_relation = relationship("Subject", back_populates="courses")
-    teacher = relationship("Teacher", back_populates="courses")
-    division = relationship("Division", back_populates="courses")
-    group = relationship("Group", back_populates="courses")
+    timeslot = relationship("Timeslot")
     mission = relationship("Mission", back_populates="courses")
     election_method = relationship("ElectionMethod", back_populates="courses")
     family = relationship("Family", back_populates="courses")
     school = relationship("School", back_populates="courses")
     
-    sessions = relationship("Session", back_populates="course", cascade="all, delete-orphan")
+    # Ressources N..N pures
+    teachers = relationship("Teacher", secondary=course_teachers, back_populates="courses")
+    classrooms = relationship("Classroom", secondary=course_classrooms)
+    materials = relationship("Material", secondary=course_materials)
+    divisions = relationship("Division", secondary=course_divisions, back_populates="courses")
+    class_parts = relationship("ClassPart", secondary=course_class_parts)
+    groups = relationship("Group", secondary=course_groups, back_populates="courses")
 
     def __init__(self, **kwargs):
-        # Intercepter le sujet s'il est fourni sous forme de chaîne
         subj_val = kwargs.pop("subject", None)
-        
-        # Intercepter les colonnes de planification V1 pour les rediriger vers la session
-        timeslot_val = kwargs.pop("timeslot_id", None)
-        classroom_val = kwargs.pop("classroom_id", None)
-        is_pinned_val = kwargs.pop("is_pinned", False)
-        
         super().__init__(**kwargs)
-        
-        # Gérer la matière s'il s'agit d'une chaîne
         if subj_val is not None:
             if isinstance(subj_val, str):
                 self._subject_str = subj_val
             else:
                 self.subject_relation = subj_val
-                
-        # Gérer la session par défaut
-        from backend.app.models.session import Session as DbSession
-        session = DbSession(
-            timeslot_id=timeslot_val,
-            classroom_id=classroom_val,
-            is_pinned=is_pinned_val,
-            school_id=self.school_id if getattr(self, 'school_id', None) else 1,
-            week_type="W"
-        )
-        self.sessions.append(session)
 
     @hybrid_property
     def subject(self):
@@ -82,53 +118,111 @@ class Course(Base):
         from backend.app.models.subject import Subject
         return select(Subject.short_label).where(Subject.id == cls.subject_id).correlate_except(Subject).scalar_subquery()
 
-    @hybrid_property
-    def timeslot_id(self):
-        return self.sessions[0].timeslot_id if self.sessions else None
+    @property
+    def effective_week_type(self) -> str:
+        """Retourne le week_type effectif du cours."""
+        if not self.children:
+            wt = self.week_type
+            return wt.value if hasattr(wt, "value") else (wt or "W")
+        types = {
+            (c.week_type.value if hasattr(c.week_type, "value") else c.week_type)
+            for c in self.children
+            if c.week_type
+        }
+        if types == {"A"}:
+            return "A"
+        if types == {"B"}:
+            return "B"
+        return "W"
 
-    @timeslot_id.setter
-    def timeslot_id(self, value):
-        if not self.sessions:
-            from backend.app.models.session import Session as DbSession
-            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="W")
-            self.sessions.append(session)
-        self.sessions[0].timeslot_id = value
+    def validate_child_constraints(self):
+        """Vérifie qu'un cours enfant respecte les limites de temps et de ressources de son parent."""
+        if not self.parent:
+            return
 
-    @timeslot_id.expression
-    def timeslot_id(cls):
-        from backend.app.models.session import Session as DbSession
-        return select(DbSession.timeslot_id).where(DbSession.course_id == cls.id).correlate_except(DbSession).scalar_subquery()
+        # 1. Contraintes temporelles
+        if self.timeslot and self.parent.timeslot:
+            # Même jour obligatoire
+            if self.timeslot.day_of_week != self.parent.timeslot.day_of_week:
+                raise ValueError("Le cours enfant doit être le même jour que son parent.")
+            
+            # Heure de début
+            if self.timeslot.hour < self.parent.timeslot.hour:
+                raise ValueError("Le début d'un cours enfant ne peut pas être antérieur au début du cours parent.")
+            
+            # Heure de fin
+            child_end = self.timeslot.hour + (self.duration_minutes / 60.0)
+            parent_end = self.parent.timeslot.hour + (self.parent.duration_minutes / 60.0)
+            if child_end > parent_end:
+                raise ValueError("La fin d'un cours enfant ne peut pas être ultérieure à la fin du cours parent.")
 
-    @hybrid_property
-    def classroom_id(self):
-        return self.sessions[0].classroom_id if self.sessions else None
+        # 2. Contraintes de ressources (l'enfant ne peut pas avoir une ressource non présente dans le parent)
+        def _check_resources(child_resources, parent_resources, name):
+            parent_ids = {r.id for r in parent_resources}
+            for cr in child_resources:
+                if cr.id not in parent_ids:
+                    raise ValueError(f"La ressource {name} (ID: {cr.id}) de l'enfant est absente du cours parent.")
 
-    @classroom_id.setter
-    def classroom_id(self, value):
-        if not self.sessions:
-            from backend.app.models.session import Session as DbSession
-            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="W")
-            self.sessions.append(session)
-        self.sessions[0].classroom_id = value
+        _check_resources(self.teachers, self.parent.teachers, "Enseignant")
+        _check_resources(self.classrooms, self.parent.classrooms, "Salle")
+        _check_resources(self.divisions, self.parent.divisions, "Division")
+        _check_resources(self.groups, self.parent.groups, "Groupe")
+        _check_resources(self.materials, self.parent.materials, "Matériel")
+        _check_resources(self.class_parts, self.parent.class_parts, "Partie de classe")
 
-    @classroom_id.expression
-    def classroom_id(cls):
-        from backend.app.models.session import Session as DbSession
-        return select(DbSession.classroom_id).where(DbSession.course_id == cls.id).correlate_except(DbSession).scalar_subquery()
+    def transform_to_simple_courses(self, db):
+        """Transforme ce cours complexe en N cours simples en libérant ses enfants et en se supprimant."""
+        if not self.is_complex:
+            raise ValueError("Ce cours n'est pas complexe.")
+        
+        for child in self.children:
+            child.parent_id = None
+            
+        db.delete(self)
+        db.commit()
 
-    @hybrid_property
-    def is_pinned(self):
-        return self.sessions[0].is_pinned if self.sessions else False
+    @classmethod
+    def group_into_complex_course(cls, db, course_ids: list[int]):
+        """Regroupe plusieurs cours simples non placés en un seul cours complexe parent."""
+        courses = db.query(cls).filter(cls.id.in_(course_ids)).all()
+        if not courses:
+            raise ValueError("Aucun cours fourni.")
+        
+        for c in courses:
+            if c.parent_id is not None:
+                raise ValueError(f"Le cours {c.id} est déjà un cours enfant.")
+            if c.timeslot_id is not None:
+                raise ValueError(f"Le cours {c.id} est déjà placé sur la grille, veuillez le dépositionner d'abord.")
 
-    @is_pinned.setter
-    def is_pinned(self, value):
-        if not self.sessions:
-            from backend.app.models.session import Session as DbSession
-            session = DbSession(course_id=self.id, school_id=self.school_id if getattr(self, 'school_id', None) else 1, week_type="W")
-            self.sessions.append(session)
-        self.sessions[0].is_pinned = value
+        first_course = courses[0]
 
-    @is_pinned.expression
-    def is_pinned(cls):
-        from backend.app.models.session import Session as DbSession
-        return select(DbSession.is_pinned).where(DbSession.course_id == cls.id).correlate_except(DbSession).scalar_subquery()
+        # Création du cours parent englobant
+        parent = cls(
+            is_complex=True,
+            subject_id=first_course.subject_id, # On hérite du sujet du premier
+            school_id=first_course.school_id,
+            duration_minutes=max(c.duration_minutes for c in courses), # On prend la durée max par défaut
+            week_type=first_course.week_type
+        )
+        db.add(parent)
+        db.flush()
+
+        for c in courses:
+            c.parent_id = parent.id
+            
+            # Alimentation des ressources du parent (Union)
+            for res_list, parent_res_list in [
+                (c.teachers, parent.teachers),
+                (c.classrooms, parent.classrooms),
+                (c.divisions, parent.divisions),
+                (c.groups, parent.groups),
+                (c.materials, parent.materials),
+                (c.class_parts, parent.class_parts),
+            ]:
+                for item in res_list:
+                    if item not in parent_res_list:
+                        parent_res_list.append(item)
+
+        db.commit()
+        return parent
+

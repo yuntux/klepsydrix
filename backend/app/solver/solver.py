@@ -77,7 +77,11 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         if abs((ts.hour / step) - round(ts.hour / step)) < 0.001
     ]
     
-    db_courses = db.query(Course).all()
+    # IMPORTANT : Le solveur ne travaille QUE sur les cours de premier niveau.
+    # Les cours simples enfants (qui subdivisent un cours composé) sont uniquement
+    # utilisés pour l'affichage et le détail des ressources. Le placement global sur
+    # la grille horaire est géré exclusivement au niveau du cours parent.
+    db_courses = db.query(Course).filter(Course.parent_id == None).all()
     db_links = db.query(ClassPartLink).all()
     db_preferences = db.query(ResourcePreference).all()
     db_constraints = db.query(ResourceConstraint).all()
@@ -141,7 +145,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     courses_list = []
     for c in db_courses:
         ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
-        cr_planning = classrooms_map.get(c.classroom_id) if c.classroom_id else None
+        cr_planning = classrooms_map.get(c.classrooms[0].id) if c.classrooms else None
         
         # Gestion multi-établissement (US2) :
         # Si school_id est spécifié et que ce cours appartient à une AUTRE école,
@@ -151,31 +155,29 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             is_pinned = True
             
         # Charger week_type et class_part_ids
-        week_type = "W"
+        week_type = c.effective_week_type
         class_part_ids = []
-        if c.sessions:
-            week_type = c.sessions[0].week_type or "W"
             
-        if c.group_id and c.group:
-            class_part_ids.extend([cp.id for cp in c.group.class_parts])
-        if c.division_id and c.division:
-            class_part_ids.extend([cp.id for cp in c.division.class_parts])
+        if c.groups:
+            for grp in c.groups:
+                class_part_ids.extend([cp.id for cp in grp.class_parts])
+        if c.divisions:
+            for div in c.divisions:
+                class_part_ids.extend([cp.id for cp in div.class_parts])
             
-        if c.sessions:
-            primary_sess = c.sessions[0]
-            if primary_sess.co_class_parts:
-                class_part_ids.extend([cp.id for cp in primary_sess.co_class_parts])
-            if primary_sess.co_groups:
-                for grp in primary_sess.co_groups:
-                    class_part_ids.extend([cp.id for cp in grp.class_parts])
+        if c.class_parts:
+            class_part_ids.extend([cp.id for cp in c.class_parts])
+        if c.groups:
+            for grp in c.groups:
+                class_part_ids.extend([cp.id for cp in grp.class_parts])
                     
         class_part_ids = list(set(class_part_ids))
             
         pc = PlanningCourse(
             id=c.id,
             subject=c.subject,
-            teacher=teachers_map[c.teacher_id],
-            division=divisions_map[c.division_id],
+            teachers=[teachers_map[t.id] for t in c.teachers if t.id in teachers_map],
+            divisions=[divisions_map[d.id] for d in c.divisions if d.id in divisions_map],
             timeslot=ts_planning,
             classroom=cr_planning,
             is_pinned=is_pinned,
@@ -234,7 +236,12 @@ def _solve_timetable_job(db_session=None, school_id=None):
             db_course = db.query(Course).filter(Course.id == pc.id).first()
             if db_course:
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
-                db_course.classroom_id = pc.classroom.id if pc.classroom else None
+                if pc.classroom:
+                    db_classroom = db.query(Classroom).get(pc.classroom.id)
+                    if db_classroom:
+                        db_course.classrooms = [db_classroom]
+                else:
+                    db_course.classrooms = []
 
         db.commit()
 

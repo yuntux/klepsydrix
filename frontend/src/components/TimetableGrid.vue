@@ -13,6 +13,8 @@
       @update:viewMode="$emit('update:viewMode', $event)"
       :selectedIds="selectedIds"
       @update:selectedIds="$emit('update:selectedIds', $event)"
+      :weekType="weekType"
+      @update:weekType="$emit('update:weekType', $event)"
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
     >
@@ -100,9 +102,9 @@
               </div>
 
               <div class="placed-meta">
-                <span v-if="viewMode !== 'teacher'">👤 {{ getTeacherName(course.teacher_id) }}</span>
-                <span v-if="viewMode !== 'division'">👥 {{ getDivisionName(course.division_id) }}</span>
-                <span v-if="viewMode !== 'classroom'">📍 {{ getClassroomName(course.classroom_id) }}</span>
+                <span v-if="viewMode !== 'teacher'">👤 {{ course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(", ") : "" }}</span>
+                <span v-if="viewMode !== 'division'">👥 {{ course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(", ") : "" }}</span>
+                <span v-if="viewMode !== 'classroom'">📍 {{ course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(", ") : "" }}</span>
               </div>
             </div>
           </template>
@@ -136,6 +138,7 @@ const props = defineProps<{
   classrooms: Classroom[];
   viewMode: string;
   selectedIds: number[];
+  weekType?: 'W' | 'A' | 'B';
   loading: boolean;
   selectedCourseIds?: number[];
   schools?: any[];
@@ -143,12 +146,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'move', courseId: number, timeslotId: number, classroomId: number | null): void;
+  (e: 'move', courseId: number, timeslotId: number): void;
   (e: 'unassign', courseId: number): void;
   (e: 'togglePin', courseId: number): void;
   (e: 'selectCourse', courseId: number): void;
   (e: 'update:viewMode', value: string): void;
   (e: 'update:selectedIds', value: number[]): void;
+  (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'reset'): void;
   (e: 'solve'): void;
   (e: 'stop-solve'): void;
@@ -180,15 +184,26 @@ function getCoursesAt(day: number, hour: number): Course[] {
   const ts = getTimeslot(day, hour);
   if (!ts) return [];
 
+  const selectedWeek = props.weekType || 'W';
+
   return props.courses.filter(course => {
     if (course.timeslot_id !== ts.id) return false;
 
+    // Filtre par semaine :
+    // 'W' (toutes) -> on affiche tout
+    // 'A' -> on affiche les cours de semaine A ou les cours toutes semaines (W)
+    // 'B' -> on affiche les cours de semaine B ou les cours toutes semaines (W)
+    if (selectedWeek !== 'W') {
+      const courseWeek = course.week_type || 'W';
+      if (courseWeek !== 'W' && courseWeek !== selectedWeek) return false;
+    }
+
     if (props.viewMode === 'division') {
-      return props.selectedIds.includes(course.division_id);
+      return course.division_ids && course.division_ids.some(id => props.selectedIds.includes(id));
     } else if (props.viewMode === 'teacher') {
-      return props.selectedIds.includes(course.teacher_id);
+      return course.teacher_ids && course.teacher_ids.some(id => props.selectedIds.includes(id));
     } else if (props.viewMode === 'classroom') {
-      return course.classroom_id !== null && props.selectedIds.includes(course.classroom_id);
+      return course.classroom_ids && course.classroom_ids.some(id => props.selectedIds.includes(id));
     }
     return false;
   });
@@ -224,20 +239,7 @@ function onDrop(day: number, hour: number, event: DragEvent) {
 
   const courseId = Number(courseIdStr);
   
-  // Déterminer la salle
-  let classroomId: number | null = null;
-  if (props.viewMode === 'classroom') {
-    classroomId = props.selectedId;
-  } else {
-    // Choisir la première salle disponible sur ce créneau
-    const occupiedClassroomIds = props.courses
-      .filter(c => c.timeslot_id === ts.id && c.id !== courseId)
-      .map(c => c.classroom_id);
-    const freeClassroom = props.classrooms.find(clr => !occupiedClassroomIds.includes(clr.id));
-    classroomId = freeClassroom ? freeClassroom.id : (props.classrooms[0]?.id || null);
-  }
-
-  emit('move', courseId, ts.id, classroomId);
+  emit('move', courseId, ts.id);
 }
 
 // Couleurs harmonieuses et contrastées pour les matières

@@ -19,4 +19,4 @@ class Division(Base):
     mef = relationship("Mef", back_populates="divisions")
     partitions = relationship("Partition", back_populates="division", passive_deletes="all")
     class_parts = relationship("ClassPart", back_populates="division", passive_deletes="all")
-    courses = relationship("Course", back_populates="division", passive_deletes="all")
+    courses = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all")

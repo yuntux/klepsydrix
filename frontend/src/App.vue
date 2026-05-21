@@ -15,6 +15,7 @@
             :schools="schoolsList"
             v-model:viewMode="viewMode"
             v-model:selectedIds="selectedIds"
+            v-model:weekType="weekType"
             :loading="loading"
             :scoreData="scoreData"
             :selectedCourseIds="selectedCourseIds"
@@ -177,6 +178,7 @@ const classrooms = ref<Classroom[]>([]);
 
 const viewMode = ref<string>('division');
 const selectedIds = ref<number[]>([]);
+const weekType = ref<'W' | 'A' | 'B'>('W');
 const loading = ref<boolean>(false);
 
 const selectedCourseIds = ref<number[]>([]);
@@ -901,7 +903,7 @@ async function refreshScoreAndNotify(oldScore: any, actionName: string = 'Modifi
 }
 
 // Actions de planification
-async function onMoveCourse(courseId: number, timeslotId: number, classroomId: number | null) {
+async function onMoveCourse(courseId: number, timeslotId: number) {
   const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
   const oldScore = scoreData.value ? { ...scoreData.value } : null;
   
@@ -910,11 +912,10 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
   
   if (courseIndex !== -1) {
     courses.value[courseIndex].timeslot_id = timeslotId;
-    courses.value[courseIndex].classroom_id = classroomId;
   }
 
   try {
-    await api.updateCourse(courseId, timeslotId, classroomId);
+    await api.updateCourse(courseId, timeslotId);
     await refreshScoreAndNotify(oldScore, 'Le cours a été planifié avec succès.');
     
     // Alerte en cas de placement sur un créneau indisponible (Rouge / Unsuited) - T025b
@@ -924,9 +925,9 @@ async function onMoveCourse(courseId: number, timeslotId: number, classroomId: n
         const prefRes = prefResData.items || [];
         const unsuitedPref = prefRes.find((p: any) => 
           p.preference_level === 'Unsuited' && (
-            (p.resource_type === 'Teacher' && p.resource_id === courseObj.teacher_id) ||
-            (p.resource_type === 'Classroom' && p.resource_id === classroomId) ||
-            (p.resource_type === 'Division' && p.resource_id === courseObj.division_id)
+            (p.resource_type === 'Teacher' && courseObj.teacher_ids && courseObj.teacher_ids.includes(p.resource_id)) ||
+            (p.resource_type === 'Classroom' && courseObj.classroom_ids && courseObj.classroom_ids.includes(p.resource_id)) ||
+            (p.resource_type === 'Division' && courseObj.division_ids && courseObj.division_ids.includes(p.resource_id))
           )
         );
         if (unsuitedPref) {
@@ -947,11 +948,10 @@ async function onUnassignCourse(courseId: number) {
   const courseIndex = courses.value.findIndex(c => c.id === courseId);
   if (courseIndex !== -1) {
     courses.value[courseIndex].timeslot_id = null;
-    courses.value[courseIndex].classroom_id = null;
   }
 
   try {
-    await api.updateCourse(courseId, null, null);
+    await api.updateCourse(courseId, null);
     showNotification('success', 'Le cours a été retiré de la grille.');
   } catch (err: any) {
     courses.value = previousCoursesState;
@@ -972,7 +972,7 @@ async function onTogglePinCourse(courseId: number) {
 
   try {
     const course = courses.value[courseIndex];
-    await api.updateCourse(courseId, course.timeslot_id, course.classroom_id, newPinState);
+    await api.updateCourse(courseId, course.timeslot_id, newPinState);
     await refreshScoreAndNotify(oldScore, newPinState ? 'Le cours a été verrouillé.' : 'Le cours a été déverrouillé.');
   } catch (err: any) {
     courses.value = previousCoursesState;
@@ -1027,7 +1027,7 @@ async function onReset() {
     await api.resetTimetable();
     courses.value.forEach(c => {
       c.timeslot_id = null;
-      c.classroom_id = null;
+      c.classroom_ids = [];
     });
     await refreshScoreAndNotify(oldScore, 'Tous les cours ont été retirés de la grille.');
   } catch (err: any) {

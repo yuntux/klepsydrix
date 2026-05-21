@@ -17,4 +17,4 @@ class Classroom(Base):
     # Relations de navigation
     school = relationship("School", back_populates="classrooms")
     site = relationship("Site", back_populates="classrooms")
-    sessions = relationship("Session", back_populates="classroom", passive_deletes="all")
+

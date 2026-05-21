@@ -227,24 +227,24 @@ def seed_v2_data():
                 duration = 90 if s_code in ["SVT", "TECHNO", "PC"] else 55
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, teacher_id, division_id, duration_minutes, is_complex, lock_sessions, school_id) "
-                    "VALUES (:subject_id, :teacher_id, :division_id, :duration_minutes, 0, 0, :school_id)"
+                    "INSERT INTO courses (subject_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id) "
+                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id)"
                 ), {
                     "subject_id": subj_id,
-                    "teacher_id": t_id,
-                    "division_id": d_id,
                     "duration_minutes": duration,
                     "school_id": s_id
                 })
-                db.commit()
                 
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
                 
-                # Créer une séance non placée par défaut
                 db.execute(text(
-                    "INSERT INTO sessions (course_id, timeslot_id, classroom_id, week_type, is_pinned, is_co_teaching, school_id) "
-                    "VALUES (:course_id, NULL, NULL, 'W', 0, 0, :school_id)"
-                ), {"course_id": course_id, "school_id": s_id})
+                    "INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"
+                ), {"course_id": course_id, "teacher_id": t_id})
+                
+                db.execute(text(
+                    "INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"
+                ), {"course_id": course_id, "division_id": d_id})
+                
                 course_count += 1
                 
         db.commit()

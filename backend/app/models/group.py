@@ -68,4 +68,4 @@ class Group(Base):
 
     # Relations de navigation
     class_parts = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")
-    courses = relationship("Course", back_populates="group")
+    courses = relationship("Course", secondary="course_groups", back_populates="groups")

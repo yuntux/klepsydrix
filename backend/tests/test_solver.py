@@ -79,8 +79,8 @@ def test_solver_resolves_timetable(db_session: Session):
 
     # Création de deux cours qui partagent le même enseignant (Prof Math) et la même division (6ème).
     # Ils DOIVENT être planifiés sur des créneaux différents car un professeur ou une classe ne peut pas doubler
-    course1 = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
-    course2 = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    course1 = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], school_id=school.id)
+    course2 = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], school_id=school.id)
     db_session.add_all([course1, course2])
     db_session.commit()
 
@@ -94,8 +94,8 @@ def test_solver_resolves_timetable(db_session: Session):
     # Vérification que les deux cours ont reçu un créneau et une salle
     assert course1.timeslot_id is not None
     assert course2.timeslot_id is not None
-    assert course1.classroom_id is not None
-    assert course2.classroom_id is not None
+    assert course1.classrooms[0].id if course1.classrooms else None is not None
+    assert course2.classrooms[0].id if course2.classrooms else None is not None
 
     # Contrainte dure : les créneaux doivent être différents pour éviter le doublon d'enseignant et de division
     assert course1.timeslot_id != course2.timeslot_id
@@ -149,14 +149,14 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
 
     # 3. Premier cas : les deux cours sont hebdomadaires (week_type='W')
     # Comme il n'y a qu'un seul créneau disponible, ils ne peuvent pas coexister sans pénalité Hard.
-    course1 = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, group_id=g1.id, school_id=school.id)
-    course2 = Course(subject_id=subject.id, teacher_id=t2.id, division_id=d1.id, group_id=g2.id, school_id=school.id)
+    course1 = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], groups=[g1], school_id=school.id)
+    course2 = Course(subject_id=subject.id, teachers=[t2], divisions=[d1], groups=[g2], school_id=school.id)
     db_session.add_all([course1, course2])
     db_session.commit()
 
     # Modifier le type de semaine sur la session sous-jacente
-    course1.sessions[0].week_type = "W"
-    course2.sessions[0].week_type = "W"
+    course1.week_type = "W"
+    course2.week_type = "W"
     db_session.commit()
 
     # Exécution du solveur
@@ -166,8 +166,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
 
     # 4. Deuxième cas : alternance Semaine A et Semaine B (week_type='A' et week_type='B')
     # Même avec un seul créneau temporel, ils PEUVENT coexister sur le même créneau car ils sont alternés.
-    course1.sessions[0].week_type = "A"
-    course2.sessions[0].week_type = "B"
+    course1.week_type = "A"
+    course2.week_type = "B"
     db_session.commit()
 
     _solve_timetable_job(db_session)
@@ -209,7 +209,7 @@ def test_solver_respects_preferences(db_session: Session):
     db_session.commit()
 
     # 3. Création du cours à planifier
-    course = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], school_id=school.id)
     db_session.add(course)
     db_session.commit()
 
@@ -252,9 +252,9 @@ def test_solver_preference_overrides_stability(db_session: Session):
     # 3. Création du cours initialement placé sur ts1 (déclenche la pénalité de stabilité s'il bouge)
     course = Course(
         subject_id=subject.id,
-        teacher_id=t1.id,
-        division_id=d1.id,
-        classroom_id=c1.id,
+        teachers=[t1],
+        divisions=[d1],
+        classrooms=[c1],
         timeslot_id=ts1.id,
         school_id=school.id
     )
@@ -298,13 +298,13 @@ def test_solver_respects_week_specific_preferences(db_session: Session):
     db_session.commit()
 
     # 3. Création de deux cours : un pour la semaine A, un pour la semaine B
-    course_a = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
-    course_b = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    course_a = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], school_id=school.id)
+    course_b = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], school_id=school.id)
     db_session.add_all([course_a, course_b])
     db_session.commit()
 
-    course_a.sessions[0].week_type = "A"
-    course_b.sessions[0].week_type = "B"
+    course_a.week_type = "A"
+    course_b.week_type = "B"
     db_session.commit()
 
     # 4. Résoudre
@@ -362,7 +362,7 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
     db_session.commit()
 
     # 4. Création d'un cours
-    course = Course(subject_id=subject.id, teacher_id=t1.id, division_id=d1.id, school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t1], divisions=[d1], school_id=school.id)
     db_session.add(course)
     db_session.commit()
 

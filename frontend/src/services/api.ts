@@ -58,7 +58,6 @@ export async function resetTimetable(): Promise<{ status: string }> {
 export async function updateCourse(
   courseId: number,
   timeslotId: number | null,
-  classroomId: number | null,
   isPinned?: boolean
 ): Promise<{ status: string; course: Course }> {
   const response = await fetch(`/api/timetable/courses/${courseId}`, {
@@ -68,7 +67,6 @@ export async function updateCourse(
     },
     body: JSON.stringify({
       timeslot_id: timeslotId,
-      classroom_id: classroomId,
       is_pinned: isPinned,
     }),
   });
