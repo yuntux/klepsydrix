@@ -8,6 +8,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.solver.solver import start_solve_timetable_async, SolverState
 
 router = APIRouter(prefix="/api/timetable")
@@ -30,9 +31,11 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
     divisions = divisions_query.all()
     timeslots = db.query(Timeslot).all()
     courses = courses_query.all()
+    non_teaching_staffs = db.query(NonTeachingStaff).all()
 
     return {
         "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.name, "school_id": t.school_id} for t in teachers],
+        "non_teaching_staffs": [{"id": s.id, "first_name": s.first_name, "last_name": s.last_name, "role": s.role, "school_id": s.school_id} for s in non_teaching_staffs],
         "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "name": c.name, "capacity": c.capacity, "school_id": c.school_id} for c in classrooms],
         "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "name": d.name, "school_id": d.school_id} for d in divisions],
         "timeslots": [ts.to_dict() if hasattr(ts, "to_dict") else {"id": ts.id, "day_of_week": ts.day_of_week, "hour": ts.hour} for ts in timeslots],
@@ -41,6 +44,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
                 "id": c.id,
                 "subject": c.subject,
                 "teacher_ids": [t.id for t in c.teachers],
+                "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
                 "division_ids": [d.id for d in c.divisions],
                 "timeslot_id": c.timeslot_id,
                 "classroom_ids": [cr.id for cr in c.classrooms],
@@ -120,6 +124,12 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             if get_conflict_query(Course.teachers.any(Teacher.id.in_(t_ids))).first():
                 raise HTTPException(status_code=409, detail="Conflit : L'enseignant est déjà occupé sur ce créneau (chevauchement)")
         
+        # 1b. Conflit personnel non enseignant
+        if course.non_teaching_staffs:
+            s_ids = [s.id for s in course.non_teaching_staffs]
+            if get_conflict_query(Course.non_teaching_staffs.any(NonTeachingStaff.id.in_(s_ids))).first():
+                raise HTTPException(status_code=409, detail="Conflit : Le membre du personnel est déjà occupé sur ce créneau (chevauchement)")
+        
         # 2. Conflit salle
         if course.classrooms:
             c_ids = [c.id for c in course.classrooms]
@@ -142,6 +152,7 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
         "id": course.id,
         "subject": course.subject,
         "teacher_ids": [t.id for t in course.teachers],
+        "non_teaching_staff_ids": [s.id for s in course.non_teaching_staffs],
         "division_ids": [d.id for d in course.divisions],
         "timeslot_id": course.timeslot_id,
         "classroom_ids": [cr.id for cr in course.classrooms],
@@ -162,6 +173,8 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
         courses_query = db.query(Course)
         if resource_type == "Teacher":
             courses_query = courses_query.filter(Course.teachers.any(Teacher.id == resource_id))
+        elif resource_type == "NonTeachingStaff":
+            courses_query = courses_query.filter(Course.non_teaching_staffs.any(NonTeachingStaff.id == resource_id))
         elif resource_type == "Classroom":
             courses_query = courses_query.filter(Course.classrooms.any(Classroom.id == resource_id))
         elif resource_type == "Division":

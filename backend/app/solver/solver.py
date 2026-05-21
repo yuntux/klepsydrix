@@ -5,6 +5,7 @@ from timefold.solver.config import SolverConfig, TerminationConfig, ScoreDirecto
 from timefold.solver import SolutionManager
 from backend.app.core.config import settings
 from backend.app.models.teacher import Teacher
+from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
@@ -17,6 +18,7 @@ from backend.app.core.database import SessionLocal
 import threading
 from backend.app.solver.constraints import (
     PlanningTeacher,
+    PlanningNonTeachingStaff,
     PlanningClassroom,
     PlanningDivision,
     PlanningTimeslot,
@@ -63,6 +65,7 @@ class SolverState:
 
 def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
     db_teachers = db.query(Teacher).all()
+    db_non_teaching_staffs = db.query(NonTeachingStaff).all()
     db_classrooms = db.query(Classroom).all()
     db_divisions = db.query(Division).all()
     
@@ -88,11 +91,13 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_periods = db.query(Period).all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
+    non_teaching_staffs_map = {s.id: PlanningNonTeachingStaff(s.id, s.first_name, s.last_name) for s in db_non_teaching_staffs}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
     divisions_map = {d.id: PlanningDivision(d.id, d.name) for d in db_divisions}
     timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.hour) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
+    non_teaching_staffs_list = list(non_teaching_staffs_map.values())
     classrooms_list = list(classrooms_map.values())
     divisions_list = list(divisions_map.values())
     timeslots_list = list(timeslots_map.values())
@@ -177,6 +182,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             id=c.id,
             subject=c.subject,
             teachers=[teachers_map[t.id] for t in c.teachers if t.id in teachers_map],
+            non_teaching_staffs=[non_teaching_staffs_map[s.id] for s in c.non_teaching_staffs if s.id in non_teaching_staffs_map],
             divisions=[divisions_map[d.id] for d in c.divisions if d.id in divisions_map],
             timeslot=ts_planning,
             classroom=cr_planning,
@@ -191,6 +197,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
 
     return PlanningTimetable(
         teachers=teachers_list,
+        non_teaching_staffs=non_teaching_staffs_list,
         classrooms=classrooms_list,
         divisions=divisions_list,
         timeslots=timeslots_list,

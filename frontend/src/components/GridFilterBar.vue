@@ -25,6 +25,7 @@
           >
             <option value="division">Par Classe (Division)</option>
             <option value="teacher">Par Enseignant</option>
+            <option value="non_teaching_staff">Par Personnel Non Enseignant</option>
             <option value="classroom">Par Salle</option>
           </select>
         </div>
@@ -40,6 +41,7 @@
             class="select-custom"
           >
             <option value="Teacher">👨‍🏫 Enseignant</option>
+            <option value="NonTeachingStaff">🧑‍💼 Personnel Non Enseignant</option>
             <option value="Classroom">🏢 Salle</option>
             <option value="Division">🎒 Classe (Division)</option>
           </select>
@@ -49,6 +51,7 @@
           <label v-if="mode === 'timetable'">
             <span v-if="viewMode?.toLowerCase() === 'division'">Classe :</span>
             <span v-else-if="viewMode?.toLowerCase() === 'teacher'">Enseignant :</span>
+            <span v-else-if="viewMode?.toLowerCase() === 'non_teaching_staff'">Personnel :</span>
             <span v-else-if="viewMode?.toLowerCase() === 'classroom'">Salle :</span>
           </label>
           <label v-else>Ressources :</label>
@@ -162,6 +165,7 @@ const props = withDefaults(defineProps<{
   mode?: 'timetable' | 'preference';
   schools?: any[];
   teachers?: any[];
+  nonTeachingStaffs?: any[];
   divisions?: any[];
   classrooms?: any[];
   periodTypes?: any[];
@@ -180,6 +184,7 @@ const props = withDefaults(defineProps<{
   mode: 'timetable',
   schools: () => [],
   teachers: () => [],
+  nonTeachingStaffs: () => [],
   divisions: () => [],
   classrooms: () => [],
   periodTypes: () => [],
@@ -209,6 +214,11 @@ const filteredTeachers = computed(() => {
   return props.teachers.filter(t => t.school_id === props.schoolId);
 });
 
+const filteredNonTeachingStaffs = computed(() => {
+  if (!props.schoolId) return props.nonTeachingStaffs;
+  return props.nonTeachingStaffs.filter(s => s.school_id === props.schoolId).map((s: any) => ({...s, name: s.first_name + ' ' + s.last_name}));
+});
+
 const filteredDivisions = computed(() => {
   if (!props.schoolId) return props.divisions;
   return props.divisions.filter(d => d.school_id === props.schoolId);
@@ -222,6 +232,7 @@ const filteredClassrooms = computed(() => {
 const activeResourceList = computed(() => {
   const m = props.viewMode?.toLowerCase();
   if (m === 'teacher') return filteredTeachers.value;
+  if (m === 'non_teaching_staff') return filteredNonTeachingStaffs.value;
   if (m === 'classroom') return filteredClassrooms.value;
   if (m === 'division') return filteredDivisions.value;
   return [];

@@ -37,6 +37,12 @@ class PlanningTeacher:
     id: int
     name: str
 
+@dataclass
+class PlanningNonTeachingStaff:
+    id: int
+    first_name: str
+    last_name: str
+
 
 @dataclass
 class PlanningClassroom:
@@ -119,6 +125,7 @@ class PlanningCourse:
     subject: str
     step: float
     teachers: List[PlanningTeacher] = field(default_factory=list)
+    non_teaching_staffs: List[PlanningNonTeachingStaff] = field(default_factory=list)
     divisions: List[PlanningDivision] = field(default_factory=list)
     timeslot: Annotated[PlanningTimeslot, PlanningVariable(value_range_provider_refs=['timeslotRange'])] = None
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
@@ -135,6 +142,7 @@ class PlanningCourse:
 @dataclass
 class PlanningTimetable:
     teachers: Annotated[List[PlanningTeacher], ProblemFactCollectionProperty]
+    non_teaching_staffs: Annotated[List[PlanningNonTeachingStaff], ProblemFactCollectionProperty]
     classrooms: Annotated[List[PlanningClassroom], ProblemFactCollectionProperty, ValueRangeProvider(id='classroomRange')]
     divisions: Annotated[List[PlanningDivision], ProblemFactCollectionProperty]
     timeslots: Annotated[List[PlanningTimeslot], ProblemFactCollectionProperty, ValueRangeProvider(id='timeslotRange')]
@@ -168,6 +176,7 @@ def periods_overlap(periods_a: List[int], periods_b: List[int]) -> bool:
 def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint]:
     return [
         teacher_conflict(constraint_factory),
+        non_teaching_staff_conflict(constraint_factory),
         classroom_conflict(constraint_factory),
         division_conflict(constraint_factory),
         group_link_conflict(constraint_factory),
@@ -221,6 +230,26 @@ def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(_check_teacher_overlap)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Teacher conflict")
+    )
+
+def _check_non_teaching_staff_overlap(c1, c2):
+    for s1 in c1.non_teaching_staffs:
+        for s2 in c2.non_teaching_staffs:
+            if s1.id == s2.id:
+                return True
+    return False
+
+def non_teaching_staff_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningCourse,
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
+        )
+        .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(_courses_overlap_in_time)
+        .filter(_check_non_teaching_staff_overlap)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Non-teaching staff conflict")
     )
 
 def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:

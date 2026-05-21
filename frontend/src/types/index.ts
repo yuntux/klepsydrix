@@ -4,6 +4,14 @@ export interface Teacher {
   school_id: number;
 }
 
+export interface NonTeachingStaff {
+  id: number;
+  first_name: string;
+  last_name: string;
+  role: string;
+  school_id: number;
+}
+
 export interface Classroom {
   id: number;
   name: string;
@@ -27,6 +35,7 @@ export interface Course {
   id: number;
   subject: string;
   teacher_ids: number[];
+  non_teaching_staff_ids: number[];
   division_ids: number[];
   timeslot_id: number | null;
   classroom_ids: number[];
@@ -38,6 +47,7 @@ export interface Course {
 
 export interface TimetableData {
   teachers: Teacher[];
+  non_teaching_staffs: NonTeachingStaff[];
   classrooms: Classroom[];
   divisions: Division[];
   timeslots: Timeslot[];

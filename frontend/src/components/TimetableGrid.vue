@@ -124,7 +124,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { Course, Timeslot, Teacher, Division, Classroom } from '../types';
+import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from '../types';
 import BaseGrid from './BaseGrid.vue';
 import GridContainer from './GridContainer.vue';
 import Sidebar from './Sidebar.vue';
@@ -134,6 +134,7 @@ const props = defineProps<{
   courses: Course[];
   timeslots: Timeslot[];
   teachers: Teacher[];
+  nonTeachingStaffs: NonTeachingStaff[];
   divisions: Division[];
   classrooms: Classroom[];
   viewMode: string;
@@ -204,6 +205,8 @@ function getCoursesAt(day: number, hour: number): Course[] {
       return course.teacher_ids && course.teacher_ids.some(id => props.selectedIds.includes(id));
     } else if (props.viewMode === 'classroom') {
       return course.classroom_ids && course.classroom_ids.some(id => props.selectedIds.includes(id));
+    } else if (props.viewMode === 'non_teaching_staff') {
+      return course.non_teaching_staff_ids && course.non_teaching_staff_ids.some(id => props.selectedIds.includes(id));
     }
     return false;
   });

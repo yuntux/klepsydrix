@@ -43,6 +43,18 @@
         </div>
       </div>
 
+      <!-- Section Personnel Non Enseignant -->
+      <div class="consolidated-section">
+        <div class="section-title">🧑‍💼 Personnel</div>
+        <div class="chips-container">
+          <ConsolidatedChip 
+            v-for="chip in consolidatedNonTeachingStaffs" 
+            :key="chip.label" 
+            v-bind="chip" 
+          />
+        </div>
+      </div>
+
       <!-- Section Salles -->
       <div class="consolidated-section">
         <div class="section-title">🏢 Salles</div>
@@ -97,12 +109,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import ConsolidatedChip from './ConsolidatedChip.vue';
-import { Course, Teacher, Division, Classroom, Timeslot } from '../types';
+import { Course, Teacher, NonTeachingStaff, Division, Classroom, Timeslot } from '../types';
 
 const props = defineProps<{
   show: boolean;
   courses: Course[];
   teachers: Teacher[];
+  nonTeachingStaffs: NonTeachingStaff[];
   divisions: Division[];
   classrooms: Classroom[];
   timeslots: Timeslot[];
@@ -196,6 +209,17 @@ const consolidatedTeachers = computed(() => {
       return t ? t.name : '';
     }).filter(Boolean);
     return ts.join(', ') || 'Sans Enseignant';
+  });
+});
+
+const consolidatedNonTeachingStaffs = computed(() => {
+  return consolidate(c => {
+    if (!c.non_teaching_staff_ids || c.non_teaching_staff_ids.length === 0) return 'Sans Personnel';
+    const ts = c.non_teaching_staff_ids.map(id => {
+      const t = props.nonTeachingStaffs.find(item => item.id === id);
+      return t ? t.first_name + ' ' + t.last_name : '';
+    }).filter(Boolean);
+    return ts.join(', ') || 'Sans Personnel';
   });
 });
 

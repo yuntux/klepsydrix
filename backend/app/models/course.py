@@ -18,6 +18,13 @@ course_classrooms = Table(
     Column("classroom_id", Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), primary_key=True)
 )
 
+course_non_teaching_staffs = Table(
+    "course_non_teaching_staffs",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("non_teaching_staff_id", Integer, ForeignKey("non_teaching_staffs.id", ondelete="CASCADE"), primary_key=True)
+)
+
 course_materials = Table(
     "course_materials",
     Base.metadata,
@@ -85,6 +92,7 @@ class Course(Base):
     
     # Ressources N..N pures
     teachers = relationship("Teacher", secondary=course_teachers, back_populates="courses")
+    non_teaching_staffs = relationship("NonTeachingStaff", secondary=course_non_teaching_staffs, back_populates="courses")
     classrooms = relationship("Classroom", secondary=course_classrooms)
     materials = relationship("Material", secondary=course_materials)
     divisions = relationship("Division", secondary=course_divisions, back_populates="courses")
@@ -164,6 +172,7 @@ class Course(Base):
                     raise ValueError(f"La ressource {name} (ID: {cr.id}) de l'enfant est absente du cours parent.")
 
         _check_resources(self.teachers, self.parent.teachers, "Enseignant")
+        _check_resources(self.non_teaching_staffs, self.parent.non_teaching_staffs, "Personnel non enseignant")
         _check_resources(self.classrooms, self.parent.classrooms, "Salle")
         _check_resources(self.divisions, self.parent.divisions, "Division")
         _check_resources(self.groups, self.parent.groups, "Groupe")
@@ -213,6 +222,7 @@ class Course(Base):
             # Alimentation des ressources du parent (Union)
             for res_list, parent_res_list in [
                 (c.teachers, parent.teachers),
+                (c.non_teaching_staffs, parent.non_teaching_staffs),
                 (c.classrooms, parent.classrooms),
                 (c.divisions, parent.divisions),
                 (c.groups, parent.groups),

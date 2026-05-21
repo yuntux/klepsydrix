@@ -10,6 +10,7 @@
             :courses="courses"
             :timeslots="timeslots"
             :teachers="teachers"
+            :nonTeachingStaffs="nonTeachingStaffs"
             :divisions="divisions"
             :classrooms="classrooms"
             :schools="schoolsList"
@@ -126,6 +127,7 @@
       :show="selectedCourseIds.length > 0"
       :courses="courses.filter(c => selectedCourseIds.includes(c.id))"
       :teachers="teachers"
+      :nonTeachingStaffs="nonTeachingStaffs"
       :divisions="divisions"
       :classrooms="classrooms"
       :timeslots="timeslots"
@@ -166,13 +168,14 @@ import CoursePopin from './components/CoursePopin.vue';
 import PreferenceGrid from './components/PreferenceGrid.vue';
 import PeriodTransitionManager from './components/PeriodTransitionManager.vue';
 import NotebooksTree from './components/NotebooksTree.vue';
-import { Course, Timeslot, Teacher, Division, Classroom } from './types';
+import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
 
 // États partagés
 const courses = ref<Course[]>([]);
 const timeslots = ref<Timeslot[]>([]);
 const teachers = ref<Teacher[]>([]);
+const nonTeachingStaffs = ref<NonTeachingStaff[]>([]);
 const divisions = ref<Division[]>([]);
 const classrooms = ref<Classroom[]>([]);
 
@@ -241,6 +244,7 @@ const adminModels = [
   { key: 'disciplines', label: '📚 Disciplines' },
   { key: 'subjects', label: '📖 Matières' },
   { key: 'teachers', label: '👨‍🏫 Enseignants' },
+  { key: 'non_teaching_staffs', label: '🧑‍💼 Personnel non enseignant' },
   { key: 'divisions', label: '🎒 Classes (Divisions)' },
   { key: 'classrooms', label: '🏢 Salles' },
   { key: 'materials', label: '🛠️ Matériels' },
@@ -266,6 +270,7 @@ const pendingDeleteCallback = ref<(() => Promise<void>) | null>(null);
 
 const modelToResourceType: Record<string, string> = {
   teachers: 'Teacher',
+  non_teaching_staffs: 'NonTeachingStaff',
   classrooms: 'Classroom',
   divisions: 'Division',
   schools: 'School',
@@ -298,6 +303,7 @@ async function loadData() {
     courses.value = data.courses;
     timeslots.value = data.timeslots;
     teachers.value = data.teachers;
+    nonTeachingStaffs.value = data.non_teaching_staffs;
     divisions.value = data.divisions;
     classrooms.value = data.classrooms;
 
@@ -348,6 +354,8 @@ function updateDefaultSelection() {
     selectedIds.value = [divisions.value[0].id];
   } else if (viewMode.value === 'teacher' && teachers.value.length > 0) {
     selectedIds.value = [teachers.value[0].id];
+  } else if (viewMode.value === 'non_teaching_staff' && nonTeachingStaffs.value.length > 0) {
+    selectedIds.value = [nonTeachingStaffs.value[0].id];
   } else if (viewMode.value === 'classroom' && classrooms.value.length > 0) {
     selectedIds.value = [classrooms.value[0].id];
   } else {

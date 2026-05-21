@@ -149,6 +149,19 @@ def seed_v2_data():
             t_id = db.execute(text("SELECT id FROM teachers WHERE code = :code"), {"code": code}).scalar()
             teachers.append((t_id, school_idx))
 
+        # 9b. Création de personnel non enseignant (AESH, Labo, etc.)
+        non_teaching_staffs = []
+        staff_roles = ["AESH", "Technicien de laboratoire", "Surveillant", "Infirmière"]
+        for i in range(1, 11):
+            school_idx = clg_id if i <= 5 else lyc_id
+            db.execute(text(
+                "INSERT INTO non_teaching_staffs (first_name, last_name, role, school_id) "
+                "VALUES (:fn, :ln, :role, :school_id)"
+            ), {"fn": "Staff", "ln": f"NonTeaching_{i}", "role": random.choice(staff_roles), "school_id": school_idx})
+            db.commit()
+            s_id = db.execute(text("SELECT id FROM non_teaching_staffs WHERE last_name = :ln"), {"ln": f"NonTeaching_{i}"}).scalar()
+            non_teaching_staffs.append((s_id, school_idx))
+
         # 10. Insérer des préférences (ResourcePreference) de test pour quelques professeurs (vœux)
         # Prof 1 et 21 n'aiment pas travailler le mercredi matin (timeslot du mercredi 8h, day_of_week = 3, hour = 8)
         mercredi_8h_ts = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = 3 AND hour = 8")).scalar()
@@ -244,6 +257,15 @@ def seed_v2_data():
                 db.execute(text(
                     "INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"
                 ), {"course_id": course_id, "division_id": d_id})
+                
+                # Affecter aléatoirement du personnel non enseignant à quelques cours (ex: 15% de chance)
+                if random.random() < 0.15:
+                    staff_pool = [s[0] for s in non_teaching_staffs if s[1] == s_id]
+                    if staff_pool:
+                        st_id = random.choice(staff_pool)
+                        db.execute(text(
+                            "INSERT INTO course_non_teaching_staffs (course_id, non_teaching_staff_id) VALUES (:course_id, :staff_id)"
+                        ), {"course_id": course_id, "staff_id": st_id})
                 
                 course_count += 1
                 
