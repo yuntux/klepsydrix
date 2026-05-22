@@ -52,6 +52,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
                 "is_pinned": c.is_pinned,
                 "duration_minutes": c.duration_minutes,
                 "week_type": c.effective_week_type,
+                "parent_id": c.parent_id,
             }
             for c in courses
         ],
@@ -81,10 +82,11 @@ def stop_solve():
 def reset(db: Session = Depends(get_db)):
     courses = db.query(Course).all()
     for c in courses:
-        c.timeslot_id = None
-        c.classrooms.clear()
-        c.is_pinned = False
-    db.commit()
+        c.update(db, {
+            "timeslot_id": None,
+            "classroom_ids": [],
+            "is_pinned": False
+        })
     return {"status": "success"}
 
 
@@ -93,6 +95,7 @@ from pydantic import BaseModel
 class CourseUpdate(BaseModel):
     timeslot_id: Optional[int] = None
     is_pinned: Optional[bool] = None
+    classroom_ids: Optional[list[int]] = None
 
 @router.put("/courses/{course_id}")
 def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(get_db)):
@@ -142,23 +145,31 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             if get_conflict_query(Course.divisions.any(Division.id.in_(d_ids))).first():
                 raise HTTPException(status_code=409, detail="Conflit : La division est déjà occupée sur ce créneau (chevauchement)")
 
-    if payload.timeslot_id is not None:
-        course.timeslot_id = payload.timeslot_id
-    if payload.is_pinned is not None:
-        course.is_pinned = payload.is_pinned
+    vals = payload.model_dump(exclude_unset=True)
+    if vals:
+        course.update(db, vals)
         
-    db.commit()
-    return {"status": "success", "course": {
-        "id": course.id,
-        "subject": course.subject,
-        "teacher_ids": [t.id for t in course.teachers],
-        "non_teaching_staff_ids": [s.id for s in course.non_teaching_staffs],
-        "division_ids": [d.id for d in course.divisions],
-        "timeslot_id": course.timeslot_id,
-        "classroom_ids": [cr.id for cr in course.classrooms],
-        "group_ids": [g.id for g in course.groups],
-        "is_pinned": course.is_pinned,
-    }}
+    modified_courses = [course] + list(course.children)
+    
+    serialized_courses = [
+        {
+            "id": c.id,
+            "subject": c.subject,
+            "teacher_ids": [t.id for t in c.teachers],
+            "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
+            "division_ids": [d.id for d in c.divisions],
+            "timeslot_id": c.timeslot_id,
+            "classroom_ids": [cr.id for cr in c.classrooms],
+            "group_ids": [g.id for g in c.groups],
+            "is_pinned": c.is_pinned,
+            "duration_minutes": c.duration_minutes,
+            "week_type": c.effective_week_type,
+            "parent_id": c.parent_id,
+        }
+        for c in modified_courses
+    ]
+    
+    return {"status": "success", "courses": serialized_courses}
 
 
 @router.post("/structures/simulate-change")
@@ -226,11 +237,13 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
     courses = courses_query.all()
     for c in courses:
         if c.timeslot_id is not None:
-            c.timeslot_id = None
-            c.classrooms.clear()
+            c.update(db, {
+                "timeslot_id": None,
+                "classroom_ids": []
+            })
             deplaced_count += 1
             
-    db.commit()
+    db.flush()
     
     return {
         "success": True,

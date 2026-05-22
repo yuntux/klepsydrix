@@ -23,6 +23,8 @@
       @update:weekType="$emit('update:weekType', $event)"
       @update:periodTypeId="$emit('update:periodTypeId', $event)"
       @update:periodIds="$emit('update:periodIds', $event)"
+      :isDetailedView="isDetailedView"
+      @update:isDetailedView="$emit('update:isDetailedView', $event)"
     >
       <template #actions>
         <slot name="actions">
@@ -105,6 +107,7 @@ withDefaults(defineProps<{
   
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
+  isDetailedView?: boolean;
 }>(), {
   preferenceMode: 'none',
   coursesMode: 'readonly',
@@ -124,7 +127,8 @@ withDefaults(defineProps<{
   periodTypeId: null,
   periodIds: () => [],
   hideResourceSelectors: false,
-  hideSchoolSelector: false
+  hideSchoolSelector: false,
+  isDetailedView: false
 });
 
 defineEmits<{
@@ -135,6 +139,7 @@ defineEmits<{
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
+  (e: 'update:isDetailedView', value: boolean): void;
   
   // Grid events
   (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;

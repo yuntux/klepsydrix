@@ -308,7 +308,7 @@ La couverture de code (Backend total à **88 %**) démontre l'excellence de la c
 Le système opère une distinction fondamentale entre le stockage des créneaux temporels (Timeslots) et leur utilisation par le solveur afin de conjuguer flexibilité et performance.
 
 ### A. Stockage BDD : Finesse maximale (15 minutes)
-Dans la base de données, les créneaux temporels (`Timeslots`) sont générés avec une granularité extrêmement fine (par pas de 15 minutes, ex: 8h00, 8h15, 8h30).
+Dans la base de données, les créneaux temporels (`Timeslots`) sont générés avec une granularité la plus fine possible dans l'application : **par pas de 15 minutes** (ex: 8h00, 8h15, 8h30).
 **Objectifs de cette architecture :**
 - **S'adapter aux changements de configuration** : Si un établissement passe d'une grille de 30 minutes à 15 minutes, l'application fonctionne instantanément sans nécessiter de lourdes migrations de base de données.
 - **SaaS et Multi-établissement (Cité Scolaire)** : Un collège et un lycée partageant la même base peuvent avoir des sonneries décalées (ex: 8h00 pour le lycée, 8h15 pour le collège). Le socle de données universel de 15 minutes couvre les deux.
@@ -323,3 +323,68 @@ Le solveur réduit drastiquement le champ des possibles en n'autorisant les cour
 Il ne faut pas confondre le pas de la grille (les heures de début autorisées) et la durée d'un cours une fois celui-ci démarré.
 - **Pas de la grille (`STANDARD_TIMESLOT_DURATION`)** : Détermine les points d'ancrage possibles (ex: démarrage autorisé à 8h00, 8h30).
 - **Durée réelle du cours (`c.duration_minutes`)** : Communiquée individuellement au solveur sous forme d'une variable `step` en heures (ex: `55 / 60.0 = 0.916`). Ainsi, un cours démarrant à 8h00 durera mathématiquement jusqu'à 8h55 pour le solveur, ce qui lui permettra de détecter précisément les chevauchements et conflits sans se laisser tromper par la taille des créneaux sous-jacents.
+
+---
+
+## 11. Gestion des Transactions et Cycle de Vie (Unit of Work)
+
+Klepsydrix utilise un modèle de transaction lié au cycle de vie de la requête HTTP (**Session per Request** ou **Unit of Work**). Ce mécanisme garantit l'atomicité des opérations : soit l'intégralité des modifications de la base de données effectuées durant une requête HTTP est sauvegardée, soit rien n'est conservé en cas d'erreur.
+
+### A. Le mécanisme d'injection de dépendance (`yield db`)
+
+Dans FastAPI, ce comportement est orchestré par le générateur `get_db()` utilisé comme dépendance (`Depends(get_db)`) dans les routes.
+
+```python
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db         # <--- PAUSE ICI pendant l'exécution de la route
+        db.commit()      # <--- Exécuté si la route réussit
+    except Exception:
+        db.rollback()    # <--- Exécuté si la route lève une exception
+        raise
+    finally:
+        db.close()       # <--- Toujours exécuté pour libérer la connexion
+```
+
+### B. Cycle de vie détaillé
+
+1. **Avant la route (l'aller)** :
+   Lorsqu'une requête arrive, FastAPI exécute `get_db()`. La fonction ouvre une session base de données, entre dans le bloc `try`, et atteint `yield db`.
+   À cet instant, la fonction se met en **pause**. L'objet `db` généré est passé en tant que paramètre à la route HTTP (le *endpoint*).
+
+2. **Pendant l'exécution de la route** :
+   Le backend exécute sa logique métier. Il utilise `db.add()`, `db.delete()`, ou la méthode ORM `db.flush()` pour envoyer les requêtes SQL préparatoires à la base (ce qui permet d'obtenir les IDs auto-générés ou lever des erreurs d'intégrité précoces). **Aucun `db.commit()` n'est appelé manuellement dans la route.**
+
+3. **Après la route (le retour)** :
+   Une fois la route terminée (retour réussi ou levée d'une exception), FastAPI reprend l'exécution de `get_db()` exactement là où il s'était arrêté (juste après le `yield`).
+   - **En cas de succès** : Le code continue, exécute le `db.commit()` final pour valider atomiquement toutes les opérations, puis ferme la session dans le bloc `finally`.
+   - **En cas d'erreur (Exception)** : FastAPI "injecte" l'erreur déclenchée par la route à l'endroit du `yield`. Cela déclenche immédiatement le bloc `except Exception:`, qui exécute un `db.rollback()` pour annuler l'ensemble des modifications non confirmées, assurant ainsi qu'aucun état partiel n'est enregistré.
+
+### C. Schéma d'exécution
+
+```text
+Requête HTTP reçue
+       │
+       ▼
+[1] Exécution de get_db()
+    db = SessionLocal()
+    yield db ──────────────┐ (pause)
+                           │
+                           ▼
+               [2] Exécution de la route (ex: update_course)
+                   course.update(db, vals)
+                   return {"status": "success"}
+                           │
+    ┌──────────────────────┘
+    │
+    ▼ (reprise)
+[3] Si succès : db.commit()
+    Si erreur : db.rollback()
+    Toujours  : db.close()
+       │
+       ▼
+Réponse HTTP envoyée au client
+```
+
+Cette architecture centralisée rend le code des endpoints purement métier, très lisible, et garantit une résilience totale aux pannes inattendues.

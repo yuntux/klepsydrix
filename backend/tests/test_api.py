@@ -29,9 +29,13 @@ test_engine = create_engine(
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 def override_get_db():
+    db = TestSessionLocal()
     try:
-        db = TestSessionLocal()
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -62,10 +66,12 @@ def db_session():
     try:
         # Création des ressources socle indispensables (école, discipline, matière)
         school = School(uai="1234567A", name="Lycée Test")
+        school._via_crud_mixin_create = True
         db.add(school)
         db.commit()
         
         discipline = Discipline(code="GEN", name="Général")
+        discipline._via_crud_mixin_create = True
         db.add(discipline)
         db.commit()
         
@@ -76,6 +82,7 @@ def db_session():
             long_label="Mathématiques",
             discipline_id=discipline.id
         )
+        subject._via_crud_mixin_create = True
         db.add(subject)
         db.commit()
         
@@ -87,6 +94,7 @@ def db_session():
 def test_get_timetable(db_session: Session):
     school = db_session.query(School).first()
     t = Teacher(code="MARTIN", name="Prof Martin", last_name="Martin", school_id=school.id)
+    t._via_crud_mixin_create = True
     db_session.add(t)
     db_session.commit()
 
@@ -106,10 +114,15 @@ def test_solve_timetable(db_session: Session):
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
+    t._via_crud_mixin_create = True
+    c._via_crud_mixin_create = True
+    d._via_crud_mixin_create = True
+    ts._via_crud_mixin_create = True
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], school_id=school.id)
+    course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
 
@@ -127,7 +140,7 @@ def test_solve_timetable(db_session: Session):
         
     db_session.refresh(course)
     assert course.timeslot_id is not None
-    assert course.classroom_id is not None
+    assert (course.classrooms[0].id if course.classrooms else None) is not None
 
 def test_reset_timetable(db_session: Session):
     school = db_session.query(School).first()
@@ -138,11 +151,16 @@ def test_reset_timetable(db_session: Session):
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
+    t._via_crud_mixin_create = True
+    c._via_crud_mixin_create = True
+    d._via_crud_mixin_create = True
+    ts._via_crud_mixin_create = True
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
     # Créer un cours déjà planifié
-    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, timeslot_id=ts.id, classroom_id=c.id, school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], timeslot_id=ts.id, classrooms=[c], school_id=school.id)
+    course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
 
@@ -154,7 +172,7 @@ def test_reset_timetable(db_session: Session):
     # Vérifier que le cours a bien été remis à NULL en base
     db_session.refresh(course)
     assert course.timeslot_id is None
-    assert course.classroom_id is None
+    assert (course.classrooms[0].id if course.classrooms else None) is None
 
 def test_update_course_success(db_session: Session):
     school = db_session.query(School).first()
@@ -165,18 +183,23 @@ def test_update_course_success(db_session: Session):
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
+    t._via_crud_mixin_create = True
+    c._via_crud_mixin_create = True
+    d._via_crud_mixin_create = True
+    ts._via_crud_mixin_create = True
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], school_id=school.id)
+    course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
 
-    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id, "classroom_id": c.id})
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id, "classroom_ids": [c.id]})
     assert response.status_code == 200
     db_session.refresh(course)
     assert course.timeslot_id == ts.id
-    assert course.classroom_id == c.id
+    assert (course.classrooms[0].id if course.classrooms else None) == c.id
 
 def test_update_course_conflict(db_session: Session):
     school = db_session.query(School).first()
@@ -189,19 +212,27 @@ def test_update_course_conflict(db_session: Session):
     d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
+    t._via_crud_mixin_create = True
+    c1._via_crud_mixin_create = True
+    c2._via_crud_mixin_create = True
+    d1._via_crud_mixin_create = True
+    d2._via_crud_mixin_create = True
+    ts._via_crud_mixin_create = True
     db_session.add_all([t, c1, c2, d1, d2, ts])
     db_session.commit()
 
     # Le premier cours occupe Prof A sur le créneau ts
-    course1 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d1.id, timeslot_id=ts.id, classroom_id=c1.id, school_id=school.id)
+    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts.id, classrooms=[c1], school_id=school.id)
     # Le second cours est Prof A avec la classe d2 (actuellement non placé)
-    course2 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d2.id, school_id=school.id)
+    course2 = Course(subject_id=subject.id, teachers=[t], divisions=[d2], school_id=school.id)
     
+    course1._via_crud_mixin_create = True
+    course2._via_crud_mixin_create = True
     db_session.add_all([course1, course2])
     db_session.commit()
 
     # Tenter de placer le second cours sur le même créneau avec la même prof (Conflit !)
-    response = client.put(f"/api/timetable/courses/{course2.id}", json={"timeslot_id": ts.id, "classroom_id": c2.id})
+    response = client.put(f"/api/timetable/courses/{course2.id}", json={"timeslot_id": ts.id, "classroom_ids": [c2.id]})
     assert response.status_code == 409
     assert "conflit" in response.json()["detail"].lower()
 
@@ -217,14 +248,23 @@ def test_solve_pinned_course(db_session: Session):
     ts1 = Timeslot(day_of_week=1, hour=8)
     ts2 = Timeslot(day_of_week=1, hour=9)
     
+    t._via_crud_mixin_create = True
+    c1._via_crud_mixin_create = True
+    c2._via_crud_mixin_create = True
+    d1._via_crud_mixin_create = True
+    d2._via_crud_mixin_create = True
+    ts1._via_crud_mixin_create = True
+    ts2._via_crud_mixin_create = True
     db_session.add_all([t, c1, c2, d1, d2, ts1, ts2])
     db_session.commit()
 
     # Le cours 1 est verrouillé (pinned) sur ts1 et c1
-    course1 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d1.id, timeslot_id=ts1.id, classroom_id=c1.id, is_pinned=True, school_id=school.id)
+    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts1.id, classrooms=[c1], is_pinned=True, school_id=school.id)
     # Le cours 2 est libre
-    course2 = Course(subject_id=subject.id, teacher_id=t.id, division_id=d2.id, school_id=school.id)
+    course2 = Course(subject_id=subject.id, teachers=[t], divisions=[d2], school_id=school.id)
 
+    course1._via_crud_mixin_create = True
+    course2._via_crud_mixin_create = True
     db_session.add_all([course1, course2])
     db_session.commit()
 
@@ -244,7 +284,7 @@ def test_solve_pinned_course(db_session: Session):
     db_session.refresh(course2)
     
     assert course1.timeslot_id == ts1.id
-    assert course1.classroom_id == c1.id
+    assert (course1.classrooms[0].id if course1.classrooms else None) == c1.id
     assert course1.is_pinned is True
     
     # Le cours 2 a dû être planifié sur ts2 puisqu'il y a conflit enseignant sur ts1
@@ -260,10 +300,15 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
     
+    t._via_crud_mixin_create = True
+    c._via_crud_mixin_create = True
+    d._via_crud_mixin_create = True
+    ts._via_crud_mixin_create = True
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject_id=subject.id, teacher_id=t.id, division_id=d.id, timeslot_id=ts.id, classroom_id=c.id, school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], timeslot_id=ts.id, classrooms=[c], school_id=school.id)
+    course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
 
@@ -297,11 +342,12 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     # 3. Vérifier que la séance a bien été dépositionnée (timeslot_id et classroom_id à None)
     db_session.refresh(course)
     assert course.timeslot_id is None
-    assert course.classroom_id is None
+    assert (course.classrooms[0].id if course.classrooms else None) is None
 
 
 def test_preferences_crud(db_session: Session):
     ts = Timeslot(day_of_week=1, hour=8)
+    ts._via_crud_mixin_create = True
     db_session.add(ts)
     db_session.commit()
 
@@ -342,6 +388,7 @@ def test_preferences_crud(db_session: Session):
 
 def test_preferences_split_logic(db_session: Session):
     ts = Timeslot(day_of_week=1, hour=8)
+    ts._via_crud_mixin_create = True
     db_session.add(ts)
     db_session.commit()
 
@@ -391,18 +438,23 @@ def test_preferences_period_split_logic(db_session: Session):
     
     # 1. Créer le type de période et les périodes
     pt = PeriodType(label="Trimestres")
+    pt._via_crud_mixin_create = True
     db_session.add(pt)
     db_session.commit()
     
     p1 = Period(school_id=school.id, period_type_id=pt.id, code="T1", name="Trimestre 1", start_date=date(2026, 9, 1), end_date=date(2026, 12, 1))
     p2 = Period(school_id=school.id, period_type_id=pt.id, code="T2", name="Trimestre 2", start_date=date(2026, 12, 2), end_date=date(2027, 3, 1))
+    p1._via_crud_mixin_create = True
+    p2._via_crud_mixin_create = True
     db_session.add_all([p1, p2])
     db_session.commit()
 
     teacher = Teacher(code="TESTPER", name="Prof Test", last_name="Test", school_id=school.id)
+    teacher._via_crud_mixin_create = True
     db_session.add(teacher)
     
     ts = Timeslot(day_of_week=1, hour=8)
+    ts._via_crud_mixin_create = True
     db_session.add(ts)
     db_session.commit()
 
@@ -459,6 +511,7 @@ def test_trmd_budget_synthesis(db_session: Session):
         allocated_hsa=4.0,
         allocated_posts=2.0
     )
+    budget._via_crud_mixin_create = True
     db_session.add(budget)
     db_session.commit()
 

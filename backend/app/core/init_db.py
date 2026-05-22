@@ -221,23 +221,22 @@ def seed_v2_data():
         # Chaque classe a au moins 4 cours de base
         course_count = 0
         for d_id, s_id in divisions:
-            # Matières : Maths (MATHS), Français (FRAN), Hist-Géo (HG), SVT (SVT), et PC/TECHNO
-            selected_subjects = ["MATHS", "FRAN", "HG", "SVT"]
+            # Matières simples : Maths (MATHS), Français (FRAN), Hist-Géo (HG)
+            simple_subjects = ["MATHS", "FRAN", "HG"]
+            complex_subjects = ["SVT", "PC", "TECHNO"]
+            
             if s_id == clg_id:
-                selected_subjects.append("TECHNO")
                 # Associer des enseignants du collège (index 1 à 20)
                 teacher_pool = [t[0] for t in teachers if t[1] == clg_id]
             else:
-                selected_subjects.append("PC")
                 # Associer des enseignants du lycée (index 21 à 40)
                 teacher_pool = [t[0] for t in teachers if t[1] == lyc_id]
 
-            for s_code in selected_subjects:
+            # 1. Cours simples
+            for s_code in simple_subjects:
                 subj_id = subject_ids[s_code]
                 t_id = random.choice(teacher_pool)
-                
-                # SVT, TECHNO, et PC durent 1h30 (90 minutes)
-                duration = 90 if s_code in ["SVT", "TECHNO", "PC"] else 55
+                duration = 55
                 
                 db.execute(text(
                     "INSERT INTO courses (subject_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id) "
@@ -247,25 +246,90 @@ def seed_v2_data():
                     "duration_minutes": duration,
                     "school_id": s_id
                 })
-                
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
                 
-                db.execute(text(
-                    "INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"
-                ), {"course_id": course_id, "teacher_id": t_id})
+                db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})
+                db.execute(text("INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"), {"course_id": course_id, "division_id": d_id})
                 
-                db.execute(text(
-                    "INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"
-                ), {"course_id": course_id, "division_id": d_id})
-                
-                # Affecter aléatoirement du personnel non enseignant à quelques cours (ex: 15% de chance)
+                # Affecter aléatoirement du personnel non enseignant
                 if random.random() < 0.15:
                     staff_pool = [s[0] for s in non_teaching_staffs if s[1] == s_id]
                     if staff_pool:
                         st_id = random.choice(staff_pool)
-                        db.execute(text(
-                            "INSERT INTO course_non_teaching_staffs (course_id, non_teaching_staff_id) VALUES (:course_id, :staff_id)"
-                        ), {"course_id": course_id, "staff_id": st_id})
+                        db.execute(text("INSERT INTO course_non_teaching_staffs (course_id, non_teaching_staff_id) VALUES (:course_id, :staff_id)"), {"course_id": course_id, "staff_id": st_id})
+                
+                course_count += 1
+
+            # --- Création des Groupes pour le Pôle Sciences ---
+            # 1. Partition
+            db.execute(text("INSERT INTO partitions (code, name, division_id) VALUES ('SCI', 'Groupes Sciences', :division_id)"), {"division_id": d_id})
+            part_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+            
+            # 2. ClassParts & Groups (3 groupes)
+            div_groups = []
+            for g_idx in range(1, 4):
+                cp_code = f"{d_id}_SCI_G{g_idx}"
+                db.execute(text(
+                    "INSERT INTO class_parts (division_id, partition_id, code, name, student_count, color) "
+                    "VALUES (:div_id, :part_id, :code, :name, 10, '#CCCCCC')"
+                ), {"div_id": d_id, "part_id": part_id, "code": cp_code, "name": f"Groupe {g_idx}"})
+                cp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+                
+                grp_code = f"GRP_{cp_code}"
+                db.execute(text(
+                    "INSERT INTO groups (code, name, student_count, color, is_variable_size) VALUES (:code, :name, 10, '#CCCCCC', 0)"
+                ), {"code": grp_code, "name": f"Groupe Sciences {g_idx}"})
+                grp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+                
+                db.execute(text("INSERT INTO group_class_parts (group_id, class_part_id) VALUES (:g_id, :cp_id)"), {"g_id": grp_id, "cp_id": cp_id})
+                div_groups.append(grp_id)
+            
+            # Sélection de 3 professeurs distincts
+            selected_teachers = random.sample(teacher_pool, 3)
+            # Sélection de 3 salles distinctes (classrooms contient (id, school_id))
+            room_pool = [c[0] for c in classrooms if c[1] == s_id]
+            selected_rooms = random.sample(room_pool, 3) if len(room_pool) >= 3 else room_pool
+
+            # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
+            db.execute(text(
+                "INSERT INTO courses (subject_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id, label) "
+                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences')"
+            ), {"school_id": s_id})
+            parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+            course_count += 1
+            
+            # Affectation des 3 profs, 3 salles et 3 groupes au cours PARENT
+            for t_id in selected_teachers:
+                db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:c_id, :t_id)"), {"c_id": parent_id, "t_id": t_id})
+            for r_id in selected_rooms:
+                db.execute(text("INSERT INTO course_classrooms (course_id, classroom_id) VALUES (:c_id, :r_id)"), {"c_id": parent_id, "r_id": r_id})
+            for g_id in div_groups:
+                db.execute(text("INSERT INTO course_groups (course_id, group_id) VALUES (:c_id, :g_id)"), {"c_id": parent_id, "g_id": g_id})
+            
+            # 3. Enfants du cours complexe
+            for idx, s_code in enumerate(complex_subjects):
+                subj_id = subject_ids[s_code]
+                t_id = selected_teachers[idx % len(selected_teachers)]
+                r_id = selected_rooms[idx % len(selected_rooms)]
+                g_id = div_groups[idx % len(div_groups)]
+                duration = 90
+                
+                db.execute(text(
+                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id) "
+                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id)"
+                ), {
+                    "subject_id": subj_id,
+                    "parent_id": parent_id,
+                    "duration_minutes": duration,
+                    "school_id": s_id
+                })
+                course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+                
+                db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})
+                db.execute(text("INSERT INTO course_classrooms (course_id, classroom_id) VALUES (:course_id, :r_id)"), {"course_id": course_id, "r_id": r_id})
+                db.execute(text("INSERT INTO course_groups (course_id, group_id) VALUES (:course_id, :g_id)"), {"course_id": course_id, "g_id": g_id})
+                # Ne pas associer directement toute la division au sous-cours, il n'a qu'un groupe.
+                # db.execute(text("INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"), {"course_id": course_id, "division_id": d_id})
                 
                 course_count += 1
                 

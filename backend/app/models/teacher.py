@@ -69,5 +69,6 @@ class Teacher(Base):
                 resource_type='Teacher',
                 resource_id=self.id
             )
+            constraint._via_crud_mixin_create = True
             session.add(constraint)
         return constraint

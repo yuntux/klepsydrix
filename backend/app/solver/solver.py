@@ -242,6 +242,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
         for pc in solution.courses:
             db_course = db.query(Course).filter(Course.id == pc.id).first()
             if db_course:
+                db_course._via_crud_mixin_update = True
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
                 if pc.classroom:
                     db_classroom = db.query(Classroom).get(pc.classroom.id)

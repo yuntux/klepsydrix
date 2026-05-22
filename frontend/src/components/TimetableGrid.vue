@@ -23,6 +23,7 @@
       @update:weekType="$emit('update:weekType', $event)"
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
+      v-model:isDetailedView="isDetailedView"
     >
       <template #actions>
         <div class="controls-group" style="display: flex; gap: 12px; align-items: center;">
@@ -105,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from '../types';
 import BaseGrid from './BaseGrid.vue';
 import GridContainer from './GridContainer.vue';
@@ -133,6 +134,8 @@ const props = defineProps<{
   periodTypeId?: number | null;
   periodIds?: number[];
 }>();
+
+const isDetailedView = ref(false);
 
 const emit = defineEmits<{
   (e: 'move', courseId: number, timeslotId: number): void;
@@ -172,6 +175,10 @@ function getTimeslot(day: number, hour: number): Timeslot | undefined {
   return props.timeslots.find(ts => ts.day_of_week === day && Math.abs(ts.hour - hour) < 0.001);
 }
 
+const parentIdsSet = computed(() => {
+  return new Set(props.courses.map(c => c.parent_id).filter(id => id != null));
+});
+
 function getCoursesAt(day: number, hour: number): Course[] {
   const ts = getTimeslot(day, hour);
   if (!ts) return [];
@@ -180,6 +187,13 @@ function getCoursesAt(day: number, hour: number): Course[] {
 
   return props.courses.filter(course => {
     if (course.timeslot_id !== ts.id) return false;
+
+    // Filtre de granularité
+    if (isDetailedView.value) {
+      if (parentIdsSet.value.has(course.id)) return false; // detailed: exclut les parents
+    } else {
+      if (course.parent_id !== null) return false; // compact: exclut les enfants
+    }
 
     // Filtre par semaine :
     // 'W' (toutes) -> on affiche tout

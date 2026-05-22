@@ -23,6 +23,10 @@ def override_get_db():
     db = TestSessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -46,6 +50,7 @@ def db_session():
 def test_generic_crud_flow(db_session: Session):
     # 1. Créer un établissement (School) requis pour le partitionnement
     school = School(uai="1234567A", name="Lycée Test")
+    school._via_crud_mixin_create = True
     db_session.add(school)
     db_session.commit()
     db_session.refresh(school)
@@ -113,6 +118,8 @@ def test_generic_crud_dynamic_filtering(db_session: Session):
     # 1. Créer deux matériels avec des caractéristiques différentes
     m1 = Material(code="KIT_01", name="Kit A", quantity=5)
     m2 = Material(code="KIT_02", name="Kit B", quantity=10)
+    m1._via_crud_mixin_create = True
+    m2._via_crud_mixin_create = True
     db_session.add_all([m1, m2])
     db_session.commit()
 
@@ -136,6 +143,7 @@ def test_generic_crud_dynamic_filtering(db_session: Session):
 def test_generic_dynamic_method_execution(db_session: Session):
     # 1. Créer un établissement de test
     school = School(uai="8888888X", name="Ecole Test Dynamique")
+    school._via_crud_mixin_create = True
     db_session.add(school)
     db_session.commit()
     db_session.refresh(school)
@@ -162,6 +170,7 @@ def test_generic_dynamic_method_execution(db_session: Session):
 def test_teacher_constraints_crud(db_session: Session):
     # 1. Créer un établissement requis pour le prof
     school = School(uai="9999999Z", name="Lycée de la Forêt")
+    school._via_crud_mixin_create = True
     db_session.add(school)
     db_session.commit()
     db_session.refresh(school)

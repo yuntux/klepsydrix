@@ -107,6 +107,14 @@
 
       <!-- Right actions slot -->
       <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+        <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;">
+          <label>Affichage :</label>
+          <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
+            <span :class="{ 'active': !isDetailedView }">Compact</span>
+            <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
+            <span :class="{ 'active': isDetailedView }">Détaillé</span>
+          </div>
+        </div>
         <slot name="actions"></slot>
       </div>
     </div>
@@ -181,6 +189,7 @@ const props = withDefaults(defineProps<{
   
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
+  isDetailedView?: boolean;
 }>(), {
   mode: 'timetable',
   schools: () => [],
@@ -197,7 +206,8 @@ const props = withDefaults(defineProps<{
   periodTypeId: null,
   periodIds: () => [],
   hideResourceSelectors: false,
-  hideSchoolSelector: false
+  hideSchoolSelector: false,
+  isDetailedView: false
 });
 
 const emit = defineEmits<{
@@ -207,6 +217,7 @@ const emit = defineEmits<{
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
+  (e: 'update:isDetailedView', value: boolean): void;
 }>();
 
 // Filter resources by schoolId if set
@@ -383,5 +394,59 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
 
 .checkbox-text {
   user-select: none;
+}
+
+/* Toggle Switch Styles */
+.toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.4);
+  padding: 4px 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.toggle-container span {
+  transition: color 0.3s;
+}
+
+.toggle-container span.active {
+  color: var(--accent-primary);
+}
+
+.toggle-switch {
+  width: 32px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.3s;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle-switch.on {
+  background: var(--accent-primary);
+}
+
+.toggle-switch.on::after {
+  transform: translateX(14px);
 }
 </style>

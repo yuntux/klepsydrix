@@ -951,7 +951,17 @@ async function onMoveCourse(courseId: number, timeslotId: number) {
   }
 
   try {
-    await api.updateCourse(courseId, timeslotId);
+    const response = await api.updateCourse(courseId, timeslotId);
+    
+    // Mettre à jour tous les cours impactés (le parent + les enfants)
+    if (response.courses) {
+      response.courses.forEach(updatedCourse => {
+        const idx = courses.value.findIndex(c => c.id === updatedCourse.id);
+        if (idx !== -1) {
+          courses.value[idx] = updatedCourse;
+        }
+      });
+    }
     await refreshScoreAndNotify(oldScore, 'Le cours a été planifié avec succès.');
     
     // Alerte en cas de placement sur un créneau indisponible (Rouge / Unsuited) - T025b
@@ -987,7 +997,16 @@ async function onUnassignCourse(courseId: number) {
   }
 
   try {
-    await api.updateCourse(courseId, null);
+    const response = await api.updateCourse(courseId, null);
+    
+    if (response.courses) {
+      response.courses.forEach(updatedCourse => {
+        const idx = courses.value.findIndex(c => c.id === updatedCourse.id);
+        if (idx !== -1) {
+          courses.value[idx] = updatedCourse;
+        }
+      });
+    }
     showNotification('success', 'Le cours a été retiré de la grille.');
   } catch (err: any) {
     courses.value = previousCoursesState;
@@ -1008,7 +1027,16 @@ async function onTogglePinCourse(courseId: number) {
 
   try {
     const course = courses.value[courseIndex];
-    await api.updateCourse(courseId, course.timeslot_id, newPinState);
+    const response = await api.updateCourse(courseId, course.timeslot_id, newPinState);
+    
+    if (response.courses) {
+      response.courses.forEach(updatedCourse => {
+        const idx = courses.value.findIndex(c => c.id === updatedCourse.id);
+        if (idx !== -1) {
+          courses.value[idx] = updatedCourse;
+        }
+      });
+    }
     await refreshScoreAndNotify(oldScore, newPinState ? 'Le cours a été verrouillé.' : 'Le cours a été déverrouillé.');
   } catch (err: any) {
     courses.value = previousCoursesState;

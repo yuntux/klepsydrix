@@ -59,7 +59,7 @@ export async function updateCourse(
   courseId: number,
   timeslotId: number | null,
   isPinned?: boolean
-): Promise<{ status: string; course: Course }> {
+): Promise<{ status: string; courses: Course[] }> {
   const response = await fetch(`/api/timetable/courses/${courseId}`, {
     method: 'PUT',
     headers: {

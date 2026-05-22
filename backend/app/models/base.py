@@ -60,13 +60,15 @@ class CRUDMixin:
 
             # 3. Créer l'enregistrement local principal
             instance = cls(**local_vals)
+            instance._via_crud_mixin_create = True
             db.add(instance)
-            db.flush() # Génère l'ID en base sans commiter tout de suite
+            db.flush()  # Génère l'ID en base sans commiter (le commit est géré par l'endpoint)
 
             # 4. Assurer l'existence et mettre à jour les enregistrements liés
             for relation_name, fields in related_vals.items():
                 related_obj = instance.ensure_related_record(relation_name)
                 if related_obj:
+                    related_obj._via_crud_mixin_update = True
                     for k, v in fields.items():
                         prop = getattr(cls, k)
                         setattr(related_obj, prop.target_field, v)
@@ -76,7 +78,7 @@ class CRUDMixin:
                 items = db.query(target_cls).filter(target_cls.id.in_(ids)).all()
                 setattr(instance, rel_key, items)
 
-            db.commit()
+            db.flush()
             db.refresh(instance)
             return instance
         except Exception as e:
@@ -140,6 +142,7 @@ class CRUDMixin:
                     local_vals[k] = v
 
             # 3. Mettre à jour l'enregistrement principal
+            self._via_crud_mixin_update = True
             for key, value in local_vals.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
@@ -148,6 +151,7 @@ class CRUDMixin:
             for relation_name, fields in related_vals.items():
                 related_obj = self.ensure_related_record(relation_name)
                 if related_obj:
+                    related_obj._via_crud_mixin_update = True
                     for k, v in fields.items():
                         prop = getattr(self.__class__, k)
                         setattr(related_obj, prop.target_field, v)
@@ -157,7 +161,7 @@ class CRUDMixin:
                 items = db.query(target_cls).filter(target_cls.id.in_(ids)).all()
                 setattr(self, rel_key, items)
 
-            db.commit()
+            db.flush()  # Flush sans commit : le commit est géré par l'endpoint
             db.refresh(self)
             return self
         except Exception as e:
@@ -166,11 +170,12 @@ class CRUDMixin:
 
     def delete(self, db: Session):
         """
-        Méthode de suppression standard surchargeable.
+        Marque l'objet pour suppression. Le commit est géré par l'endpoint.
         """
+        self._via_crud_mixin_delete = True
         try:
             db.delete(self)
-            db.commit()
+            db.flush()
             return True
         except Exception as e:
             db.rollback()
@@ -216,4 +221,24 @@ class TransientModel:
     def read(cls, db: Session, domain: dict = None, limit: int = None, offset: int = None):
         raise NotImplementedError("Les modèles transitoires doivent implémenter la méthode read().")
 
+from sqlalchemy import event
+from sqlalchemy.orm import object_session
+
+@event.listens_for(Base, 'before_insert', propagate=True)
+def receive_before_insert(mapper, connection, target):
+    if not getattr(target, '_via_crud_mixin_create', False):
+        raise RuntimeError(f"Création directe interdite pour {target.__class__.__name__}. Utilisez la méthode create() de CRUDMixin.")
+
+@event.listens_for(Base, 'before_update', propagate=True)
+def receive_before_update(mapper, connection, target):
+    session = object_session(target)
+    if session and not session.is_modified(target, include_collections=False):
+        return
+    if not getattr(target, '_via_crud_mixin_update', False):
+        raise RuntimeError(f"Mise à jour directe interdite pour {target.__class__.__name__}. Utilisez la méthode update() de CRUDMixin.")
+
+@event.listens_for(Base, 'before_delete', propagate=True)
+def receive_before_delete(mapper, connection, target):
+    if not getattr(target, '_via_crud_mixin_delete', False):
+        raise RuntimeError(f"Suppression directe interdite pour {target.__class__.__name__}. Utilisez la méthode delete() de CRUDMixin.")
 

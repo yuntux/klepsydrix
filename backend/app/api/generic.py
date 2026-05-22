@@ -243,6 +243,7 @@ def make_create_endpoint(model, payload_schema):
             new_item = model.create(db, cleaned_payload)
             if new_item is None:
                 return {"id": 0, "status": "purged"}
+            db.refresh(new_item)
             return sqla_to_dict(new_item)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Erreur de création : {e}")
@@ -262,6 +263,7 @@ def make_update_endpoint(model, payload_schema):
             updated_item = item.update(db, cleaned_vals)
             if updated_item is None:
                 return {"id": item_id, "status": "purged"}
+            db.refresh(updated_item)
             return sqla_to_dict(updated_item)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Erreur de mise à jour : {e}")
@@ -323,10 +325,8 @@ def make_class_call_endpoint(model):
             
         try:
             result = func(*args, **kwargs)
-            db.commit()
             return serialize_execution_result(result)
         except Exception as e:
-            db.rollback()
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode de classe : {e}")
             
     return class_call_endpoint
@@ -366,10 +366,8 @@ def make_instance_call_endpoint(model):
             
         try:
             result = func(*args, **kwargs)
-            db.commit()
             return serialize_execution_result(result)
         except Exception as e:
-            db.rollback()
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode d'instance : {e}")
             
     return instance_call_endpoint

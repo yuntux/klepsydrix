@@ -45,6 +45,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Génération automatique des cours
 - Affections automatique des élèves aux classes
 - Génération automatique des groupes et affectation automatique des élèves aux groupes
+- Fonction d'ajustement en masse des liens entre groupes en fonction de la répartition des élèvs dans les groupes
 
 ### 4. Emploi du temps opérationnel (hebdomadaire)
 - Déclinaison de l'emploi du temps annuel en emploi du temps hebdomadaire

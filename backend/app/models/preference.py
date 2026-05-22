@@ -204,6 +204,7 @@ class ResourcePreference(Base):
             )
             if pids:
                 pref.periods = db.query(Period).filter(Period.id.in_(pids)).all()
+            pref._via_crud_mixin_create = True
             db.add(pref)
             created_instances.append(pref)
 
@@ -218,7 +219,7 @@ class ResourcePreference(Base):
         if not main_instance and created_instances:
             main_instance = created_instances[0]
 
-        db.commit()
+        db.flush()
         if main_instance:
             db.refresh(main_instance)
         return main_instance

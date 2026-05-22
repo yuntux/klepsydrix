@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base
 from backend.app.models.preference import WeekType
@@ -8,49 +8,56 @@ course_teachers = Table(
     "course_teachers",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True)
+    Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 course_classrooms = Table(
     "course_classrooms",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("classroom_id", Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), primary_key=True)
+    Column("classroom_id", Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 course_non_teaching_staffs = Table(
     "course_non_teaching_staffs",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("non_teaching_staff_id", Integer, ForeignKey("non_teaching_staffs.id", ondelete="CASCADE"), primary_key=True)
+    Column("non_teaching_staff_id", Integer, ForeignKey("non_teaching_staffs.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 course_materials = Table(
     "course_materials",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("material_id", Integer, ForeignKey("materials.id", ondelete="CASCADE"), primary_key=True)
+    Column("material_id", Integer, ForeignKey("materials.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 course_divisions = Table(
     "course_divisions",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("division_id", Integer, ForeignKey("divisions.id", ondelete="CASCADE"), primary_key=True)
+    Column("division_id", Integer, ForeignKey("divisions.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 course_class_parts = Table(
     "course_class_parts",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("class_part_id", Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), primary_key=True)
+    Column("class_part_id", Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 course_groups = Table(
     "course_groups",
     Base.metadata,
     Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("group_id", Integer, ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    Column("group_id", Integer, ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 class Course(Base):
@@ -59,7 +66,8 @@ class Course(Base):
     id = Column(Integer, primary_key=True, index=True)
     parent_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
     
-    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    # Pour les cours simples, un subject_id est requis. Pour les cours complexes (parents), il peut être NULL.
+    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=True)
     
     # Placements et attributs directs
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
@@ -144,9 +152,15 @@ class Course(Base):
         return "W"
 
     def validate_child_constraints(self):
-        """Vérifie qu'un cours enfant respecte les limites de temps et de ressources de son parent."""
+        """Vérifie qu'un cours enfant respecte les limites de temps, de ressources et de profondeur."""
         if not self.parent:
             return
+
+        # 0. Contrainte de profondeur (2 niveaux max)
+        if self.parent.parent_id is not None:
+            raise ValueError("Un cours ne peut pas avoir comme parent un cours qui est lui-même enfant (2 niveaux maximum).")
+        if self.children:
+            raise ValueError("Un cours complexe (ayant déjà des enfants) ne peut pas devenir l'enfant d'un autre cours.")
 
         # 1. Contraintes temporelles
         if self.timeslot and self.parent.timeslot:
@@ -185,10 +199,9 @@ class Course(Base):
             raise ValueError("Ce cours n'est pas complexe.")
         
         for child in self.children:
-            child.parent_id = None
+            child.update(db, {'parent_id': None})
             
-        db.delete(self)
-        db.commit()
+        self.delete(db)
 
     @classmethod
     def group_into_complex_course(cls, db, course_ids: list[int]):
@@ -205,36 +218,70 @@ class Course(Base):
 
         first_course = courses[0]
 
-        # Création du cours parent englobant
-        parent = cls(
-            is_complex=True,
-            subject_id=first_course.subject_id, # On hérite du sujet du premier
-            school_id=first_course.school_id,
-            duration_minutes=max(c.duration_minutes for c in courses), # On prend la durée max par défaut
-            week_type=first_course.week_type
-        )
-        db.add(parent)
-        db.flush()
+        # Calcul de l'union de toutes les ressources des enfants
+        def union_ids(attr):
+            seen = set()
+            result = []
+            for c in courses:
+                for item in getattr(c, attr):
+                    if item.id not in seen:
+                        seen.add(item.id)
+                        result.append(item.id)
+            return result
 
+        # Création du cours parent via CRUDMixin.create() pour passer par tous les hooks
+        parent = cls.create(db, {
+            'is_complex': True,
+            'subject_id': first_course.subject_id,
+            'school_id': first_course.school_id,
+            'duration_minutes': max(c.duration_minutes for c in courses),
+            'week_type': first_course.week_type,
+            'teacher_ids': union_ids('teachers'),
+            'non_teaching_staff_ids': union_ids('non_teaching_staffs'),
+            'classroom_ids': union_ids('classrooms'),
+            'division_ids': union_ids('divisions'),
+            'group_ids': union_ids('groups'),
+            'material_ids': union_ids('materials'),
+            'class_part_ids': union_ids('class_parts'),
+        })
+
+        # Rattachement des enfants au parent via update() pour passer par les hooks
         for c in courses:
-            c.parent_id = parent.id
-            
-            # Alimentation des ressources du parent (Union)
-            for res_list, parent_res_list in [
-                (c.teachers, parent.teachers),
-                (c.non_teaching_staffs, parent.non_teaching_staffs),
-                (c.classrooms, parent.classrooms),
-                (c.divisions, parent.divisions),
-                (c.groups, parent.groups),
-                (c.materials, parent.materials),
-                (c.class_parts, parent.class_parts),
-            ]:
-                for item in res_list:
-                    if item not in parent_res_list:
-                        parent_res_list.append(item)
+            c.update(db, {'parent_id': parent.id})
 
-        db.commit()
         return parent
+
+    @classmethod
+    def _inherit_parent_placement(cls, db, vals: dict) -> dict:
+        """Méthode utilitaire commune : si parent_id est présent dans vals,
+        copie le timeslot_id et is_pinned du parent dans vals.
+        La vérification de profondeur est déléguée à validate_child_constraints via l'event SQLAlchemy."""
+        parent_id = vals.get('parent_id')
+        if parent_id:
+            parent = db.query(cls).filter(cls.id == parent_id).first()
+            if parent:
+                vals['timeslot_id'] = parent.timeslot_id
+                vals['is_pinned'] = parent.is_pinned
+        return vals
+
+    @classmethod
+    def create(cls, db: Session, vals: dict):
+        """Surcharge : hérite du placement du parent si nécessaire."""
+        cls._inherit_parent_placement(db, vals)
+        return super().create(db, vals)
+
+    def update(self, db: Session, vals: dict):
+        """Surcharge : hérite du placement lors d'un rattachement et propage aux enfants."""
+        self.__class__._inherit_parent_placement(db, vals)
+
+        res = super().update(db, vals)
+        
+        if 'timeslot_id' in vals or 'is_pinned' in vals:
+            child_vals = {k: vals[k] for k in ('timeslot_id', 'is_pinned') if k in vals}
+            for child in self.children:
+                child.update(db, child_vals)
+                
+        return res
 
 
 def validate_course_child_constraints_listener(mapper, connection, target):
