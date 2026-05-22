@@ -34,6 +34,12 @@ def db_session():
         db.add(school)
         db.commit()
         
+        from backend.app.models.system_setting import SystemSetting
+        setting = SystemSetting(key="STANDARD_TIMESLOT_DURATION", value="30")
+        setting._via_crud_mixin_create = True
+        db.add(setting)
+        db.commit()
+        
         discipline = Discipline(code="GEN", name="Général")
         discipline._via_crud_mixin_create = True
         db.add(discipline)

@@ -71,7 +71,9 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     
     from backend.app.models.system_setting import SystemSetting
     setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-    duration = int(setting.value) if (setting and setting.value.isdigit()) else 30
+    if not setting or not setting.value.isdigit():
+        raise ValueError("Le paramètre système 'STANDARD_TIMESLOT_DURATION' est manquant ou invalide.")
+    duration = int(setting.value)
     
     step = duration / 60.0
     db_timeslots = db.query(Timeslot).all()

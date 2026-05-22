@@ -70,6 +70,12 @@ def db_session():
         db.add(school)
         db.commit()
         
+        from backend.app.models.system_setting import SystemSetting
+        setting = SystemSetting(key="STANDARD_TIMESLOT_DURATION", value="30")
+        setting._via_crud_mixin_create = True
+        db.add(setting)
+        db.commit()
+        
         discipline = Discipline(code="GEN", name="Général")
         discipline._via_crud_mixin_create = True
         db.add(discipline)
@@ -578,3 +584,57 @@ def test_course_week_alternation_conflicts(db_session: Session):
 
     response = client.put(f"/api/timetable/courses/{c4.id}", json={"timeslot_id": ts.id})
     assert response.status_code == 200
+
+def test_course_complex_offset_propagation(db_session: Session):
+    """
+    Vérifie la propagation du décalage (offset) lors du déplacement d'un cours complexe
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    # Création de 3 créneaux successifs (Lundi 8h, 8h30, 9h)
+    ts1 = Timeslot(day_of_week=1, hour=8.0)
+    ts2 = Timeslot(day_of_week=1, hour=8.5)
+    ts3 = Timeslot(day_of_week=1, hour=9.0)
+    for ts in [ts1, ts2, ts3]:
+        ts._via_crud_mixin_create = True
+        db_session.add(ts)
+    db_session.commit()
+
+    # 1. Création du cours parent
+    parent_course = Course(subject_id=subject.id, school_id=school.id, duration_minutes=120)
+    parent_course._via_crud_mixin_create = True
+    db_session.add(parent_course)
+    db_session.commit()
+
+    # 2. Création de deux enfants, l'un sans offset, l'autre avec offset = 1
+    child1 = Course(subject_id=subject.id, school_id=school.id, parent_id=parent_course.id, parent_timeslot_offset=0)
+    child1._via_crud_mixin_create = True
+    db_session.add(child1)
+    
+    child2 = Course(subject_id=subject.id, school_id=school.id, parent_id=parent_course.id, parent_timeslot_offset=1)
+    child2._via_crud_mixin_create = True
+    db_session.add(child2)
+    db_session.commit()
+
+    # 3. Placement du parent sur ts1 (8h00)
+    response = client.put(f"/api/timetable/courses/{parent_course.id}", json={"timeslot_id": ts1.id})
+    print(response.json())
+    assert response.status_code == 200
+    
+    db_session.refresh(child1)
+    db_session.refresh(child2)
+    # L'enfant 1 doit être sur ts1, l'enfant 2 sur ts2 (8h30) car offset = 1
+    assert child1.timeslot_id == ts1.id
+    assert child2.timeslot_id == ts2.id
+
+    # 4. Déplacement du parent sur ts2 (8h30)
+    response = client.put(f"/api/timetable/courses/{parent_course.id}", json={"timeslot_id": ts2.id})
+    print(response.json())
+    assert response.status_code == 200
+
+    db_session.refresh(child1)
+    db_session.refresh(child2)
+    # L'enfant 1 doit avoir suivi sur ts2, l'enfant 2 doit avoir été propulsé sur ts3 (9h00)
+    assert child1.timeslot_id == ts2.id
+    assert child2.timeslot_id == ts3.id

@@ -72,6 +72,10 @@ class Course(Base):
     # Placements et attributs directs
     timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
     is_pinned = Column(Boolean, nullable=False, default=False)
+    
+    # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au parent)
+    parent_timeslot_offset = Column(Integer, nullable=False, default=0)
+    
     week_type = Column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
     is_co_teaching = Column(Boolean, nullable=False, default=False)
     
@@ -306,51 +310,53 @@ class Course(Base):
                 raise ValueError("Conflit : La division est déjà occupée sur ce créneau (chevauchement)")
 
     @classmethod
-    def _inherit_parent_placement(cls, db, vals: dict) -> dict:
-        """Méthode utilitaire commune : si parent_id est présent dans vals,
-        copie le timeslot_id et is_pinned du parent dans vals.
-        La vérification de profondeur est déléguée à validate_child_constraints via l'event SQLAlchemy."""
-        parent_id = vals.get('parent_id')
-        if parent_id:
-            parent = db.query(cls).filter(cls.id == parent_id).first()
-            if parent:
-                vals['timeslot_id'] = parent.timeslot_id
-                vals['is_pinned'] = parent.is_pinned
-        return vals
+    def _sync_vals_from_parent(cls, db, vals: dict, instance=None):
+        if 'parent_id' in vals and not vals['parent_id']:
+            vals['parent_timeslot_offset'] = 0
+            return
+            
+        parent_id = vals.get('parent_id', getattr(instance, 'parent_id', None))
+        if parent := (db.get(cls, parent_id) if parent_id else None):
+            offset = vals.get('parent_timeslot_offset', getattr(instance, 'parent_timeslot_offset', 0))
+            vals['is_pinned'] = parent.is_pinned
+            vals['timeslot_id'] = None
+            
+            if parent.timeslot_id:
+                from backend.app.models.timeslot import Timeslot
+                if parent_ts := db.get(Timeslot, parent.timeslot_id):
+                    vals['timeslot_id'] = parent_ts.get_offset_timeslot(db, offset)
 
     @classmethod
     def create(cls, db: Session, vals: dict):
-        """Surcharge : hérite du placement du parent si nécessaire."""
-        cls._inherit_parent_placement(db, vals)
-        # Validation requires an instance, so we check after creation (or create a dummy instance)
-        # Let's create it and then validate (if invalid, db.flush will roll back or we raise ValueError before commit)
+        # 1. Synchronisation avec le parent (si applicable)
+        cls._sync_vals_from_parent(db, vals)
+        
+        # 2. Sauvegarde
         instance = super().create(db, vals)
+        
+        # 3. Validation globale
         instance.validate_placement_conflicts(db, vals)
+        instance.validate_child_constraints()
         return instance
 
     def update(self, db: Session, vals: dict):
-        """Surcharge : hérite du placement lors d'un rattachement et propage aux enfants."""
-        self.__class__._inherit_parent_placement(db, vals)
+        # 1. Synchronisation avec le parent (si applicable)
+        self.__class__._sync_vals_from_parent(db, vals, instance=self)
+        
+        # 2. Validation des conflits
         self.validate_placement_conflicts(db, vals)
 
+        # 3. Sauvegarde
         res = super().update(db, vals)
         
+        # 4. Si on a bougé, on propage le mouvement aux enfants en forçant leur recalcul
         if 'timeslot_id' in vals or 'is_pinned' in vals:
-            child_vals = {k: vals[k] for k in ('timeslot_id', 'is_pinned') if k in vals}
             for child in self.children:
-                child.update(db, child_vals)
+                child.update(db, {})
+                        
+        # 5. Validation de la cohérence de toute la hiérarchie parent-enfant
+        self.validate_child_constraints()
+        for child in self.children:
+            child.validate_child_constraints()
                 
         return res
-
-
-def validate_course_child_constraints_listener(mapper, connection, target):
-    # 1. Si on modifie un enfant, il doit respecter son parent
-    target.validate_child_constraints()
-    
-    # 2. Si on modifie un parent, tous ses enfants existants doivent continuer à le respecter
-    if target.children:
-        for child in target.children:
-            child.validate_child_constraints()
-
-event.listen(Course, 'before_insert', validate_course_child_constraints_listener)
-event.listen(Course, 'before_update', validate_course_child_constraints_listener)
