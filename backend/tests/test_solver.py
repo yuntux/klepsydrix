@@ -193,6 +193,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
 
     # 4. Deuxième cas : alternance Semaine A et Semaine B (week_type='A' et week_type='B')
     # Même avec un seul créneau temporel, ils PEUVENT coexister sur le même créneau car ils sont alternés.
+    course1.update(db_session, {"timeslot_id": None})
+    course2.update(db_session, {"timeslot_id": None})
     course1.update(db_session, {"week_type": "A"})
     course2.update(db_session, {"week_type": "B"})
     db_session.commit()

@@ -251,6 +251,60 @@ class Course(Base):
 
         return parent
 
+    def validate_placement_conflicts(self, db, vals):
+        target_ts_id = vals.get('timeslot_id', self.timeslot_id)
+        if target_ts_id is None:
+            return
+
+        from backend.app.models.timeslot import Timeslot
+        from backend.app.models.teacher import Teacher
+        from backend.app.models.classroom import Classroom
+        from backend.app.models.division import Division
+        from backend.app.models.non_teaching_staff import NonTeachingStaff
+
+        target_ts = db.query(Timeslot).filter(Timeslot.id == target_ts_id).first()
+        if not target_ts:
+            raise ValueError("Créneau invalide")
+
+        target_start = target_ts.hour * 60
+        target_end = target_start + self.duration_minutes
+
+        target_week_type = vals.get('week_type', getattr(self, 'week_type', 'W'))
+        
+        def get_conflict_query(resource_filter):
+            query = db.query(Course).join(Timeslot).filter(
+                Course.id != self.id,
+                resource_filter,
+                Timeslot.day_of_week == target_ts.day_of_week,
+                (Timeslot.hour * 60) < target_end,
+                target_start < (Timeslot.hour * 60 + Course.duration_minutes)
+            )
+            if target_week_type == 'A':
+                query = query.filter(Course.week_type.in_(['A', 'W']))
+            elif target_week_type == 'B':
+                query = query.filter(Course.week_type.in_(['B', 'W']))
+            return query
+
+        t_ids = vals.get('teacher_ids', [t.id for t in self.teachers])
+        if t_ids:
+            if get_conflict_query(Course.teachers.any(Teacher.id.in_(t_ids))).first():
+                raise ValueError("Conflit : L'enseignant est déjà occupé sur ce créneau (chevauchement)")
+
+        s_ids = vals.get('non_teaching_staff_ids', [s.id for s in self.non_teaching_staffs])
+        if s_ids:
+            if get_conflict_query(Course.non_teaching_staffs.any(NonTeachingStaff.id.in_(s_ids))).first():
+                raise ValueError("Conflit : Le membre du personnel est déjà occupé sur ce créneau (chevauchement)")
+
+        c_ids = vals.get('classroom_ids', [c.id for c in self.classrooms])
+        if c_ids:
+            if get_conflict_query(Course.classrooms.any(Classroom.id.in_(c_ids))).first():
+                raise ValueError("Conflit : La salle est déjà occupée sur ce créneau (chevauchement)")
+
+        d_ids = vals.get('division_ids', [d.id for d in self.divisions])
+        if d_ids:
+            if get_conflict_query(Course.divisions.any(Division.id.in_(d_ids))).first():
+                raise ValueError("Conflit : La division est déjà occupée sur ce créneau (chevauchement)")
+
     @classmethod
     def _inherit_parent_placement(cls, db, vals: dict) -> dict:
         """Méthode utilitaire commune : si parent_id est présent dans vals,
@@ -268,11 +322,16 @@ class Course(Base):
     def create(cls, db: Session, vals: dict):
         """Surcharge : hérite du placement du parent si nécessaire."""
         cls._inherit_parent_placement(db, vals)
-        return super().create(db, vals)
+        # Validation requires an instance, so we check after creation (or create a dummy instance)
+        # Let's create it and then validate (if invalid, db.flush will roll back or we raise ValueError before commit)
+        instance = super().create(db, vals)
+        instance.validate_placement_conflicts(db, vals)
+        return instance
 
     def update(self, db: Session, vals: dict):
         """Surcharge : hérite du placement lors d'un rattachement et propage aux enfants."""
         self.__class__._inherit_parent_placement(db, vals)
+        self.validate_placement_conflicts(db, vals)
 
         res = super().update(db, vals)
         

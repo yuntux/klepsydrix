@@ -527,3 +527,54 @@ def test_trmd_budget_synthesis(db_session: Session):
     assert maths_summary["allocated_etp"] == 2.0
     assert maths_summary["consumed_etp"] == 0.0
     assert maths_summary["status"] == "UNDER_BUDGET"
+
+def test_course_week_alternation_conflicts(db_session: Session):
+    """
+    Test the manual placement validation rules regarding week_type (A, B, W)
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    teacher = Teacher(code="T1", name="John", last_name="Doe", school_id=school.id)
+    teacher._via_crud_mixin_create = True
+    db_session.add(teacher)
+    db_session.commit()
+    
+    ts = Timeslot(day_of_week=1, hour=8)
+    ts._via_crud_mixin_create = True
+    db_session.add(ts)
+    db_session.commit()
+
+    # 1. Create a course in week A on timeslot ts
+    c1 = Course(subject_id=subject.id, school_id=school.id, teachers=[teacher], week_type="A", timeslot_id=ts.id)
+    c1._via_crud_mixin_create = True
+    db_session.add(c1)
+    db_session.commit()
+
+    # 2. Try to put a new course on week A with the same teacher -> Conflict
+    c2 = Course(subject_id=subject.id, school_id=school.id, teachers=[teacher], week_type="A")
+    c2._via_crud_mixin_create = True
+    db_session.add(c2)
+    db_session.commit()
+
+    response = client.put(f"/api/timetable/courses/{c2.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 409
+    assert "occupé" in response.json()["detail"]
+
+    # 3. Try to put a new course on week W with the same teacher -> Conflict (W overlaps A)
+    c3 = Course(subject_id=subject.id, school_id=school.id, teachers=[teacher], week_type="W")
+    c3._via_crud_mixin_create = True
+    db_session.add(c3)
+    db_session.commit()
+
+    response = client.put(f"/api/timetable/courses/{c3.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 409
+    
+    # 4. Try to put a new course on week B with the same teacher -> Success (A and B alternate)
+    c4 = Course(subject_id=subject.id, school_id=school.id, teachers=[teacher], week_type="B")
+    c4._via_crud_mixin_create = True
+    db_session.add(c4)
+    db_session.commit()
+
+    response = client.put(f"/api/timetable/courses/{c4.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 200

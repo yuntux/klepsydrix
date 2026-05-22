@@ -103,51 +103,12 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
     if not course:
         raise HTTPException(status_code=404, detail="Cours non trouvé")
     
-    if payload.timeslot_id is not None:
-        target_ts = db.query(Timeslot).filter(Timeslot.id == payload.timeslot_id).first()
-        if not target_ts:
-            raise HTTPException(status_code=400, detail="Créneau invalide")
-
-        target_start = target_ts.hour * 60
-        target_end = target_start + course.duration_minutes
-
-        # On prépare une sous-requête de conflits temporels
-        def get_conflict_query(resource_filter):
-            return db.query(Course).join(Timeslot).filter(
-                Course.id != course.id,
-                resource_filter,
-                Timeslot.day_of_week == target_ts.day_of_week,
-                (Timeslot.hour * 60) < target_end,
-                target_start < (Timeslot.hour * 60 + Course.duration_minutes)
-            )
-
-        # 1. Conflit enseignant
-        if course.teachers:
-            t_ids = [t.id for t in course.teachers]
-            if get_conflict_query(Course.teachers.any(Teacher.id.in_(t_ids))).first():
-                raise HTTPException(status_code=409, detail="Conflit : L'enseignant est déjà occupé sur ce créneau (chevauchement)")
-        
-        # 1b. Conflit personnel non enseignant
-        if course.non_teaching_staffs:
-            s_ids = [s.id for s in course.non_teaching_staffs]
-            if get_conflict_query(Course.non_teaching_staffs.any(NonTeachingStaff.id.in_(s_ids))).first():
-                raise HTTPException(status_code=409, detail="Conflit : Le membre du personnel est déjà occupé sur ce créneau (chevauchement)")
-        
-        # 2. Conflit salle
-        if course.classrooms:
-            c_ids = [c.id for c in course.classrooms]
-            if get_conflict_query(Course.classrooms.any(Classroom.id.in_(c_ids))).first():
-                raise HTTPException(status_code=409, detail="Conflit : La salle est déjà occupée sur ce créneau (chevauchement)")
-
-        # 3. Conflit division
-        if course.divisions:
-            d_ids = [d.id for d in course.divisions]
-            if get_conflict_query(Course.divisions.any(Division.id.in_(d_ids))).first():
-                raise HTTPException(status_code=409, detail="Conflit : La division est déjà occupée sur ce créneau (chevauchement)")
-
     vals = payload.model_dump(exclude_unset=True)
     if vals:
-        course.update(db, vals)
+        try:
+            course.update(db, vals)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         
     modified_courses = [course] + list(course.children)
     
