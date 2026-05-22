@@ -190,9 +190,10 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             classroom=cr_planning,
             is_pinned=is_pinned,
             original_timeslot_id=c.timeslot_id,
+            parent_id=getattr(c, 'parent_id', None),
             week_type=week_type,
             class_part_ids=class_part_ids,
-            period_ids=[p.id for p in db_periods],
+            period_ids=[getattr(c, 'period_id')] if getattr(c, 'period_id', None) else [p.id for p in db_periods],
             step=c.duration_minutes / 60.0
         )
         courses_list.append(pc)

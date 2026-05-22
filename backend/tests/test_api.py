@@ -638,3 +638,69 @@ def test_course_complex_offset_propagation(db_session: Session):
     # L'enfant 1 doit avoir suivi sur ts2, l'enfant 2 doit avoir été propulsé sur ts3 (9h00)
     assert child1.timeslot_id == ts2.id
     assert child2.timeslot_id == ts3.id
+
+
+def test_course_status_calculation(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    teacher1 = Teacher(code="T1", name="Prof 1", last_name="One", school_id=school.id)
+    teacher1._via_crud_mixin_create = True
+    
+    ts1 = Timeslot(day_of_week=1, hour=8.0)
+    ts1._via_crud_mixin_create = True
+    
+    db_session.add_all([teacher1, ts1])
+    db_session.commit()
+    
+    # 1. Simple course - UNPLACED
+    c1 = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "teachers": [teacher1]
+    })
+    db_session.commit()
+    assert c1.status == "UNPLACED"
+    assert c1.decomposition_status is None
+    
+    # 2. Simple course - PLACED
+    c1.update(db_session, {"timeslot_id": ts1.id})
+    db_session.commit()
+    assert c1.status == "PLACED"
+    assert c1.decomposition_status is None
+    
+    # 4. Composed Course - UNPLACED / UNVENTILATED (no children)
+    parent = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "is_composed": True,
+        "teachers": [teacher1]
+    })
+    db_session.commit()
+    assert parent.status == "UNPLACED"
+    assert parent.decomposition_status == "UNVENTILATED"
+    
+    # 5. Composed Course - UNPLACED / PARTIALLY_VENTILATED
+    child = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "parent_id": parent.id,
+        "teachers": []
+    })
+    db_session.commit()
+    assert parent.status == "UNPLACED"
+    assert parent.decomposition_status == "PARTIALLY_VENTILATED"
+    
+    # 6. Composed Course - PLACED / FULLY_VENTILATED
+    c1.update(db_session, {"timeslot_id": None})
+    db_session.commit()
+    
+    child.update(db_session, {"teachers": [teacher1]})
+    db_session.commit()
+    
+    parent.update(db_session, {"timeslot_id": ts1.id})
+    db_session.commit()
+    
+    assert parent.status == "PLACED"
+    assert parent.decomposition_status == "FULLY_VENTILATED"
+

@@ -239,7 +239,7 @@ def seed_v2_data():
                 duration = 55
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id) "
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id) "
                     "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id)"
                 ), {
                     "subject_id": subj_id,
@@ -292,7 +292,7 @@ def seed_v2_data():
 
             # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
             db.execute(text(
-                "INSERT INTO courses (subject_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id, label) "
+                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, label) "
                 "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences')"
             ), {"school_id": s_id})
             parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
@@ -315,7 +315,7 @@ def seed_v2_data():
                 duration = 90
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_complex, lock_sessions, week_type, is_pinned, is_co_teaching, school_id) "
+                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id) "
                     "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id)"
                 ), {
                     "subject_id": subj_id,

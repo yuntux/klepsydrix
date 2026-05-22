@@ -118,6 +118,15 @@ class PlanningResourceConstraint:
     max_gap_hours_per_week: int = 2
 
 
+def hierarchy_overlap(c1: 'PlanningCourse', c2: 'PlanningCourse') -> bool:
+    if c1.parent_id is not None and c1.parent_id == c2.id:
+        return False
+    if c2.parent_id is not None and c2.parent_id == c1.id:
+        return False
+    if c1.parent_id is not None and c2.parent_id is not None and c1.parent_id == c2.parent_id:
+        return False
+    return True
+
 @planning_entity
 @dataclass
 class PlanningCourse:
@@ -131,12 +140,12 @@ class PlanningCourse:
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
     original_timeslot_id: typing.Optional[int] = None
+    parent_id: typing.Optional[int] = None
     
     # Alternance et parties de classe (US2)
     week_type: str = "W"
     class_part_ids: List[int] = field(default_factory=list)
     period_ids: List[int] = field(default_factory=list)
-
 
 @planning_solution
 @dataclass
@@ -226,6 +235,8 @@ def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_teacher_overlap)
         .penalize(HardSoftScore.ONE_HARD)
@@ -246,6 +257,8 @@ def non_teaching_staff_conflict(constraint_factory: ConstraintFactory) -> Constr
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_non_teaching_staff_overlap)
         .penalize(HardSoftScore.ONE_HARD)
@@ -260,6 +273,8 @@ def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.classroom.id if course.classroom is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Classroom conflict")
@@ -279,6 +294,8 @@ def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_division_overlap)
         .penalize(HardSoftScore.ONE_HARD)
@@ -298,6 +315,8 @@ def group_link_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.filtering(lambda link, course1, course2: course1.id < course2.id and (link.class_part_a_id in course2.class_part_ids or link.class_part_b_id in course2.class_part_ids))
         )
         .filter(lambda link, course1, course2: weeks_overlap(course1.week_type, course2.week_type))
+        .filter(lambda link, course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda link, course1, course2: hierarchy_overlap(course1, course2))
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Group link conflict")
     )

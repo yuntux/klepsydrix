@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
-from backend.app.models.base import Base
+from backend.app.models.base import Base, exposed
 from backend.app.models.preference import WeekType
 
 course_teachers = Table(
@@ -77,13 +77,16 @@ class Course(Base):
     parent_timeslot_offset = Column(Integer, nullable=False, default=0)
     
     week_type = Column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
+    period_id = Column(Integer, ForeignKey("periods.id", ondelete="SET NULL"), nullable=True)
     is_co_teaching = Column(Boolean, nullable=False, default=False)
     
     duration_minutes = Column(Integer, nullable=False, default=55)
     label = Column(String(100), nullable=True)
     memo = Column(Text, nullable=True)
-    is_complex = Column(Boolean, nullable=False, default=False)
-    lock_sessions = Column(Boolean, nullable=False, default=False)
+    is_composed = Column(Boolean, nullable=False, default=False)
+    lock_structure = Column(Boolean, nullable=False, default=False)
+    status = Column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED")
+    decomposition_status = Column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED")
     
     mission_id = Column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True)
     election_method_id = Column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True)
@@ -121,6 +124,7 @@ class Course(Base):
                 self.subject_relation = subj_val
 
     @hybrid_property
+    @exposed
     def subject(self):
         if self.subject_relation:
             return self.subject_relation.short_label
@@ -154,6 +158,165 @@ class Course(Base):
         if types == {"B"}:
             return "B"
         return "W"
+
+    def has_conflicts(self, db: Session) -> bool:
+        """Vérifie si le cours a des conflits de ressources sans lever d'exception."""
+        if not self.timeslot_id:
+            return False
+
+        from backend.app.models.timeslot import Timeslot
+        from backend.app.models.teacher import Teacher
+        from backend.app.models.classroom import Classroom
+        from backend.app.models.division import Division
+        from backend.app.models.non_teaching_staff import NonTeachingStaff
+        from backend.app.models.period import Period
+        from sqlalchemy import or_
+
+        target_ts = db.get(Timeslot, self.timeslot_id)
+        if not target_ts:
+            return False
+
+        target_start = target_ts.hour * 60
+        target_end = target_start + self.duration_minutes
+        target_week_type = self.week_type.value if hasattr(self.week_type, 'value') else (self.week_type or 'W')
+
+        def get_conflict_query(resource_filter):
+            query = db.query(Course).join(Timeslot).filter(
+                Course.id != self.id,
+                resource_filter,
+                Timeslot.day_of_week == target_ts.day_of_week,
+                (Timeslot.hour * 60) < target_end,
+                target_start < (Timeslot.hour * 60 + Course.duration_minutes)
+            )
+            
+            # Règle 1 : Orthogonalité Structurelle
+            if self.parent_id:
+                query = query.filter(
+                    Course.id != self.parent_id,
+                    or_(Course.parent_id == None, Course.parent_id != self.parent_id)
+                )
+            else:
+                query = query.filter(
+                    or_(Course.parent_id == None, Course.parent_id != self.id)
+                )
+
+            # Règle 2 : Orthogonalité Hebdomadaire
+            if target_week_type == 'A':
+                query = query.filter(Course.week_type.in_(['A', 'W']))
+            elif target_week_type == 'B':
+                query = query.filter(Course.week_type.in_(['B', 'W']))
+
+            # Règle 3 : Orthogonalité Périodique
+            if self.period_id:
+                target_period = db.get(Period, self.period_id)
+                if target_period:
+                    query = query.outerjoin(Period, Course.period_id == Period.id).filter(
+                        or_(
+                            Course.period_id == None,
+                            Period.period_type_id != target_period.period_type_id,
+                            Course.period_id == target_period.id
+                        )
+                    )
+            return query
+
+        t_ids = [t.id for t in self.teachers]
+        if t_ids and get_conflict_query(Course.teachers.any(Teacher.id.in_(t_ids))).first():
+            return True
+
+        s_ids = [s.id for s in self.non_teaching_staffs]
+        if s_ids and get_conflict_query(Course.non_teaching_staffs.any(NonTeachingStaff.id.in_(s_ids))).first():
+            return True
+
+        c_ids = [c.id for c in self.classrooms]
+        if c_ids and get_conflict_query(Course.classrooms.any(Classroom.id.in_(c_ids))).first():
+            return True
+
+        d_ids = [d.id for d in self.divisions]
+        if d_ids and get_conflict_query(Course.divisions.any(Division.id.in_(d_ids))).first():
+            return True
+
+        return False
+
+    def resources_fully_ventilated_list(self, children_list) -> bool:
+        """Vérifie si toutes les ressources du cours composé sont attribuées à au moins un cours enfant de la liste."""
+        if not self.is_composed:
+            return True
+        
+        def check_ventilated(parent_list, child_attr):
+            parent_ids = {x.id for x in parent_list}
+            if not parent_ids:
+                return True
+            child_ids = set()
+            for child in children_list:
+                child_ids.update(x.id for x in getattr(child, child_attr))
+            return parent_ids.issubset(child_ids)
+
+        return (
+            check_ventilated(self.teachers, 'teachers') and
+            check_ventilated(self.non_teaching_staffs, 'non_teaching_staffs') and
+            check_ventilated(self.classrooms, 'classrooms') and
+            check_ventilated(self.divisions, 'divisions') and
+            check_ventilated(self.groups, 'groups') and
+            check_ventilated(self.materials, 'materials') and
+            check_ventilated(self.class_parts, 'class_parts')
+        )
+
+    def resources_fully_ventilated(self, exclude_child_id=None) -> bool:
+        """Vérifie si toutes les ressources du cours composé sont attribuées à au moins un cours enfant."""
+        children = [c for c in self.children if c.id != exclude_child_id]
+        return self.resources_fully_ventilated_list(children)
+
+    def recompute_status(self, exclude_child_id=None) -> str:
+        """Calcule et met à jour le statut et l'état de décomposition du cours en base."""
+        from sqlalchemy.orm import object_session
+        db = object_session(self)
+        
+        # Autoriser la mise à jour interne de l'instance
+        self._via_crud_mixin_update = True
+        
+        # 1. Statut de planification de base (status) : basé uniquement sur timeslot_id
+        if not self.timeslot_id:
+            self.status = "UNPLACED"
+        else:
+            self.status = "PLACED"
+
+        # 2. Statut de décomposition (decomposition_status) : uniquement pour les cours composés
+        if not self.is_composed:
+            self.decomposition_status = None
+        else:
+            # Récupérer les enfants depuis la relation en mémoire ET les nouveaux objets dans la session
+            children = set()
+            if self.children:
+                children.update(self.children)
+            if db:
+                for obj in db.new:
+                    if isinstance(obj, Course) and obj.parent_id is not None and obj.parent_id == self.id:
+                        children.add(obj)
+                for obj in db.deleted:
+                    if isinstance(obj, Course) and obj in children:
+                        children.remove(obj)
+            
+            # Appliquer l'exclusion si demandée
+            if exclude_child_id:
+                children = {c for c in children if c.id != exclude_child_id}
+                
+            if not children:
+                self.decomposition_status = "UNVENTILATED"
+            else:
+                child_statuses = [c.status for c in children]
+                if all(s == "PLACED" for s in child_statuses) and self.resources_fully_ventilated_list(children):
+                    self.decomposition_status = "FULLY_VENTILATED"
+                else:
+                    self.decomposition_status = "PARTIALLY_VENTILATED"
+
+        # Si c'est un enfant, recalculer le statut de son parent
+        if self.parent_id and db:
+            parent = db.get(self.__class__, self.parent_id)
+            if parent:
+                parent._via_crud_mixin_update = True
+                parent.recompute_status()
+                
+        return self.status
 
     def validate_child_constraints(self):
         """Vérifie qu'un cours enfant respecte les limites de temps, de ressources et de profondeur."""
@@ -199,7 +362,7 @@ class Course(Base):
 
     def transform_to_simple_courses(self, db):
         """Transforme ce cours complexe en N cours simples en libérant ses enfants et en se supprimant."""
-        if not self.is_complex:
+        if not self.is_composed:
             raise ValueError("Ce cours n'est pas complexe.")
         
         for child in self.children:
@@ -235,7 +398,7 @@ class Course(Base):
 
         # Création du cours parent via CRUDMixin.create() pour passer par tous les hooks
         parent = cls.create(db, {
-            'is_complex': True,
+            'is_composed': True,
             'subject_id': first_course.subject_id,
             'school_id': first_course.school_id,
             'duration_minutes': max(c.duration_minutes for c in courses),
@@ -283,10 +446,42 @@ class Course(Base):
                 (Timeslot.hour * 60) < target_end,
                 target_start < (Timeslot.hour * 60 + Course.duration_minutes)
             )
+            
+            # BR-001: Règle Globale d'Exclusivité des Ressources
+            
+            # Règle 1 : Orthogonalité Structurelle (Inclusion)
+            from sqlalchemy import or_
+            target_parent_id = vals.get('parent_id', getattr(self, 'parent_id', None))
+            if target_parent_id:
+                query = query.filter(
+                    Course.id != target_parent_id,
+                    or_(Course.parent_id == None, Course.parent_id != target_parent_id)
+                )
+            else:
+                query = query.filter(
+                    or_(Course.parent_id == None, Course.parent_id != self.id)
+                )
+                
+            # Règle 2 : Orthogonalité Hebdomadaire (Alternance)
             if target_week_type == 'A':
                 query = query.filter(Course.week_type.in_(['A', 'W']))
             elif target_week_type == 'B':
                 query = query.filter(Course.week_type.in_(['B', 'W']))
+                
+            # Règle 3 : Orthogonalité Périodique
+            target_period_id = vals.get('period_id', getattr(self, 'period_id', None))
+            if target_period_id:
+                from backend.app.models.period import Period
+                target_period = db.get(Period, target_period_id)
+                if target_period:
+                    query = query.outerjoin(Period, getattr(Course, 'period_id', None) == Period.id).filter(
+                        or_(
+                            getattr(Course, 'period_id', None) == None,
+                            Period.period_type_id != target_period.period_type_id,
+                            getattr(Course, 'period_id', None) == target_period.id
+                        )
+                    )
+
             return query
 
         t_ids = vals.get('teacher_ids', [t.id for t in self.teachers])
@@ -334,6 +529,9 @@ class Course(Base):
         # 2. Sauvegarde
         instance = super().create(db, vals)
         
+        # Recalculer le statut du nouveau cours
+        instance.recompute_status()
+                
         # 3. Validation globale
         instance.validate_placement_conflicts(db, vals)
         instance.validate_child_constraints()
@@ -349,6 +547,9 @@ class Course(Base):
         # 3. Sauvegarde
         res = super().update(db, vals)
         
+        # Recalculer son propre statut
+        self.recompute_status()
+
         # 4. Si on a bougé, on propage le mouvement aux enfants en forçant leur recalcul
         if 'timeslot_id' in vals or 'is_pinned' in vals:
             for child in self.children:
@@ -360,3 +561,14 @@ class Course(Base):
             child.validate_child_constraints()
                 
         return res
+
+    def delete(self, db: Session):
+        parent_id = self.parent_id
+        res = super().delete(db)
+        if parent_id:
+            parent = db.get(self.__class__, parent_id)
+            if parent:
+                parent._via_crud_mixin_update = True
+                parent.recompute_status(exclude_child_id=self.id)
+        return res
+

@@ -203,6 +203,35 @@ Concernant le composant `GenericForm`, il doit offrir les fonctionnalités suiva
   - **Option Liseré Supérieur Coloré** : L'en-tête de l'onglet conserve son fond neutre mais affiche un liseré (bordure supérieure colorée) d'une épaisseur de quelques pixels de la couleur spécifiée dans le JSON.
 - **FR-016**: **Thème Général Clair bg-gray-300** : Le thème visuel de l'application doit être unifié vers une apparence claire et premium. L'arrière-plan de l'application doit utiliser un ton gris/blanc cassé doux correspondant à la teinte standard de design `bg-gray-300` (ou son équivalent hexadécimal/HSL clair), offrant un excellent contraste avec les textes sombres et les onglets colorés.
 
+### Business Rules & Solver Logic
+
+Cette section documente les lois fondamentales que le solveur (Timefold) et les validateurs backend (SQLAlchemy) doivent respecter de manière absolue ou prioriser selon le type de contrainte.
+
+**Typologie des règles :**
+- 🔴 **Hard Rule (Stricte)** : Règle absolue. Le solveur n'a pas le droit de l'enfreindre. Toute violation rend l'emploi du temps "irréalisable" ou "invalide".
+- 🟢 **Soft Rule (Souple / Facultative)** : Règle d'optimisation. Le solveur doit faire le maximum pour la respecter (en pénalisant ou récompensant le score), mais est autorisé à l'enfreindre si c'est le seul moyen d'obtenir une grille complète.
+
+**BR-001: Règle Globale d'Exclusivité des Ressources (Grille Hebdomadaire)**
+> **Nature : 🔴 Hard Rule (Stricte)**
+> **Principe d'interdiction :** Il est strictement interdit à deux cours distincts d'occuper simultanément une même ressource (Enseignant, Salle, Division, Personnel) sur une même case de la grille de modélisation hebdomadaire.
+> 
+> **Exceptions (Principe d'Orthogonalité) :** Ce chevauchement virtuel sur la grille est autorisé si et seulement si les deux cours satisfont l'une des trois conditions d'orthogonalité suivantes :
+> 1. **Orthogonalité Structurelle (Inclusion - Cours Composés) :** Les deux cours représentent le même événement physique (ex: l'un est le cours composé parent et l'autre est son cours simple enfant, ou il s'agit de deux cours simples enfants issus du même cours composé). Leurs ressources sont donc naturellement partagées et ne sont pas en double réservation.
+> 2. **Orthogonalité Hebdomadaire (Alternance) :** Les cours n'ont jamais lieu la même semaine (ex: Semaine A vs Semaine B).
+> 3. **Orthogonalité Périodique (Calendrier) :** Les cours n'ont jamais lieu au cours de la même période de l'année (ex: Semestre 1 vs Semestre 2).
+
+**BR-002: Politique d'Arbitrage des Vœux (Préférences Temporelles des Ressources)**
+> **Nature : Hybride (🔴 Hard & 🟢 Soft)**
+> La grille de vœux permet d'exprimer des desiderata temporels pour chaque ressource (enseignant, salle, classe, etc.). Le solveur doit appliquer le traitement suivant :
+> - **Indisponibilité Stricte (Rouge) :** 🔴 **Hard Rule**. Le solveur n'a jamais le droit de placer un cours impliquant cette ressource sur ce créneau.
+> - **Souhait d'Absence (Orange) :** 🟢 **Soft Rule (Pénalité)**. Le solveur doit faire le maximum pour éviter ce créneau. S'il est forcé de l'utiliser, le score global de qualité de l'emploi du temps diminue.
+> - **Souhait de Présence (Vert) :** 🟢 **Soft Rule (Bonus)**. Le solveur doit être encouragé à utiliser ce créneau préférentiellement aux autres créneaux neutres.
+
+**BR-003: Respect des Limites de Travail et Logistiques (ResourceConstraints)**
+> **Nature : Majoritairement 🔴 Hard Rule (Stricte)**
+> Les contraintes structurelles définies par ressource (ex: Max heures par jour, limitation du nombre de demi-journées, temps de trajet inter-sites) garantissent la viabilité légale, logistique et physiologique de l'emploi du temps. 
+> Ces plafonds sont des règles absolues que le solveur doit respecter intégralement sous peine d'échec de la validation.
+> *Note d'optimisation : Seuls certains paramètres qualitatifs liés au confort (ex: `max_gap_hours_per_week` / trous dans l'emploi du temps) agissent comme des règles souples (🟢 Soft).*
 
 ### Key Entities
 
@@ -260,19 +289,23 @@ Le conteneur logique de cours.
 *   `label` : Libellé textuel calculé de manière dynamique à partir des séances et ressources rattachées (ex : `"{matières} - {profs} - {classes}"`)
 *   `memo` : Texte libre (Chaîne optionnelle) pour les notes du planificateur
 *   `duration_minutes` : Durée du cours définie en amont du placement (Entier, exprimée en minutes, ex: `55` pour un cours standard d'une heure)
-*   `is_complex` : Indicateur s'il s'agit d'un cours complexe (Booléen, par défaut `False`)
-*   `lock_sessions` : Si vrai, verrouille l'ordre ou la répartition des séances à l'intérieur du cours complexe (Booléen, par défaut `False`)
+*   `is_composed` : Indicateur s'il s'agit d'un cours composé (Booléen, par défaut `False`)
+*   `lock_structure` : Si vrai, verrouille l'ordre ou la répartition des cours enfants à l'intérieur du cours composé (Booléen, par défaut `False`)
 *   `mission_id` : Clé étrangère optionnelle vers une **Mission** (Entier, ex: pour lier un cours à un rôle spécifique comme Professeur Principal)
 *   `election_method_id` : Clé étrangère optionnelle vers une **ElectionMethod** (Entier, ex: pour lier à un cours de type DNL)
 *   `family_id` : Clé étrangère optionnelle vers une **Family** de type `Course` (Entier, ex: pour regrouper des cours d'une même option ou spécialité)
-*   `status` : État du cours calculé de manière dynamique à partir du positionnement de ses séances et des contraintes (Chaîne, calculée) :
-    *   `UNPLACED` : Aucune séance planifiée sur la grille.
-    *   `PLACED` : Toutes ses séances sont planifiées sans aucun conflit.
-    *   `PARTIALLY_PLACED` : Pour un cours complexe, seulement une partie de ses séances sont placées.
-    *   `CONFLICT` : Conflit de ressources (double réservation de prof, salle, classe) ou non-respect d'une indisponibilité stricte (`RED`).
-    *   `LOCKED` : Cours dont le placement a été explicitement verrouillé par le planificateur.
-    *   `SUSPENDED` : Cours temporairement suspendu ou mis de côté.
-*   *Relations (1-à-N)* : `sessions` (Liste des **Séances** rattachées à ce cours)
+*   `is_pinned` : Indicateur si le cours est verrouillé de manière permanente sur son créneau (et sa salle) par le planificateur, empêchant tout déplacement par le solveur (Booléen, par défaut `False`)
+*   `status` : État de planification du cours (simple ou composé) matérialisé en base de données, mis à jour lors de chaque modification (Chaîne, par défaut `UNPLACED`) :
+    *   `UNPLACED` : Le cours n'est pas planifié (`timeslot_id = None`).
+    *   `PLACED` : Le cours est planifié (`timeslot_id` renseigné).
+
+*   `decomposition_status` : État structurel et de ventilation de ressources d'un cours composé (`is_composed = True`) matérialisé ou calculé en base (Chaîne, par défaut `UNVENTILATED`) :
+    *   `UNVENTILATED` : Le cours composé ne possède aucun cours enfant.
+    *   `PARTIALLY_VENTILATED` : Le cours composé possède des cours enfants, mais certaines ressources du cours composé n'ont pas encore été ventilées ou seulement une partie des enfants est planifiée.
+    *   `FULLY_VENTILATED` : Toutes les ressources du cours composé ont été ventilées dans des cours enfants, et tous les cours enfants sont planifiés.
+
+*   `has_conflict` : Indique si le cours présente un conflit de ressources (double réservation d'enseignant, salle, classe) ou le non-respect d'une indisponibilité stricte (`RED`). Cette information dynamique est séparée du statut matérialisé et calculée uniquement à la demande.
+
 
 ### 1bis. Session (Séance)
 L'unité opérationnelle et planifiée d'un cours.

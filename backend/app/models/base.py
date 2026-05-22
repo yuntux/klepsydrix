@@ -1,4 +1,5 @@
 from sqlalchemy.orm import declarative_base, Session
+from sqlalchemy.ext.hybrid import hybrid_property
 
 class CRUDMixin:
     def __init_subclass__(cls, **kwargs):
@@ -8,6 +9,18 @@ class CRUDMixin:
             name for name, attr in cls.__dict__.items()
             if isinstance(attr, property) and getattr(attr, "_is_related", False)
         ]
+
+        # Découverte automatique des champs calculés exposés à l'API
+        exposed_fields = []
+        for name, attr in cls.__dict__.items():
+            if getattr(attr, "_is_exposed", False):
+                exposed_fields.append(name)
+            elif isinstance(attr, (property, hybrid_property)):
+                if getattr(attr.fget, "_is_exposed", False) or getattr(attr.fset, "_is_exposed", False):
+                    exposed_fields.append(name)
+        if exposed_fields:
+            existing = getattr(cls, "_extra_fields", [])
+            cls._extra_fields = list(set(existing + exposed_fields))
 
     def ensure_related_record(self, relation_name: str):
         """
@@ -183,6 +196,42 @@ class CRUDMixin:
 
 # Base déclarative commune pour tous les modèles SQLAlchemy
 Base = declarative_base(cls=CRUDMixin)
+
+def exposed(attr):
+    """
+    Décorateur pour exposer un champ virtuel (@property ou @hybrid_property)
+    dans la sérialisation automatique du CRUDMixin / API générique.
+    """
+    from sqlalchemy.ext.hybrid import hybrid_property
+    
+    # 1. Si c'est un property natif (qui n'autorise pas les attributs dynamiques en C)
+    if isinstance(attr, property) and not type(attr).__name__.endswith("exposed_property"):
+        class custom_exposed_property(property):
+            _is_exposed = True
+        return custom_exposed_property(attr.fget, attr.fset, attr.fdel, attr.__doc__)
+        
+    # 2. Si c'est une hybrid_property
+    if isinstance(attr, hybrid_property):
+        try:
+            attr._is_exposed = True
+            return attr
+        except AttributeError:
+            class custom_exposed_hybrid(hybrid_property):
+                _is_exposed = True
+            expr = getattr(attr, "custom_expression", None)
+            return custom_exposed_hybrid(attr.fget, attr.fset, attr.fdel, expr=expr)
+            
+    # 3. Si c'est une fonction (décorateur placé sous @property)
+    if callable(attr):
+        attr._is_exposed = True
+        return attr
+        
+    # 4. Par défaut, on tente de poser l'attribut
+    try:
+        attr._is_exposed = True
+    except AttributeError:
+        pass
+    return attr
 
 class related_field(property):
     """

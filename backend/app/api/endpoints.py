@@ -53,6 +53,8 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
                 "duration_minutes": c.duration_minutes,
                 "week_type": c.effective_week_type,
                 "parent_id": c.parent_id,
+                "status": c.status,
+                "decomposition_status": c.decomposition_status,
             }
             for c in courses
         ],
@@ -126,6 +128,8 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             "duration_minutes": c.duration_minutes,
             "week_type": c.effective_week_type,
             "parent_id": c.parent_id,
+            "status": c.status,
+            "decomposition_status": c.decomposition_status,
         }
         for c in modified_courses
     ]
