@@ -1,13 +1,17 @@
 <template>
   <div class="grid-container">
     <div class="grid-wrapper">
-      <div class="timetable-grid">
+      <div class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns }">
         <!-- Coin supérieur gauche -->
         <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;">Horaire</div>
 
         <!-- En-têtes des jours (Lundi au Samedi) -->
-        <div v-for="day in days" :key="day.value" class="grid-header-cell">
+        <div v-for="day in days" :key="day.value" class="grid-header-cell" style="position: relative;">
           {{ day.label }}
+          <div
+            class="resize-handle"
+            @mousedown.stop.prevent="startResize($event, day.value)"
+          ></div>
         </div>
 
         <!-- Lignes d'heures (8h à 17h) -->
@@ -58,10 +62,63 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
 const { days, hours, currentStandardDuration, subCellCount, getCellKey } = useTimeslotGrid();
+
+// === Redimensionnement des colonnes (jours) ===
+const columnWidths = ref<Record<number, number>>({});
+const defaultColWidth = 160;
+
+function getColWidth(dayVal: number) {
+  return columnWidths.value[dayVal] || defaultColWidth;
+}
+
+const computedGridTemplateColumns = computed(() => {
+  const timeCol = '80px';
+  // Si la colonne a été redimensionnée manuellement, on fixe sa taille exacte.
+  // Sinon, on la laisse fluide avec un minmax pour occuper l'espace.
+  const dayCols = days.map(d => {
+    if (columnWidths.value[d.value]) {
+      return `${columnWidths.value[d.value]}px`;
+    }
+    return `minmax(${defaultColWidth}px, 1fr)`;
+  }).join(' ');
+  return `${timeCol} ${dayCols}`;
+});
+
+let startX = 0;
+let startWidth = 0;
+let resizingDay: number | null = null;
+
+function startResize(event: MouseEvent, dayVal: number) {
+  startX = event.clientX;
+  resizingDay = dayVal;
+  startWidth = getColWidth(dayVal);
+  
+  document.addEventListener('mousemove', onResize);
+  document.addEventListener('mouseup', stopResize);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onResize(event: MouseEvent) {
+  if (resizingDay === null) return;
+  const diff = event.clientX - startX;
+  let newWidth = startWidth + diff;
+  if (newWidth < 100) newWidth = 100; // largeur minimale
+  columnWidths.value[resizingDay] = newWidth;
+}
+
+function stopResize() {
+  document.removeEventListener('mousemove', onResize);
+  document.removeEventListener('mouseup', stopResize);
+  resizingDay = null;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
+// ===============================================
 
 withDefaults(defineProps<{
   dragOverCells?: Record<string, boolean>;
@@ -136,5 +193,21 @@ onUnmounted(() => {
 
 .layer-bg {
   z-index: 1;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color var(--transition-fast);
+  z-index: 10;
+}
+
+.resize-handle:hover {
+  background-color: rgba(99, 102, 241, 0.5);
 }
 </style>
