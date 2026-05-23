@@ -140,6 +140,7 @@ class PlanningCourse:
     classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
     original_timeslot_id: typing.Optional[int] = None
+    original_classroom_id: typing.Optional[int] = None
     parent_id: typing.Optional[int] = None
     
     # Alternance et parties de classe (US2)
@@ -187,6 +188,7 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         teacher_conflict(constraint_factory),
         non_teaching_staff_conflict(constraint_factory),
         classroom_conflict(constraint_factory),
+        classroom_immobility(constraint_factory),
         division_conflict(constraint_factory),
         group_link_conflict(constraint_factory),
         stability_penalty(constraint_factory),
@@ -278,6 +280,15 @@ def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(_courses_overlap_in_time)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Classroom conflict")
+    )
+
+def classroom_immobility(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.original_classroom_id is not None)
+        .filter(lambda course: course.classroom is None or course.classroom.id != course.original_classroom_id)
+        .penalize(HardSoftScore.of_hard(100))
+        .as_constraint("Classroom immobility")
     )
 
 def _check_division_overlap(c1, c2):

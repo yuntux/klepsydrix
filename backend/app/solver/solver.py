@@ -190,6 +190,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             classroom=cr_planning,
             is_pinned=is_pinned,
             original_timeslot_id=c.timeslot_id,
+            original_classroom_id=cr_planning.id if cr_planning else None,
             parent_id=getattr(c, 'parent_id', None),
             week_type=week_type,
             class_part_ids=class_part_ids,
@@ -247,12 +248,13 @@ def _solve_timetable_job(db_session=None, school_id=None):
             if db_course:
                 db_course._via_crud_mixin_update = True
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
-                if pc.classroom:
-                    db_classroom = db.query(Classroom).get(pc.classroom.id)
-                    if db_classroom:
-                        db_course.classrooms = [db_classroom]
-                else:
-                    db_course.classrooms = []
+                if not db_course.is_composed:
+                    if pc.classroom:
+                        db_classroom = db.query(Classroom).get(pc.classroom.id)
+                        if db_classroom:
+                            db_course.classrooms = [db_classroom]
+                    else:
+                        db_course.classrooms = []
 
         db.commit()
 
