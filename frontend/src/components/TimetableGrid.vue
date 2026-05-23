@@ -79,6 +79,8 @@
               :key="course.id"
               :course="course"
               :isPlaced="true"
+              :overlapIndex="getOverlapInfo(course.id).index"
+              :overlapCount="getOverlapInfo(course.id).count"
               :isSelected="(selectedCourseIds || []).includes(course.id)"
               :backgroundColor="getCourseColor(course.subject)"
               :height="getCourseHeight(course)"
@@ -179,14 +181,10 @@ const parentIdsSet = computed(() => {
   return new Set(props.courses.map(c => c.parent_id).filter(id => id != null));
 });
 
-function getCoursesAt(day: number, hour: number): Course[] {
-  const ts = getTimeslot(day, hour);
-  if (!ts) return [];
-
+const displayedCourses = computed(() => {
   const selectedWeek = props.weekType || 'W';
-
   return props.courses.filter(course => {
-    if (course.timeslot_id !== ts.id) return false;
+    if (!course.timeslot_id) return false;
 
     // Filtre de granularité
     if (isDetailedView.value) {
@@ -195,10 +193,7 @@ function getCoursesAt(day: number, hour: number): Course[] {
       if (course.parent_id !== null) return false; // compact: exclut les enfants
     }
 
-    // Filtre par semaine :
-    // 'W' (toutes) -> on affiche tout
-    // 'A' -> on affiche les cours de semaine A ou les cours toutes semaines (W)
-    // 'B' -> on affiche les cours de semaine B ou les cours toutes semaines (W)
+    // Filtre par semaine
     if (selectedWeek !== 'W') {
       const courseWeek = course.week_type || 'W';
       if (courseWeek !== 'W' && courseWeek !== selectedWeek) return false;
@@ -215,6 +210,93 @@ function getCoursesAt(day: number, hour: number): Course[] {
     }
     return false;
   });
+});
+
+const timeslotMap = computed(() => {
+  const map = new Map<number, Timeslot>();
+  props.timeslots.forEach(ts => map.set(ts.id, ts));
+  return map;
+});
+
+const overlapInfoMap = computed(() => {
+  const info = new Map<number, { index: number, count: number }>();
+  
+  // Grouper par jour
+  const coursesByDay = new Map<number, any[]>();
+  displayedCourses.value.forEach(c => {
+    const ts = timeslotMap.value.get(c.timeslot_id!);
+    if (!ts) return;
+    if (!coursesByDay.has(ts.day_of_week)) coursesByDay.set(ts.day_of_week, []);
+    coursesByDay.get(ts.day_of_week)!.push({
+      course: c,
+      start: ts.hour,
+      end: ts.hour + (c.duration_minutes || 0) / 60
+    });
+  });
+
+  // Algorithme de clustering et coloration
+  for (const dayCourses of coursesByDay.values()) {
+    dayCourses.sort((a, b) => a.start - b.start || b.end - a.end);
+    
+    let currentCluster: any[] = [];
+    let clusterEnd = 0;
+    
+    const processCluster = (cluster: any[]) => {
+      if (cluster.length === 0) return;
+      const columns: any[][] = [];
+      for (const item of cluster) {
+        let placed = false;
+        for (let i = 0; i < columns.length; i++) {
+          const col = columns[i];
+          const lastItemInCol = col[col.length - 1];
+          // Epsilon pour éviter les arrondis flottants
+          if (lastItemInCol.end <= item.start + 0.001) {
+            col.push(item);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          columns.push([item]);
+        }
+      }
+      const count = columns.length;
+      for (let i = 0; i < columns.length; i++) {
+        for (const item of columns[i]) {
+          info.set(item.course.id, { index: i, count: count });
+        }
+      }
+    };
+    
+    for (const item of dayCourses) {
+      if (currentCluster.length === 0) {
+        currentCluster.push(item);
+        clusterEnd = item.end;
+      } else {
+        if (item.start < clusterEnd - 0.001) {
+          currentCluster.push(item);
+          clusterEnd = Math.max(clusterEnd, item.end);
+        } else {
+          processCluster(currentCluster);
+          currentCluster = [item];
+          clusterEnd = item.end;
+        }
+      }
+    }
+    processCluster(currentCluster);
+  }
+  
+  return info;
+});
+
+function getOverlapInfo(courseId: number) {
+  return overlapInfoMap.value.get(courseId) || { index: 0, count: 1 };
+}
+
+function getCoursesAt(day: number, hour: number): Course[] {
+  const ts = getTimeslot(day, hour);
+  if (!ts) return [];
+  return displayedCourses.value.filter(c => c.timeslot_id === ts.id);
 }
 
 function getTeacherName(id: number) {

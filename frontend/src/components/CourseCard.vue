@@ -9,7 +9,10 @@
       zIndex: isPlaced ? 10 : undefined,
       position: isPlaced ? 'absolute' : 'relative',
       color: 'var(--text-primary)',
-      borderLeftColor: backgroundColor ? 'rgba(0, 0, 0, 0.1)' : 'var(--accent-primary)'
+      borderLeftColor: backgroundColor ? 'rgba(0, 0, 0, 0.1)' : 'var(--accent-primary)',
+      width: isPlaced && overlapCount && overlapCount > 1 ? `calc(${100 / overlapCount}% - ${(overlapIndex === overlapCount - 1) ? 8 : 4}px)` : undefined,
+      left: isPlaced && overlapCount && overlapCount > 1 ? `calc(${(100 / overlapCount) * (overlapIndex || 0)}% + 4px)` : undefined,
+      right: isPlaced && overlapCount && overlapCount > 1 ? 'auto' : undefined
     }"
     draggable="true"
     @dragstart="$emit('dragstart', $event, course.id)"
@@ -68,6 +71,8 @@ const props = defineProps<{
   teachersText?: string;
   divisionsText?: string;
   classroomsText?: string;
+  overlapIndex?: number;
+  overlapCount?: number;
 }>();
 
 defineEmits<{
