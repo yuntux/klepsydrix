@@ -328,9 +328,24 @@ def seed_v2_data():
                 db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})
                 db.execute(text("INSERT INTO course_classrooms (course_id, classroom_id) VALUES (:course_id, :r_id)"), {"course_id": course_id, "r_id": r_id})
                 db.execute(text("INSERT INTO course_groups (course_id, group_id) VALUES (:course_id, :g_id)"), {"course_id": course_id, "g_id": g_id})
-                # Ne pas associer directement toute la division au sous-cours, il n'a qu'un groupe.
-                # db.execute(text("INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"), {"course_id": course_id, "division_id": d_id})
+
+            # 4. Cours alternés (Semaine A / Semaine B)
+            # Ajout d'Arts Plastiques en Semaine A, et Anglais en Semaine B
+            for s_code, w_type in [("ARTS", "A"), ("ANG", "B")]:
+                subj_id = subject_ids[s_code]
+                t_id = random.choice(teacher_pool)
                 
+                db.execute(text(
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, 55, 0, 0, :week_type, 0, 0, :school_id, 0)"
+                ), {
+                    "subject_id": subj_id,
+                    "week_type": w_type,
+                    "school_id": s_id
+                })
+                course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+                db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})
+                db.execute(text("INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"), {"course_id": course_id, "division_id": d_id})
                 course_count += 1
                 
         db.commit()
