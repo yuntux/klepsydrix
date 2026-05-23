@@ -27,6 +27,8 @@
       @update:weekType="$emit('update:weekType', $event)"
       :autoTarget="autoTarget"
       @update:autoTarget="$emit('update:autoTarget', $event)"
+      :layoutMode="layoutMode"
+      @update:layoutMode="$emit('update:layoutMode', $event)"
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
       v-model:isDetailedView="isDetailedView"
@@ -71,17 +73,66 @@
       </template>
 
       <template #grid-content>
-        <BaseGrid
+        <!-- Mode: Une grille par ressource (jusqu'à 4) -->
+        <div v-if="layoutMode === 'resource_grids'" class="resource-grids-container" :class="`grid-count-${Math.min(4, activeResources.length)}`">
+          <div v-for="res in activeResources.slice(0, 4)" :key="res.id" class="resource-grid-wrapper">
+            <h3 class="resource-grid-title">{{ res.name }}</h3>
+            <BaseGrid
+              :dragOverCells="activeDragCells"
+              layoutMode="merged"
+              @cell-dragover="onDragOver"
+              @cell-dragleave="onDragLeave"
+              @cell-drop="onDrop"
+              style="height: calc(100% - 32px); border-top: 1px solid var(--border-color); border-radius: 0; overflow: hidden;"
+            >
+              <template #cell-content="{ day, time }">
+                <CourseCard
+                  v-for="course in getCoursesAt(day, time, res)"
+                  :key="course.id"
+                  :course="course"
+                  :isPlaced="true"
+                  :overlapIndex="getOverlapInfo(course.id).index"
+                  :overlapCount="getOverlapInfo(course.id).count"
+                  :isSelected="(selectedCourseIds || []).includes(course.id)"
+                  :backgroundColor="getCourseColor(course.subject)"
+                  :height="getCourseHeight(course)"
+                  :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
+                  :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
+                  :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
+                  @dragstart="onDragStart"
+                  @click="(id, ev) => $emit('selectCourse', id, ev)"
+                  @togglePin="$emit('togglePin', $event)"
+                  @unassign="$emit('unassign', $event)"
+                />
+              </template>
+              <template #overlay>
+                <div class="loader-overlay" v-if="loading">
+                  <div class="spinner"></div>
+                  <div style="color: #fff; font-weight: 500; font-size: 14px;">Calcul...</div>
+                </div>
+              </template>
+            </BaseGrid>
+          </div>
+          
+          <div v-if="activeResources.length === 0" style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted);">
+            Veuillez sélectionner au moins une ressource pour afficher les grilles.
+          </div>
+        </div>
+        
+        <!-- Mode: Défaut ou Une colonne par ressource -->
+        <BaseGrid v-else
           :dragOverCells="activeDragCells"
+          :layoutMode="layoutMode"
+          :activeResources="activeResources"
           @cell-dragover="onDragOver"
           @cell-dragleave="onDragLeave"
           @cell-drop="onDrop"
           style="height: 100%; border: none; border-radius: 0;"
         >
           <!-- Slot de contenu (Foreground) -->
-          <template #cell-content="{ day, time }">
+          <template #cell-content="{ day, time, resource }">
             <CourseCard
-              v-for="course in getCoursesAt(day, time)"
+              v-for="course in getCoursesAt(day, time, resource)"
               :key="course.id"
               :course="course"
               :isPlaced="true"
@@ -143,7 +194,9 @@ const props = defineProps<{
   periods?: any[];
   periodTypeId?: number | null;
   periodIds?: number[];
+  isDetailedView?: boolean;
   autoTarget?: boolean;
+  layoutMode?: string;
 }>();
 
 const isDetailedView = ref(false);
@@ -164,10 +217,35 @@ const emit = defineEmits<{
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
+  (e: 'update:isDetailedView', value: boolean): void;
   (e: 'update:autoTarget', value: boolean): void;
+  (e: 'update:layoutMode', value: string): void;
 }>();
 
 const { currentStandardDuration, getCellKey } = useTimeslotGrid();
+
+const activeResources = computed(() => {
+  if (props.layoutMode !== 'resource_columns' && props.layoutMode !== 'resource_grids') return [];
+  
+  const res: { type: string, id: number, name: string }[] = [];
+  props.selectedTeacherIds.forEach(id => {
+    const t = props.teachers.find(x => x.id === id);
+    if (t) res.push({ type: 'teacher', id, name: t.name || 'Prof' });
+  });
+  props.selectedDivisionIds.forEach(id => {
+    const d = props.divisions.find(x => x.id === id);
+    if (d) res.push({ type: 'division', id, name: d.name || 'Classe' });
+  });
+  props.selectedClassroomIds.forEach(id => {
+    const c = props.classrooms?.find(x => x.id === id);
+    if (c) res.push({ type: 'classroom', id, name: c.name || 'Salle' });
+  });
+  props.selectedNonTeachingStaffIds.forEach(id => {
+    const s = props.nonTeachingStaffs?.find(x => x.id === id);
+    if (s) res.push({ type: 'non_teaching_staff', id, name: (s.first_name + ' ' + s.last_name).trim() || 'Personnel' });
+  });
+  return res;
+});
 
 function getCourseHeight(course: Course) {
   const duration = course.duration_minutes || 30;
@@ -303,10 +381,20 @@ function getOverlapInfo(courseId: number) {
   return overlapInfoMap.value.get(courseId) || { index: 0, count: 1 };
 }
 
-function getCoursesAt(day: number, hour: number): Course[] {
+function getCoursesAt(day: number, hour: number, resource?: { type: string, id: number }): Course[] {
   const ts = getTimeslot(day, hour);
   if (!ts) return [];
-  return displayedCourses.value.filter(c => c.timeslot_id === ts.id);
+  
+  let result = displayedCourses.value.filter(c => c.timeslot_id === ts.id);
+  
+  if (resource) {
+    if (resource.type === 'teacher') result = result.filter(c => c.teacher_ids && c.teacher_ids.includes(resource.id));
+    if (resource.type === 'division') result = result.filter(c => c.division_ids && c.division_ids.includes(resource.id));
+    if (resource.type === 'classroom') result = result.filter(c => c.classroom_ids && c.classroom_ids.includes(resource.id));
+    if (resource.type === 'non_teaching_staff') result = result.filter(c => c.non_teaching_staff_ids && c.non_teaching_staff_ids.includes(resource.id));
+  }
+  
+  return result;
 }
 
 function getTeacherName(id: number) {
@@ -411,5 +499,51 @@ function getCourseColor(subject: string): string {
 }
 .placed-course.is-pinned-card {
   border-left: 3px solid var(--accent-warning, #f59e0b) !important;
+}
+</style>
+
+<style scoped>
+.resource-grids-container {
+  display: grid;
+  gap: 1px;
+  height: 100%;
+  background-color: var(--bg-body);
+  overflow: auto;
+}
+
+.resource-grids-container.grid-count-1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.resource-grids-container.grid-count-2 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+
+.resource-grids-container.grid-count-3,
+.resource-grids-container.grid-count-4 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.resource-grid-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
+  background-color: var(--bg-surface);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.resource-grid-title {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--bg-surface-hover);
+  border-bottom: 1px solid var(--border-color);
+  text-align: center;
 }
 </style>

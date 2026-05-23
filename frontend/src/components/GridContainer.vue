@@ -31,6 +31,8 @@
       @update:isDetailedView="$emit('update:isDetailedView', $event)"
       :autoTarget="autoTarget"
       @update:autoTarget="$emit('update:autoTarget', $event)"
+      :layoutMode="layoutMode"
+      @update:layoutMode="$emit('update:layoutMode', $event)"
     >
       <template #actions>
         <slot name="actions">
@@ -117,6 +119,7 @@ withDefaults(defineProps<{
   hideSchoolSelector?: boolean;
   isDetailedView?: boolean;
   autoTarget?: boolean;
+  layoutMode?: string;
 }>(), {
   preferenceMode: 'none',
   coursesMode: 'readonly',
@@ -140,7 +143,8 @@ withDefaults(defineProps<{
   hideResourceSelectors: false,
   hideSchoolSelector: false,
   isDetailedView: false,
-  autoTarget: false
+  autoTarget: false,
+  layoutMode: 'merged'
 });
 
 defineEmits<{
@@ -155,6 +159,7 @@ defineEmits<{
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:isDetailedView', value: boolean): void;
   (e: 'update:autoTarget', value: boolean): void;
+  (e: 'update:layoutMode', value: string): void;
   
   // Grid events
   (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;

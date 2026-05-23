@@ -130,6 +130,14 @@
 
       <!-- Right actions slot -->
       <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+        <div class="filter-item" v-if="mode === 'timetable'">
+          <label>Mise en page :</label>
+          <select :value="layoutMode" @change="$emit('update:layoutMode', ($event.target as HTMLSelectElement).value)" class="select-custom" style="min-width: 180px;">
+            <option value="merged">Assemblé sur la grille</option>
+            <option value="resource_columns">Une colonne par ressource</option>
+            <option value="resource_grids">Une grille par ressource</option>
+          </select>
+        </div>
         <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
           <label>Affichage :</label>
           <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
@@ -171,6 +179,7 @@ const props = withDefaults(defineProps<{
   hideSchoolSelector?: boolean;
   isDetailedView?: boolean;
   autoTarget?: boolean;
+  layoutMode?: string;
 }>(), {
   mode: 'timetable',
   schools: () => [],
@@ -191,7 +200,8 @@ const props = withDefaults(defineProps<{
   hideResourceSelectors: false,
   hideSchoolSelector: false,
   isDetailedView: false,
-  autoTarget: false
+  autoTarget: false,
+  layoutMode: 'merged'
 });
 
 const emit = defineEmits<{
@@ -205,6 +215,7 @@ const emit = defineEmits<{
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:isDetailedView', value: boolean): void;
   (e: 'update:autoTarget', value: boolean): void;
+  (e: 'update:layoutMode', value: string): void;
 }>();
 
 // Filter resources by schoolId if set

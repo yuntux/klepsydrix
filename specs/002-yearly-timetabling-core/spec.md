@@ -739,9 +739,9 @@ La structure générale de l'interface de l'application est définie par un arbr
 Afin d'assurer la convergence des besoins de planification (emploi du temps) et de configuration des contraintes (vœux) de manière cohérente, le système adopte une architecture modulaire multi-couches :
 
 ### 1. Structure du Composant Grille (`BaseGrid.vue`)
-Le composant de rendu physique de la grille horaire est purement présentational (Dumb). Il est structuré en plusieurs couches superposées (Grid Stack) pour chaque sous-cellule :
-*   **Couche d'Arrière-plan (Background Layer)** : Dédiée à l'affichage des contraintes et préférences colorées (Vert, Orange, Rouge, Hachures).
-*   **Couche de Premier plan (Foreground Layer)** : Dédiée à l'affichage des cours assignés (Cartes de cours) et à l'interaction de déplacement (drag-and-drop).
+Le composant de rendu physique de la grille horaire est purement présentational (Dumb). Sa structure s'adapte dynamiquement selon la mise en page (ex: "Une colonne par ressource" qui scinde chaque jour en sous-colonnes). Il est structuré en plusieurs couches superposées (Grid Stack) pour chaque sous-cellule :
+*   **Couche d'Arrière-plan (Background Layer)** : Dédiée à l'affichage des contraintes et préférences colorées (Vert, Orange, Rouge, Hachures). Dans le mode par ressource, cet arrière-plan est évalué spécifiquement pour la ressource de la sous-colonne.
+*   **Couche de Premier plan (Foreground Layer)** : Dédiée à l'affichage des cours assignés (Cartes de cours) et à l'interaction de déplacement (drag-and-drop). Dans le mode par ressource, seuls les cours de la ressource cible sont rendus dans sa sous-colonne.
 
 ### 2. Paramétrage des Modes d'Interaction
 Le comportement de la grille est piloté par des axes de configuration orthogonaux :
@@ -787,6 +787,10 @@ L'IHM de filtrage est isolée et permet de filtrer simultanément la grille temp
     *   *Règles fonctionnelles associées* : Sélection obligatoire d'au moins une période (voir détails dans l'US 4b).
 *   **L'établissement** : Menu déroulant (ex: Collège Jean Jaurès, Lycée Jean Jaurès).
 *   **Les ressources cibles (Multi-sélection)** : Liste déroulante multi-sélection (avec des cases à cocher) par type de ressource (enseignant, classe, partie de classe, groupe, matériel, salle, personnel). Seules les ressources appartenant aux établissements sélectionnés s'affichent dans cette liste déroulante.
+*   **Mise en page (Assemblé sur la grille / Une colonne par ressource / Une grille par ressource)** : Menu déroulant permettant de changer l'organisation spatiale de la grille :
+    *   *Assemblé sur la grille (Défaut)* : Affiche tous les cours correspondants aux ressources sélectionnées sur une même grille standard (les jours forment les seules colonnes).
+    *   *Une colonne par ressource* : Divise chaque jour en sous-colonnes (une par ressource active sélectionnée), permettant de visualiser la journée de chaque ressource en parallèle. L'en-tête de la grille affiche le jour sur la première ligne, et le nom de chaque ressource sur la deuxième ligne.
+    *   *Une grille par ressource* : Divise la zone principale en plusieurs quadrants (jusqu'à 4 grilles affichées simultanément sous la forme 2x2). Chaque grille affiche indépendamment l'emploi du temps complet d'une des ressources sélectionnées. S'il y a plus de 4 ressources sélectionnées, seules les 4 premières sont affichées.
 *   **Ciblage automatique (Toggle On/Off)** : Interrupteur permettant, lorsqu'il est activé, de filtrer automatiquement la grille temporelle sur toutes les ressources du cours sur lequel l'utilisateur clique. Il s'applique rétroactivement au dernier cours sélectionné s'il est activé a posteriori, et vide les filtres lors d'une désélection.
 *   **Mode d'affichage (Compact / Détaillé)** : Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).
 

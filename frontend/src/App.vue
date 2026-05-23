@@ -23,6 +23,7 @@
             v-model:periodTypeId="periodTypeId"
             v-model:periodIds="periodIds"
             v-model:autoTarget="autoTarget"
+            v-model:layoutMode="layoutMode"
             :periodTypes="periodTypesList"
             :periods="periodsList"
             :loading="loading"
@@ -198,6 +199,7 @@ const periodsList = ref<any[]>([]);
 const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
 const autoTarget = ref<boolean>(false);
+const layoutMode = ref<string>('merged');
 
 const selectedCourseIds = ref<number[]>([]);
 

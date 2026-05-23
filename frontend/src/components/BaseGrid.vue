@@ -3,16 +3,25 @@
     <div class="grid-wrapper">
       <div class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns }">
         <!-- Coin supérieur gauche -->
-        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;">Horaire</div>
+        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;" :style="{ gridRow: layoutMode === 'resource_columns' && activeResources && activeResources.length > 0 ? '1 / span 2' : '1' }">Horaire</div>
 
         <!-- En-têtes des jours (Lundi au Samedi) -->
-        <div v-for="day in days" :key="day.value" class="grid-header-cell" style="position: relative;">
+        <div v-for="day in days" :key="'day-'+day.value" class="grid-header-cell" :style="{ gridColumn: `span ${(layoutMode === 'resource_columns' && activeResources && activeResources.length > 0) ? activeResources.length : 1}` }">
           {{ day.label }}
           <div
             class="resize-handle"
             @mousedown.stop.prevent="startResize($event, day.value)"
           ></div>
         </div>
+
+        <!-- En-têtes des ressources (si activé) -->
+        <template v-if="layoutMode === 'resource_columns' && activeResources && activeResources.length > 0">
+          <template v-for="day in days" :key="'res-row-'+day.value">
+            <div v-for="res in activeResources" :key="res.id" class="grid-header-cell resource-header-cell" style="top: 50px; z-index: 3; font-size: 0.85em; font-weight: normal; border-top: none; background-color: var(--bg-surface);">
+              {{ res.name }}
+            </div>
+          </template>
+        </template>
 
         <!-- Lignes d'heures (8h à 17h) -->
         <template v-for="(hour, index) in hours" :key="hour">
@@ -21,10 +30,10 @@
             {{ hour }}h00 - {{ hour + 1 }}h00
           </div>
 
-          <!-- Cellules de la grille pour chaque jour -->
+          <!-- Cellules de la grille pour chaque colonne -->
           <div
-            v-for="day in days"
-            :key="day.value"
+            v-for="col in gridColumns"
+            :key="col.id"
             class="grid-cell"
             :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }"
           >
@@ -32,23 +41,23 @@
               v-for="idx in subCellCount"
               :key="idx"
               class="sub-cell"
-              :class="{ 'drag-over': dragOverCells[getCellKey(day.value, hour + (idx - 1) * (currentStandardDuration / 60))] }"
-              @dragover.prevent="$emit('cell-dragover', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @dragleave="$emit('cell-dragleave', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @drop="$emit('cell-drop', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @mousedown="$emit('cell-mousedown', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @mouseenter="$emit('cell-mouseenter', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @mouseleave="$emit('cell-mouseleave', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @mousemove="$emit('cell-mousemove', day.value, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              :class="{ 'drag-over': dragOverCells[getCellKey(col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60))] }"
+              @dragover.prevent="$emit('cell-dragover', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @dragleave="$emit('cell-dragleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @drop="$emit('cell-drop', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @mousedown="$emit('cell-mousedown', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @mouseenter="$emit('cell-mouseenter', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @mouseleave="$emit('cell-mouseleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @mousemove="$emit('cell-mousemove', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
             >
               <!-- Layer 1: Background (Preferences/Constraints) -->
               <div class="layer-bg">
-                <slot name="cell-background" :day="day.value" :time="hour + (idx - 1) * (currentStandardDuration / 60)"></slot>
+                <slot name="cell-background" :day="col.dayValue" :time="hour + (idx - 1) * (currentStandardDuration / 60)" :resource="col.resource"></slot>
               </div>
 
               <!-- Layer 2: Foreground (Courses) -->
               <div class="layer-fg">
-                <slot name="cell-content" :day="day.value" :time="hour + (idx - 1) * (currentStandardDuration / 60)"></slot>
+                <slot name="cell-content" :day="col.dayValue" :time="hour + (idx - 1) * (currentStandardDuration / 60)" :resource="col.resource"></slot>
               </div>
             </div>
           </div>
@@ -65,7 +74,29 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
+const props = withDefaults(defineProps<{
+  dragOverCells?: Record<string, boolean>;
+  layoutMode?: string;
+  activeResources?: { type: string, id: number, name: string }[];
+}>(), {
+  dragOverCells: () => ({}),
+  layoutMode: 'merged'
+});
+
 const { days, hours, currentStandardDuration, subCellCount, getCellKey } = useTimeslotGrid();
+
+const gridColumns = computed(() => {
+  if (props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0) {
+    const cols: any[] = [];
+    days.forEach(day => {
+      props.activeResources!.forEach(res => {
+        cols.push({ id: `${day.value}-${res.type}-${res.id}`, dayValue: day.value, resource: res });
+      });
+    });
+    return cols;
+  }
+  return days.map(day => ({ id: `${day.value}`, dayValue: day.value, resource: null }));
+});
 
 // === Redimensionnement des colonnes (jours) ===
 const columnWidths = ref<Record<number, number>>({});
@@ -79,9 +110,14 @@ const computedGridTemplateColumns = computed(() => {
   const timeCol = '80px';
   // Si la colonne a été redimensionnée manuellement, on fixe sa taille exacte.
   // Sinon, on la laisse fluide avec un minmax pour occuper l'espace.
-  const dayCols = days.map(d => {
-    if (columnWidths.value[d.value]) {
-      return `${columnWidths.value[d.value]}px`;
+  const dayCols = gridColumns.value.map(col => {
+    if (columnWidths.value[col.dayValue]) {
+      // Dans le mode multi-colonnes, la largeur redimensionnée s'applique à la largeur totale du jour, 
+      // donc on la divise par le nombre de ressources.
+      if (props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0) {
+        return `${columnWidths.value[col.dayValue] / props.activeResources.length}px`;
+      }
+      return `${columnWidths.value[col.dayValue]}px`;
     }
     return `minmax(${defaultColWidth}px, 1fr)`;
   }).join(' ');
@@ -120,11 +156,7 @@ function stopResize() {
 }
 // ===============================================
 
-withDefaults(defineProps<{
-  dragOverCells?: Record<string, boolean>;
-}>(), {
-  dragOverCells: () => ({})
-});
+
 
 defineEmits<{
   (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;
