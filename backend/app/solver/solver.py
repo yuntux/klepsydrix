@@ -299,6 +299,21 @@ def explain_timetable_score(db: Session, school_id: Optional[int] = None) -> dic
 def calculate_course_heatmap(db: Session, course_id: int, school_id: Optional[int] = None) -> dict:
     problem = _build_planning_problem(db, school_id)
     solver_factory = _get_solver_factory()
+    
+    # --- EXPERIMENTAL JAVA HOOK ---
+    import sys
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+    
+    try:
+        from backend.experimental_java_heatmap.heatmap_proxy import calculate_heatmap_java
+        return calculate_heatmap_java(problem, solver_factory, course_id)
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+    # ------------------------------
+    
+    """
     solution_manager = SolutionManager.create(solver_factory)
     
     # Trouver le cours concerné
@@ -360,3 +375,4 @@ def calculate_course_heatmap(db: Session, course_id: int, school_id: Optional[in
     target_course.timeslot = original_timeslot
     
     return heatmap
+    """
