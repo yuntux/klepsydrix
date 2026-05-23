@@ -86,7 +86,6 @@ def reset(db: Session = Depends(get_db)):
     for c in courses:
         c.update(db, {
             "timeslot_id": None,
-            "classroom_ids": [],
             "is_pinned": False
         })
     return {"status": "success"}

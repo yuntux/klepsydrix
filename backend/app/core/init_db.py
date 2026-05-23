@@ -239,8 +239,8 @@ def seed_v2_data():
                 duration = 55
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id) "
-                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id)"
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "duration_minutes": duration,
@@ -292,8 +292,8 @@ def seed_v2_data():
 
             # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
             db.execute(text(
-                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, label) "
-                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences')"
+                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, label, parent_timeslot_offset) "
+                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', 0)"
             ), {"school_id": s_id})
             parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
             course_count += 1
@@ -315,8 +315,8 @@ def seed_v2_data():
                 duration = 90
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id) "
-                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id)"
+                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "parent_id": parent_id,
