@@ -108,9 +108,11 @@
                 />
               </template>
               <template #overlay>
-                <div class="loader-overlay" v-if="loading">
+                <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
                   <div class="spinner"></div>
-                  <div style="color: #fff; font-weight: 500; font-size: 14px;">Calcul...</div>
+                  <div style="color: #fff; font-weight: 500; font-size: 14px;">
+                    {{ isLoadingHeatmap ? 'Évaluation Heatmap...' : 'Calcul...' }}
+                  </div>
                 </div>
               </template>
               <template #cell-background="{ day, time }">
@@ -162,9 +164,11 @@
 
           <!-- Overlay de chargement -->
           <template #overlay>
-            <div class="loader-overlay" v-if="loading">
+            <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
               <div class="spinner"></div>
-              <div style="color: #fff; font-weight: 500; font-size: 16px;">Calcul de l'emploi du temps optimal...</div>
+              <div style="color: #black; font-weight: 500; font-size: 16px;">
+                {{ isLoadingHeatmap ? 'Évaluation de la Heatmap...' : 'Calcul de l\'emploi du temps optimal...' }}
+              </div>
             </div>
           </template>
 
