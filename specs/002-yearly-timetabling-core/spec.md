@@ -790,6 +790,11 @@ L'IHM de filtrage est isolée et permet de filtrer simultanément la grille temp
 *   **Ciblage automatique (Toggle On/Off)** : Interrupteur permettant, lorsqu'il est activé, de filtrer automatiquement la grille temporelle sur toutes les ressources du cours sur lequel l'utilisateur clique. Il s'applique rétroactivement au dernier cours sélectionné s'il est activé a posteriori, et vide les filtres lors d'une désélection.
 *   **Mode d'affichage (Compact / Détaillé)** : Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).
 
+### 6. Sélection des Cours (Grille et Liste Latérale)
+L'interaction de sélection sur les cartes de cours (`CourseCard`) obéit aux standards d'interface utilisateur pour faciliter la visualisation consolidée via la Fiche T :
+*   **Sélection simple (Clic standard)** : Un clic sur une carte de cours remplace la sélection active par ce seul cours (s'il était déjà l'unique élément sélectionné, l'action le désélectionne, agissant comme un toggle).
+*   **Multisélection (Clic avec modificateur)** : Un clic combiné à la touche `Ctrl` (ou `Cmd` sur macOS) ajoute le cours à la sélection existante ou l'en retire s'il y figurait déjà, permettant d'accumuler plusieurs cours pour une consultation groupée dans la Fiche T.
+
 ---
 
 ## Success Criteria *(mandatory)*
