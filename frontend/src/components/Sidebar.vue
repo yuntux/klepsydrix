@@ -20,7 +20,7 @@
         :divisionsText="course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : ''"
         :classroomsText="course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : ''"
         @dragstart="onDragStart"
-        @click="$emit('selectCourse', $event)"
+        @click="(id, ev) => $emit('selectCourse', id, ev)"
       />
 
       <div v-if="unassignedCourses.length === 0" style="text-align: center; color: var(--text-muted); margin-top: 40px; font-size: 14px;">
@@ -70,7 +70,7 @@ function getSidebarCourseHeight(course: Course) {
 }
 
 const emit = defineEmits<{
-  (e: 'selectCourse', courseId: number): void;
+  (e: 'selectCourse', courseId: number, event: MouseEvent): void;
 }>();
 
 const unassignedCourses = computed(() => {

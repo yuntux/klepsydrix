@@ -208,19 +208,30 @@ watch(schoolId, () => {
   selectedClassroomIds.value = [];
 });
 
-function toggleCourseSelection(id: number) {
+function toggleCourseSelection(id: number, event?: MouseEvent) {
+  const isMulti = event && (event.ctrlKey || event.metaKey);
   const isSelected = selectedCourseIds.value.includes(id);
 
-  if (isSelected) {
-    selectedCourseIds.value = selectedCourseIds.value.filter(x => x !== id);
+  if (isMulti) {
+    if (isSelected) {
+      selectedCourseIds.value = selectedCourseIds.value.filter(x => x !== id);
+    } else {
+      selectedCourseIds.value.push(id);
+    }
   } else {
-    selectedCourseIds.value.push(id);
+    // Single selection mode
+    if (isSelected && selectedCourseIds.value.length === 1) {
+      selectedCourseIds.value = [];
+    } else {
+      selectedCourseIds.value = [id];
+    }
   }
   
-  // Auto target logic : Si activé, le clic met à jour les filtres (ou les vide si on désélectionne)
+  // Auto target logic : Si activé, le clic met à jour les filtres
   if (autoTarget.value) {
-    if (!isSelected) {
-      const course = courses.value.find(c => c.id === id);
+    if (selectedCourseIds.value.length > 0) {
+      const targetId = selectedCourseIds.value[selectedCourseIds.value.length - 1];
+      const course = courses.value.find(c => c.id === targetId);
       if (course) {
         selectedTeacherIds.value = [...(course.teacher_ids || [])];
         selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
@@ -228,7 +239,7 @@ function toggleCourseSelection(id: number) {
         selectedClassroomIds.value = [...(course.classroom_ids || [])];
       }
     } else {
-      // Si on désélectionne le cours, on vide les filtres (optionnel, mais logique)
+      // Si on a tout désélectionné
       selectedTeacherIds.value = [];
       selectedNonTeachingStaffIds.value = [];
       selectedDivisionIds.value = [];

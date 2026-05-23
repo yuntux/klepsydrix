@@ -16,7 +16,7 @@
     }"
     draggable="true"
     @dragstart="$emit('dragstart', $event, course.id)"
-    @click.stop="$emit('click', course.id)"
+    @click.stop="$emit('click', course.id, $event)"
   >
     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
       <span class="placed-subject">{{ course.subject }}</span>
@@ -77,7 +77,7 @@ const props = defineProps<{
 
 defineEmits<{
   (e: 'dragstart', event: DragEvent, id: number): void;
-  (e: 'click', id: number): void;
+  (e: 'click', id: number, event: MouseEvent): void;
   (e: 'togglePin', id: number): void;
   (e: 'unassign', id: number): void;
 }>();

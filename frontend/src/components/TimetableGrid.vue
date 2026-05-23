@@ -66,7 +66,7 @@
           :classrooms="classrooms"
           :selectedCourseIds="selectedCourseIds"
           :currentStandardDuration="currentStandardDuration"
-          @selectCourse="$emit('selectCourse', $event)"
+          @selectCourse="(id, ev) => $emit('selectCourse', id, ev)"
         />
       </template>
 
@@ -94,7 +94,7 @@
               :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
               :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
               @dragstart="onDragStart"
-              @click="$emit('selectCourse', $event)"
+              @click="(id, ev) => $emit('selectCourse', id, ev)"
               @togglePin="$emit('togglePin', $event)"
               @unassign="$emit('unassign', $event)"
             />
@@ -152,7 +152,7 @@ const emit = defineEmits<{
   (e: 'move', courseId: number, timeslotId: number): void;
   (e: 'unassign', courseId: number): void;
   (e: 'togglePin', courseId: number): void;
-  (e: 'selectCourse', courseId: number): void;
+  (e: 'selectCourse', courseId: number, event: MouseEvent): void;
   (e: 'update:selectedTeacherIds', value: number[]): void;
   (e: 'update:selectedNonTeachingStaffIds', value: number[]): void;
   (e: 'update:selectedDivisionIds', value: number[]): void;
