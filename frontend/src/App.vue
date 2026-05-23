@@ -15,11 +15,14 @@
             :classrooms="classrooms"
             :schools="schoolsList"
             v-model:schoolId="schoolId"
-            v-model:viewMode="viewMode"
-            v-model:selectedIds="selectedIds"
+            v-model:selectedTeacherIds="selectedTeacherIds"
+            v-model:selectedNonTeachingStaffIds="selectedNonTeachingStaffIds"
+            v-model:selectedDivisionIds="selectedDivisionIds"
+            v-model:selectedClassroomIds="selectedClassroomIds"
             v-model:weekType="weekType"
             v-model:periodTypeId="periodTypeId"
             v-model:periodIds="periodIds"
+            v-model:autoTarget="autoTarget"
             :periodTypes="periodTypesList"
             :periods="periodsList"
             :loading="loading"
@@ -184,28 +187,69 @@ const nonTeachingStaffs = ref<NonTeachingStaff[]>([]);
 const divisions = ref<Division[]>([]);
 const classrooms = ref<Classroom[]>([]);
 
-const viewMode = ref<string>('division');
-const selectedIds = ref<number[]>([]);
+const selectedTeacherIds = ref<number[]>([]);
+const selectedNonTeachingStaffIds = ref<number[]>([]);
+const selectedDivisionIds = ref<number[]>([]);
+const selectedClassroomIds = ref<number[]>([]);
 const weekType = ref<'W' | 'A' | 'B'>('W');
 const periodTypeId = ref<number | null>(null);
 const periodIds = ref<number[]>([]);
 const periodsList = ref<any[]>([]);
 const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
+const autoTarget = ref<boolean>(false);
 
 const selectedCourseIds = ref<number[]>([]);
 
 watch(schoolId, () => {
-  selectedIds.value = [];
+  selectedTeacherIds.value = [];
+  selectedNonTeachingStaffIds.value = [];
+  selectedDivisionIds.value = [];
+  selectedClassroomIds.value = [];
 });
 
 function toggleCourseSelection(id: number) {
-  if (selectedCourseIds.value.includes(id)) {
+  const isSelected = selectedCourseIds.value.includes(id);
+
+  if (isSelected) {
     selectedCourseIds.value = selectedCourseIds.value.filter(x => x !== id);
   } else {
     selectedCourseIds.value.push(id);
   }
+  
+  // Auto target logic : Si activé, le clic met à jour les filtres (ou les vide si on désélectionne)
+  if (autoTarget.value) {
+    if (!isSelected) {
+      const course = courses.value.find(c => c.id === id);
+      if (course) {
+        selectedTeacherIds.value = [...(course.teacher_ids || [])];
+        selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
+        selectedDivisionIds.value = [...(course.division_ids || [])];
+        selectedClassroomIds.value = [...(course.classroom_ids || [])];
+      }
+    } else {
+      // Si on désélectionne le cours, on vide les filtres (optionnel, mais logique)
+      selectedTeacherIds.value = [];
+      selectedNonTeachingStaffIds.value = [];
+      selectedDivisionIds.value = [];
+      selectedClassroomIds.value = [];
+    }
+  }
 }
+
+watch(autoTarget, (newVal) => {
+  if (newVal && selectedCourseIds.value.length > 0) {
+    // Appliquer le ciblage immédiatement sur le dernier cours sélectionné
+    const id = selectedCourseIds.value[selectedCourseIds.value.length - 1];
+    const course = courses.value.find(c => c.id === id);
+    if (course) {
+      selectedTeacherIds.value = [...(course.teacher_ids || [])];
+      selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
+      selectedDivisionIds.value = [...(course.division_ids || [])];
+      selectedClassroomIds.value = [...(course.classroom_ids || [])];
+    }
+  }
+});
 
 // Onglet actif et configuration des Notebooks (T032)
 const activeTab = ref<string>('timetable');
@@ -372,23 +416,15 @@ async function loadGenericItems() {
 }
 
 function updateDefaultSelection() {
-  if (viewMode.value === 'division' && divisions.value.length > 0) {
-    selectedIds.value = [divisions.value[0].id];
-  } else if (viewMode.value === 'teacher' && teachers.value.length > 0) {
-    selectedIds.value = [teachers.value[0].id];
-  } else if (viewMode.value === 'non_teaching_staff' && nonTeachingStaffs.value.length > 0) {
-    selectedIds.value = [nonTeachingStaffs.value[0].id];
-  } else if (viewMode.value === 'classroom' && classrooms.value.length > 0) {
-    selectedIds.value = [classrooms.value[0].id];
-  } else {
-    selectedIds.value = [];
+  if (selectedDivisionIds.value.length === 0 && selectedTeacherIds.value.length === 0 && selectedClassroomIds.value.length === 0 && selectedNonTeachingStaffIds.value.length === 0) {
+    if (divisions.value.length > 0) {
+      selectedDivisionIds.value = [divisions.value[0].id];
+    }
   }
 }
 
 // Watchers
-watch(viewMode, () => {
-  updateDefaultSelection();
-});
+// Removed viewMode watch
 
 watch(activeAdminModel, () => {
   if (activeTab.value === 'admin') {

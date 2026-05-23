@@ -15,12 +15,18 @@
       @update:periodTypeId="$emit('update:periodTypeId', $event)"
       :periodIds="periodIds"
       @update:periodIds="$emit('update:periodIds', $event)"
-      :viewMode="viewMode"
-      @update:viewMode="$emit('update:viewMode', $event)"
-      :selectedIds="selectedIds"
-      @update:selectedIds="$emit('update:selectedIds', $event)"
+      :selectedTeacherIds="selectedTeacherIds"
+      @update:selectedTeacherIds="$emit('update:selectedTeacherIds', $event)"
+      :selectedNonTeachingStaffIds="selectedNonTeachingStaffIds"
+      @update:selectedNonTeachingStaffIds="$emit('update:selectedNonTeachingStaffIds', $event)"
+      :selectedDivisionIds="selectedDivisionIds"
+      @update:selectedDivisionIds="$emit('update:selectedDivisionIds', $event)"
+      :selectedClassroomIds="selectedClassroomIds"
+      @update:selectedClassroomIds="$emit('update:selectedClassroomIds', $event)"
       :weekType="weekType"
       @update:weekType="$emit('update:weekType', $event)"
+      :autoTarget="autoTarget"
+      @update:autoTarget="$emit('update:autoTarget', $event)"
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
       v-model:isDetailedView="isDetailedView"
@@ -84,9 +90,9 @@
               :isSelected="(selectedCourseIds || []).includes(course.id)"
               :backgroundColor="getCourseColor(course.subject)"
               :height="getCourseHeight(course)"
-              :teachersText="(viewMode !== 'teacher' || selectedIds.length > 1) ? (course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '') : ''"
-              :divisionsText="(viewMode !== 'division' || selectedIds.length > 1) ? (course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '') : ''"
-              :classroomsText="(viewMode !== 'classroom' || selectedIds.length > 1) ? (course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '') : ''"
+              :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
+              :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
+              :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
               @dragstart="onDragStart"
               @click="$emit('selectCourse', $event)"
               @togglePin="$emit('togglePin', $event)"
@@ -123,8 +129,10 @@ const props = defineProps<{
   nonTeachingStaffs: NonTeachingStaff[];
   divisions: Division[];
   classrooms: Classroom[];
-  viewMode: string;
-  selectedIds: number[];
+  selectedTeacherIds: number[];
+  selectedNonTeachingStaffIds: number[];
+  selectedDivisionIds: number[];
+  selectedClassroomIds: number[];
   weekType?: 'W' | 'A' | 'B';
   loading: boolean;
   selectedCourseIds?: number[];
@@ -135,6 +143,7 @@ const props = defineProps<{
   periods?: any[];
   periodTypeId?: number | null;
   periodIds?: number[];
+  autoTarget?: boolean;
 }>();
 
 const isDetailedView = ref(false);
@@ -144,8 +153,10 @@ const emit = defineEmits<{
   (e: 'unassign', courseId: number): void;
   (e: 'togglePin', courseId: number): void;
   (e: 'selectCourse', courseId: number): void;
-  (e: 'update:viewMode', value: string): void;
-  (e: 'update:selectedIds', value: number[]): void;
+  (e: 'update:selectedTeacherIds', value: number[]): void;
+  (e: 'update:selectedNonTeachingStaffIds', value: number[]): void;
+  (e: 'update:selectedDivisionIds', value: number[]): void;
+  (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'reset'): void;
   (e: 'solve'): void;
@@ -153,6 +164,7 @@ const emit = defineEmits<{
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
+  (e: 'update:autoTarget', value: boolean): void;
 }>();
 
 const { currentStandardDuration, getCellKey } = useTimeslotGrid();
@@ -199,16 +211,14 @@ const displayedCourses = computed(() => {
       if (courseWeek !== 'W' && courseWeek !== selectedWeek) return false;
     }
 
-    if (props.viewMode === 'division') {
-      return course.division_ids && course.division_ids.some(id => props.selectedIds.includes(id));
-    } else if (props.viewMode === 'teacher') {
-      return course.teacher_ids && course.teacher_ids.some(id => props.selectedIds.includes(id));
-    } else if (props.viewMode === 'classroom') {
-      return course.classroom_ids && course.classroom_ids.some(id => props.selectedIds.includes(id));
-    } else if (props.viewMode === 'non_teaching_staff') {
-      return course.non_teaching_staff_ids && course.non_teaching_staff_ids.some(id => props.selectedIds.includes(id));
-    }
-    return false;
+    const noSelection = props.selectedTeacherIds.length === 0 && props.selectedDivisionIds.length === 0 && props.selectedClassroomIds.length === 0 && props.selectedNonTeachingStaffIds.length === 0;
+
+    const isTeacherMatch = props.selectedTeacherIds.length > 0 && course.teacher_ids && course.teacher_ids.some(id => props.selectedTeacherIds.includes(id));
+    const isDivisionMatch = props.selectedDivisionIds.length > 0 && course.division_ids && course.division_ids.some(id => props.selectedDivisionIds.includes(id));
+    const isClassroomMatch = props.selectedClassroomIds.length > 0 && course.classroom_ids && course.classroom_ids.some(id => props.selectedClassroomIds.includes(id));
+    const isNonTeachingMatch = props.selectedNonTeachingStaffIds.length > 0 && course.non_teaching_staff_ids && course.non_teaching_staff_ids.some(id => props.selectedNonTeachingStaffIds.includes(id));
+
+    return noSelection || isTeacherMatch || isDivisionMatch || isClassroomMatch || isNonTeachingMatch;
   });
 });
 

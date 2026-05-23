@@ -787,6 +787,8 @@ L'IHM de filtrage est isolée et permet de filtrer simultanément la grille temp
     *   *Règles fonctionnelles associées* : Sélection obligatoire d'au moins une période (voir détails dans l'US 4b).
 *   **L'établissement** : Menu déroulant (ex: Collège Jean Jaurès, Lycée Jean Jaurès).
 *   **Les ressources cibles (Multi-sélection)** : Liste déroulante multi-sélection (avec des cases à cocher) par type de ressource (enseignant, classe, partie de classe, groupe, matériel, salle, personnel). Seules les ressources appartenant aux établissements sélectionnés s'affichent dans cette liste déroulante.
+*   **Ciblage automatique (Toggle On/Off)** : Interrupteur permettant, lorsqu'il est activé, de filtrer automatiquement la grille temporelle sur toutes les ressources du cours sur lequel l'utilisateur clique. Il s'applique rétroactivement au dernier cours sélectionné s'il est activé a posteriori, et vide les filtres lors d'une désélection.
+*   **Mode d'affichage (Compact / Détaillé)** : Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).
 
 ---
 

@@ -9,22 +9,28 @@
       :classrooms="classrooms"
       :periodTypes="periodTypes"
       :periods="periods"
-      :viewMode="viewMode"
-      :selectedIds="selectedIds"
+      :selectedTeacherIds="selectedTeacherIds"
+      :selectedNonTeachingStaffIds="selectedNonTeachingStaffIds"
+      :selectedDivisionIds="selectedDivisionIds"
+      :selectedClassroomIds="selectedClassroomIds"
       :schoolId="schoolId"
       :weekType="weekType"
       :periodTypeId="periodTypeId"
       :periodIds="periodIds"
       :hideResourceSelectors="hideResourceSelectors"
       :hideSchoolSelector="hideSchoolSelector"
-      @update:viewMode="$emit('update:viewMode', $event)"
-      @update:selectedIds="$emit('update:selectedIds', $event)"
+      @update:selectedTeacherIds="$emit('update:selectedTeacherIds', $event)"
+      @update:selectedNonTeachingStaffIds="$emit('update:selectedNonTeachingStaffIds', $event)"
+      @update:selectedDivisionIds="$emit('update:selectedDivisionIds', $event)"
+      @update:selectedClassroomIds="$emit('update:selectedClassroomIds', $event)"
       @update:schoolId="$emit('update:schoolId', $event)"
       @update:weekType="$emit('update:weekType', $event)"
       @update:periodTypeId="$emit('update:periodTypeId', $event)"
       @update:periodIds="$emit('update:periodIds', $event)"
       :isDetailedView="isDetailedView"
       @update:isDetailedView="$emit('update:isDetailedView', $event)"
+      :autoTarget="autoTarget"
+      @update:autoTarget="$emit('update:autoTarget', $event)"
     >
       <template #actions>
         <slot name="actions">
@@ -98,8 +104,10 @@ withDefaults(defineProps<{
   periodTypes?: any[];
   periods?: any[];
   
-  viewMode?: string;
-  selectedIds?: number[];
+  selectedTeacherIds?: number[];
+  selectedNonTeachingStaffIds?: number[];
+  selectedDivisionIds?: number[];
+  selectedClassroomIds?: number[];
   schoolId?: number | null;
   weekType?: 'W' | 'A' | 'B';
   periodTypeId?: number | null;
@@ -108,6 +116,7 @@ withDefaults(defineProps<{
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
   isDetailedView?: boolean;
+  autoTarget?: boolean;
 }>(), {
   preferenceMode: 'none',
   coursesMode: 'readonly',
@@ -120,26 +129,32 @@ withDefaults(defineProps<{
   classrooms: () => [],
   periodTypes: () => [],
   periods: () => [],
-  viewMode: 'division',
-  selectedIds: () => [],
+  selectedTeacherIds: () => [],
+  selectedNonTeachingStaffIds: () => [],
+  selectedDivisionIds: () => [],
+  selectedClassroomIds: () => [],
   schoolId: null,
   weekType: 'W',
   periodTypeId: null,
   periodIds: () => [],
   hideResourceSelectors: false,
   hideSchoolSelector: false,
-  isDetailedView: false
+  isDetailedView: false,
+  autoTarget: false
 });
 
 defineEmits<{
   (e: 'update:brush', value: 'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'): void;
-  (e: 'update:viewMode', value: string): void;
-  (e: 'update:selectedIds', value: number[]): void;
+  (e: 'update:selectedTeacherIds', value: number[]): void;
+  (e: 'update:selectedNonTeachingStaffIds', value: number[]): void;
+  (e: 'update:selectedDivisionIds', value: number[]): void;
+  (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:isDetailedView', value: boolean): void;
+  (e: 'update:autoTarget', value: boolean): void;
   
   // Grid events
   (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;

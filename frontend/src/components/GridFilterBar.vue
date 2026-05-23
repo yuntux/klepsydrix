@@ -15,107 +15,71 @@
         </select>
       </div>
 
-      <!-- 2. Mode and Resource Selectors (for 'timetable' mode or when selectors are not hidden in 'preference' mode) -->
-      <template v-if="mode === 'timetable'">
-        <div class="filter-item">
-          <label>Mode de vue :</label>
-          <select 
-            :value="viewMode" 
-            @change="$emit('update:viewMode', ($event.target as HTMLSelectElement).value)" 
-            class="select-custom"
-          >
-            <option value="division">Par Classe (Division)</option>
-            <option value="teacher">Par Enseignant</option>
-            <option value="non_teaching_staff">Par Personnel Non Enseignant</option>
-            <option value="classroom">Par Salle</option>
-          </select>
-        </div>
-
-      </template>
-
+      <!-- 2. Resource Selectors (for 'timetable' mode or when selectors are not hidden in 'preference' mode) -->
       <template v-if="mode === 'timetable' || (mode === 'preference' && !hideResourceSelectors)">
-        <div class="filter-item" v-if="mode === 'preference'">
-          <label>Type de Ressource :</label>
-          <select 
-            :value="viewMode" 
-            @change="$emit('update:viewMode', ($event.target as HTMLSelectElement).value)" 
-            class="select-custom"
-          >
-            <option value="Teacher">👨‍🏫 Enseignant</option>
-            <option value="NonTeachingStaff">🧑‍💼 Personnel Non Enseignant</option>
-            <option value="Classroom">🏢 Salle</option>
-            <option value="Division">🎒 Classe (Division)</option>
-          </select>
-        </div>
-
-        <div class="filter-item resource-multi-select" style="position: relative;">
-          <label v-if="mode === 'timetable'">
-            <span v-if="viewMode?.toLowerCase() === 'division'">Classe :</span>
-            <span v-else-if="viewMode?.toLowerCase() === 'teacher'">Enseignant :</span>
-            <span v-else-if="viewMode?.toLowerCase() === 'non_teaching_staff'">Personnel :</span>
-            <span v-else-if="viewMode?.toLowerCase() === 'classroom'">Salle :</span>
-          </label>
-          <label v-else>Ressources :</label>
-          
+        <div 
+          v-for="rt in resourceTypes" 
+          :key="rt.key" 
+          class="filter-item resource-multi-select" 
+          style="position: relative;"
+        >
+          <label>{{ rt.label }} :</label>
           <button 
             class="select-custom" 
-            style="text-align: left; cursor: pointer; min-width: 200px; display: flex; justify-content: space-between; align-items: center;"
-            @click="openDropdown($event)"
+            style="text-align: left; cursor: pointer; min-width: 140px; display: flex; justify-content: space-between; align-items: center;"
+            @click="openDropdown(rt.key, $event)"
           >
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">
-              {{ selectedIds.length === 0 ? 'Aucune sélection' : (selectedIds.length === 1 ? activeResourceList.find(r => r.id === selectedIds[0])?.name : selectedIds.length + ' sélectionnés') }}
+              {{ getSelectionLabel(rt) }}
             </span>
             <span style="font-size: 10px;">&#9660;</span>
           </button>
-
-          <!-- Overlay transparent pour fermer au clic exterieur -->
-          <div 
-            v-if="showResourceDropdown"
-            style="position: fixed; inset: 0; z-index: 998;"
-            @click="showResourceDropdown = false"
-          />
-
-          <!-- Dropdown teleporté dans body pour éviter overflow:hidden -->
-          <Teleport to="body">
-            <div 
-              v-if="showResourceDropdown"
-              class="resource-dropdown-panel"
-              style="position: fixed; z-index: 999; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
-              :style="dropdownPos"
-              @click.stop
-            >
-              <div style="padding: 4px 8px; border-bottom: 1px solid #eee; display: flex; gap: 8px;">
-                <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="$emit('update:selectedIds', activeResourceList.map(r => r.id))">Tout</button>
-                <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="$emit('update:selectedIds', [])">Rien</button>
-              </div>
-              <label v-for="r in activeResourceList" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid #f3f4f6;">
-                <input 
-                  type="checkbox" 
-                  :value="r.id" 
-                  :checked="selectedIds.includes(r.id)"
-                  @change="onResourceCheckboxToggle(r.id, $event)"
-                />
-                <span style="flex: 1; font-size: 13px;">{{ r.name }}</span>
-              </label>
-              <div v-if="activeResourceList.length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
-            </div>
-          </Teleport>
         </div>
+
+        <!-- Overlay transparent pour fermer au clic exterieur -->
+        <div 
+          v-if="openDropdownType"
+          style="position: fixed; inset: 0; z-index: 998;"
+          @click="openDropdownType = null"
+        />
+
+        <!-- Dropdown teleporté dans body pour éviter overflow:hidden -->
+        <Teleport to="body">
+          <div 
+            v-if="openDropdownType"
+            class="resource-dropdown-panel"
+            style="position: fixed; z-index: 999; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
+            :style="dropdownPos"
+            @click.stop
+          >
+            <div style="padding: 4px 8px; border-bottom: 1px solid #eee; display: flex; gap: 8px;">
+              <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectAll(openDropdownType)">Tout</button>
+              <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectNone(openDropdownType)">Rien</button>
+            </div>
+            <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid #f3f4f6;">
+              <input 
+                type="checkbox" 
+                :value="r.id" 
+                :checked="isResourceSelected(openDropdownType, r.id)"
+                @change="onResourceCheckboxToggle(openDropdownType, r.id, $event)"
+              />
+              <span style="flex: 1; font-size: 13px;">{{ r.name || (r.first_name + ' ' + r.last_name) }}</span>
+            </label>
+            <div v-if="getActiveList(openDropdownType).length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
+          </div>
+        </Teleport>
       </template>
-
-
-
-      <!-- Right actions slot -->
+      
+      <!-- Right auto target toggle -->
       <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
-        <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;">
-          <label>Affichage :</label>
-          <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
-            <span :class="{ 'active': !isDetailedView }">Compact</span>
-            <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
-            <span :class="{ 'active': isDetailedView }">Détaillé</span>
+        <div class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
+          <label>Ciblage auto :</label>
+          <div class="toggle-container" @click="$emit('update:autoTarget', !autoTarget)">
+            <span :class="{ 'active': !autoTarget }">Désactivé</span>
+            <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
+            <span :class="{ 'active': autoTarget }">Activé</span>
           </div>
         </div>
-        <slot name="actions"></slot>
       </div>
     </div>
 
@@ -163,6 +127,19 @@
           </label>
         </div>
       </div>
+
+      <!-- Right actions slot -->
+      <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+        <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
+          <label>Affichage :</label>
+          <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
+            <span :class="{ 'active': !isDetailedView }">Compact</span>
+            <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
+            <span :class="{ 'active': isDetailedView }">Détaillé</span>
+          </div>
+        </div>
+        <slot name="actions"></slot>
+      </div>
     </div>
   </div>
 </template>
@@ -180,8 +157,11 @@ const props = withDefaults(defineProps<{
   periodTypes?: any[];
   periods?: any[];
   
-  viewMode?: string;
-  selectedIds?: number[];
+  selectedTeacherIds?: number[];
+  selectedNonTeachingStaffIds?: number[];
+  selectedDivisionIds?: number[];
+  selectedClassroomIds?: number[];
+  
   schoolId?: number | null;
   weekType?: 'W' | 'A' | 'B';
   periodTypeId?: number | null;
@@ -190,6 +170,7 @@ const props = withDefaults(defineProps<{
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
   isDetailedView?: boolean;
+  autoTarget?: boolean;
 }>(), {
   mode: 'timetable',
   schools: () => [],
@@ -199,25 +180,31 @@ const props = withDefaults(defineProps<{
   classrooms: () => [],
   periodTypes: () => [],
   periods: () => [],
-  viewMode: 'division',
-  selectedIds: () => [],
+  selectedTeacherIds: () => [],
+  selectedNonTeachingStaffIds: () => [],
+  selectedDivisionIds: () => [],
+  selectedClassroomIds: () => [],
   schoolId: null,
   weekType: 'W',
   periodTypeId: null,
   periodIds: () => [],
   hideResourceSelectors: false,
   hideSchoolSelector: false,
-  isDetailedView: false
+  isDetailedView: false,
+  autoTarget: false
 });
 
 const emit = defineEmits<{
-  (e: 'update:viewMode', value: string): void;
-  (e: 'update:selectedIds', value: number[]): void;
+  (e: 'update:selectedTeacherIds', value: number[]): void;
+  (e: 'update:selectedNonTeachingStaffIds', value: number[]): void;
+  (e: 'update:selectedDivisionIds', value: number[]): void;
+  (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:isDetailedView', value: boolean): void;
+  (e: 'update:autoTarget', value: boolean): void;
 }>();
 
 // Filter resources by schoolId if set
@@ -241,19 +228,21 @@ const filteredClassrooms = computed(() => {
   return props.classrooms.filter(c => c.school_id === props.schoolId);
 });
 
-const activeResourceList = computed(() => {
-  const m = props.viewMode?.toLowerCase();
-  if (m === 'teacher') return filteredTeachers.value;
-  if (m === 'non_teaching_staff') return filteredNonTeachingStaffs.value;
-  if (m === 'classroom') return filteredClassrooms.value;
-  if (m === 'division') return filteredDivisions.value;
-  return [];
-});
+const resourceTypes = computed(() => [
+  { key: 'teacher', label: '👨‍🏫 Ens.', list: filteredTeachers.value, selected: props.selectedTeacherIds },
+  { key: 'non_teaching_staff', label: '🧑‍💼 Pers.', list: filteredNonTeachingStaffs.value, selected: props.selectedNonTeachingStaffIds },
+  { key: 'division', label: '🎒 Classe', list: filteredDivisions.value, selected: props.selectedDivisionIds },
+  { key: 'classroom', label: '🏢 Salle', list: filteredClassrooms.value, selected: props.selectedClassroomIds }
+]);
 
-const showResourceDropdown = ref(false);
+const openDropdownType = ref<string | null>(null);
 const dropdownPos = ref<Record<string, string>>({});
 
-function openDropdown(event: MouseEvent) {
+function openDropdown(type: string, event: MouseEvent) {
+  if (openDropdownType.value === type) {
+    openDropdownType.value = null;
+    return;
+  }
   const btn = (event.currentTarget as HTMLElement);
   const rect = btn.getBoundingClientRect();
   dropdownPos.value = {
@@ -261,18 +250,58 @@ function openDropdown(event: MouseEvent) {
     left: rect.left + 'px',
     width: Math.max(rect.width, 240) + 'px',
   };
-  showResourceDropdown.value = true;
+  openDropdownType.value = type;
 }
 
-function onResourceCheckboxToggle(id: number, event: Event) {
+function getActiveList(type: string) {
+  const rt = resourceTypes.value.find(rt => rt.key === type);
+  return rt ? rt.list : [];
+}
+
+function isResourceSelected(type: string, id: number) {
+  const rt = resourceTypes.value.find(rt => rt.key === type);
+  return rt ? rt.selected.includes(id) : false;
+}
+
+function getSelectionLabel(rt: any) {
+  if (rt.selected.length === 0) return 'Tous';
+  if (rt.selected.length === 1) {
+    const item = rt.list.find((r: any) => r.id === rt.selected[0]);
+    return item ? (item.name || (item.first_name + ' ' + item.last_name)) : '1 sélectionné';
+  }
+  return rt.selected.length + ' sélectionnés';
+}
+
+function onResourceCheckboxToggle(type: string, id: number, event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
-  let newIds = [...(props.selectedIds || [])];
+  const rt = resourceTypes.value.find(rt => rt.key === type);
+  if (!rt) return;
+  
+  let newIds = [...rt.selected];
   if (checked) {
     if (!newIds.includes(id)) newIds.push(id);
   } else {
     newIds = newIds.filter(x => x !== id);
   }
-  emit('update:selectedIds', newIds);
+  
+  emitUpdateForType(type, newIds);
+}
+
+function selectAll(type: string) {
+  const rt = resourceTypes.value.find(rt => rt.key === type);
+  if (!rt) return;
+  emitUpdateForType(type, rt.list.map((r: any) => r.id));
+}
+
+function selectNone(type: string) {
+  emitUpdateForType(type, []);
+}
+
+function emitUpdateForType(type: string, ids: number[]) {
+  if (type === 'teacher') emit('update:selectedTeacherIds', ids);
+  if (type === 'non_teaching_staff') emit('update:selectedNonTeachingStaffIds', ids);
+  if (type === 'division') emit('update:selectedDivisionIds', ids);
+  if (type === 'classroom') emit('update:selectedClassroomIds', ids);
 }
 
 // Period types selection logic
