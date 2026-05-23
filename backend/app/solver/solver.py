@@ -295,3 +295,50 @@ def explain_timetable_score(db: Session, school_id: Optional[int] = None) -> dic
         "summary": score_explanation.summary,
         "matches": matches_detail
     }
+
+def calculate_course_heatmap(db: Session, course_id: int, school_id: Optional[int] = None) -> dict:
+    problem = _build_planning_problem(db, school_id)
+    solver_factory = _get_solver_factory()
+    solution_manager = SolutionManager.create(solver_factory)
+    
+    # Trouver le cours concerné
+    target_course = next((c for c in problem.courses if c.id == course_id), None)
+    if not target_course:
+        return {}
+        
+    original_timeslot = target_course.timeslot
+    heatmap = {}
+    
+    for ts in problem.timeslots:
+        target_course.timeslot = ts
+        explanation = solution_manager.explain(problem)
+        score = explanation.score
+        
+        reasons = []
+        for cmt in explanation.constraint_match_total_map.values():
+            for match in cmt.constraint_match_set:
+                has_target = False
+                if hasattr(match, 'justification_list'):
+                    for j in match.justification_list:
+                        if hasattr(j, 'id') and j.id == target_course.id:
+                            has_target = True
+                            break
+                if has_target:
+                    impact_hard = match.score.hard_score if hasattr(match.score, 'hard_score') else 0
+                    impact_soft = match.score.soft_score if hasattr(match.score, 'soft_score') else 0
+                    reasons.append({
+                        "name": cmt.constraint_ref.constraint_name,
+                        "impact_hard": impact_hard,
+                        "impact_soft": impact_soft
+                    })
+                    
+        heatmap[str(ts.id)] = {
+            "hard": score.hard_score if score else 0,
+            "soft": score.soft_score if score else 0,
+            "reasons": reasons
+        }
+        
+    # Remettre à l'état initial
+    target_course.timeslot = original_timeslot
+    
+    return heatmap

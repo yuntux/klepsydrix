@@ -138,6 +138,14 @@
             <option value="resource_grids">Une grille par ressource</option>
           </select>
         </div>
+        <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
+          <label>Placement assisté :</label>
+          <div class="toggle-container" @click="$emit('update:placementAssistantActive', !placementAssistantActive)">
+            <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
+            <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
+            <span :class="{ 'active': placementAssistantActive }">Activé</span>
+          </div>
+        </div>
         <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
           <label>Affichage :</label>
           <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
@@ -180,6 +188,8 @@ const props = withDefaults(defineProps<{
   isDetailedView?: boolean;
   autoTarget?: boolean;
   layoutMode?: string;
+  showPlacementAssistantToggle?: boolean;
+  placementAssistantActive?: boolean;
 }>(), {
   mode: 'timetable',
   schools: () => [],
@@ -201,7 +211,9 @@ const props = withDefaults(defineProps<{
   hideSchoolSelector: false,
   isDetailedView: false,
   autoTarget: false,
-  layoutMode: 'merged'
+  layoutMode: 'merged',
+  showPlacementAssistantToggle: true,
+  placementAssistantActive: false
 });
 
 const emit = defineEmits<{
@@ -216,6 +228,7 @@ const emit = defineEmits<{
   (e: 'update:isDetailedView', value: boolean): void;
   (e: 'update:autoTarget', value: boolean): void;
   (e: 'update:layoutMode', value: string): void;
+  (e: 'update:placementAssistantActive', value: boolean): void;
 }>();
 
 // Filter resources by schoolId if set

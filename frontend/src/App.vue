@@ -24,6 +24,7 @@
             v-model:periodIds="periodIds"
             v-model:autoTarget="autoTarget"
             v-model:layoutMode="layoutMode"
+            v-model:placementAssistantActive="placementAssistantActive"
             :periodTypes="periodTypesList"
             :periods="periodsList"
             :loading="loading"
@@ -200,6 +201,7 @@ const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
 const autoTarget = ref<boolean>(false);
 const layoutMode = ref<string>('merged');
+const placementAssistantActive = ref<boolean>(false);
 
 const selectedCourseIds = ref<number[]>([]);
 

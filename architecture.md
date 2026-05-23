@@ -413,3 +413,36 @@ L'outil a été conçu autour d'une optimisation critique : **seul le cours pare
 - *La limite du modèle* : Un cours parent n'est représenté que par une seule entité `PlanningCourse`, et n'a donc physiquement la place que pour contenir **une seule salle** (`classroom`).
 - *La protection BDD* : Les cours composés (ex: Pôle Sciences) ont besoin de plusieurs salles (héritées des enfants). Si le solveur tente de sauvegarder son unique salle, il corrompra la base de données en écrasant la liste des salles du parent. Pour contrer cela, le mécanisme de sauvegarde dans `solver.py` **ignore délibérément l'affectation de salle renvoyée par le solveur si le cours est composé (`if not db_course.is_composed`)**. 
 Cette architecture est un choix assumé : elle retire la complexité d'affectation spatiale au solveur pour les cours très complexes (qui sont de toute façon paramétrés manuellement via l'IHM) afin de garantir des performances optimales sur le placement temporel.
+
+---
+
+## 13. Aide au Placement (Interactive Heatmap) & Explicabilité
+
+Pour faciliter l'interaction homme-machine (IHM) et le placement manuel des cours, Klepsydrix intègre une architecture d'évaluation incrémentale en mémoire (Heatmap).
+
+### A. Architecture d'Évaluation en RAM (Stateless)
+Lorsqu'un utilisateur sélectionne un cours et active l'Aide au placement, le système doit calculer le score de placement de ce cours sur l'intégralité des créneaux temporels de l'établissement (ex: 120 créneaux). Pour garantir une réponse sous les 100ms :
+1. **Aucun `commit` en BDD** : Le backend effectue un "snapshot" de la base de données (une lecture seule via SQLAlchemy) et reconstruit l'objet `PlanningProblem` en RAM.
+2. **ScoreDirector Incrémental** : Au lieu de relancer un `Solver` complet, l'API instancie un `ScoreDirector` jetable. Le moteur déplace virtuellement l'entité `Course` d'un créneau à l'autre en RAM, évalue les contraintes incrémentalement (`calculateScore()`), et annule l'opération.
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend (TimetableGrid)
+    participant API as FastAPI (Heatmap Endpoint)
+    participant SD as Timefold ScoreDirector (RAM)
+
+    UI->>API: GET /api/courses/{id}/heatmap
+    API->>API: Lecture DB & Construction Problem (RAM)
+    API->>SD: Initialisation du ScoreDirector
+    loop Pour chaque Timeslot (ex: 120)
+        API->>SD: Déplacement virtuel du cours
+        SD->>SD: Évaluation incrémentale du Score
+        SD-->>API: Hard/Soft Score & ConstraintMatches
+    end
+    API-->>UI: Dictionnaire des scores par Timeslot
+    UI->>UI: Rendu des couleurs (Background Layer)
+```
+
+### B. Explicabilité des Contraintes (Tooltips)
+Au-delà de la simple couleur (Vert/Orange/Rouge) induite par les scores `Hard` et `Soft`, le système exploite la fonction d'explicabilité (Explainability) native de Timefold.
+Le `ScoreDirector` extrait la liste des `ConstraintMatch` (les contraintes enfreintes ou récompensées). L'API filtre cette liste pour ne renvoyer à l'interface que les justifications impliquant explicitement le cours ciblé. L'IHM affiche ces justifications dans des infobulles au survol, transformant un outil purement répressif en un assistant de planification pédagogique.

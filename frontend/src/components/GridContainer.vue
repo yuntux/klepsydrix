@@ -33,6 +33,9 @@
       @update:autoTarget="$emit('update:autoTarget', $event)"
       :layoutMode="layoutMode"
       @update:layoutMode="$emit('update:layoutMode', $event)"
+      :showPlacementAssistantToggle="showPlacementAssistantToggle"
+      :placementAssistantActive="placementAssistantActive"
+      @update:placementAssistantActive="$emit('update:placementAssistantActive', $event)"
     >
       <template #actions>
         <slot name="actions">
@@ -120,6 +123,8 @@ withDefaults(defineProps<{
   isDetailedView?: boolean;
   autoTarget?: boolean;
   layoutMode?: string;
+  showPlacementAssistantToggle?: boolean;
+  placementAssistantActive?: boolean;
 }>(), {
   preferenceMode: 'none',
   coursesMode: 'readonly',
@@ -144,7 +149,9 @@ withDefaults(defineProps<{
   hideSchoolSelector: false,
   isDetailedView: false,
   autoTarget: false,
-  layoutMode: 'merged'
+  layoutMode: 'merged',
+  showPlacementAssistantToggle: true,
+  placementAssistantActive: false
 });
 
 defineEmits<{
@@ -160,6 +167,7 @@ defineEmits<{
   (e: 'update:isDetailedView', value: boolean): void;
   (e: 'update:autoTarget', value: boolean): void;
   (e: 'update:layoutMode', value: string): void;
+  (e: 'update:placementAssistantActive', value: boolean): void;
   
   // Grid events
   (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;

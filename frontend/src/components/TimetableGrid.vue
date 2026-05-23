@@ -29,6 +29,8 @@
       @update:autoTarget="$emit('update:autoTarget', $event)"
       :layoutMode="layoutMode"
       @update:layoutMode="$emit('update:layoutMode', $event)"
+      :placementAssistantActive="placementAssistantActive"
+      @update:placementAssistantActive="$emit('update:placementAssistantActive', $event)"
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
       v-model:isDetailedView="isDetailedView"
@@ -94,7 +96,7 @@
                   :overlapIndex="getOverlapInfo(course.id).index"
                   :overlapCount="getOverlapInfo(course.id).count"
                   :isSelected="(selectedCourseIds || []).includes(course.id)"
-                  :backgroundColor="getCourseColor(course.subject)"
+                  :backgroundColor="course.color || '#cbd5e1'"
                   :height="getCourseHeight(course)"
                   :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
                   :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
@@ -109,6 +111,13 @@
                 <div class="loader-overlay" v-if="loading">
                   <div class="spinner"></div>
                   <div style="color: #fff; font-weight: 500; font-size: 14px;">Calcul...</div>
+                </div>
+              </template>
+              <template #cell-background="{ day, time }">
+                <div v-if="heatmapData[getCellKey(day, time)]" 
+                     class="heatmap-overlay" 
+                     :style="getHeatmapStyle(heatmapData[getCellKey(day, time)])"
+                     :title="getHeatmapTooltip(heatmapData[getCellKey(day, time)])">
                 </div>
               </template>
             </BaseGrid>
@@ -139,7 +148,7 @@
               :overlapIndex="getOverlapInfo(course.id).index"
               :overlapCount="getOverlapInfo(course.id).count"
               :isSelected="(selectedCourseIds || []).includes(course.id)"
-              :backgroundColor="getCourseColor(course.subject)"
+              :backgroundColor="course.color || '#cbd5e1'"
               :height="getCourseHeight(course)"
               :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
               :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
@@ -156,6 +165,14 @@
             <div class="loader-overlay" v-if="loading">
               <div class="spinner"></div>
               <div style="color: #fff; font-weight: 500; font-size: 16px;">Calcul de l'emploi du temps optimal...</div>
+            </div>
+          </template>
+
+          <template #cell-background="{ day, time }">
+            <div v-if="heatmapData[getCellKey(day, time)]" 
+                 class="heatmap-overlay" 
+                 :style="getHeatmapStyle(heatmapData[getCellKey(day, time)])"
+                 :title="getHeatmapTooltip(heatmapData[getCellKey(day, time)])">
             </div>
           </template>
         </BaseGrid>
@@ -197,6 +214,7 @@ const props = defineProps<{
   isDetailedView?: boolean;
   autoTarget?: boolean;
   layoutMode?: string;
+  placementAssistantActive?: boolean;
 }>();
 
 const isDetailedView = ref(false);
@@ -220,6 +238,7 @@ const emit = defineEmits<{
   (e: 'update:isDetailedView', value: boolean): void;
   (e: 'update:autoTarget', value: boolean): void;
   (e: 'update:layoutMode', value: string): void;
+  (e: 'update:placementAssistantActive', value: boolean): void;
 }>();
 
 const { currentStandardDuration, getCellKey } = useTimeslotGrid();
@@ -252,8 +271,64 @@ function getCourseHeight(course: Course) {
   const span = duration / currentStandardDuration.value;
   return `calc(${span} * 100% - 8px + ${span - 1}px)`;
 }
-
 const activeDragCells = ref<Record<string, boolean>>({});
+
+const heatmapData = ref<Record<string, any>>({});
+const isLoadingHeatmap = ref<boolean>(false);
+
+import { watch } from 'vue';
+
+// Watcher pour le heatmap
+watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([isActive, courseIds]) => {
+  if (isActive && courseIds && (courseIds as number[]).length === 1) {
+    const courseId = (courseIds as number[])[0];
+    isLoadingHeatmap.value = true;
+    try {
+      const response = await fetch(`/api/timetable/courses/${courseId}/heatmap`);
+      if (response.ok) {
+        const data = await response.json();
+        const mappedData: Record<string, any> = {};
+        for (const [tsIdStr, scoreInfo] of Object.entries(data)) {
+          const tsId = parseInt(tsIdStr);
+          const ts = props.timeslots.find(t => t.id === tsId);
+          if (ts) {
+            mappedData[getCellKey(ts.day_of_week, ts.hour)] = scoreInfo;
+          }
+        }
+        heatmapData.value = mappedData;
+      }
+    } catch (e) {
+      console.error("Erreur Heatmap", e);
+    } finally {
+      isLoadingHeatmap.value = false;
+    }
+  } else {
+    heatmapData.value = {};
+  }
+}, { deep: true });
+
+function getHeatmapStyle(scoreInfo: any) {
+  if (scoreInfo.hard < 0) {
+    return { backgroundColor: 'rgba(239, 68, 68, 0.15)' }; // Red
+  } else if (scoreInfo.soft < 0) {
+    return { backgroundColor: 'rgba(245, 158, 11, 0.15)' }; // Orange
+  } else {
+    return { backgroundColor: 'rgba(16, 185, 129, 0.15)' }; // Green
+  }
+}
+
+function getHeatmapTooltip(scoreInfo: any) {
+  let tooltip = `Score: Hard ${scoreInfo.hard}, Soft ${scoreInfo.soft}\n`;
+  if (scoreInfo.reasons && scoreInfo.reasons.length > 0) {
+    tooltip += "Explications :\n";
+    scoreInfo.reasons.forEach((r: any) => {
+      tooltip += `- ${r.name} (H: ${r.impact_hard}, S: ${r.impact_soft})\n`;
+    });
+  } else {
+    tooltip += "Aucune contrainte déclenchée.";
+  }
+  return tooltip;
+}
 
 function onDragOver(day: number, hour: number, event: DragEvent) {
   activeDragCells.value[getCellKey(day, hour)] = true;
@@ -430,24 +505,7 @@ function onDrop(day: number, hour: number, event: DragEvent) {
   emit('move', courseId, ts.id);
 }
 
-// Couleurs harmonieuses et contrastées pour les matières
-const subjectColors: Record<string, string> = {
-  'Mathématiques': 'rgba(99, 102, 241, 0.25)', // Indigo
-  'Français': 'rgba(236, 72, 153, 0.25)', // Pink
-  'Histoire-Géo': 'rgba(245, 158, 11, 0.25)', // Amber
-  'Sciences': 'rgba(16, 185, 129, 0.25)', // Emerald
-  'Anglais': 'rgba(6, 182, 212, 0.25)', // Cyan
-  'Arts Plastiques': 'rgba(139, 92, 246, 0.25)', // Purple
-  'Musique': 'rgba(244, 63, 94, 0.25)', // Rose
-  'Technologie': 'rgba(14, 165, 233, 0.25)', // Sky
-  'E.P.S.': 'rgba(101, 163, 13, 0.25)', // Lime
-  'Physique-Chimie': 'rgba(20, 184, 166, 0.25)', // Teal
-  'S.V.T.': 'rgba(34, 197, 94, 0.25)', // Green
-};
-
-function getCourseColor(subject: string): string {
-  return subjectColors[subject] || 'rgba(107, 114, 128, 0.25)';
-}
+// Les couleurs des cours proviennent maintenant directement de la base de données (champ subject.color)
 </script>
 
 <style scoped>
@@ -545,5 +603,16 @@ function getCourseColor(subject: string): string {
   background-color: var(--bg-surface-hover);
   border-bottom: 1px solid var(--border-color);
   text-align: center;
+}
+
+.heatmap-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+  z-index: 1;
+  transition: background-color 0.2s ease;
 }
 </style>

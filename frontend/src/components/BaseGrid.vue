@@ -35,7 +35,7 @@
             v-for="col in gridColumns"
             :key="col.id"
             class="grid-cell"
-            :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }"
+            :style="{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', position: 'relative' }"
           >
             <div
               v-for="idx in subCellCount"

@@ -34,6 +34,7 @@ export interface Timeslot {
 export interface Course {
   id: number;
   subject: string;
+  color?: string;
   teacher_ids: number[];
   non_teaching_staff_ids: number[];
   division_ids: number[];

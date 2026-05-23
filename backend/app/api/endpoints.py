@@ -43,6 +43,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
             {
                 "id": c.id,
                 "subject": c.subject,
+                "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
                 "teacher_ids": [t.id for t in c.teachers],
                 "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
                 "division_ids": [d.id for d in c.divisions],
@@ -64,11 +65,15 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
 def get_status():
     return {"status": SolverState.get_status()}
 
-from backend.app.solver.solver import explain_timetable_score
+from backend.app.solver.solver import explain_timetable_score, calculate_course_heatmap
 
 @router.get("/score")
 def get_score(school_id: Optional[int] = None, db: Session = Depends(get_db)):
     return explain_timetable_score(db, school_id)
+
+@router.get("/courses/{course_id}/heatmap")
+def get_course_heatmap(course_id: int, school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    return calculate_course_heatmap(db, course_id, school_id)
 
 @router.post("/solve")
 def solve(school_id: Optional[int] = None):
@@ -117,6 +122,7 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
         {
             "id": c.id,
             "subject": c.subject,
+            "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
             "teacher_ids": [t.id for t in c.teachers],
             "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
             "division_ids": [d.id for d in c.divisions],

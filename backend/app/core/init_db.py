@@ -66,15 +66,15 @@ def seed_v2_data():
 
         # 5. Création des Matières (Subjects)
         subjects_data = [
-            ("MATHS", "006600", "Maths", "Mathématiques", "#3498DB", "L0100"),
-            ("FRAN", "004300", "Français", "Lettres Modernes", "#E74C3C", "L0200"),
-            ("HG", "003200", "Hist-Géo", "Histoire-Géographie", "#F1C40F", "L0420"),
-            ("PC", "005500", "Phys-Chimie", "Sciences Physiques", "#9B59B6", "L1500"),
-            ("SVT", "005600", "SVT", "Sciences de la Vie et de la Terre", "#2ECC71", "L1600"),
-            ("ANG", "002200", "Anglais", "Langue Vivante : Anglais", "#E67E22", "L0400"),
-            ("ARTS", "001100", "Arts Plast.", "Arts Plastiques", "#1ABC9C", "L1800"),
-            ("EPS", "009900", "EPS", "Éducation Physique et Sportive", "#34495E", "L1900"),
-            ("TECHNO", "008800", "Techno", "Technologie", "#7F8C8D", "L1400")
+            ("MATHS", "006600", "Maths", "Mathématiques", "#a5b4fc", "L0100"),
+            ("FRAN", "004300", "Français", "Lettres Modernes", "#f9a8d4", "L0200"),
+            ("HG", "003200", "Hist-Géo", "Histoire-Géographie", "#fcd34d", "L0420"),
+            ("PC", "005500", "Phys-Chimie", "Sciences Physiques", "#5eead4", "L1500"),
+            ("SVT", "005600", "SVT", "Sciences de la Vie et de la Terre", "#86efac", "L1600"),
+            ("ANG", "002200", "Anglais", "Langue Vivante : Anglais", "#67e8f9", "L0400"),
+            ("ARTS", "001100", "Arts Plast.", "Arts Plastiques", "#c4b5fd", "L1800"),
+            ("EPS", "009900", "EPS", "Éducation Physique et Sportive", "#bef264", "L1900"),
+            ("TECHNO", "008800", "Techno", "Technologie", "#7dd3fc", "L1400")
         ]
         subject_ids = {}
         for code, nomenclature, short, long, color, d_code in subjects_data:
