@@ -309,32 +309,50 @@ def calculate_course_heatmap(db: Session, course_id: int, school_id: Optional[in
     original_timeslot = target_course.timeslot
     heatmap = {}
     
+    # Calculer le score de base sans le cours
+    target_course.timeslot = None
+    base_explanation = solution_manager.explain(problem)
+    base_hard = base_explanation.score.hard_score if hasattr(base_explanation.score, 'hard_score') else 0
+    base_soft = base_explanation.score.soft_score if hasattr(base_explanation.score, 'soft_score') else 0
+
     for ts in problem.timeslots:
         target_course.timeslot = ts
-        explanation = solution_manager.explain(problem)
-        score = explanation.score
+        # Utiliser update() pour être ultra rapide sur les créneaux verts
+        score = solution_manager.update(problem)
+        
+        current_hard = score.hard_score if hasattr(score, 'hard_score') else 0
+        current_soft = score.soft_score if hasattr(score, 'soft_score') else 0
+        
+        delta_hard = current_hard - base_hard
+        delta_soft = current_soft - base_soft
         
         reasons = []
-        for cmt in explanation.constraint_match_total_map.values():
-            for match in cmt.constraint_match_set:
-                has_target = False
-                if hasattr(match, 'justification_list'):
-                    for j in match.justification_list:
-                        if hasattr(j, 'id') and j.id == target_course.id:
-                            has_target = True
-                            break
-                if has_target:
-                    impact_hard = match.score.hard_score if hasattr(match.score, 'hard_score') else 0
-                    impact_soft = match.score.soft_score if hasattr(match.score, 'soft_score') else 0
+        # N'expliquer que s'il y a une dégradation (pour la performance)
+        if delta_hard < 0 or delta_soft < 0:
+            explanation = solution_manager.explain(problem)
+            for constraint_name, cmt in explanation.constraint_match_total_map.items():
+                base_cmt = base_explanation.constraint_match_total_map.get(constraint_name)
+                
+                cur_hard = cmt.score.hard_score if hasattr(cmt.score, 'hard_score') else 0
+                cur_soft = cmt.score.soft_score if hasattr(cmt.score, 'soft_score') else 0
+                
+                b_hard = base_cmt.score.hard_score if base_cmt and hasattr(base_cmt.score, 'hard_score') else 0
+                b_soft = base_cmt.score.soft_score if base_cmt and hasattr(base_cmt.score, 'soft_score') else 0
+                
+                diff_hard = cur_hard - b_hard
+                diff_soft = cur_soft - b_soft
+                
+                # Si cette contrainte s'est aggravée par rapport au score de base
+                if diff_hard < 0 or diff_soft < 0:
                     reasons.append({
                         "name": cmt.constraint_ref.constraint_name,
-                        "impact_hard": impact_hard,
-                        "impact_soft": impact_soft
+                        "impact_hard": diff_hard,
+                        "impact_soft": diff_soft
                     })
                     
         heatmap[str(ts.id)] = {
-            "hard": score.hard_score if score else 0,
-            "soft": score.soft_score if score else 0,
+            "hard": delta_hard,
+            "soft": delta_soft,
             "reasons": reasons
         }
         
