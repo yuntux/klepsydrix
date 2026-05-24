@@ -117,6 +117,7 @@
             class="body-tr"
             :class="{ 'selected-row': selectedIds.has(item.id) }"
             @click="onRowClick(item, $event)"
+            @focusout="onRowFocusOut(item, $event)"
           >
             <td v-if="isMultiSelectAllowed" class="body-td checkbox-td" style="text-align: center; width: 40px; border-right: 1px solid var(--border-color); padding: 0 4px;">
               <input 
@@ -165,7 +166,7 @@
                   :value="item[col.key]" 
                   :disabled="isColumnReadOnly(col.key)"
                   :required="isColumnRequired(col.key)"
-                  @change="updateInline(item, col.key, $event.target.value ? Number($event.target.value) : null)"
+                  @change="updateInline(item, col.key, $event.target.value === '' ? null : (isNaN(Number($event.target.value)) ? $event.target.value : Number($event.target.value)))"
                   class="inline-select"
                 >
                   <option :value="null">-- Choisir --</option>
@@ -516,11 +517,26 @@ function getFieldDef(key: string): FormField | undefined {
   return props.fields?.find(f => f.key === key);
 }
 
+const pendingUpdates = new Map<string, any>();
+
 function updateInline(item: any, key: string, value: any) {
   if (item[key] === value) return;
-  const updatedItem = { ...item };
-  updatedItem[key] = value;
-  emit('update-item', updatedItem);
+  // Mettre à jour la prop directement pour la réactivité IHM
+  item[key] = value;
+  // Ajouter aux changements en attente
+  pendingUpdates.set(item.id, { ...item });
+}
+
+function onRowFocusOut(item: any, event: FocusEvent) {
+  const tr = event.currentTarget as HTMLElement;
+  if (event.relatedTarget && tr.contains(event.relatedTarget as Node)) {
+    return; // Focus is still inside the same row
+  }
+  
+  if (pendingUpdates.has(item.id)) {
+    emit('update-item', pendingUpdates.get(item.id));
+    pendingUpdates.delete(item.id);
+  }
 }
 
 // Palette unifiée de 30 couleurs premium
@@ -865,6 +881,12 @@ function onDrop(event: DragEvent, index: number) {
 </script>
 
 <style scoped>
+/* Validation visuelle pour les champs requis */
+.inline-input:invalid, .inline-select:invalid, .inline-number:invalid {
+  border-color: #ef4444 !important;
+  background-color: #fef2f2 !important;
+  outline: 2px solid #fca5a5 !important;
+}
 .generic-list-container {
   display: flex;
   flex-direction: column;

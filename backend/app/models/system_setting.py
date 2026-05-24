@@ -1,20 +1,35 @@
-from sqlalchemy import Column, String, Integer
+import enum
+from sqlalchemy import Column, String, Integer, Enum
 from backend.app.models.base import Base
+
+class SystemSettingKey(str, enum.Enum):
+    STANDARD_TIMESLOT_DURATION = "STANDARD_TIMESLOT_DURATION"
+
+SETTING_LABELS = {
+    SystemSettingKey.STANDARD_TIMESLOT_DURATION: "Durée minimale d'un créneau (en minutes)"
+}
 
 class SystemSetting(Base):
     __tablename__ = "system_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(50), index=True, unique=True, nullable=False, info={"label": "Clé du paramètre", "placeholder": "ex: STANDARD_TIMESLOT_DURATION"})
+    key = Column(Enum(SystemSettingKey, native_enum=False), index=True, unique=True, nullable=False, info={
+        "label": "Paramètre système", 
+        "type": "select",
+        "options": [
+            {"value": k.value, "label": SETTING_LABELS.get(k, k.value)}
+            for k in SystemSettingKey
+        ]
+    })
     value = Column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30"})
 
     def delete(self, db):
-        if self.key == "STANDARD_TIMESLOT_DURATION":
+        if self.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION:
             raise ValueError("Il est impossible de supprimer le paramètre système 'STANDARD_TIMESLOT_DURATION'.")
         return super().delete(db)
 
     def update(self, db, vals: dict):
-        if self.key == "STANDARD_TIMESLOT_DURATION" and 'value' in vals and str(vals['value']) != str(self.value):
+        if self.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION and 'value' in vals and str(vals['value']) != str(self.value):
             new_val = str(vals['value'])
             if not new_val.isdigit() or int(new_val) <= 0:
                 raise ValueError("La durée standard d'un créneau doit être un entier positif (en minutes).")

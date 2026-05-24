@@ -88,7 +88,7 @@
 
         <!-- 4. Composant Formulaire Générique Inline -->
         <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
-          <div v-if="selectedParentIds.length === 0" class="pref-placeholder">
+          <div v-if="selectedParentIds.length === 0 && !isAddingInline" class="pref-placeholder">
             <div class="placeholder-icon">👈</div>
             <div class="placeholder-title">Sélectionnez un élément</div>
             <div class="placeholder-subtitle">
@@ -105,6 +105,7 @@
             :selectedRecords="selectedRelatedRecords"
             @submit="onSubmitGeneric"
             @delete="onDeleteGeneric"
+            @cancel="isAddingInline = false"
           />
         </div>
       </template>
@@ -464,14 +465,25 @@ const formModel = ref<Record<string, any>>({});
 const isEditing = ref(false);
 const selectedParentIds = ref<any[]>([]);
 const selectedRelatedRecords = ref<any[]>([]);
+const isAddingInline = ref(false);
 
 function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
   formModel.value = {};
   selectedRelatedRecords.value = [];
+  selectedParentIds.value = [];
   isEditing.value = false;
+  
+  if (isListEditableInline.value) {
+    const newId = 'new_' + Date.now();
+    genericItems.value.unshift({ id: newId });
+    return;
+  }
+
   if (!isInlineMode.value) {
     showFormModal.value = true;
+  } else {
+    isAddingInline.value = true;
   }
 }
 
@@ -480,6 +492,7 @@ function onEditGeneric(item: any) {
   formModel.value = { ...item };
   selectedRelatedRecords.value = [];
   isEditing.value = true;
+  isAddingInline.value = false;
   if (!isInlineMode.value && !isListEditableInline.value) {
     showFormModal.value = true;
   }
@@ -493,6 +506,7 @@ function onRowClickGeneric(item: any) {
 
 async function onSelectionChangeGeneric(ids: any[]) {
   selectedParentIds.value = ids;
+  isAddingInline.value = false;
   const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
 
   if (ids.length > 1) {
@@ -655,8 +669,18 @@ async function onUpdateGenericInline(item: any) {
   }
 
   try {
-    await api.updateGenericItem(activeAdminModel.value, item.id, item);
-    showNotification('success', 'Élément mis à jour directement !');
+    if (String(item.id).startsWith('new_')) {
+      const payload = { ...item };
+      delete payload.id;
+      const created = await api.createGenericItem(activeAdminModel.value, payload);
+      if (idx !== -1) {
+        genericItems.value[idx] = created;
+      }
+      showNotification('success', 'Élément créé directement !');
+    } else {
+      await api.updateGenericItem(activeAdminModel.value, item.id, item);
+      showNotification('success', 'Élément mis à jour directement !');
+    }
     
     // Si besoin on met à jour les contextes globaux de l'application
     if (activeAdminModel.value === 'schools') {
@@ -672,8 +696,8 @@ async function onUpdateGenericInline(item: any) {
     }
   } catch (err: any) {
     showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
-    // En cas d'erreur, on restaure l'ancienne valeur
-    if (idx !== -1 && oldItem) {
+    // En cas d'erreur, on restaure l'ancienne valeur, sauf si c'est une nouvelle ligne (pour ne pas perdre la saisie)
+    if (idx !== -1 && oldItem && !String(item.id).startsWith('new_')) {
       genericItems.value[idx] = oldItem;
     }
   }
@@ -834,10 +858,11 @@ function getFormFieldsConfig(resourceKey?: string) {
         
         if (fieldType === 'color' || key === 'color') fieldType = 'color';
         
-        let options = undefined;
+        let options = prop.options || undefined;
         if (key === 'school_id') { fieldType = 'select'; options = schoolOptions; }
         else if (key === 'period_type_id') { fieldType = 'select'; options = periodTypeOptions; }
         else if (key === 'late_start_time' || key === 'early_end_time') { fieldType = 'select'; options = timeOptions; }
+        else if (options) { fieldType = 'select'; }
         
         dynamicFields.push({
           key: key,
