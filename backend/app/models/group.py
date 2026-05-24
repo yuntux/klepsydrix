@@ -60,11 +60,11 @@ class Group(Base):
     __tablename__ = "groups"
 
     id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(20), unique=True, index=True, nullable=False)
-    name = Column(String(100), nullable=False)
-    student_count = Column(Integer, nullable=False, default=0)
-    color = Column(String(7), nullable=False, default="#CCCCCC")
-    is_variable_size = Column(Boolean, nullable=False, default=False)
+    code = Column(String(20), unique=True, index=True, nullable=False, info={"label": "Code du groupe", "placeholder": "ex: GRP_6A"})
+    name = Column(String(100), nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: Groupe 1"})
+    student_count = Column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
+    color = Column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #F59E0B"})
+    is_variable_size = Column(Boolean, nullable=False, default=False, info={"label": "Taille variable"})
 
     # Relations de navigation
     class_parts = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")

@@ -238,10 +238,11 @@ class related_field(property):
     Subclass de property qui simule un champ 'related' à la Odoo dans SQLAlchemy.
     Permet la découverte dynamique des propriétés virtuelles.
     """
-    def __init__(self, relation_name: str, target_field: str, default=None):
+    def __init__(self, relation_name: str, target_field: str, default=None, info=None):
         self.relation_name = relation_name
         self.target_field = target_field
         self.default = default
+        self.info = info or {}
         self._is_related = True
 
         def getter(instance):

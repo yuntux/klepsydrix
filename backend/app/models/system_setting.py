@@ -5,8 +5,8 @@ class SystemSetting(Base):
     __tablename__ = "system_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(50), index=True, unique=True, nullable=False)
-    value = Column(String(255), nullable=False)
+    key = Column(String(50), index=True, unique=True, nullable=False, info={"label": "Clé du paramètre", "placeholder": "ex: STANDARD_TIMESLOT_DURATION"})
+    value = Column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30"})
 
     def delete(self, db):
         if self.key == "STANDARD_TIMESLOT_DURATION":

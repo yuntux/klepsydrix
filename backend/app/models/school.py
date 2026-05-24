@@ -6,10 +6,10 @@ class School(Base):
     __tablename__ = "schools"
 
     id = Column(Integer, primary_key=True, index=True)
-    uai = Column(String(8), unique=True, index=True, nullable=False)
-    name = Column(String(100), nullable=False)
-    student_start_date = Column(Date, nullable=True)
-    student_end_date = Column(Date, nullable=True)
+    uai = Column(String(8), unique=True, index=True, nullable=False, info={"label": "Code UAI (RNE)", "placeholder": "ex: 0750001A"})
+    name = Column(String(100), nullable=False, info={"label": "Nom de l'établissement", "placeholder": "ex: Collège Jean Jaurès"})
+    student_start_date = Column(Date, nullable=True, info={"label": "Date de rentrée des élèves"})
+    student_end_date = Column(Date, nullable=True, info={"label": "Date de sortie des élèves"})
 
     # Relations de navigation
     teachers = relationship("Teacher", back_populates="school", passive_deletes="all")
