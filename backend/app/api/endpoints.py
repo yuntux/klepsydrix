@@ -29,7 +29,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
     teachers = teachers_query.all()
     classrooms = classrooms_query.all()
     divisions = divisions_query.all()
-    timeslots = db.query(Timeslot).all()
+    timeslots = Timeslot.get_active_timeslots(db)
     courses = courses_query.all()
     non_teaching_staffs = db.query(NonTeachingStaff).all()
 

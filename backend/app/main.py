@@ -32,3 +32,11 @@ from backend.app.api.endpoints import router as api_router
 from backend.app.api.generic import router as generic_router
 app.include_router(api_router)
 app.include_router(generic_router)
+
+@app.get("/test-openapi")
+def test_openapi():
+    try:
+        return app.openapi()
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}

@@ -42,7 +42,7 @@ def get_model_or_404(resource_name: str):
         raise HTTPException(status_code=404, detail=f"Ressource '{resource_name}' non supportée.")
     return MODEL_MAP[resource_name]
 
-from pydantic import create_model
+from pydantic import create_model, Field
 
 def sqla_to_dict(obj) -> Dict[str, Any]:
     if obj is None:
@@ -95,8 +95,9 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
             fields["id"] = (int, ...)
         for field in getattr(model, "_fields", []):
             fields[field] = (Optional[Any], None)
-        suffix = "ReadPayload" if include_id else ("UpdatePayload" if all_optional else "CreatePayload")
-        return create_model(f"{model.__name__}{suffix}", **fields)
+        suffix = "_ReadPayload" if include_id else ("_UpdatePayload" if all_optional else "_CreatePayload")
+        base_name = getattr(model, "__tablename__", model.__name__)
+        return create_model(f"{base_name}{suffix}", **fields)
 
     if include_id:
         fields["id"] = (int, ...)
@@ -108,11 +109,21 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
             py_type = column.type.python_type
         except Exception:
             py_type = Any
+            
+        field_kwargs = {}
+        if hasattr(column, "info") and column.info:
+            if "label" in column.info:
+                field_kwargs["title"] = column.info["label"]
+            json_schema_extra = {k: v for k, v in column.info.items() if k not in ("label", "type")}
+            if "type" in column.info:
+                json_schema_extra["ui_type"] = column.info["type"]
+            if json_schema_extra:
+                field_kwargs["json_schema_extra"] = json_schema_extra
         
         if all_optional or column.nullable or column.default is not None or column.server_default is not None:
-            fields[column.name] = (Optional[py_type], None)
+            fields[column.name] = (Optional[py_type], Field(None, **field_kwargs))
         else:
-            fields[column.name] = (py_type, ...)
+            fields[column.name] = (py_type, Field(..., **field_kwargs))
             
     # Inclure également les champs virtuels et extra dans le schéma Pydantic
     extra_fields = list(getattr(model, "_fields", [])) + list(getattr(model, "_extra_fields", []))
@@ -133,8 +144,9 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
                 
                 fields[field_name] = (Optional[List[int]], None)
             
-    suffix = "ReadPayload" if include_id else ("UpdatePayload" if all_optional else "CreatePayload")
-    return create_model(f"{model.__name__}{suffix}", **fields)
+    suffix = "_ReadPayload" if include_id else ("_UpdatePayload" if all_optional else "_CreatePayload")
+    base_name = getattr(model, "__tablename__", model.__name__)
+    return create_model(f"{base_name}{suffix}", **fields)
 
 def make_list_endpoint(model):
     def list_endpoint(
@@ -371,8 +383,10 @@ def make_instance_call_endpoint(model):
             
         try:
             result = func(*args, **kwargs)
+            db.commit()
             return serialize_execution_result(result)
         except Exception as e:
+            db.rollback()
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode d'instance : {e}")
             
     return instance_call_endpoint
@@ -382,8 +396,9 @@ for resource_name, model in MODEL_MAP.items():
     create_schema = make_pydantic_model(model, all_optional=False)
     update_schema = make_pydantic_model(model, all_optional=True)
     read_schema = make_pydantic_model(model, include_id=True)
+    base_name = getattr(model, "__tablename__", model.__name__)
     list_schema = create_model(
-        f"{model.__name__}ListResponse",
+        f"{base_name}_ListResponse",
         total=(int, ...),
         items=(List[read_schema], ...)
     )

@@ -69,18 +69,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_classrooms = db.query(Classroom).all()
     db_divisions = db.query(Division).all()
     
-    from backend.app.models.system_setting import SystemSetting
-    setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-    if not setting or not setting.value.isdigit():
-        raise ValueError("Le paramètre système 'STANDARD_TIMESLOT_DURATION' est manquant ou invalide.")
-    duration = int(setting.value)
-    
-    step = duration / 60.0
-    db_timeslots = db.query(Timeslot).all()
-    db_timeslots = [
-        ts for ts in db_timeslots 
-        if abs((ts.hour / step) - round(ts.hour / step)) < 0.001
-    ]
+    db_timeslots = Timeslot.get_active_timeslots(db)
     
     # IMPORTANT : Le solveur ne travaille QUE sur les cours de premier niveau.
     # Les cours simples enfants (qui subdivisent un cours composé) sont uniquement

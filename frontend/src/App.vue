@@ -332,6 +332,7 @@ const genericLoading = ref(false);
 const schoolsList = ref<any[]>([]);
 const periodTypesList = ref<any[]>([]);
 const globalTimeslotDuration = ref(30);
+const openApiSpec = ref<any>(null);
 
 // États pour la boîte de dialogue de confirmation d'impact
 const showImpactModal = ref(false);
@@ -388,6 +389,15 @@ async function loadData() {
     }
   } catch (err: any) {
     showNotification('error', err.message || 'Impossible de charger les données');
+  }
+}
+
+async function loadOpenApiSpec() {
+  try {
+    const res = await fetch('/api/openapi.json').then(r => r.json());
+    openApiSpec.value = res;
+  } catch (err: any) {
+    console.error("Échec du chargement de la spécification OpenAPI", err);
   }
 }
 
@@ -571,14 +581,29 @@ async function onSubmitGeneric(value: Record<string, any>) {
         );
       }
       showNotification('success', 'Ressources modifiées en masse avec succès !');
-      await loadGenericItems();
+      
+      // Update local state directly instead of full reload if we modified the main resource
+      if (targetResource === activeAdminModel.value) {
+        selectedParentIds.value.forEach(id => {
+          const idx = genericItems.value.findIndex(x => x.id === id);
+          if (idx !== -1) {
+            genericItems.value[idx] = { ...genericItems.value[idx], ...value };
+          }
+        });
+      }
+      
       await onSelectionChangeGeneric([...selectedParentIds.value]);
     } else if (isEditing.value) {
       await api.updateGenericItem(targetResource, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
       
-      // Recharger la liste de gauche (activeAdminModel)
-      await loadGenericItems();
+      // Update local state directly instead of full reload if we modified the main resource
+      if (targetResource === activeAdminModel.value) {
+        const idx = genericItems.value.findIndex(x => x.id === value.id);
+        if (idx !== -1) {
+          genericItems.value[idx] = { ...genericItems.value[idx], ...value };
+        }
+      }
       
       if (isInlineMode.value) {
         // En mode inline, on conserve l'élément sélectionné actif
@@ -604,9 +629,10 @@ async function onSubmitGeneric(value: Record<string, any>) {
         isEditing.value = false;
       }
     } else {
-      await api.createGenericItem(targetResource, value);
+      const created = await api.createGenericItem(targetResource, value);
       showNotification('success', 'Ressource créée avec succès !');
       
+      // Full reload on creation since there might be server-generated fields or ordering changes
       await loadGenericItems();
       
       showFormModal.value = false;
@@ -628,9 +654,19 @@ async function onSubmitGeneric(value: Record<string, any>) {
 }
 
 async function onUpdateGenericInline(item: any) {
+  // Optimistic UI update: on applique la modif localement tout de suite
+  const idx = genericItems.value.findIndex(x => x.id === item.id);
+  let oldItem = null;
+  if (idx !== -1) {
+    oldItem = { ...genericItems.value[idx] };
+    genericItems.value[idx] = item;
+  }
+
   try {
     await api.updateGenericItem(activeAdminModel.value, item.id, item);
     showNotification('success', 'Élément mis à jour directement !');
+    
+    // Si besoin on met à jour les contextes globaux de l'application
     if (activeAdminModel.value === 'schools') {
       loadSchools();
     } else if (activeAdminModel.value === 'period_types') {
@@ -644,7 +680,10 @@ async function onUpdateGenericInline(item: any) {
     }
   } catch (err: any) {
     showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
-    loadGenericItems();
+    // En cas d'erreur, on restaure l'ancienne valeur
+    if (idx !== -1 && oldItem) {
+      genericItems.value[idx] = oldItem;
+    }
   }
 }
 
@@ -713,86 +752,28 @@ async function onConfirmImpactDelete() {
 // Configurations dynamiques de colonnes pour GenericList
 const columnsConfig = computed(() => {
   const model = activeAdminModel.value;
-  if (model === 'schools') {
-    return [
-      { key: 'uai', label: 'UAI (RNE)', width: 120 },
-      { key: 'name', label: 'Nom de l\'établissement', width: 250 },
-      { key: 'student_start_date', label: 'Début année élèves', width: 150 },
-      { key: 'student_end_date', label: 'Fin année élèves', width: 150 }
-    ];
-  } else if (model === 'disciplines') {
-    return [
-      { key: 'code', label: 'Code', width: 150 },
-      { key: 'name', label: 'Nom de la discipline', width: 300 }
-    ];
-  } else if (model === 'subjects') {
-    return [
-      { key: 'code', label: 'Code', width: 120 },
-      { key: 'code_nomenclature', label: 'Code Nomenclature', width: 150 },
-      { key: 'short_label', label: 'Libellé Court', width: 150 },
-      { key: 'long_label', label: 'Libellé Long', width: 250 },
-      { key: 'color', label: 'Couleur', width: 120 },
-      { key: 'is_etp', label: 'Est ETP', width: 100 },
-      { key: 'is_specialty', label: 'Spécialité', width: 120 },
-      { key: 'pedagogic_weight', label: 'Poids Péd.', width: 120 }
-    ];
-  } else if (model === 'teachers') {
-    return [
-      { key: 'code', label: 'Code', width: 120 },
-      { key: 'first_name', label: 'Prénom', width: 150 },
-      { key: 'last_name', label: 'Nom', width: 150 },
-      { key: 'name', label: 'Nom Complet', width: 200 },
-      { key: 'max_weekly_hours', label: 'Heures Max', width: 120 }
-    ];
-  } else if (model === 'divisions') {
-    return [
-      { key: 'code', label: 'Code', width: 120 },
-      { key: 'name', label: 'Nom', width: 150 },
-      { key: 'student_count', label: 'Nombre d\'élèves', width: 150 },
-      { key: 'color', label: 'Couleur', width: 120 }
-    ];
-  } else if (model === 'classrooms') {
-    return [
-      { key: 'code', label: 'Code', width: 120 },
-      { key: 'name', label: 'Nom', width: 150 },
-      { key: 'capacity', label: 'Capacité', width: 120 },
-      { key: 'quantity', label: 'Quantité', width: 120 }
-    ];
-  } else if (model === 'materials') {
-    return [
-      { key: 'code', label: 'Code', width: 150 },
-      { key: 'name', label: 'Nom du matériel', width: 250 },
-      { key: 'quantity', label: 'Quantité', width: 120 }
-    ];
-  } else if (model === 'missions') {
-    return [
-      { key: 'code', label: 'Code', width: 150 },
-      { key: 'name', label: 'Nom de la mission', width: 300 }
-    ];
-  } else if (model === 'election_methods') {
-    return [
-      { key: 'code', label: 'Code', width: 150 },
-      { key: 'name', label: 'Nom de la méthode', width: 300 }
-    ];
-  } else if (model === 'periods') {
-    return [
-      { key: 'code', label: 'Code', width: 120 },
-      { key: 'name', label: 'Nom de la période', width: 200 },
-      { key: 'school_id', label: 'ID Établissement', width: 150 },
-      { key: 'period_type_id', label: 'ID Type Période', width: 150 },
-      { key: 'start_date', label: 'Date Début', width: 150 },
-      { key: 'end_date', label: 'Date Fin', width: 150 }
-    ];
-  } else if (model === 'period_types') {
-    return [
-      { key: 'label', label: 'Libellé', width: 250 }
-    ];
-  } else if (model === 'system_settings') {
-    return [
-      { key: 'key', label: 'Clé du paramètre', width: 250 },
-      { key: 'value', label: 'Valeur', width: 300 }
-    ];
+  
+  // --- GÉNÉRATION DYNAMIQUE VIA OPENAPI (LOW-CODE) ---
+  if (openApiSpec.value && openApiSpec.value.components && openApiSpec.value.components.schemas) {
+    const schemaName = `${model}_ReadPayload`;
+
+    const schema = openApiSpec.value.components.schemas[schemaName];
+    if (schema && schema.properties) {
+      const dynamicColumns = [];
+      for (const [key, prop] of Object.entries<any>(schema.properties)) {
+        if (key === 'id') continue; // On masque l'ID technique
+        
+        dynamicColumns.push({
+          key: key,
+          label: prop.title || key,
+          width: prop.list_width || undefined // Si manquant, GenericList fera un width: auto
+        });
+      }
+      return dynamicColumns;
+    }
   }
+  // ---------------------------------------------------
+  return [];
   return [];
 });
 
@@ -802,136 +783,88 @@ function getFormFieldsConfig(resourceKey?: string) {
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
   const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.label }));
 
-  const defaultDuration = globalTimeslotDuration.value;
-  const timeOptions: Array<{ value: string; label: string }> = [];
-  let currentMinutes = 8 * 60; // 8h
-  const endMinutes = 18 * 60; // 18h
-  while (currentMinutes <= endMinutes) {
-    const hours = Math.floor(currentMinutes / 60);
-    const minutes = currentMinutes % 60;
-    const valString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    const labelString = `${String(hours).padStart(2, '0')}h${String(minutes).padStart(2, '0')}`;
-    timeOptions.push({ value: valString, label: labelString });
-    currentMinutes += defaultDuration;
+  // On extrait dynamiquement les heures de début de la vraie grille de l'école !
+  const timeSet = new Set<string>();
+  timeslots.value.forEach((ts: any) => {
+    if (ts.hour !== undefined && ts.hour !== null) {
+      // Format start time (e.g. 8.5 -> "08:30")
+      const h = Math.floor(ts.hour);
+      const m = Math.round((ts.hour - h) * 60);
+      const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+      timeSet.add(timeStr);
+      
+      // Format approximate end time (+1h par défaut) pour avoir des options de fin de journée cohérentes
+      const h2 = Math.floor(ts.hour + 1);
+      const m2 = Math.round(((ts.hour + 1) - h2) * 60);
+      const endStr = `${h2.toString().padStart(2, '0')}:${m2.toString().padStart(2, '0')}`;
+      timeSet.add(endStr);
+    }
+  });
+  
+  let timeOptions = Array.from(timeSet).sort().map(val => ({
+    value: val,
+    label: val.replace(':', 'h')
+  }));
+
+  // Si aucune grille n'est encore générée, on met une option d'avertissement
+  if (timeOptions.length === 0) {
+    timeOptions.push({ 
+      value: '', 
+      label: '⚠️ Veuillez d\'abord générer la grille des créneaux (Paramètres > Périodes)' 
+    });
   }
 
-  if (model === 'schools') {
-    return [
-      { key: 'uai', label: 'Code UAI (RNE)', type: 'text', required: true, placeholder: 'ex: 0750001A' },
-      { key: 'name', label: 'Nom de l\'établissement', type: 'text', required: true, placeholder: 'ex: Collège Jean Jaurès' },
-      { key: 'student_start_date', label: 'Date de rentrée des élèves', type: 'date', required: false },
-      { key: 'student_end_date', label: 'Date de sortie des élèves', type: 'date', required: false }
-    ];
-  } else if (model === 'disciplines') {
-    return [
-      { key: 'code', label: 'Code de la discipline', type: 'text', required: true, placeholder: 'ex: L0100' },
-      { key: 'name', label: 'Nom complet', type: 'text', required: true, placeholder: 'ex: Mathématiques' }
-    ];
-  } else if (model === 'subjects') {
-    return [
-      { key: 'code', label: 'Code de la matière', type: 'text', required: true, placeholder: 'ex: MATHS' },
-      { key: 'code_nomenclature', label: 'Code nomenclature', type: 'text', placeholder: 'ex: 006600' },
-      { key: 'short_label', label: 'Libellé court', type: 'text', required: true, placeholder: 'ex: Maths' },
-      { key: 'long_label', label: 'Libellé long', type: 'text', placeholder: 'ex: Mathématiques' },
-      { key: 'color', label: 'Code couleur', type: 'color', placeholder: 'ex: #3498DB' },
-      { key: 'is_etp', label: 'Matière ETP', type: 'boolean' },
-      { key: 'is_specialty', label: 'Matière de Spécialité', type: 'boolean' },
-      { key: 'pedagogic_weight', label: 'Poids Pédagogique', type: 'number', min: 0.1, max: 10, step: '0.1' }
-    ];
-  } else if (model === 'teachers') {
-    return [
-      { key: 'code', label: 'Code Enseignant', type: 'text', required: true, placeholder: 'ex: T1' },
-      { key: 'first_name', label: 'Prénom', type: 'text', placeholder: 'ex: Marc' },
-      { key: 'last_name', label: 'Nom de famille', type: 'text', placeholder: 'ex: Dupont' },
-      { key: 'name', label: 'Nom d\'usage complet', type: 'text', required: true, placeholder: 'ex: M. Dupont' },
-      { key: 'max_weekly_hours', label: 'Heures max hebdomadaires', type: 'number', min: 1, max: 40, step: '0.5' },
-      { key: 'school_id', label: 'Établissement Principal', type: 'select', required: true, options: schoolOptions },
-      // Contraintes (US3 / Preferences)
-      { key: 'max_hours_per_day', label: 'Max Heures par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
-      { key: 'max_hours_per_am', label: 'Max Heures par Matinée', type: 'number', min: 0, max: 8, step: '0.5' },
-      { key: 'max_hours_per_pm', label: 'Max Heures par Après-midi', type: 'number', min: 0, max: 8, step: '0.5' },
-      { key: 'max_presence_days_per_week', label: 'Max Jours Présence par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'max_presence_hours_per_day', label: 'Max Heures Présence par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
-      { key: 'late_start_days_per_week', label: 'Jours de démarrage tardif par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'select', options: timeOptions, placeholder: 'ex: 08h30' },
-      { key: 'early_end_days_per_week', label: 'Jours de fin précoce par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'select', options: timeOptions, placeholder: 'ex: 16h30' },
-      { key: 'min_free_days_per_week', label: 'Jours libres minimum par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'min_free_half_days_per_week', label: 'Demi-jours libres minimum par Semaine', type: 'number', min: 0, max: 12 },
-      { key: 'max_worked_am_per_week', label: 'Max Matinées travaillées par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'max_worked_pm_per_week', label: 'Max Après-midis travaillées par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'only_one_half_day_per_day', label: 'Ne travailler qu\'une demi-journée par jour', type: 'boolean' },
-      { key: 'max_gap_hours_per_week', label: 'Max heures creuses (trous) par Semaine', type: 'number', min: 0, max: 20 }
-    ];
-  } else if (model === 'resource_constraints') {
-    return [
-      { key: 'max_hours_per_day', label: 'Max Heures par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
-      { key: 'max_hours_per_am', label: 'Max Heures par Matinée', type: 'number', min: 0, max: 8, step: '0.5' },
-      { key: 'max_hours_per_pm', label: 'Max Heures par Après-midi', type: 'number', min: 0, max: 8, step: '0.5' },
-      { key: 'max_presence_days_per_week', label: 'Max Jours Présence par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'max_presence_hours_per_day', label: 'Max Heures Présence par Jour', type: 'number', min: 0, max: 12, step: '0.5' },
-      { key: 'late_start_days_per_week', label: 'Jours de démarrage tardif par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'late_start_time', label: 'Heure de démarrage au plus tôt', type: 'select', options: timeOptions, placeholder: 'ex: 08h30' },
-      { key: 'early_end_days_per_week', label: 'Jours de fin précoce par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'early_end_time', label: 'Heure de fin au plus tard', type: 'select', options: timeOptions, placeholder: 'ex: 16h30' },
-      { key: 'min_free_days_per_week', label: 'Jours libres minimum par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'min_free_half_days_per_week', label: 'Demi-jours libres minimum par Semaine', type: 'number', min: 0, max: 12 },
-      { key: 'max_worked_am_per_week', label: 'Max Matinées travaillées par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'max_worked_pm_per_week', label: 'Max Après-midis travaillées par Semaine', type: 'number', min: 0, max: 6 },
-      { key: 'only_one_half_day_per_day', label: 'Ne travailler qu\'une demi-journée par jour', type: 'boolean' },
-      { key: 'max_gap_hours_per_week', label: 'Max heures creuses (trous) par Semaine', type: 'number', min: 0, max: 20 }
-    ];
-  } else if (model === 'divisions') {
-    return [
-      { key: 'code', label: 'Code de la classe', type: 'text', required: true, placeholder: 'ex: 6EME_A' },
-      { key: 'name', label: 'Nom de la classe', type: 'text', required: true, placeholder: 'ex: 6ème A' },
-      { key: 'student_count', label: 'Nombre d\'élèves', type: 'number', required: true, min: 1, max: 50 },
-      { key: 'color', label: 'Couleur', type: 'color', placeholder: 'ex: #3498DB' },
-      { key: 'school_id', label: 'Établissement', type: 'select', required: true, options: schoolOptions }
-    ];
-  } else if (model === 'classrooms') {
-    return [
-      { key: 'code', label: 'Code de la salle', type: 'text', required: true, placeholder: 'ex: S101' },
-      { key: 'name', label: 'Nom de la salle', type: 'text', required: true, placeholder: 'ex: Salle 101' },
-      { key: 'capacity', label: 'Capacité de places', type: 'number', required: true, min: 1, max: 200 },
-      { key: 'quantity', label: 'Quantité', type: 'number', required: true, min: 1, max: 10 },
-      { key: 'school_id', label: 'Établissement', type: 'select', required: true, options: schoolOptions }
-    ];
-  } else if (model === 'materials') {
-    return [
-      { key: 'code', label: 'Code du matériel', type: 'text', required: true, placeholder: 'ex: IPAD' },
-      { key: 'name', label: 'Nom du matériel', type: 'text', required: true, placeholder: 'ex: Valise iPad Pro' },
-      { key: 'quantity', label: 'Quantité disponible', type: 'number', required: true, min: 1, max: 500 }
-    ];
-  } else if (model === 'missions') {
-    return [
-      { key: 'code', label: 'Code de la mission', type: 'text', required: true, placeholder: 'ex: PP' },
-      { key: 'name', label: 'Nom complet', type: 'text', required: true, placeholder: 'ex: Professeur Principal' }
-    ];
-  } else if (model === 'election_methods') {
-    return [
-      { key: 'code', label: 'Code de la méthode', type: 'text', required: true, placeholder: 'ex: STS' },
-      { key: 'name', label: 'Nom de la méthode', type: 'text', required: true, placeholder: 'ex: STSWEB' }
-    ];
-  } else if (model === 'periods') {
-    return [
-      { key: 'code', label: 'Code de la période', type: 'text', required: true, placeholder: 'ex: S1' },
-      { key: 'name', label: 'Nom de la période', type: 'text', required: true, placeholder: 'ex: Semestre 1' },
-      { key: 'school_id', label: 'Établissement', type: 'select', required: true, options: schoolOptions },
-      { key: 'period_type_id', label: 'Type de Période', type: 'select', required: true, options: periodTypeOptions },
-      { key: 'start_date', label: 'Date de début', type: 'date', required: true },
-      { key: 'end_date', label: 'Date de fin', type: 'date', required: true }
-    ];
-  } else if (model === 'period_types') {
-    return [
-      { key: 'label', label: 'Libellé du type de période', type: 'text', required: true, placeholder: 'ex: Trimestre' }
-    ];
-  } else if (model === 'system_settings') {
-    return [
-      { key: 'key', label: 'Clé du paramètre', type: 'text', required: true, placeholder: 'ex: STANDARD_TIMESLOT_DURATION' },
-      { key: 'value', label: 'Valeur', type: 'text', required: true, placeholder: 'ex: 30' }
-    ];
+  // --- GÉNÉRATION DYNAMIQUE VIA OPENAPI (LOW-CODE) ---
+  if (openApiSpec.value && openApiSpec.value.components && openApiSpec.value.components.schemas) {
+    const schemaName = `${model}_CreatePayload`;
+
+    const schema = openApiSpec.value.components.schemas[schemaName];
+    if (schema && schema.properties) {
+      const dynamicFields = [];
+      const requiredFields = schema.required || [];
+
+      for (const [key, prop] of Object.entries<any>(schema.properties)) {
+        if (key === 'id') continue; // On masque l'ID dans le formulaire
+        
+        let baseType = prop.type;
+        // Gérer les champs optionnels (nullable) de Pydantic qui utilisent anyOf
+        if (!baseType && prop.anyOf) {
+          const validOption = prop.anyOf.find((o: any) => o.type && o.type !== 'null');
+          if (validOption) baseType = validOption.type;
+        }
+
+        let fieldType = prop.ui_type || baseType || 'text';
+        if (fieldType === 'string') fieldType = 'text'; // OpenAPI renvoie string, mais le form attend text
+        else if (fieldType === 'boolean') fieldType = 'boolean';
+        else if (fieldType === 'integer' || fieldType === 'number') fieldType = 'number';
+        
+        if (fieldType === 'text' && prop.format === 'date') fieldType = 'date';
+        
+        if (fieldType === 'color' || key === 'color') fieldType = 'color';
+        
+        let options = undefined;
+        if (key === 'school_id') { fieldType = 'select'; options = schoolOptions; }
+        else if (key === 'period_type_id') { fieldType = 'select'; options = periodTypeOptions; }
+        else if (key === 'late_start_time' || key === 'early_end_time') { fieldType = 'select'; options = timeOptions; }
+        
+        dynamicFields.push({
+          key: key,
+          label: prop.title || key,
+          type: fieldType,
+          required: requiredFields.includes(key),
+          placeholder: prop.placeholder || '',
+          min: prop.min,
+          max: prop.max,
+          step: prop.step,
+          options: options
+        });
+      }
+      return dynamicFields;
+    }
   }
+  // ---------------------------------------------------
+
+  return [];
   return [];
 }
 
@@ -1164,6 +1097,7 @@ async function loadTimeslotConfig() {
 }
 
 onMounted(async () => {
+  await loadOpenApiSpec();
   await loadTimeslotConfig();
   loadData();
   loadSchools();

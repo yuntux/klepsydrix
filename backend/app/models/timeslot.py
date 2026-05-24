@@ -11,6 +11,21 @@ class Timeslot(Base):
 
     # Relation avec les séances planifiées sur ce créneau
 
+    @classmethod
+    def get_active_timeslots(cls, db):
+        from backend.app.models.system_setting import SystemSetting
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
+        duration = int(setting.value) if setting and setting.value.isdigit() else 60
+        step = duration / 60.0
+        
+        all_ts = db.query(cls).all()
+        active_ts = []
+        for ts in all_ts:
+            # On considère le créneau actif s'il tombe sur un multiple exact du step
+            is_active = abs((ts.hour / step) - round(ts.hour / step)) < 0.001
+            if is_active:
+                active_ts.append(ts)
+        return active_ts
 
     # Index unique composé pour empêcher les doublons de créneaux
     __table_args__ = (

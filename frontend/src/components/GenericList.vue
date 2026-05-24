@@ -562,7 +562,7 @@ watch([() => props.columns, () => props.listConfig], () => {
         mapped.push({
           ...originalCol,
           label: overrideLabel,
-          width: originalCol.width || 150,
+          width: colConf.width || originalCol.width || undefined,
           visible: isVisible,
           help: colConf.help || originalCol.help
         });
@@ -575,7 +575,7 @@ watch([() => props.columns, () => props.listConfig], () => {
     internalColumns.value = props.columns.map(c => {
       return {
         ...c,
-        width: c.width || 150,
+        width: c.width || undefined,
         visible: c.visible !== false,
         help: c.help
       };
