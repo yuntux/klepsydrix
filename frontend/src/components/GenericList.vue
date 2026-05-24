@@ -95,7 +95,7 @@
         
         <tbody>
           <!-- Ligne virtuelle interactive "+ Ajouter une ligne" -->
-          <tr class="add-row-tr" @click="$emit('add')">
+          <tr v-if="!listConfig?.disableAdd" class="add-row-tr" @click="$emit('add')">
             <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="add-row-td">
               <div class="add-row-wrapper">
                 <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
@@ -313,6 +313,7 @@ interface ColumnConfig {
 interface ListConfig {
   editableInline?: boolean;
   allowMultiSelect?: boolean;
+  disableAdd?: boolean;
   columns?: Record<string, ColumnConfig>;
 }
 
@@ -1052,6 +1053,7 @@ function onDrop(event: DragEvent, index: number) {
 .th-content {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   cursor: pointer;
   transition: color var(--transition-fast);

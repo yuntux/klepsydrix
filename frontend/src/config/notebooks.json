@@ -181,6 +181,7 @@
                 "listConfig": {
                   "editableInline": false,
                   "allowMultiSelect": true,
+                  "disableAdd": true,
                   "columns": {
                     "code": {
                       "visibleByDefault": false,
