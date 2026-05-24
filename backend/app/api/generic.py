@@ -88,13 +88,18 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
 
     return d
 
-def make_pydantic_model(model, all_optional=False):
+def make_pydantic_model(model, all_optional=False, include_id=False):
     fields = {}
     if issubclass(model, TransientModel):
+        if include_id:
+            fields["id"] = (int, ...)
         for field in getattr(model, "_fields", []):
             fields[field] = (Optional[Any], None)
-        suffix = "UpdatePayload" if all_optional else "CreatePayload"
+        suffix = "ReadPayload" if include_id else ("UpdatePayload" if all_optional else "CreatePayload")
         return create_model(f"{model.__name__}{suffix}", **fields)
+
+    if include_id:
+        fields["id"] = (int, ...)
 
     for column in model.__table__.columns:
         if column.name == "id":
@@ -128,7 +133,7 @@ def make_pydantic_model(model, all_optional=False):
                 
                 fields[field_name] = (Optional[List[int]], None)
             
-    suffix = "UpdatePayload" if all_optional else "CreatePayload"
+    suffix = "ReadPayload" if include_id else ("UpdatePayload" if all_optional else "CreatePayload")
     return create_model(f"{model.__name__}{suffix}", **fields)
 
 def make_list_endpoint(model):
@@ -376,13 +381,19 @@ def make_instance_call_endpoint(model):
 for resource_name, model in MODEL_MAP.items():
     create_schema = make_pydantic_model(model, all_optional=False)
     update_schema = make_pydantic_model(model, all_optional=True)
+    read_schema = make_pydantic_model(model, include_id=True)
+    list_schema = create_model(
+        f"{model.__name__}ListResponse",
+        total=(int, ...),
+        items=(List[read_schema], ...)
+    )
     
     # 1. Lister les ressources (GET /api/generic/{resource_name})
     router.add_api_route(
         path=f"/{resource_name}",
         endpoint=make_list_endpoint(model),
         methods=["GET"],
-        response_model=Dict[str, Any],
+        response_model=list_schema,
         summary=f"Lister les {resource_name}",
         tags=[resource_name]
     )
@@ -392,7 +403,7 @@ for resource_name, model in MODEL_MAP.items():
         path=f"/{resource_name}/{{item_id}}",
         endpoint=make_get_endpoint(model),
         methods=["GET"],
-        response_model=Dict[str, Any],
+        response_model=read_schema,
         summary=f"Obtenir un(e) {resource_name} par ID",
         tags=[resource_name]
     )
@@ -402,7 +413,7 @@ for resource_name, model in MODEL_MAP.items():
         path=f"/{resource_name}",
         endpoint=make_create_endpoint(model, create_schema),
         methods=["POST"],
-        response_model=Dict[str, Any],
+        response_model=read_schema,
         summary=f"Créer un(e) {resource_name}",
         tags=[resource_name]
     )
@@ -412,7 +423,7 @@ for resource_name, model in MODEL_MAP.items():
         path=f"/{resource_name}/{{item_id}}",
         endpoint=make_update_endpoint(model, update_schema),
         methods=["PATCH"],
-        response_model=Dict[str, Any],
+        response_model=read_schema,
         summary=f"Mettre à jour un(e) {resource_name} par ID",
         tags=[resource_name]
     )
