@@ -50,6 +50,39 @@
         ]
       },
       {
+        "id": "groups_setting",
+        "title": "👥 Groupes",
+        "borderColor": "#8B5CF6",
+        "children": [
+          {
+            "id": "groups_list_tab",
+            "title": "Liste",
+            "borderColor": "#8B5CF6",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "groups_list",
+                "component": "GenericList",
+                "resourceKey": "groups",
+                "width": "60%"
+              },
+              {
+                "id": "groups_form",
+                "component": "GenericForm",
+                "resourceKey": "groups",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "groups_preferences_tab",
+            "title": "Vœux et contraintes",
+            "borderColor": "#8B5CF6",
+            "panels": []
+          }
+        ]
+      },
+      {
         "id": "teachers_setting",
         "title": "👨‍🏫 Enseignants",
         "borderColor": "#F59E0B",
@@ -312,6 +345,33 @@
         ]
       },
       {
+        "id": "non_teaching_staffs_setting",
+        "title": "🧑‍💼 Pers. non enseignant",
+        "borderColor": "#F59E0B",
+        "children": [
+          {
+            "id": "non_teaching_staffs_list_tab",
+            "title": "Liste",
+            "borderColor": "#F59E0B",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "non_teaching_staffs_list",
+                "component": "GenericList",
+                "resourceKey": "non_teaching_staffs",
+                "width": "60%"
+              },
+              {
+                "id": "non_teaching_staffs_form",
+                "component": "GenericForm",
+                "resourceKey": "non_teaching_staffs",
+                "width": "40%"
+              }
+            ]
+          }
+        ]
+      },
+      {
         "id": "classrooms_setting",
         "title": "🏢 Salles",
         "borderColor": "#06B6D4",
@@ -341,6 +401,46 @@
             "title": "Vœux et contraintes",
             "borderColor": "#06B6D4",
             "panels": []
+          }
+        ]
+      },
+      {
+        "id": "subjects_setting",
+        "title": "📖 Matières",
+        "borderColor": "#EC4899",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "subjects_list",
+            "component": "GenericList",
+            "resourceKey": "subjects",
+            "width": "60%"
+          },
+          {
+            "id": "subjects_form",
+            "component": "GenericForm",
+            "resourceKey": "subjects",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "materials_setting",
+        "title": "🛠️ Matériels",
+        "borderColor": "#3B82F6",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "materials_list",
+            "component": "GenericList",
+            "resourceKey": "materials",
+            "width": "60%"
+          },
+          {
+            "id": "materials_form",
+            "component": "GenericForm",
+            "resourceKey": "materials",
+            "width": "40%"
           }
         ]
       }
@@ -387,46 +487,6 @@
             "id": "disciplines_form",
             "component": "GenericForm",
             "resourceKey": "disciplines",
-            "width": "40%"
-          }
-        ]
-      },
-      {
-        "id": "subjects_setting",
-        "title": "📖 Matières",
-        "borderColor": "#EC4899",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "subjects_list",
-            "component": "GenericList",
-            "resourceKey": "subjects",
-            "width": "60%"
-          },
-          {
-            "id": "subjects_form",
-            "component": "GenericForm",
-            "resourceKey": "subjects",
-            "width": "40%"
-          }
-        ]
-      },
-      {
-        "id": "materials_setting",
-        "title": "🛠️ Matériels",
-        "borderColor": "#3B82F6",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "materials_list",
-            "component": "GenericList",
-            "resourceKey": "materials",
-            "width": "60%"
-          },
-          {
-            "id": "materials_form",
-            "component": "GenericForm",
-            "resourceKey": "materials",
             "width": "40%"
           }
         ]
