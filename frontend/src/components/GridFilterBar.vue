@@ -1,161 +1,157 @@
 <template>
   <div class="filter-bar glass-morphism">
-    <!-- Row 1: Primary Filters (Establishment, Mode, Resource) -->
-    <div class="filters-row">
-      <!-- 1. Établissement (School Selector) -->
-      <div class="filter-item" v-if="!hideSchoolSelector && schools && schools.length > 0">
-        <label>Établissement :</label>
-        <select 
-          :value="schoolId === null ? '' : schoolId" 
-          @change="$emit('update:schoolId', ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null)" 
-          class="select-custom"
+    <!-- 1. Établissement (School Selector) -->
+    <div class="filter-item" v-if="!hideSchoolSelector && schools && schools.length > 0">
+      <label>Établissement :</label>
+      <select 
+        :value="schoolId === null ? '' : schoolId" 
+        @change="$emit('update:schoolId', ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null)" 
+        class="select-custom"
+      >
+        <option value="">Tous</option>
+        <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
+      </select>
+    </div>
+
+    <!-- 2. Resource Selectors -->
+    <template v-if="mode === 'timetable' || (mode === 'preference' && !hideResourceSelectors)">
+      <div 
+        v-for="rt in resourceTypes" 
+        :key="rt.key" 
+        class="filter-item resource-multi-select" 
+        style="position: relative;"
+      >
+        <label>{{ rt.label }} :</label>
+        <button 
+          class="select-custom" 
+          style="text-align: left; cursor: pointer; min-width: 140px; display: flex; justify-content: space-between; align-items: center;"
+          @click="openDropdown(rt.key, $event)"
         >
-          <option value="">Tous</option>
-          <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">
+            {{ getSelectionLabel(rt) }}
+          </span>
+          <span style="font-size: 10px;">&#9660;</span>
+        </button>
       </div>
 
-      <!-- 2. Resource Selectors (for 'timetable' mode or when selectors are not hidden in 'preference' mode) -->
-      <template v-if="mode === 'timetable' || (mode === 'preference' && !hideResourceSelectors)">
-        <div 
-          v-for="rt in resourceTypes" 
-          :key="rt.key" 
-          class="filter-item resource-multi-select" 
-          style="position: relative;"
-        >
-          <label>{{ rt.label }} :</label>
-          <button 
-            class="select-custom" 
-            style="text-align: left; cursor: pointer; min-width: 140px; display: flex; justify-content: space-between; align-items: center;"
-            @click="openDropdown(rt.key, $event)"
-          >
-            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">
-              {{ getSelectionLabel(rt) }}
-            </span>
-            <span style="font-size: 10px;">&#9660;</span>
-          </button>
-        </div>
+      <!-- Overlay transparent pour fermer au clic exterieur -->
+      <div 
+        v-if="openDropdownType"
+        style="position: fixed; inset: 0; z-index: 998;"
+        @click="openDropdownType = null"
+      />
 
-        <!-- Overlay transparent pour fermer au clic exterieur -->
+      <!-- Dropdown teleporté dans body pour éviter overflow:hidden -->
+      <Teleport to="body">
         <div 
           v-if="openDropdownType"
-          style="position: fixed; inset: 0; z-index: 998;"
-          @click="openDropdownType = null"
-        />
-
-        <!-- Dropdown teleporté dans body pour éviter overflow:hidden -->
-        <Teleport to="body">
-          <div 
-            v-if="openDropdownType"
-            class="resource-dropdown-panel"
-            style="position: fixed; z-index: 999; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
-            :style="dropdownPos"
-            @click.stop
-          >
-            <div style="padding: 4px 8px; border-bottom: 1px solid #eee; display: flex; gap: 8px;">
-              <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectAll(openDropdownType)">Tout</button>
-              <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectNone(openDropdownType)">Rien</button>
-            </div>
-            <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid #f3f4f6;">
-              <input 
-                type="checkbox" 
-                :value="r.id" 
-                :checked="isResourceSelected(openDropdownType, r.id)"
-                @change="onResourceCheckboxToggle(openDropdownType, r.id, $event)"
-              />
-              <span style="flex: 1; font-size: 13px;">{{ r.name || (r.first_name + ' ' + r.last_name) }}</span>
-            </label>
-            <div v-if="getActiveList(openDropdownType).length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
+          class="resource-dropdown-panel"
+          style="position: fixed; z-index: 999; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
+          :style="dropdownPos"
+          @click.stop
+        >
+          <div style="padding: 4px 8px; border-bottom: 1px solid #eee; display: flex; gap: 8px;">
+            <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectAll(openDropdownType)">Tout</button>
+            <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectNone(openDropdownType)">Rien</button>
           </div>
-        </Teleport>
-      </template>
-      
-      <!-- Right auto target toggle -->
-      <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
-        <div class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
-          <label>Ciblage auto :</label>
-          <div class="toggle-container" @click="$emit('update:autoTarget', !autoTarget)">
-            <span :class="{ 'active': !autoTarget }">Désactivé</span>
-            <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
-            <span :class="{ 'active': autoTarget }">Activé</span>
-          </div>
+          <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid #f3f4f6;">
+            <input 
+              type="checkbox" 
+              :value="r.id" 
+              :checked="isResourceSelected(openDropdownType, r.id)"
+              @change="onResourceCheckboxToggle(openDropdownType, r.id, $event)"
+            />
+            <span style="flex: 1; font-size: 13px;">{{ r.name || (r.first_name + ' ' + r.last_name) }}</span>
+          </label>
+          <div v-if="getActiveList(openDropdownType).length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
         </div>
+      </Teleport>
+    </template>
+    
+    <!-- Alternation (Week Type) -->
+    <div class="filter-item">
+      <label>Semaine :</label>
+      <select 
+        :value="weekType" 
+        @change="$emit('update:weekType', ($event.target as HTMLSelectElement).value)" 
+        class="select-custom select-small"
+      >
+        <option value="W">Toutes</option>
+        <option value="A">Semaine A</option>
+        <option value="B">Semaine B</option>
+      </select>
+    </div>
+
+    <!-- Periods -->
+    <div class="filter-item periods-group">
+      <label>Période :</label>
+      <select 
+        :value="periodTypeId === null ? '' : periodTypeId" 
+        @change="onPeriodTypeSelect" 
+        class="select-custom select-small"
+      >
+        <option value="">Annuelle</option>
+        <option v-for="pt in filteredPeriodTypes" :key="pt.id" :value="pt.id">
+          {{ pt.label || pt.name }}
+        </option>
+      </select>
+
+      <!-- Checkboxes for periods belonging to the active type -->
+      <div class="periods-checkboxes" v-if="periodTypeId && periodsOfType.length > 0">
+        <label v-for="p in periodsOfType" :key="p.id" class="checkbox-wrapper">
+          <input 
+            type="checkbox" 
+            :value="p.id" 
+            :checked="periodIds.includes(p.id)"
+            @change="onPeriodCheckboxToggle(p.id, $event)"
+            class="checkbox-custom"
+          />
+          <span class="checkbox-text">{{ p.name }}</span>
+        </label>
       </div>
     </div>
 
-    <!-- Row 2: Secondary / Constraints Filters (Alternation & Periods) -->
-    <div class="filters-row sub-row">
-      <!-- Alternation (Week Type) -->
-      <div class="filter-item">
-        <label>Semaine :</label>
-        <select 
-          :value="weekType" 
-          @change="$emit('update:weekType', ($event.target as HTMLSelectElement).value)" 
-          class="select-custom select-small"
-        >
-          <option value="W">Toutes</option>
-          <option value="A">Semaine A</option>
-          <option value="B">Semaine B</option>
+    <!-- Right actions slot & Toggles -->
+    <div class="filter-actions-right" style="margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 16px;">
+      
+      <!-- Ciblage auto -->
+      <div v-if="showAutoTargetToggle" class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
+        <label>Ciblage auto :</label>
+        <div class="toggle-container" @click="$emit('update:autoTarget', !autoTarget)">
+          <span :class="{ 'active': !autoTarget }">Désactivé</span>
+          <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
+          <span :class="{ 'active': autoTarget }">Activé</span>
+        </div>
+      </div>
+
+      <div class="filter-item" v-if="mode === 'timetable'">
+        <label>Mise en page :</label>
+        <select :value="layoutMode" @change="$emit('update:layoutMode', ($event.target as HTMLSelectElement).value)" class="select-custom" style="min-width: 180px;">
+          <option value="merged">Assemblé sur la grille</option>
+          <option value="resource_columns">Une colonne par ressource</option>
+          <option value="resource_grids">Une grille par ressource</option>
         </select>
       </div>
-
-      <!-- Periods -->
-      <div class="filter-item periods-group">
-        <label>Période :</label>
-        <select 
-          :value="periodTypeId === null ? '' : periodTypeId" 
-          @change="onPeriodTypeSelect" 
-          class="select-custom select-small"
-        >
-          <option value="">Annuelle</option>
-          <option v-for="pt in filteredPeriodTypes" :key="pt.id" :value="pt.id">
-            {{ pt.label || pt.name }}
-          </option>
-        </select>
-
-        <!-- Checkboxes for periods belonging to the active type -->
-        <div class="periods-checkboxes" v-if="periodTypeId && periodsOfType.length > 0">
-          <label v-for="p in periodsOfType" :key="p.id" class="checkbox-wrapper">
-            <input 
-              type="checkbox" 
-              :value="p.id" 
-              :checked="periodIds.includes(p.id)"
-              @change="onPeriodCheckboxToggle(p.id, $event)"
-              class="checkbox-custom"
-            />
-            <span class="checkbox-text">{{ p.name }}</span>
-          </label>
+      
+      <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
+        <label>Placement assisté :</label>
+        <div class="toggle-container" @click="$emit('update:placementAssistantActive', !placementAssistantActive)">
+          <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
+          <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
+          <span :class="{ 'active': placementAssistantActive }">Activé</span>
         </div>
       </div>
-
-      <!-- Right actions slot -->
-      <div class="filter-actions-right" style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
-        <div class="filter-item" v-if="mode === 'timetable'">
-          <label>Mise en page :</label>
-          <select :value="layoutMode" @change="$emit('update:layoutMode', ($event.target as HTMLSelectElement).value)" class="select-custom" style="min-width: 180px;">
-            <option value="merged">Assemblé sur la grille</option>
-            <option value="resource_columns">Une colonne par ressource</option>
-            <option value="resource_grids">Une grille par ressource</option>
-          </select>
+      
+      <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
+        <label>Affichage :</label>
+        <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
+          <span :class="{ 'active': !isDetailedView }">Compact</span>
+          <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
+          <span :class="{ 'active': isDetailedView }">Détaillé</span>
         </div>
-        <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
-          <label>Placement assisté :</label>
-          <div class="toggle-container" @click="$emit('update:placementAssistantActive', !placementAssistantActive)">
-            <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
-            <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
-            <span :class="{ 'active': placementAssistantActive }">Activé</span>
-          </div>
-        </div>
-        <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
-          <label>Affichage :</label>
-          <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
-            <span :class="{ 'active': !isDetailedView }">Compact</span>
-            <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
-            <span :class="{ 'active': isDetailedView }">Détaillé</span>
-          </div>
-        </div>
-        <slot name="actions"></slot>
       </div>
+      
+      <slot name="actions"></slot>
     </div>
   </div>
 </template>
@@ -187,6 +183,7 @@ const props = withDefaults(defineProps<{
   hideSchoolSelector?: boolean;
   isDetailedView?: boolean;
   autoTarget?: boolean;
+  showAutoTargetToggle?: boolean;
   layoutMode?: string;
   showPlacementAssistantToggle?: boolean;
   placementAssistantActive?: boolean;
@@ -211,6 +208,7 @@ const props = withDefaults(defineProps<{
   hideSchoolSelector: false,
   isDetailedView: false,
   autoTarget: false,
+  showAutoTargetToggle: true,
   layoutMode: 'merged',
   showPlacementAssistantToggle: true,
   placementAssistantActive: false
@@ -385,24 +383,13 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
 <style scoped>
 .filter-bar {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
   padding: 12px 16px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-}
-
-.filters-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 20px;
-}
-
-.sub-row {
-  border-top: 1px solid var(--border-color);
-  padding-top: 12px;
 }
 
 .filter-item {

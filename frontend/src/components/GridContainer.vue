@@ -31,6 +31,7 @@
       @update:isDetailedView="$emit('update:isDetailedView', $event)"
       :autoTarget="autoTarget"
       @update:autoTarget="$emit('update:autoTarget', $event)"
+      :showAutoTargetToggle="showAutoTargetToggle"
       :layoutMode="layoutMode"
       @update:layoutMode="$emit('update:layoutMode', $event)"
       :showPlacementAssistantToggle="showPlacementAssistantToggle"
@@ -122,6 +123,7 @@ withDefaults(defineProps<{
   hideSchoolSelector?: boolean;
   isDetailedView?: boolean;
   autoTarget?: boolean;
+  showAutoTargetToggle?: boolean;
   layoutMode?: string;
   showPlacementAssistantToggle?: boolean;
   placementAssistantActive?: boolean;
@@ -149,6 +151,7 @@ withDefaults(defineProps<{
   hideSchoolSelector: false,
   isDetailedView: false,
   autoTarget: false,
+  showAutoTargetToggle: true,
   layoutMode: 'merged',
   showPlacementAssistantToggle: true,
   placementAssistantActive: false

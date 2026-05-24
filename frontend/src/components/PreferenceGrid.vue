@@ -17,6 +17,7 @@
       v-model:periodIds="selectedPeriodIds"
       :hideResourceSelectors="hideSelectors"
       :hideSchoolSelector="true"
+      :showAutoTargetToggle="false"
       @cell-mousedown="onCellMouseDown"
       @cell-mouseenter="onCellMouseEnter"
       @cell-mouseleave="onCellMouseLeave"
@@ -122,24 +123,6 @@
                 <div class="legend-color-box pref-level-off-hashed"></div>
                 <div class="legend-text">
                   Demi-journée non ouvrée
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <div class="legend-color-box cell-with-course">T</div>
-                <div class="legend-text">
-                  Signale la présence d'un cours sur le créneau<br>
-                  <small>Au centre : hebdomadaire, à gauche : semaine A ; à droite : semaine B</small>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <div class="legend-color-box cell-with-instances">
-                  <div class="instance-row"><span>1</span><span>1</span></div>
-                  <div class="instance-row"><span>1</span><span>1</span></div>
-                </div>
-                <div class="legend-text">
-                  Pour les groupes de salles, nombre d'occurrences du groupe occupées par un cours.
                 </div>
               </div>
 
