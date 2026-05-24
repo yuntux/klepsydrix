@@ -220,6 +220,11 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 > 1. **Orthogonalité Structurelle (Inclusion - Cours Composés) :** Les deux cours représentent le même événement physique (ex: l'un est le cours composé parent et l'autre est son cours simple enfant, ou il s'agit de deux cours simples enfants issus du même cours composé). Leurs ressources sont donc naturellement partagées et ne sont pas en double réservation.
 > 2. **Orthogonalité Hebdomadaire (Alternance) :** Les cours n'ont jamais lieu la même semaine (ex: Semaine A vs Semaine B).
 > 3. **Orthogonalité Périodique (Calendrier) :** Les cours n'ont jamais lieu au cours de la même période de l'année (ex: Semestre 1 vs Semestre 2).
+> 
+> **Mécanisme d'Incompatibilité Transitive (Classes, Parties et Groupes) :**
+> Si les ressources simples (enseignant, salle) sont naturellement exclusives, les entités d'élèves nécessitent une évaluation spécifique en raison de leurs imbrications. La `ClassPart` (ou `Division` si non subdivisée) agit comme la ressource atomique standard, mais son exclusivité s'étend via :
+> - **Lien d'Incompatibilité (`ClassPartLink`)** : Deux parties de classe distinctes ne peuvent avoir cours en même temps si elles partagent un lien d'incompatibilité (indiquant des élèves en commun) ou si elles appartiennent à la même division sans être issues de partitions orthogonales.
+> - **Transitivité sur les Groupes** : Un `Group` n'étant qu'un conteneur abstrait agrégeant plusieurs `ClassParts`, le solveur interdit automatiquement le placement simultané de deux groupes si au moins une `ClassPart` du premier groupe est en conflit avec une `ClassPart` du second. Il n'y a donc aucun "lien de groupe" en base de données : tout se déduit par transitivité.
 
 **BR-002: Politique d'Arbitrage des Vœux (Préférences Temporelles des Ressources)**
 > **Nature : Hybride (🔴 Hard & 🟢 Soft)**
@@ -434,6 +439,14 @@ Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de cla
 *   `class_part_b_id` : Clé étrangère vers la seconde **ClassPart** (Entier)
 *   `is_system_generated` : Vrai si le lien a été généré automatiquement par précaution par le système lors de la création de partitions croisées (Booléen, par défaut `True`)
 
+> **Contrainte d'intégrité (@constrains) :**
+> - **Orthogonalité stricte :** Il est strictement interdit de lier deux `ClassPart` appartenant à la même `Partition`. Au sein d'une même partition, les parties sont disjointes par nature (ex: on ne peut pas lier "Anglais" et "Espagnol" s'ils sont dans la même partition "Choix de Langues"). Cette validation empêche la saisie de données absurdes en base.
+
+> [!NOTE]
+> **Pourquoi n'y a-t-il pas de lien d'incompatibilité direct entre les Groupes (`GroupLink`) ?**
+> Le Groupe n'est qu'un conteneur (un agrégateur) de parties de classe (`ClassPart`), qui sont les véritables briques élémentaires du système.
+> Puisque le solveur raisonne toujours au niveau de ces briques élémentaires, l'incompatibilité entre deux Groupes se déduit mathématiquement de l'incompatibilité de leurs parties sous-jacentes. Si une `ClassPart` du Groupe A est en conflit (via `ClassPartLink` ou par appartenance à la même division sans orthogonalité) avec une `ClassPart` du Groupe B, le solveur saura instantanément et automatiquement interdire le placement simultané de ces deux groupes.
+> Modéliser un lien d'incompatibilité explicitement au niveau du Groupe serait donc redondant et source d'incohérences de données (par exemple si la composition interne du groupe venait à être modifiée).
 
 ### 7. AlternationCalendar (Calendrier d'Alternance)
 Modélise pour un établissement donné le découpage hebdomadaire de l'année scolaire en attribuant à chaque semaine calendaire réelle un type de semaine spécifique.

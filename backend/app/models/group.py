@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Table
-from sqlalchemy.orm import relationship
-from backend.app.models.base import Base
+from sqlalchemy.orm import relationship, Session
+from backend.app.models.base import Base, constrains
 
 # Table de jointure Many-to-Many pour Group <-> ClassPart
 group_class_parts = Table(
@@ -55,6 +55,14 @@ class ClassPartLink(Base):
         UniqueConstraint("class_part_a_id", "class_part_b_id", name="uq_class_part_pair"),
         CheckConstraint("class_part_a_id < class_part_b_id", name="check_class_part_order"),
     )
+
+    @constrains("class_part_a_id", "class_part_b_id")
+    def _check_partition_overlap(self, db: Session):
+        if self.class_part_a_id and self.class_part_b_id:
+            cp_a = db.query(ClassPart).get(self.class_part_a_id)
+            cp_b = db.query(ClassPart).get(self.class_part_b_id)
+            if cp_a and cp_b and cp_a.partition_id == cp_b.partition_id:
+                raise ValueError("Impossible de lier deux parties d'une même partition, elles sont disjointes par nature.")
 
 class Group(Base):
     __tablename__ = "groups"

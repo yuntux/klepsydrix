@@ -1,6 +1,16 @@
 from sqlalchemy.orm import declarative_base, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 
+def constrains(*args):
+    """
+    Décorateur pour valider des contraintes métier.
+    S'exécute lors de la création ou la modification des champs spécifiés.
+    """
+    def decorator(func):
+        func._constrains = set(args)
+        return func
+    return decorator
+
 class CRUDMixin:
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -92,6 +102,15 @@ class CRUDMixin:
                 setattr(instance, rel_key, items)
 
             db.flush()
+
+            # 6. Exécuter les contraintes métier
+            for attr_name in dir(instance):
+                method = getattr(instance, attr_name)
+                if callable(method) and hasattr(method, "_constrains"):
+                    constrained_fields = getattr(method, "_constrains")
+                    if not constrained_fields or any(f in vals for f in constrained_fields):
+                        method(db)
+
             db.refresh(instance)
             return instance
         except Exception as e:
@@ -175,6 +194,15 @@ class CRUDMixin:
                 setattr(self, rel_key, items)
 
             db.flush()  # Flush sans commit : le commit est géré par l'endpoint
+
+            # 6. Exécuter les contraintes métier
+            for attr_name in dir(self):
+                method = getattr(self, attr_name)
+                if callable(method) and hasattr(method, "_constrains"):
+                    constrained_fields = getattr(method, "_constrains")
+                    if not constrained_fields or any(f in vals for f in constrained_fields):
+                        method(db)
+
             db.refresh(self)
             return self
         except Exception as e:
