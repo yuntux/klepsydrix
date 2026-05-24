@@ -1035,14 +1035,25 @@ async function checkStatus() {
     const res = await api.fetchTimetableStatus();
     if (res.status === 'SOLVING') {
       loading.value = true;
+      if (!pollingInterval) {
+        pollingInterval = window.setInterval(checkStatus, 3000);
+      }
     } else {
       if (loading.value) {
         loading.value = false;
         loadData();
       }
+      if (pollingInterval) {
+        window.clearInterval(pollingInterval);
+        pollingInterval = undefined;
+      }
     }
   } catch (err) {
     console.error('Erreur lors de la vérification du statut', err);
+    if (pollingInterval) {
+      window.clearInterval(pollingInterval);
+      pollingInterval = undefined;
+    }
   }
 }
 
@@ -1051,9 +1062,7 @@ async function onSolve() {
     const result = await api.solveTimetable();
     showNotification('success', result.message || 'Résolution démarrée en arrière-plan.');
     loading.value = true;
-    if (!pollingInterval) {
-      pollingInterval = window.setInterval(checkStatus, 2000);
-    }
+    checkStatus();
   } catch (err: any) {
     showNotification('error', err.message || 'Erreur lors du lancement de la résolution');
   }
@@ -1104,9 +1113,6 @@ onMounted(async () => {
   loadPeriodTypes();
   loadPeriods();
   checkStatus();
-  if (!pollingInterval) {
-    pollingInterval = window.setInterval(checkStatus, 3000);
-  }
 });
 </script>
 
