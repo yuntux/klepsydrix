@@ -59,8 +59,8 @@ class ClassPartLink(Base):
     @constrains("class_part_a_id", "class_part_b_id")
     def _check_partition_overlap(self, db: Session):
         if self.class_part_a_id and self.class_part_b_id:
-            cp_a = db.query(ClassPart).get(self.class_part_a_id)
-            cp_b = db.query(ClassPart).get(self.class_part_b_id)
+            cp_a = db.get(ClassPart, self.class_part_a_id)
+            cp_b = db.get(ClassPart, self.class_part_b_id)
             if cp_a and cp_b and cp_a.partition_id == cp_b.partition_id:
                 raise ValueError("Impossible de lier deux parties d'une même partition, elles sont disjointes par nature.")
 

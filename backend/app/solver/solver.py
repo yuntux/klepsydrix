@@ -239,7 +239,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
                 if not db_course.is_composed:
                     if pc.classroom:
-                        db_classroom = db.query(Classroom).get(pc.classroom.id)
+                        db_classroom = db.get(Classroom, pc.classroom.id)
                         if db_classroom:
                             db_course.classrooms = [db_classroom]
                     else:
