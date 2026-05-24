@@ -108,7 +108,15 @@ export async function createGenericItem(resourceName: string, payload: any): Pro
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Erreur de création de la ressource ${resourceName}`);
+    let msg = `Erreur de création de la ressource ${resourceName}`;
+    if (errorData.detail) {
+      if (Array.isArray(errorData.detail)) {
+        msg = errorData.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
+      } else {
+        msg = errorData.detail;
+      }
+    }
+    throw new Error(msg);
   }
   return response.json();
 }
@@ -123,7 +131,15 @@ export async function updateGenericItem(resourceName: string, id: number, payloa
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Erreur de mise à jour de la ressource ${resourceName}`);
+    let msg = `Erreur de mise à jour de la ressource ${resourceName}`;
+    if (errorData.detail) {
+      if (Array.isArray(errorData.detail)) {
+        msg = errorData.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
+      } else {
+        msg = errorData.detail;
+      }
+    }
+    throw new Error(msg);
   }
   return response.json();
 }
@@ -134,7 +150,15 @@ export async function deleteGenericItem(resourceName: string, id: number): Promi
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Erreur de suppression de la ressource ${resourceName}`);
+    let msg = `Erreur de suppression de la ressource ${resourceName}`;
+    if (errorData.detail) {
+      if (Array.isArray(errorData.detail)) {
+        msg = errorData.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
+      } else {
+        msg = errorData.detail;
+      }
+    }
+    throw new Error(msg);
   }
   return response.json();
 }

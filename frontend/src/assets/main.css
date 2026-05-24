@@ -424,6 +424,26 @@ body {
   border-left-color: var(--accent-success);
 }
 
+.notification-info {
+  border-left-color: var(--accent-secondary);
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 8px;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.notification-close:hover {
+  color: var(--accent-danger);
+}
+
 @keyframes slideIn {
   from {
     transform: translateX(100%);

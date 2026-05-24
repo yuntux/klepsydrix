@@ -63,7 +63,7 @@
           </div>
           <GenericList
             v-else
-            :title="adminModels.find(m => m.key === activeAdminModel)?.label || ''"
+            :title="activeAdminModel"
             :columns="columnsConfig"
             :fields="formFieldsConfig"
             :items="genericItems"
@@ -152,15 +152,17 @@
         class="notification"
         :class="{
           'notification-error': notif.type === 'error',
-          'notification-success': notif.type === 'success'
+          'notification-success': notif.type === 'success',
+          'notification-info': notif.type === 'info'
         }"
       >
-        <div>
+        <div style="flex: 1;">
           <div class="notification-title">
-            {{ notif.type === 'error' ? 'Alerte' : 'Succès' }}
+            {{ notif.type === 'error' ? 'Alerte' : (notif.type === 'info' ? 'Info' : 'Succès') }}
           </div>
-          <div class="notification-desc">{{ notif.message }}</div>
+          <div class="notification-desc" style="white-space: pre-wrap;">{{ notif.message }}</div>
         </div>
+        <button class="notification-close" @click="removeNotification(notif.id)" title="Fermer">✕</button>
       </div>
     </div>
   </div>
@@ -310,22 +312,6 @@ function onLeafChange(leaf: any) {
   }
 }
 
-// Administration
-const adminModels = [
-  { key: 'schools', label: '🏫 Établissements' },
-  { key: 'disciplines', label: '📚 Disciplines' },
-  { key: 'subjects', label: '📖 Matières' },
-  { key: 'teachers', label: '👨‍🏫 Enseignants' },
-  { key: 'non_teaching_staffs', label: '🧑‍💼 Personnel non enseignant' },
-  { key: 'divisions', label: '🎒 Classes (Divisions)' },
-  { key: 'classrooms', label: '🏢 Salles' },
-  { key: 'materials', label: '🛠️ Matériels' },
-  { key: 'missions', label: '🎯 Missions' },
-  { key: 'election_methods', label: '🗳️ Méthodes d\'élection' },
-  { key: 'periods', label: '📅 Périodes' },
-  { key: 'period_types', label: '🏷️ Types de périodes' },
-  { key: 'system_settings', label: '⚙️ Configuration globale' }
-];
 const activeAdminModel = ref('schools');
 const genericItems = ref<any[]>([]);
 const genericLoading = ref(false);
@@ -353,18 +339,24 @@ const modelToResourceType: Record<string, string> = {
 // Notifications
 interface Notification {
   id: number;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
   message: string;
 }
 const notifications = ref<Notification[]>([]);
 let notificationId = 0;
 
-function showNotification(type: 'success' | 'error', message: string) {
+function removeNotification(id: number) {
+  notifications.value = notifications.value.filter(n => n.id !== id);
+}
+
+function showNotification(type: 'success' | 'error' | 'info', message: string) {
   const id = ++notificationId;
   notifications.value.push({ id, type, message });
-  setTimeout(() => {
-    notifications.value = notifications.value.filter(n => n.id !== id);
-  }, 4500);
+  if (type !== 'error') {
+    setTimeout(() => {
+      removeNotification(id);
+    }, 4500);
+  }
 }
 
 const scoreData = ref<{ hard_score: number; soft_score: number; summary: string; matches: Record<string, { hard: number; soft: number; count: number }> } | null>(null);
