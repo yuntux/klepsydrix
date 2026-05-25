@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Table
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, constrains
+from backend.app.models.base import Base, constrains, related_field
 
 # Table de jointure Many-to-Many pour Group <-> ClassPart
 group_class_parts = Table(
@@ -25,21 +25,30 @@ class Partition(Base):
     division: Mapped[Optional["Division"]] = relationship("Division", back_populates="partitions")
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", back_populates="partition", passive_deletes="all")
 
+    def update(self, db: Session, vals: dict):
+        if 'division_id' in vals and vals['division_id'] != self.division_id:
+            raise ValueError("Il est strictement interdit de modifier la division d'une partition après sa création.")
+        return super().update(db, vals)
+
 class ClassPart(Base):
     __tablename__ = "class_parts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
     partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False)
+    division_id = related_field("partition", "division_id", info={"label": "Division"})
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC")
 
     # Relations de navigation
-    division: Mapped[Optional["Division"]] = relationship("Division", back_populates="class_parts")
     partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
     groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts")
+
+    def update(self, db: Session, vals: dict):
+        if 'partition_id' in vals and vals['partition_id'] != self.partition_id:
+            raise ValueError("Il est strictement interdit de modifier l'attribut 'partition_id' d'une partie de classe après sa création.")
+        return super().update(db, vals)
 
 class ClassPartLink(Base):
     __tablename__ = "class_part_links"

@@ -21,5 +21,4 @@ class Division(Base):
     school: Mapped[Optional["School"]] = relationship("School", back_populates="divisions")
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="divisions")
     partitions: Mapped[list["Partition"]] = relationship("Partition", back_populates="division", passive_deletes="all")
-    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", back_populates="division", passive_deletes="all")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all")
