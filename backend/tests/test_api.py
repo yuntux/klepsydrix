@@ -188,12 +188,14 @@ def test_update_course_success(db_session: Session):
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
+    ts2 = Timeslot(day_of_week=1, hour=9)
     
     t._via_crud_mixin_create = True
     c._via_crud_mixin_create = True
     d._via_crud_mixin_create = True
     ts._via_crud_mixin_create = True
-    db_session.add_all([t, c, d, ts])
+    ts2._via_crud_mixin_create = True
+    db_session.add_all([t, c, d, ts, ts2])
     db_session.commit()
 
     course = Course(subject_id=subject.id, teachers=[t], divisions=[d], school_id=school.id)
@@ -217,6 +219,7 @@ def test_update_course_conflict(db_session: Session):
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
+    ts2 = Timeslot(day_of_week=1, hour=9)
     
     t._via_crud_mixin_create = True
     c1._via_crud_mixin_create = True
@@ -224,7 +227,8 @@ def test_update_course_conflict(db_session: Session):
     d1._via_crud_mixin_create = True
     d2._via_crud_mixin_create = True
     ts._via_crud_mixin_create = True
-    db_session.add_all([t, c1, c2, d1, d2, ts])
+    ts2._via_crud_mixin_create = True
+    db_session.add_all([t, c1, c2, d1, d2, ts, ts2])
     db_session.commit()
 
     # Le premier cours occupe Prof A sur le créneau ts
