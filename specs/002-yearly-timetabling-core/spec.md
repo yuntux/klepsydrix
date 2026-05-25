@@ -228,10 +228,13 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 
 **BR-002: Politique d'Arbitrage des Vœux (Préférences Temporelles des Ressources)**
 > **Nature : Hybride (🔴 Hard & 🟢 Soft)**
-> La grille de vœux permet d'exprimer des desiderata temporels pour chaque ressource (enseignant, salle, classe, etc.). Le solveur doit appliquer le traitement suivant :
-> - **Indisponibilité Stricte (Rouge) :** 🔴 **Hard Rule**. Le solveur n'a jamais le droit de placer un cours impliquant cette ressource sur ce créneau.
+> La grille de vœux permet d'exprimer des desiderata temporels pour chaque ressource (enseignant, salle, classe, etc.) ainsi que pour chaque **Cours** directement. Le solveur doit appliquer le traitement suivant :
+> - **Indisponibilité Stricte (Rouge) :** 🔴 **Hard Rule**. Le solveur n'a jamais le droit de placer un cours (ou une ressource impliquée) sur ce créneau.
 > - **Souhait d'Absence (Orange) :** 🟢 **Soft Rule (Pénalité)**. Le solveur doit faire le maximum pour éviter ce créneau. S'il est forcé de l'utiliser, le score global de qualité de l'emploi du temps diminue.
 > - **Souhait de Présence (Vert) :** 🟢 **Soft Rule (Bonus)**. Le solveur doit être encouragé à utiliser ce créneau préférentiellement aux autres créneaux neutres.
+> 
+> **Cas particulier des préférences de Cours** :
+> Les préférences associées directement à un cours (`resource_type == 'Course'`) expriment des contraintes de créneau horaire sur le cours lui-même. Elles sont assujetties à une contrainte de cohérence temporelle stricte : les attributs `week_type` et `period_id` du cours parent priment. Toute préférence de cours hérite obligatoirement de la semaine et de la période de ce cours, et la mise à jour d'un cours répercute ces changements sur ses préférences.
 
 **BR-003: Respect des Limites de Travail et Logistiques (ResourceConstraints)**
 > **Nature : Majoritairement 🔴 Hard Rule (Stricte)**
@@ -496,7 +499,7 @@ Représente soit une salle simple (ordinaire), soit un **Groupe de salles** inte
 ### 11. ResourcePreference (Vœux / Préférence)
 Association polymorphique entre n'importe quel type de ressource, un créneau (Timeslot), un niveau de préférence (Disponible, Vœu, Indisponible), rattachée obligatoirement à **1 à N périodes** (Trimestre, Période spécifique).
 *   `id` : Clé primaire (Entier)
-*   `resource_type` : Type de ressource concernée (Chaîne : `Teacher`, `Classroom`, `Division`, `Group`, `Material`, `ClassPart`, `Site`, `Subject`)
+*   `resource_type` : Type de ressource concernée (Chaîne : `Teacher`, `Classroom`, `Division`, `Group`, `Material`, `ClassPart`, `Site`, `Subject`, `Course`)
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
 *   `timeslot_id` : Clé étrangère vers le créneau **Timeslot** (Entier)
 *   `level` : Niveau de vœu (Enum : `RED` (Indisponibilité impérative / Rouge), `ORANGE` (Indisponibilité optionnelle / Orange), `GREEN` (Souhait de présence / Vert), `WHITE` (Disponible / Blanc))

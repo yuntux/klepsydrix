@@ -306,3 +306,146 @@ def test_solver_prevents_day_overflow(db_session: Session):
     # on vérifie la logique interne de notre filtre python.
     
     assert (target_p_course.timeslot.hour + target_p_course.step) > target_p_course.timeslot.absolute_end_of_day
+
+
+
+def test_course_preference_propagation(db_session: Session):
+    import datetime
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    # 1. Création d'un cours
+    course = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "week_type": "A"
+    })
+    db_session.commit()
+    
+    # 2. Création de deux périodes
+    from backend.app.models.period_type import PeriodType
+    from backend.app.models.period import Period
+    pt = PeriodType.create(db_session, {"label": "Trimestre"})
+    per1 = Period.create(db_session, {
+        "period_type_id": pt.id,
+        "school_id": school.id,
+        "code": "T1",
+        "name": "T1",
+        "start_date": datetime.date(2026, 9, 1),
+        "end_date": datetime.date(2026, 12, 31)
+    })
+    per2 = Period.create(db_session, {
+        "period_type_id": pt.id,
+        "school_id": school.id,
+        "code": "T2",
+        "name": "T2",
+        "start_date": datetime.date(2027, 1, 1),
+        "end_date": datetime.date(2027, 3, 31)
+    })
+    db_session.commit()
+    
+    # Assigner la période au cours
+    course.update(db_session, {"period_id": per1.id})
+    db_session.commit()
+    
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    db_session.commit()
+    
+    # 3. Créer une préférence pour ce cours
+    pref = ResourcePreference.create(db_session, {
+        "resource_type": "Course",
+        "resource_id": course.id,
+        "timeslot_id": ts.id,
+        "preference_level": "Unsuited"
+    })
+    db_session.commit()
+    
+    # Vérifier qu'elle a hérité de la semaine A et de la période T1 du cours
+    assert pref.week_type.value == "A"
+    assert len(pref.periods) == 1
+    assert pref.periods[0].id == per1.id
+    
+    # 4. Mettre à jour la semaine et la période du cours (vers per2)
+    course.update(db_session, {"week_type": "B", "period_id": per2.id})
+    db_session.commit()
+    
+    # Recharger la préférence et vérifier la propagation
+    db_session.refresh(pref)
+    assert pref.week_type.value == "B"
+    assert len(pref.periods) == 1
+    assert pref.periods[0].id == per2.id
+    
+    # 5. Supprimer le cours et vérifier la suppression en cascade de la préférence
+    pref_id = pref.id
+    course.delete(db_session)
+    db_session.commit()
+    
+    deleted_pref = db_session.query(ResourcePreference).filter_by(id=pref_id).first()
+    assert deleted_pref is None
+
+
+
+def test_solver_respects_course_preferences(db_session: Session):
+    from backend.app.solver.constraints import _is_preference_violated, PlanningPreference
+    from timefold.solver.domain import PlanningVariable
+    
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    course = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "week_type": "W"
+    })
+    db_session.commit()
+    
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    db_session.commit()
+    
+    pref = ResourcePreference.create(db_session, {
+        "resource_type": "Course",
+        "resource_id": course.id,
+        "timeslot_id": ts.id,
+        "preference_level": "Unsuited"
+    })
+    db_session.commit()
+    
+    # Simuler les objets du solveur PlanningCourse et PlanningPreference
+    from backend.app.solver.constraints import PlanningCourse, PlanningTimeslot
+    
+    p_course = PlanningCourse(
+        id=course.id,
+        step=2.0,
+        week_type="W",
+        period_ids=[],
+        teachers=[],
+        classroom=None,
+        divisions=[]
+    )
+    
+    p_pref = PlanningPreference(
+        id=pref.id,
+        resource_type="Course",
+        resource_id=course.id,
+        timeslot_id=ts.id,
+        preference_level="Unsuited",
+        week_type="W",
+        period_ids=[]
+    )
+    
+    # Vérifier que _is_preference_violated retourne True si le cours correspond au resource_id
+    assert _is_preference_violated(p_pref, p_course) is True
+    
+    # Vérifier que _is_preference_violated retourne False pour un autre cours
+    other_course = PlanningCourse(
+        id=999,
+        step=2.0,
+        week_type="W",
+        period_ids=[],
+        teachers=[],
+        classroom=None,
+        divisions=[]
+    )
+    assert _is_preference_violated(p_pref, other_course) is False
+
+

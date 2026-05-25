@@ -18,6 +18,8 @@
       :hideResourceSelectors="hideSelectors"
       :hideSchoolSelector="true"
       :showAutoTargetToggle="false"
+      :hideWeekSelector="hideWeekSelectorProp"
+      :hidePeriodSelector="hidePeriodSelectorProp"
       @cell-mousedown="onCellMouseDown"
       @cell-mouseenter="onCellMouseEnter"
       @cell-mouseleave="onCellMouseLeave"
@@ -171,19 +173,23 @@ const props = withDefaults(defineProps<{
   classrooms: Classroom[];
   divisions: Division[];
   timeslots: Timeslot[];
-  resourceTypeProp?: 'Teacher' | 'Classroom' | 'Division';
+  resourceTypeProp?: 'Teacher' | 'Classroom' | 'Division' | 'Course';
   resourceIdProp?: number | null;
   resourceIdsProp?: number[];
   hideSelectors?: boolean;
   schools?: any[];
+  hideWeekSelectorProp?: boolean;
+  hidePeriodSelectorProp?: boolean;
 }>(), {
   resourceTypeProp: 'Teacher',
   resourceIdsProp: () => [],
   hideSelectors: false,
-  schools: () => []
+  schools: () => [],
+  hideWeekSelectorProp: false,
+  hidePeriodSelectorProp: false
 });
 
-const resourceType = ref<'Teacher' | 'Classroom' | 'Division'>('Teacher');
+const resourceType = ref<'Teacher' | 'Classroom' | 'Division' | 'Course'>('Teacher');
 
 const currentStandardDuration = ref(30);
 

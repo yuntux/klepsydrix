@@ -45,6 +45,12 @@ class ResourcePreference(Base):
         timeslot_id = vals.get("timeslot_id")
         week_type = vals.get("week_type", "W")
         period_ids = vals.get("period_ids", [])
+        if resource_type == "Course":
+            from backend.app.models.course import Course
+            course = db.query(Course).filter_by(id=resource_id).first()
+            if course:
+                week_type = course.week_type
+                period_ids = [course.period_id] if course.period_id else []
         is_annual = not period_ids
 
         # 1. Récupérer toutes les préférences existantes pour ce créneau/ressource
@@ -73,6 +79,11 @@ class ResourcePreference(Base):
         elif resource_type == "Division":
             from backend.app.models.division import Division
             res = db.query(Division).filter_by(id=resource_id).first()
+            if res:
+                school_id = res.school_id
+        elif resource_type == "Course":
+            from backend.app.models.course import Course
+            res = db.query(Course).filter_by(id=resource_id).first()
             if res:
                 school_id = res.school_id
 

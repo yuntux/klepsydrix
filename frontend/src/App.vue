@@ -48,10 +48,12 @@
             :divisions="divisions"
             :timeslots="timeslots"
             :schools="schoolsList"
-            :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : 'Teacher'))"
+            :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : (activeAdminModel === 'courses' ? 'Course' : 'Teacher')))"
             :resourceIdProp="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : (formModel && formModel.id ? formModel.id : null)"
             :resourceIdsProp="selectedParentIds || []"
-            :hideSelectors="['teachers_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab'].includes(activeLeaf?.id)"
+            :hideSelectors="['teachers_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab', 'courses_preferences_tab'].includes(activeLeaf?.id)"
+            :hideWeekSelectorProp="panel.gridConfig?.hideWeekSelector || false"
+            :hidePeriodSelectorProp="panel.gridConfig?.hidePeriodSelector || false"
           />
         </main>
 
@@ -342,6 +344,7 @@ const modelToResourceType: Record<string, string> = {
   divisions: 'Division',
   schools: 'School',
   resource_constraints: 'ResourceConstraint',
+  courses: 'Course',
 };
 
 // Notifications
@@ -698,7 +701,7 @@ async function onUpdateGenericInline(item: any) {
       loadPeriods();
     } else if (activeAdminModel.value === 'system_settings') {
       loadTimeslotConfig();
-    } else if (['teachers', 'classrooms', 'divisions'].includes(activeAdminModel.value)) {
+    } else if (['teachers', 'classrooms', 'divisions', 'courses'].includes(activeAdminModel.value)) {
       loadData();
     }
   } catch (err: any) {

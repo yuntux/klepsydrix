@@ -604,6 +604,76 @@
             "width": "40%"
           }
         ]
+      },
+      {
+        "id": "courses_setting",
+        "title": "📚 Cours",
+        "borderColor": "#F43F5E",
+        "children": [
+          {
+            "id": "courses_list_tab",
+            "title": "Liste",
+            "borderColor": "#F43F5E",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "courses_list",
+                "component": "GenericList",
+                "resourceKey": "courses",
+                "width": "60%"
+              },
+              {
+                "id": "courses_form",
+                "component": "GenericForm",
+                "resourceKey": "courses",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "courses_preferences_tab",
+            "title": "Vœux et contraintes",
+            "borderColor": "#F43F5E",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "courses_pref_list",
+                "component": "GenericList",
+                "resourceKey": "courses",
+                "width": "35%",
+                "listConfig": {
+                  "editableInline": false,
+                  "allowMultiSelect": true,
+                  "disableAdd": true,
+                  "disableEditModal": true,
+                  "columns": {
+                    "label": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Libellé"
+                    },
+                    "duration_minutes": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Durée (min)"
+                    },
+                    "week_type": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Semaine"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "courses_pref_grid",
+                "component": "PreferenceGrid",
+                "width": "65%",
+                "gridConfig": {
+                  "hideWeekSelector": true,
+                  "hidePeriodSelector": true
+                }
+              }
+            ]
+          }
+        ]
       }
     ]
   },

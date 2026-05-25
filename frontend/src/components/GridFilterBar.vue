@@ -69,7 +69,7 @@
     </template>
     
     <!-- Alternation (Week Type) -->
-    <div class="filter-item">
+    <div class="filter-item" v-if="!hideWeekSelector">
       <label>Semaine :</label>
       <select 
         :value="weekType" 
@@ -83,7 +83,7 @@
     </div>
 
     <!-- Periods -->
-    <div class="filter-item periods-group">
+    <div class="filter-item periods-group" v-if="!hidePeriodSelector">
       <label>Période :</label>
       <select 
         :value="periodTypeId === null ? '' : periodTypeId" 
@@ -181,6 +181,8 @@ const props = withDefaults(defineProps<{
   
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
+  hideWeekSelector?: boolean;
+  hidePeriodSelector?: boolean;
   isDetailedView?: boolean;
   autoTarget?: boolean;
   showAutoTargetToggle?: boolean;
@@ -206,6 +208,8 @@ const props = withDefaults(defineProps<{
   periodIds: () => [],
   hideResourceSelectors: false,
   hideSchoolSelector: false,
+  hideWeekSelector: false,
+  hidePeriodSelector: false,
   isDetailedView: false,
   autoTarget: false,
   showAutoTargetToggle: true,

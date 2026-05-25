@@ -253,17 +253,25 @@ class Course(Base):
             raise ValueError("Un cours complexe (ayant déjà des enfants) ne peut pas devenir l'enfant d'un autre cours.")
 
         # 1. Contraintes temporelles
-        if self.timeslot and self.parent.timeslot:
+        # Si le cours a un parent, son créneau effectif est déterminé par le créneau du parent et l'offset
+        # (évite les conflits transitoires lors de la propagation du parent vers l'enfant).
+        effective_ts = self.timeslot
+        if self.parent and self.parent.timeslot:
+            from backend.app.models.timeslot import Timeslot
+            ts_id = self.parent.timeslot.get_offset_timeslot(db, self.parent_timeslot_offset)
+            effective_ts = db.get(Timeslot, ts_id) if ts_id else None
+
+        if effective_ts and self.parent and self.parent.timeslot:
             # Même jour obligatoire
-            if self.timeslot.day_of_week != self.parent.timeslot.day_of_week:
+            if effective_ts.day_of_week != self.parent.timeslot.day_of_week:
                 raise ValueError("Le cours enfant doit être le même jour que son parent.")
             
             # Heure de début
-            if self.timeslot.hour < self.parent.timeslot.hour:
+            if effective_ts.hour < self.parent.timeslot.hour:
                 raise ValueError("Le début d'un cours enfant ne peut pas être antérieur au début du cours parent.")
             
             # Heure de fin
-            child_end = self.timeslot.hour + (self.duration_minutes / 60.0)
+            child_end = effective_ts.hour + (self.duration_minutes / 60.0)
             parent_end = self.parent.timeslot.hour + (self.parent.duration_minutes / 60.0)
             if child_end > parent_end:
                 raise ValueError("La fin d'un cours enfant ne peut pas être ultérieure à la fin du cours parent.")
@@ -480,6 +488,26 @@ class Course(Base):
         # 3. Sauvegarde
         res = super().update(db, vals)
         
+        # Propager week_type et period_id aux préférences associées
+        from backend.app.models.preference import ResourcePreference
+        from backend.app.models.period import Period
+        
+        prefs = db.query(ResourcePreference).filter_by(
+            resource_type="Course",
+            resource_id=self.id
+        ).all()
+        
+        if prefs:
+            for pref in prefs:
+                pref._via_crud_mixin_update = True
+                pref.week_type = self.week_type
+                if self.period_id:
+                    p = db.query(Period).filter_by(id=self.period_id).first()
+                    pref.periods = [p] if p else []
+                else:
+                    pref.periods = []
+            db.flush()
+        
         # Recalculer son propre statut
         self.recompute_status()
 
@@ -491,6 +519,14 @@ class Course(Base):
         return res
 
     def delete(self, db: Session):
+        # Supprimer d'abord les préférences associées à ce cours
+        from backend.app.models.preference import ResourcePreference
+        db.query(ResourcePreference).filter_by(
+            resource_type="Course",
+            resource_id=self.id
+        ).delete()
+        db.flush()
+
         parent_id = self.parent_id
         res = super().delete(db)
         if parent_id:

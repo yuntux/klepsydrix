@@ -552,7 +552,9 @@ def test_course_week_alternation_conflicts(db_session: Session):
     
     ts = Timeslot(day_of_week=1, hour=8)
     ts._via_crud_mixin_create = True
-    db_session.add(ts)
+    ts2 = Timeslot(day_of_week=1, hour=9)
+    ts2._via_crud_mixin_create = True
+    db_session.add_all([ts, ts2])
     db_session.commit()
 
     # 1. Create a course in week A on timeslot ts
@@ -596,11 +598,13 @@ def test_course_complex_offset_propagation(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    # Création de 3 créneaux successifs (Lundi 8h, 8h30, 9h)
+    # Création de 5 créneaux successifs (Lundi 8h, 8h30, 9h, 9h30, 10h)
     ts1 = Timeslot(day_of_week=1, hour=8.0)
     ts2 = Timeslot(day_of_week=1, hour=8.5)
     ts3 = Timeslot(day_of_week=1, hour=9.0)
-    for ts in [ts1, ts2, ts3]:
+    ts4 = Timeslot(day_of_week=1, hour=9.5)
+    ts5 = Timeslot(day_of_week=1, hour=10.0)
+    for ts in [ts1, ts2, ts3, ts4, ts5]:
         ts._via_crud_mixin_create = True
         db_session.add(ts)
     db_session.commit()
@@ -653,8 +657,10 @@ def test_course_status_calculation(db_session: Session):
     
     ts1 = Timeslot(day_of_week=1, hour=8.0)
     ts1._via_crud_mixin_create = True
+    ts2 = Timeslot(day_of_week=1, hour=9.0)
+    ts2._via_crud_mixin_create = True
     
-    db_session.add_all([teacher1, ts1])
+    db_session.add_all([teacher1, ts1, ts2])
     db_session.commit()
     
     # 1. Simple course - UNPLACED

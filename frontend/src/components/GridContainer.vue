@@ -19,6 +19,8 @@
       :periodIds="periodIds"
       :hideResourceSelectors="hideResourceSelectors"
       :hideSchoolSelector="hideSchoolSelector"
+      :hideWeekSelector="hideWeekSelector"
+      :hidePeriodSelector="hidePeriodSelector"
       @update:selectedTeacherIds="$emit('update:selectedTeacherIds', $event)"
       @update:selectedNonTeachingStaffIds="$emit('update:selectedNonTeachingStaffIds', $event)"
       @update:selectedDivisionIds="$emit('update:selectedDivisionIds', $event)"
@@ -121,6 +123,8 @@ withDefaults(defineProps<{
   
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
+  hideWeekSelector?: boolean;
+  hidePeriodSelector?: boolean;
   isDetailedView?: boolean;
   autoTarget?: boolean;
   showAutoTargetToggle?: boolean;
@@ -149,6 +153,8 @@ withDefaults(defineProps<{
   periodIds: () => [],
   hideResourceSelectors: false,
   hideSchoolSelector: false,
+  hideWeekSelector: false,
+  hidePeriodSelector: false,
   isDetailedView: false,
   autoTarget: false,
   showAutoTargetToggle: true,

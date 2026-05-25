@@ -496,6 +496,8 @@ def _is_preference_violated(pref, course):
             if d.id == pref.resource_id:
                 return True
         return False
+    elif pref.resource_type == "Course":
+        return course.id == pref.resource_id
     return False
 
 
