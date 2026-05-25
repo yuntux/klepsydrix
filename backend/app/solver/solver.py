@@ -44,6 +44,11 @@ class SolverState:
             cls.status = "SOLVING"
 
     @classmethod
+    def set_solving_status(cls):
+        with cls._lock:
+            cls.status = "SOLVING"
+
+    @classmethod
     def set_not_solving(cls):
         with cls._lock:
             cls.active_solver = None
@@ -276,6 +281,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
 def start_solve_timetable_async(school_id: Optional[int] = None):
     if SolverState.get_status() == "SOLVING":
         return
+    SolverState.set_solving_status()
     thread = threading.Thread(target=_solve_timetable_job, kwargs={"school_id": school_id})
     thread.daemon = True
     thread.start()
