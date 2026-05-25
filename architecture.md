@@ -417,9 +417,17 @@ Timefold procède systématiquement en deux phases :
 
 ### B. Mémorisation et Immobilisation des Salles Pré-assignées
 Dans Timefold, la variable `classroom` est une `@PlanningVariable`. Par défaut, le solveur a la liberté totale d'écraser une salle saisie manuellement s'il trouve une meilleure optimisation globale.
-Pour protéger le choix humain sans geler le créneau horaire, nous utilisons la mécanique suivante :
-- **Mémorisation** : Lors de l'instanciation de `PlanningCourse`, on enregistre la salle initiale dans `original_classroom_id`.
-- **Règle Forte (`classroom_immobility`)** : Une contrainte stricte (Hard Score -100) pénalise toute altération de cette salle. Le solveur est donc libre d'affecter des salles pour les cours qui n'en ont pas, mais refusera catégoriquement de modifier celles déjà renseignées.
+Pour gérer et protéger le placement manuel des salles tout en laissant de la flexibilité au solveur, deux mécanismes distincts coexistent :
+
+1. **Le Cours est Épinglé (`is_pinned = True` via l'icône de Punaise dans l'IHM)** :
+   - L'entité `PlanningCourse` complète est annotée avec `@PlanningPin`.
+   - **Comportement** : Le solveur a l'interdiction absolue de modifier cette entité. **Le créneau horaire (`timeslot`) et la salle (`classroom`) sont 100 % gelés** et ne bougeront jamais lors du solving.
+
+2. **Le Cours n'est pas Épinglé, mais possède une Salle Initiale** :
+   - Le créneau et la salle servent de point de départ pour la recherche du solveur.
+   - **Comportement** : Le solveur a techniquement le droit de modifier la salle pour optimiser le planning. Cependant, nous utilisons une règle d'immobilité :
+     - **Mémorisation** : Lors de l'instanciation de `PlanningCourse`, on enregistre la salle initiale dans `original_classroom_id`.
+     - **Règle Forte (`classroom_immobility`)** : Une contrainte stricte (Hard Score -100) pénalise toute altération de cette salle. Ainsi, le solveur n'écrasera une salle manuelle que dans une situation extrêmement critique (par exemple pour résoudre une contrainte plus grave), garantissant une très haute stabilité du placement manuel des salles.
 
 ### C. Le Modèle des Cours Composés (Optimisation Architecturale)
 L'outil a été conçu autour d'une optimisation critique : **seul le cours parent est envoyé au solveur**.
