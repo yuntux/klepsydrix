@@ -17,33 +17,33 @@ class ResourceConstraint(Base):
     incompatible_same_half_day: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     incompatible_same_day: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     incompatible_two_consecutive_days: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
-    min_free_half_days_between: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    min_free_half_days_between: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
     prevent_consecutive_a_then_b: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     prevent_consecutive_b_then_a: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
-    max_hours_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    max_hours_per_half_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_hours_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0})
+    max_hours_per_half_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0})
     weekly_order_a_before_b: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     weekly_order_b_before_a: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     group_course_order: Mapped[Optional[str]] = mapped_column(String(30), default="NONE") # 'NONE', 'GROUP_BEFORE', 'GROUP_AFTER', 'GROUP_BEFORE_OR_AFTER', 'GROUP_BEFORE_OR_AFTER_FORTNIGHT'
 
     # Attributs Profs et Classes (Teacher / Division)
-    max_hours_per_am: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    max_hours_per_pm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    max_presence_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    max_presence_hours_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    late_start_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_hours_per_am: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0})
+    max_hours_per_pm: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0})
+    max_presence_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
+    max_presence_hours_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0})
+    late_start_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
     late_start_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True) # ex: '09:00'
-    early_end_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    early_end_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
     early_end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True) # ex: '16:30'
-    min_free_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    min_free_half_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    max_worked_am_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    max_worked_pm_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    min_free_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
+    min_free_half_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
+    max_worked_am_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
+    max_worked_pm_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
     only_one_half_day_per_day: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
-    max_gap_hours_per_week: Mapped[Optional[int]] = mapped_column(Integer, default=2)
+    max_gap_hours_per_week: Mapped[Optional[int]] = mapped_column(Integer, default=2, info={"min": 0})
 
     # Attributs Site
-    max_travel_trips_per_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_travel_trips_per_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0})
 
     # Navigation
     target_subject_b: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[target_subject_b_id])
