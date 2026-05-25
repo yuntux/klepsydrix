@@ -47,7 +47,8 @@ class ResourcePreference(Base):
         period_ids = vals.get("period_ids", [])
         if resource_type == "Course":
             from backend.app.models.course import Course
-            course = db.query(Course).filter_by(id=resource_id).first()
+            from sqlalchemy import select
+            course = db.execute(select(Course).filter_by(id=resource_id)).scalars().first()
             if course:
                 week_type = course.week_type
                 period_ids = [course.period_id] if course.period_id else []
@@ -83,7 +84,8 @@ class ResourcePreference(Base):
                 school_id = res.school_id
         elif resource_type == "Course":
             from backend.app.models.course import Course
-            res = db.query(Course).filter_by(id=resource_id).first()
+            from sqlalchemy import select
+            res = db.execute(select(Course).filter_by(id=resource_id)).scalars().first()
             if res:
                 school_id = res.school_id
 

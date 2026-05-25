@@ -492,17 +492,17 @@ class Course(Base):
         from backend.app.models.preference import ResourcePreference
         from backend.app.models.period import Period
         
-        prefs = db.query(ResourcePreference).filter_by(
+        prefs = db.execute(select(ResourcePreference).filter_by(
             resource_type="Course",
             resource_id=self.id
-        ).all()
+        )).scalars().all()
         
         if prefs:
             for pref in prefs:
                 pref._via_crud_mixin_update = True
                 pref.week_type = self.week_type
                 if self.period_id:
-                    p = db.query(Period).filter_by(id=self.period_id).first()
+                    p = db.execute(select(Period).filter_by(id=self.period_id)).scalars().first()
                     pref.periods = [p] if p else []
                 else:
                     pref.periods = []
@@ -519,12 +519,12 @@ class Course(Base):
         return res
 
     def delete(self, db: Session):
-        # Supprimer d'abord les préférences associées à ce cours
+        from sqlalchemy import delete
         from backend.app.models.preference import ResourcePreference
-        db.query(ResourcePreference).filter_by(
+        db.execute(delete(ResourcePreference).filter_by(
             resource_type="Course",
             resource_id=self.id
-        ).delete()
+        ))
         db.flush()
 
         parent_id = self.parent_id
