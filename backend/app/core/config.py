@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./timetable.db"
     
     # Limite de temps pour le solveur Timefold en secondes
-    SOLVER_TIME_LIMIT_SECONDS: int = 30
+    SOLVER_TIME_LIMIT_SECONDS: int = 300
+    SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS: int = 10
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env"),
         env_file_encoding="utf-8",

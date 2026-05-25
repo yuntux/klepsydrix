@@ -63,6 +63,14 @@ course_groups = Table(
     extend_existing=True
 )
 
+course_periods = Table(
+    "course_periods",
+    Base.metadata,
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("period_id", Integer, ForeignKey("periods.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
+)
+
 class Course(Base):
     __tablename__ = "courses"
 
@@ -80,7 +88,7 @@ class Course(Base):
     parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     
     week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
-    period_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("periods.id", ondelete="SET NULL"), nullable=True)
+    period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True)
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=55)
@@ -95,14 +103,15 @@ class Course(Base):
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True)
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True)
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
-
+ 
     # Relations de navigation hiérarchique
     parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
     children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", cascade="all, delete-orphan")
-
+ 
     # Relations de navigation Mto1
     subject_relation: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="courses")
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
+    period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["Mission"]] = relationship("Mission", back_populates="courses")
     election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod", back_populates="courses")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
@@ -114,6 +123,7 @@ class Course(Base):
     classrooms: Mapped[list["Classroom"]] = relationship("Classroom", secondary=course_classrooms)
     materials: Mapped[list["Material"]] = relationship("Material", secondary=course_materials)
     divisions: Mapped[list["Division"]] = relationship("Division", secondary=course_divisions, back_populates="courses")
+    periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods)
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts)
     groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses")
 
@@ -211,6 +221,19 @@ class Course(Base):
                 parent.recompute_status()
                 
         return self.status
+
+    @constrains()
+    def validate_periods_coherence(self, db):
+        if not self.period_type_id:
+            if self.periods:
+                raise ValueError("Un cours annuel (sans type de période défini) ne peut pas être associé à des périodes.")
+        else:
+            for period in self.periods:
+                if period.period_type_id != self.period_type_id:
+                    raise ValueError(
+                        f"La période '{period.name}' (type {period.period_type_id}) ne correspond pas "
+                        f"au type de période '{self.period_type_id}' du cours."
+                    )
 
     @constrains('week_type', 'parent_id')
     def _sync_parent_week_type(self, db, exclude_child_id=None):
@@ -416,19 +439,17 @@ class Course(Base):
             elif target_week_type == 'B':
                 query = query.filter(Course.week_type.in_(['B', 'W']))
                 
-            # Règle 3 : Orthogonalité Périodique
-            target_period_id = getattr(self, 'period_id', None)
-            if target_period_id:
+            # Règle 3 : Orthogonalité Périodique (Périodes Multiples)
+            if self.period_type_id and self.periods:
                 from backend.app.models.period import Period
-                target_period = db.get(Period, target_period_id)
-                if target_period:
-                    query = query.outerjoin(Period, getattr(Course, 'period_id', None) == Period.id).filter(
-                        or_(
-                            getattr(Course, 'period_id', None) == None,
-                            Period.period_type_id != target_period.period_type_id,
-                            getattr(Course, 'period_id', None) == target_period.id
-                        )
+                target_period_ids = [p.id for p in self.periods]
+                query = query.filter(
+                    or_(
+                        Course.period_type_id == None,
+                        Course.period_type_id != self.period_type_id,
+                        Course.periods.any(Period.id.in_(target_period_ids))
                     )
+                )
 
             return query
 
@@ -501,11 +522,7 @@ class Course(Base):
             for pref in prefs:
                 pref._via_crud_mixin_update = True
                 pref.week_type = self.week_type
-                if self.period_id:
-                    p = db.execute(select(Period).filter_by(id=self.period_id)).scalars().first()
-                    pref.periods = [p] if p else []
-                else:
-                    pref.periods = []
+                pref.periods = list(self.periods)
             db.flush()
         
         # Recalculer son propre statut

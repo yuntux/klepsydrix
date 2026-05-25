@@ -127,7 +127,7 @@ def test_solve_timetable(db_session: Session):
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], school_id=school.id)
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], school_id=school.id, duration_minutes=30)
     course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
@@ -269,9 +269,9 @@ def test_solve_pinned_course(db_session: Session):
     db_session.commit()
 
     # Le cours 1 est verrouillé (pinned) sur ts1 et c1
-    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts1.id, classrooms=[c1], is_pinned=True, school_id=school.id)
+    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts1.id, classrooms=[c1], is_pinned=True, school_id=school.id, duration_minutes=30)
     # Le cours 2 est libre
-    course2 = Course(subject_id=subject.id, teachers=[t], divisions=[d2], school_id=school.id)
+    course2 = Course(subject_id=subject.id, teachers=[t], divisions=[d2], school_id=school.id, duration_minutes=30)
 
     course1._via_crud_mixin_create = True
     course2._via_crud_mixin_create = True
@@ -807,3 +807,68 @@ def test_course_day_overflow_conflict(db_session: Session):
     response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts2.id})
     assert response.status_code == 409
     assert "déborde" in response.json()["detail"].lower()
+
+
+def test_course_periods_and_type_validation(db_session: Session):
+    from backend.app.models.period_type import PeriodType
+    from backend.app.models.period import Period
+    from datetime import date
+    
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    # 1. Créer deux types de périodes
+    pt_semestre = PeriodType.create(db_session, {"label": "Semestre"})
+    pt_trimestre = PeriodType.create(db_session, {"label": "Trimestre"})
+    
+    # 2. Créer des périodes de chaque type
+    p_sem1 = Period.create(db_session, {
+        "period_type_id": pt_semestre.id,
+        "school_id": school.id,
+        "code": "S1",
+        "name": "Semestre 1",
+        "start_date": date(2026, 9, 1),
+        "end_date": date(2027, 1, 31)
+    })
+    p_trim1 = Period.create(db_session, {
+        "period_type_id": pt_trimestre.id,
+        "school_id": school.id,
+        "code": "T1",
+        "name": "Trimestre 1",
+        "start_date": date(2026, 9, 1),
+        "end_date": date(2026, 11, 30)
+    })
+    db_session.commit()
+    
+    # 3. Test : Un cours annuel ne peut pas être associé à des périodes
+    import pytest
+    with pytest.raises(ValueError, match="Un cours annuel"):
+        Course.create(db_session, {
+            "subject_id": subject.id,
+            "school_id": school.id,
+            "period_type_id": None,
+            "period_ids": [p_sem1.id]
+        })
+    db_session.rollback()
+    
+    # 4. Test : Un cours lié à des périodes d'un type différent doit lever une erreur
+    with pytest.raises(ValueError, match="ne correspond pas au type de période"):
+        Course.create(db_session, {
+            "subject_id": subject.id,
+            "school_id": school.id,
+            "period_type_id": pt_semestre.id,
+            "period_ids": [p_trim1.id]
+        })
+    db_session.rollback()
+    
+    # 5. Test : Création valide avec le bon type de période
+    course = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "period_type_id": pt_semestre.id,
+        "period_ids": [p_sem1.id]
+    })
+    db_session.commit()
+    assert len(course.periods) == 1
+    assert course.periods[0].id == p_sem1.id
+

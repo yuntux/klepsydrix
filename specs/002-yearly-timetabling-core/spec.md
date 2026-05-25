@@ -234,7 +234,7 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 > - **Souhait de Présence (Vert) :** 🟢 **Soft Rule (Bonus)**. Le solveur doit être encouragé à utiliser ce créneau préférentiellement aux autres créneaux neutres.
 > 
 > **Cas particulier des préférences de Cours** :
-> Les préférences associées directement à un cours (`resource_type == 'Course'`) expriment des contraintes de créneau horaire sur le cours lui-même. Elles sont assujetties à une contrainte de cohérence temporelle stricte : les attributs `week_type` et `period_id` du cours parent priment. Toute préférence de cours hérite obligatoirement de la semaine et de la période de ce cours, et la mise à jour d'un cours répercute ces changements sur ses préférences.
+> Les préférences associées directement à un cours (`resource_type == 'Course'`) expriment des contraintes de créneau horaire sur le cours lui-même. Elles sont assujetties à une contrainte de cohérence temporelle stricte : les attributs `week_type`, `period_type_id` et la liste de `periods` du cours parent priment. Toute préférence de cours hérite obligatoirement de la semaine, du type de période et des périodes de ce cours, et la mise à jour d'un cours répercute ces changements sur ses préférences.
 
 **BR-003: Respect des Limites de Travail et Logistiques (ResourceConstraints)**
 > **Nature : Majoritairement 🔴 Hard Rule (Stricte)**
@@ -295,6 +295,8 @@ Le conteneur logique de cours.
 *   `teacher_id` : Clé étrangère optionnelle vers le **Professeur** principal (Entier, relation N-à-1)
 *   `division_id` : Clé étrangère optionnelle vers la **Classe** principale visée (Entier, relation N-à-1)
 *   `group_id` : Clé étrangère optionnelle vers le **Groupe** visé (Entier, relation N-à-1)
+*   `period_type_id` : Clé étrangère optionnelle vers le **PeriodType** (Entier, relation N-à-1) définissant le type de période du cours
+*   `periods` : Relation N-à-N vers les **Périodes** scolaires sur lesquelles s'applique ce cours (les périodes associées doivent toutes être du type défini par `period_type_id`)
 *   `label` : Libellé textuel calculé de manière dynamique à partir des séances et ressources rattachées (ex : `"{matières} - {profs} - {classes}"`)
 *   `memo` : Texte libre (Chaîne optionnelle) pour les notes du planificateur
 *   `duration_minutes` : Durée du cours définie en amont du placement (Entier, exprimée en minutes, ex: `55` pour un cours standard d'une heure)

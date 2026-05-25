@@ -199,7 +199,15 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             parent_id=getattr(c, 'parent_id', None),
             week_type=week_type,
             class_part_ids=class_part_ids,
-            period_ids=[getattr(c, 'period_id')] if getattr(c, 'period_id', None) else [p.id for p in db_periods],
+            period_ids=(
+                [p.id for p in c.periods]
+                if c.periods
+                else (
+                    [p.id for p in db_periods if p.period_type_id == c.period_type_id]
+                    if c.period_type_id
+                    else [p.id for p in db_periods]
+                )
+            ),
             step=c.duration_minutes / 60.0
         )
         courses_list.append(pc)
@@ -219,6 +227,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
 
 def _get_solver_factory():
     limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
+    unimproved_limit_seconds = settings.SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS
     solver_config = SolverConfig(
         environment_mode=EnvironmentMode.NO_ASSERT,
         solution_class=PlanningTimetable,
@@ -227,7 +236,8 @@ def _get_solver_factory():
             constraint_provider_function=define_constraints
         ),
         termination_config=TerminationConfig(
-            spent_limit=Duration(seconds=limit_seconds)
+            spent_limit=Duration(seconds=limit_seconds),
+            unimproved_spent_limit=Duration(seconds=unimproved_limit_seconds)
         ),
     )
     return SolverFactory.create(solver_config)

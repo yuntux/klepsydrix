@@ -51,7 +51,7 @@ class ResourcePreference(Base):
             course = db.execute(select(Course).filter_by(id=resource_id)).scalars().first()
             if course:
                 week_type = course.week_type
-                period_ids = [course.period_id] if course.period_id else []
+                period_ids = [p.id for p in course.periods]
         is_annual = not period_ids
 
         # 1. Récupérer toutes les préférences existantes pour ce créneau/ressource

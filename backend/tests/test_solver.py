@@ -63,8 +63,8 @@ def test_solver_resolves_timetable(db_session: Session):
     ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
     ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
 
-    course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id})
-    course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id})
+    course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
+    course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
     db_session.commit()
 
     _solve_timetable_job(db_session)
@@ -102,8 +102,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     g1 = Group.create(db_session, {"code": "G1", "name": "Groupe 1", "class_part_ids": [cp1.id]})
     g2 = Group.create(db_session, {"code": "G2", "name": "Groupe 2", "class_part_ids": [cp2.id]})
 
-    course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "group_ids": [g1.id], "school_id": school.id, "week_type": "W"})
-    course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "division_ids": [d1.id], "group_ids": [g2.id], "school_id": school.id, "week_type": "W"})
+    course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "group_ids": [g1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 30})
+    course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "division_ids": [d1.id], "group_ids": [g2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 30})
     db_session.commit()
 
     _solve_timetable_job(db_session)
@@ -136,7 +136,7 @@ def test_solver_respects_preferences(db_session: Session):
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts1.id, "preference_level": "Unsuited"})
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts2.id, "preference_level": "Preferred"})
 
-    course = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id})
+    course = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
     db_session.commit()
 
     _solve_timetable_job(db_session)
@@ -164,7 +164,8 @@ def test_solver_preference_overrides_stability(db_session: Session):
         "division_ids": [d1.id],
         "classroom_ids": [c1.id],
         "timeslot_id": ts1.id,
-        "school_id": school.id
+        "school_id": school.id,
+        "duration_minutes": 30
     })
     db_session.commit()
 
@@ -187,8 +188,8 @@ def test_solver_respects_week_specific_preferences(db_session: Session):
 
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts1.id, "preference_level": "Unsuited", "week_type": "A"})
 
-    course_a = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "week_type": "A"})
-    course_b = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "week_type": "B"})
+    course_a = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "week_type": "A", "duration_minutes": 30})
+    course_b = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "week_type": "B", "duration_minutes": 30})
     db_session.commit()
 
     _solve_timetable_job(db_session)
@@ -226,7 +227,7 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
         "period_ids": [per1.id]
     })
 
-    course = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id})
+    course = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
     db_session.commit()
 
     from backend.app.solver import solver
@@ -345,7 +346,7 @@ def test_course_preference_propagation(db_session: Session):
     db_session.commit()
     
     # Assigner la période au cours
-    course.update(db_session, {"period_id": per1.id})
+    course.update(db_session, {"periods": [per1], "period_type_id": pt.id})
     db_session.commit()
     
     ts = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
@@ -366,7 +367,7 @@ def test_course_preference_propagation(db_session: Session):
     assert pref.periods[0].id == per1.id
     
     # 4. Mettre à jour la semaine et la période du cours (vers per2)
-    course.update(db_session, {"week_type": "B", "period_id": per2.id})
+    course.update(db_session, {"week_type": "B", "periods": [per2]})
     db_session.commit()
     
     # Recharger la préférence et vérifier la propagation
