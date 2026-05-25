@@ -43,7 +43,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
         "courses": [
             {
                 "id": c.id,
-                "subject": c.subject,
+                "subject": c.subject_relation.short_label if c.subject_relation else "Cours",
                 "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
                 "teacher_ids": [t.id for t in c.teachers],
                 "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
@@ -53,7 +53,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
                 "group_ids": [g.id for g in c.groups],
                 "is_pinned": c.is_pinned,
                 "duration_minutes": c.duration_minutes,
-                "week_type": c.effective_week_type,
+                "week_type": c.week_type.value,
                 "parent_id": c.parent_id,
                 "status": c.status,
                 "decomposition_status": c.decomposition_status,
@@ -122,7 +122,7 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
     serialized_courses = [
         {
             "id": c.id,
-            "subject": c.subject,
+            "subject": c.subject_relation.short_label if c.subject_relation else "Cours",
             "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
             "teacher_ids": [t.id for t in c.teachers],
             "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
@@ -132,7 +132,7 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             "group_ids": [g.id for g in c.groups],
             "is_pinned": c.is_pinned,
             "duration_minutes": c.duration_minutes,
-            "week_type": c.effective_week_type,
+            "week_type": c.week_type.value,
             "parent_id": c.parent_id,
             "status": c.status,
             "decomposition_status": c.decomposition_status,
@@ -175,7 +175,7 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
                 
                 impacted.append({
                     "session_id": c.id,
-                    "course_label": f"{c.subject} - {t_name} - {d_name}",
+                    "course_label": f"{c.subject_relation.short_label if c.subject_relation else 'Cours'} - {t_name} - {d_name}",
                     "timeslot": ts_str,
                     "reason": f"Modification ou suppression de la structure de {resource_type} associée"
                 })

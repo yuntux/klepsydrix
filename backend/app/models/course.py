@@ -4,7 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
-from backend.app.models.base import Base, exposed
+from backend.app.models.base import Base, exposed, constrains
 from backend.app.models.preference import WeekType
 
 course_teachers = Table(
@@ -117,50 +117,6 @@ class Course(Base):
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts)
     groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses")
 
-    def __init__(self, **kwargs):
-        subj_val = kwargs.pop("subject", None)
-        super().__init__(**kwargs)
-        if subj_val is not None:
-            if isinstance(subj_val, str):
-                self._subject_str = subj_val
-            else:
-                self.subject_relation = subj_val
-
-    @hybrid_property
-    @exposed
-    def subject(self):
-        if self.subject_relation:
-            return self.subject_relation.short_label
-        return getattr(self, "_subject_str", "Cours")
-
-    @subject.setter
-    def subject(self, value):
-        if isinstance(value, str):
-            self._subject_str = value
-        else:
-            self.subject_relation = value
-
-    @subject.expression
-    def subject(cls):
-        from backend.app.models.subject import Subject
-        return select(Subject.short_label).where(Subject.id == cls.subject_id).correlate_except(Subject).scalar_subquery()
-
-    @property
-    def effective_week_type(self) -> str:
-        """Retourne le week_type effectif du cours."""
-        if not self.children:
-            wt = self.week_type
-            return wt.value if hasattr(wt, "value") else (wt or "W")
-        types = {
-            (c.week_type.value if hasattr(c.week_type, "value") else c.week_type)
-            for c in self.children
-            if c.week_type
-        }
-        if types == {"A"}:
-            return "A"
-        if types == {"B"}:
-            return "B"
-        return "W"
 
     def has_conflicts(self, db: Session) -> bool:
         """Vérifie si le cours a des conflits de ressources sans lever d'exception."""
@@ -181,7 +137,7 @@ class Course(Base):
 
         target_start = target_ts.hour * 60
         target_end = target_start + self.duration_minutes
-        target_week_type = self.week_type.value if hasattr(self.week_type, 'value') else (self.week_type or 'W')
+        target_week_type = getattr(self.week_type, 'value', 'W')
 
         def get_conflict_query(resource_filter):
             query = db.query(Course).join(Timeslot).filter(
@@ -306,6 +262,7 @@ class Course(Base):
             if not children:
                 self.decomposition_status = "UNVENTILATED"
             else:
+                # 4. Calcul de la ventilation
                 child_statuses = [c.status for c in children]
                 if all(s == "PLACED" for s in child_statuses) and self.resources_fully_ventilated_list(children):
                     self.decomposition_status = "FULLY_VENTILATED"
@@ -321,8 +278,37 @@ class Course(Base):
                 
         return self.status
 
-    def validate_child_constraints(self):
+    @constrains('week_type', 'parent_id')
+    def _sync_parent_week_type(self, db, exclude_child_id=None):
+        """Si un enfant change d'alternance ou est supprimé, on recalcule celle de son parent."""
+        if not self.parent_id:
+            return
+            
+        parent = db.get(self.__class__, self.parent_id)
+        if not parent:
+            return
+            
+        children = [c for c in parent.children if c.id != exclude_child_id]
+        if not children:
+            return
+            
+        from backend.app.models.preference import WeekType
+        types = {c.week_type.value for c in children if c.week_type}
+        
+        if types == {"A"}:
+            parent.week_type = WeekType.A
+        elif types == {"B"}:
+            parent.week_type = WeekType.B
+        else:
+            parent.week_type = WeekType.W
+        db.add(parent)
+
+    @constrains('duration_minutes', 'parent_id', 'timeslot_id')
+    def validate_child_constraints(self, db):
         """Vérifie qu'un cours enfant respecte les limites de temps, de ressources et de profondeur."""
+        for child in self.children:
+            child.validate_child_constraints(db)
+            
         if not self.parent:
             return
 
@@ -421,8 +407,11 @@ class Course(Base):
 
         return parent
 
-    def validate_placement_conflicts(self, db, vals):
-        target_ts_id = vals.get('timeslot_id', self.timeslot_id)
+
+
+    @constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_ids', 'division_ids', 'non_teaching_staff_ids')
+    def validate_placement_conflicts(self, db):
+        target_ts_id = self.timeslot_id
         if target_ts_id is None:
             return
 
@@ -452,7 +441,8 @@ class Course(Base):
             if target_end > absolute_end_minutes:
                 raise ValueError("Le cours déborde de la grille horaire de la journée.")
 
-        target_week_type = vals.get('week_type', getattr(self, 'week_type', 'W'))
+        target_week_type = getattr(self, 'week_type', 'W')
+
         
         def get_conflict_query(resource_filter):
             query = db.query(Course).join(Timeslot).filter(
@@ -467,7 +457,7 @@ class Course(Base):
             
             # Règle 1 : Orthogonalité Structurelle (Inclusion)
             from sqlalchemy import or_
-            target_parent_id = vals.get('parent_id', getattr(self, 'parent_id', None))
+            target_parent_id = getattr(self, 'parent_id', None)
             if target_parent_id:
                 query = query.filter(
                     Course.id != target_parent_id,
@@ -485,7 +475,7 @@ class Course(Base):
                 query = query.filter(Course.week_type.in_(['B', 'W']))
                 
             # Règle 3 : Orthogonalité Périodique
-            target_period_id = vals.get('period_id', getattr(self, 'period_id', None))
+            target_period_id = getattr(self, 'period_id', None)
             if target_period_id:
                 from backend.app.models.period import Period
                 target_period = db.get(Period, target_period_id)
@@ -500,22 +490,22 @@ class Course(Base):
 
             return query
 
-        t_ids = vals.get('teacher_ids', [t.id for t in self.teachers])
+        t_ids = [t.id for t in self.teachers]
         if t_ids:
             if get_conflict_query(Course.teachers.any(Teacher.id.in_(t_ids))).first():
                 raise ValueError("Conflit : L'enseignant est déjà occupé sur ce créneau (chevauchement)")
 
-        s_ids = vals.get('non_teaching_staff_ids', [s.id for s in self.non_teaching_staffs])
+        s_ids = [s.id for s in self.non_teaching_staffs]
         if s_ids:
             if get_conflict_query(Course.non_teaching_staffs.any(NonTeachingStaff.id.in_(s_ids))).first():
                 raise ValueError("Conflit : Le membre du personnel est déjà occupé sur ce créneau (chevauchement)")
 
-        c_ids = vals.get('classroom_ids', [c.id for c in self.classrooms])
+        c_ids = [c.id for c in self.classrooms]
         if c_ids:
             if get_conflict_query(Course.classrooms.any(Classroom.id.in_(c_ids))).first():
                 raise ValueError("Conflit : La salle est déjà occupée sur ce créneau (chevauchement)")
 
-        d_ids = vals.get('division_ids', [d.id for d in self.divisions])
+        d_ids = [d.id for d in self.divisions]
         if d_ids:
             if get_conflict_query(Course.divisions.any(Division.id.in_(d_ids))).first():
                 raise ValueError("Conflit : La division est déjà occupée sur ce créneau (chevauchement)")
@@ -547,19 +537,12 @@ class Course(Base):
         
         # Recalculer le statut du nouveau cours
         instance.recompute_status()
-                
-        # 3. Validation globale
-        instance.validate_placement_conflicts(db, vals)
-        instance.validate_child_constraints()
         return instance
 
     def update(self, db: Session, vals: dict):
         # 1. Synchronisation avec le parent (si applicable)
         self.__class__._sync_vals_from_parent(db, vals, instance=self)
         
-        # 2. Validation des conflits
-        self.validate_placement_conflicts(db, vals)
-
         # 3. Sauvegarde
         res = super().update(db, vals)
         
@@ -570,11 +553,6 @@ class Course(Base):
         if 'timeslot_id' in vals or 'is_pinned' in vals:
             for child in self.children:
                 child.update(db, {})
-                        
-        # 5. Validation de la cohérence de toute la hiérarchie parent-enfant
-        self.validate_child_constraints()
-        for child in self.children:
-            child.validate_child_constraints()
                 
         return res
 
@@ -586,5 +564,6 @@ class Course(Base):
             if parent:
                 parent._via_crud_mixin_update = True
                 parent.recompute_status(exclude_child_id=self.id)
+            self._sync_parent_week_type(db, exclude_child_id=self.id)
         return res
 

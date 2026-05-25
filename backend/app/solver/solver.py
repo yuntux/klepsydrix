@@ -164,7 +164,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             is_pinned = True
             
         # Charger week_type et class_part_ids
-        week_type = c.effective_week_type
+        week_type = c.week_type.value
         class_part_ids = []
             
         if c.groups:
@@ -184,7 +184,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             
         pc = PlanningCourse(
             id=c.id,
-            subject=c.subject,
+            subject_id=c.subject_id,
             teachers=[teachers_map[t.id] for t in c.teachers if t.id in teachers_map],
             non_teaching_staffs=[non_teaching_staffs_map[s.id] for s in c.non_teaching_staffs if s.id in non_teaching_staffs_map],
             divisions=[divisions_map[d.id] for d in c.divisions if d.id in divisions_map],

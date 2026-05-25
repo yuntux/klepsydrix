@@ -132,8 +132,8 @@ def hierarchy_overlap(c1: 'PlanningCourse', c2: 'PlanningCourse') -> bool:
 @dataclass
 class PlanningCourse:
     id: Annotated[int, PlanningId]
-    subject: str
     step: float
+    subject_id: typing.Optional[int] = None
     teachers: List[PlanningTeacher] = field(default_factory=list)
     non_teaching_staffs: List[PlanningNonTeachingStaff] = field(default_factory=list)
     divisions: List[PlanningDivision] = field(default_factory=list)
@@ -364,7 +364,7 @@ def student_group_subject_variety(constraint_factory: ConstraintFactory) -> Cons
     return (
         constraint_factory.for_each_unique_pair(
             PlanningCourse,
-            Joiners.equal(lambda course: course.subject),
+            Joiners.equal(lambda course: course.subject_id),
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: course1.timeslot is not None and course2.timeslot is not None and abs(abs(course1.timeslot.hour - course2.timeslot.hour) - course1.step) < 0.001)

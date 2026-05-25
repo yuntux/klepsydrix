@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
-from backend.app.models.base import Base
+from backend.app.models.base import Base, constrains
 
 class Timeslot(Base):
     __tablename__ = "timeslots"
@@ -14,11 +14,28 @@ class Timeslot(Base):
 
     # Relation avec les séances planifiées sur ce créneau
 
+    @constrains('hour')
+    def _validate_hour_overflow(self, db):
+        if self.hour < 0:
+            raise ValueError("L'heure d'un créneau ne peut pas être négative.")
+            
+        from backend.app.models.system_setting import SystemSetting
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
+        if not setting or not setting.value.isdigit():
+            raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
+        duration = int(setting.value)
+        
+        if (self.hour * 60) + duration > 24 * 60:
+            raise ValueError(f"Le créneau de {self.hour}h (avec une durée de {duration}min) déborde sur la journée suivante (> 24h).")
+
+
     @classmethod
     def get_active_timeslots(cls, db):
         from backend.app.models.system_setting import SystemSetting
         setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-        duration = int(setting.value) if setting and setting.value.isdigit() else 60
+        if not setting or not setting.value.isdigit():
+            raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
+        duration = int(setting.value)
         step = duration / 60.0
         
         all_ts = db.query(cls).all()

@@ -44,6 +44,25 @@ class CRUDMixin:
         return getattr(self, relation_name, None)
 
     @classmethod
+    def _coerce_values(cls, vals: dict):
+        """Convertit les types basiques (str) en types complexes attendus par l'ORM (Enum Python)."""
+        from sqlalchemy import inspect
+        if not hasattr(cls, "__mapper__"):
+            return
+            
+        mapper = inspect(cls)
+        for key, value in list(vals.items()):
+            if key in mapper.columns:
+                col = mapper.columns[key]
+                if hasattr(col.type, 'enum_class') and col.type.enum_class is not None:
+                    if isinstance(value, str):
+                        try:
+                            vals[key] = col.type.enum_class(value)
+                        except ValueError:
+                            pass
+
+
+    @classmethod
     def create(cls, db: Session, vals: dict):
         """
         Méthode de création standard surchargeable avec gestion des related_fields.
@@ -83,6 +102,7 @@ class CRUDMixin:
                     local_vals[k] = v
 
             # 3. Créer l'enregistrement local principal
+            cls._coerce_values(local_vals)
             instance = cls(**local_vals)
             instance._via_crud_mixin_create = True
             db.add(instance)
@@ -176,6 +196,7 @@ class CRUDMixin:
 
             # 3. Mettre à jour l'enregistrement principal
             self._via_crud_mixin_update = True
+            self.__class__._coerce_values(local_vals)
             for key, value in local_vals.items():
                 if hasattr(self, key):
                     setattr(self, key, value)

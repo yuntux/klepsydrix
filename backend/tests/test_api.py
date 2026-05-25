@@ -705,6 +705,56 @@ def test_course_status_calculation(db_session: Session):
     assert parent.decomposition_status == "FULLY_VENTILATED"
 
 
+def test_course_parent_week_type_cascade(db_session: Session):
+    """
+    Vérifie que le week_type du cours parent se synchronise automatiquement 
+    en fonction de l'alternance de ses enfants.
+    """
+    from backend.app.models.course import Course
+    from backend.app.models.preference import WeekType
+    
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    # 1. Création du parent (par défaut 'W')
+    parent = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "is_composed": True
+    })
+    db_session.commit()
+    assert parent.week_type == WeekType.W
+    
+    # 2. Ajout d'un enfant en semaine A -> le parent doit devenir A
+    child1 = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "parent_id": parent.id,
+        "week_type": "A"
+    })
+    db_session.commit()
+    
+    # Rafraîchir le parent depuis la BD pour voir l'effet de la cascade
+    db_session.refresh(parent)
+    assert parent.week_type == WeekType.A
+    
+    # 3. Ajout d'un deuxième enfant en semaine B -> le parent doit devenir W (hybride)
+    child2 = Course.create(db_session, {
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "parent_id": parent.id,
+        "week_type": "B"
+    })
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type == WeekType.W
+    
+    # 4. Suppression de l'enfant 2 -> il ne reste que l'enfant 1 (A), le parent redevient A
+    child2.delete(db_session)
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type == WeekType.A
+
 def test_course_day_overflow_conflict(db_session: Session):
     """
     Vérifie qu'un cours ne peut pas déborder au-delà du dernier créneau de la journée.
