@@ -1,3 +1,6 @@
+from datetime import date, datetime, time
+from typing import Optional, Any
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -63,56 +66,56 @@ course_groups = Table(
 class Course(Base):
     __tablename__ = "courses"
 
-    id = Column(Integer, primary_key=True, index=True)
-    parent_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
     
     # Pour les cours simples, un subject_id est requis. Pour les cours complexes (parents), il peut être NULL.
-    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=True)
     
     # Placements et attributs directs
-    timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
-    is_pinned = Column(Boolean, nullable=False, default=False)
+    timeslot_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
     # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au parent)
-    parent_timeslot_offset = Column(Integer, nullable=False, default=0)
+    parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     
-    week_type = Column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
-    period_id = Column(Integer, ForeignKey("periods.id", ondelete="SET NULL"), nullable=True)
-    is_co_teaching = Column(Boolean, nullable=False, default=False)
+    week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
+    period_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("periods.id", ondelete="SET NULL"), nullable=True)
+    is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
-    duration_minutes = Column(Integer, nullable=False, default=55)
-    label = Column(String(100), nullable=True)
-    memo = Column(Text, nullable=True)
-    is_composed = Column(Boolean, nullable=False, default=False)
-    lock_structure = Column(Boolean, nullable=False, default=False)
-    status = Column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED")
-    decomposition_status = Column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED")
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=55)
+    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED")
+    decomposition_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED")
     
-    mission_id = Column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True)
-    election_method_id = Column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True)
-    family_id = Column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True)
-    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True)
+    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True)
+    family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True)
+    school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
 
     # Relations de navigation hiérarchique
-    parent = relationship("Course", back_populates="children", remote_side=[id])
-    children = relationship("Course", back_populates="parent", cascade="all, delete-orphan")
+    parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
+    children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", cascade="all, delete-orphan")
 
     # Relations de navigation Mto1
-    subject_relation = relationship("Subject", back_populates="courses")
-    timeslot = relationship("Timeslot")
-    mission = relationship("Mission", back_populates="courses")
-    election_method = relationship("ElectionMethod", back_populates="courses")
-    family = relationship("Family", back_populates="courses")
-    school = relationship("School", back_populates="courses")
+    subject_relation: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="courses")
+    timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
+    mission: Mapped[Optional["Mission"]] = relationship("Mission", back_populates="courses")
+    election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod", back_populates="courses")
+    family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
+    school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
     
     # Ressources N..N pures
-    teachers = relationship("Teacher", secondary=course_teachers, back_populates="courses")
-    non_teaching_staffs = relationship("NonTeachingStaff", secondary=course_non_teaching_staffs, back_populates="courses")
-    classrooms = relationship("Classroom", secondary=course_classrooms)
-    materials = relationship("Material", secondary=course_materials)
-    divisions = relationship("Division", secondary=course_divisions, back_populates="courses")
-    class_parts = relationship("ClassPart", secondary=course_class_parts)
-    groups = relationship("Group", secondary=course_groups, back_populates="courses")
+    teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=course_teachers, back_populates="courses")
+    non_teaching_staffs: Mapped[list["NonTeachingStaff"]] = relationship("NonTeachingStaff", secondary=course_non_teaching_staffs, back_populates="courses")
+    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", secondary=course_classrooms)
+    materials: Mapped[list["Material"]] = relationship("Material", secondary=course_materials)
+    divisions: Mapped[list["Division"]] = relationship("Division", secondary=course_divisions, back_populates="courses")
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts)
+    groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses")
 
     def __init__(self, **kwargs):
         subj_val = kwargs.pop("subject", None)

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 import importlib
@@ -187,10 +188,12 @@ def make_list_endpoint(model):
                 "items": [sqla_to_dict(item) for item in items]
             }
 
-        query = db.query(model)
+        query = select(model)
+        count_query = select(func.count()).select_from(model)
         for k, v in domain.items():
             query = query.filter(getattr(model, k) == v)
-        total = query.count()
+            count_query = count_query.filter(getattr(model, k) == v)
+        total = db.scalar(count_query)
         
         items = model.read(db, domain=domain, limit=limit, offset=skip)
         return {
@@ -209,7 +212,7 @@ def make_get_endpoint(model):
                 raise HTTPException(status_code=404, detail="Élément introuvable.")
             return sqla_to_dict(item)
 
-        item = db.query(model).filter(model.id == item_id).first()
+        item = db.get(model, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
         return sqla_to_dict(item)
@@ -259,7 +262,8 @@ def make_create_endpoint(model, payload_schema):
         try:
             new_item = model.create(db, cleaned_payload)
             if new_item is None:
-                return {"id": 0, "status": "purged"}
+                from fastapi.responses import JSONResponse
+                return JSONResponse(content={"id": 0, "status": "purged"})
             db.refresh(new_item)
             return sqla_to_dict(new_item)
         except Exception as e:
@@ -271,7 +275,7 @@ def make_update_endpoint(model, payload_schema):
         if issubclass(model, TransientModel):
             raise HTTPException(status_code=405, detail="La mise à jour n'est pas supportée pour cette ressource transitoire.")
 
-        item = db.query(model).filter(model.id == item_id).first()
+        item = db.get(model, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
 
@@ -291,7 +295,7 @@ def make_delete_endpoint(model, resource_name):
         if issubclass(model, TransientModel):
             raise HTTPException(status_code=405, detail="La suppression n'est pas supportée pour cette ressource transitoire.")
 
-        item = db.query(model).filter(model.id == item_id).first()
+        item = db.get(model, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
         try:
@@ -359,7 +363,7 @@ def make_instance_call_endpoint(model):
             items = model.read(db, domain={"id": item_id})
             instance = items[0] if items else None
         else:
-            instance = db.query(model).filter(model.id == item_id).first()
+            instance = db.get(model, item_id)
             
         if not instance:
             raise HTTPException(status_code=404, detail="Instance introuvable.")

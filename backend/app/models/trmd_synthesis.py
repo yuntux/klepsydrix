@@ -1,3 +1,6 @@
+from datetime import date, datetime, time
+from typing import Optional, Any
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import Session
 from backend.app.models.base import TransientModel
 from backend.app.models.subject import Subject

@@ -1,3 +1,6 @@
+from datetime import date, datetime, time
+from typing import Optional, Any
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, related_field
@@ -5,18 +8,18 @@ from backend.app.models.base import Base, related_field
 class Teacher(Base):
     __tablename__ = "teachers"
 
-    id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(30), unique=True, index=True, nullable=False, info={"label": "Code Enseignant", "placeholder": "ex: T1"})
-    first_name = Column(String(50), nullable=True, info={"label": "Prénom", "placeholder": "ex: Marc"})
-    last_name = Column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
-    name = Column(String(100), nullable=False, info={"label": "Nom d'usage complet", "placeholder": "ex: M. Dupont"}) # ex: 'M. Martin' (compatibilité V1)
-    max_weekly_hours = Column(Float, nullable=False, default=18.0, info={"label": "Heures max hebdomadaires", "min": 1.0, "max": 40.0, "step": "0.5"})
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code Enseignant", "placeholder": "ex: T1"})
+    first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Prénom", "placeholder": "ex: Marc"})
+    last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
+    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom d'usage complet", "placeholder": "ex: M. Dupont"}) # ex: 'M. Martin' (compatibilité V1)
+    max_weekly_hours: Mapped[float] = mapped_column(Float, nullable=False, default=18.0, info={"label": "Heures max hebdomadaires", "min": 1.0, "max": 40.0, "step": "0.5"})
     
-    school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement Principal"})
+    school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement Principal"})
 
     # Relations de navigation
-    school = relationship("School", back_populates="teachers")
-    courses = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all")
+    school: Mapped[Optional["School"]] = relationship("School", back_populates="teachers")
+    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all")
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)
 
     # Déclaration déclarative et compacte des champs liés (Style Odoo)

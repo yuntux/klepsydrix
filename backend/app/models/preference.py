@@ -1,5 +1,8 @@
+from datetime import date, datetime, time
+from typing import Optional, Any
 import enum
 from typing import List
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Table, Enum
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
@@ -20,16 +23,16 @@ preference_periods = Table(
 class ResourcePreference(Base):
     __tablename__ = "resource_preferences"
 
-    id = Column(Integer, primary_key=True, index=True)
-    resource_type = Column(String(30), nullable=False) # 'Teacher', 'Classroom', 'Division', 'Subject', 'Group', 'Material'
-    resource_id = Column(Integer, nullable=False)
-    timeslot_id = Column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
-    preference_level = Column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
-    week_type = Column(Enum(WeekType, name="week_type_enum"), nullable=False, default=WeekType.W) # 'A', 'B', 'W'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    resource_type: Mapped[str] = mapped_column(String(30), nullable=False) # 'Teacher', 'Classroom', 'Division', 'Subject', 'Group', 'Material'
+    resource_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    timeslot_id: Mapped[int] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
+    preference_level: Mapped[str] = mapped_column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
+    week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="week_type_enum"), nullable=False, default=WeekType.W) # 'A', 'B', 'W'
 
     # Navigation
-    timeslot = relationship("Timeslot")
-    periods = relationship("Period", secondary=preference_periods)
+    timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
+    periods: Mapped[list["Period"]] = relationship("Period", secondary=preference_periods)
 
     @classmethod
     def create(cls, db: "Session", vals: dict):

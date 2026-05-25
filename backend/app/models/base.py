@@ -1,4 +1,5 @@
-from sqlalchemy.orm import declarative_base, Session
+from sqlalchemy.orm import DeclarativeBase, Session
+from sqlalchemy import select
 from sqlalchemy.ext.hybrid import hybrid_property
 
 def constrains(*args):
@@ -98,7 +99,7 @@ class CRUDMixin:
 
             # 5. Mettre à jour les relations collection
             for rel_key, (target_cls, ids) in collection_updates.items():
-                items = db.query(target_cls).filter(target_cls.id.in_(ids)).all()
+                items = db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()
                 setattr(instance, rel_key, items)
 
             db.flush()
@@ -123,7 +124,7 @@ class CRUDMixin:
         Lit des enregistrements à partir de la base de données.
         Retourne une liste d'instances Python du modèle.
         """
-        query = db.query(cls)
+        query = select(cls)
         if domain:
             for key, value in domain.items():
                 if hasattr(cls, key):
@@ -132,7 +133,7 @@ class CRUDMixin:
             query = query.offset(offset)
         if limit is not None:
             query = query.limit(limit)
-        return query.all()
+        return db.execute(query).scalars().all()
 
 
     def update(self, db: Session, vals: dict):
@@ -190,7 +191,7 @@ class CRUDMixin:
 
             # 5. Mettre à jour les relations collection
             for rel_key, (target_cls, ids) in collection_updates.items():
-                items = db.query(target_cls).filter(target_cls.id.in_(ids)).all()
+                items = db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()
                 setattr(self, rel_key, items)
 
             db.flush()  # Flush sans commit : le commit est géré par l'endpoint
@@ -223,7 +224,8 @@ class CRUDMixin:
             raise e
 
 # Base déclarative commune pour tous les modèles SQLAlchemy
-Base = declarative_base(cls=CRUDMixin)
+class Base(DeclarativeBase, CRUDMixin):
+    pass
 
 def exposed(attr):
     """

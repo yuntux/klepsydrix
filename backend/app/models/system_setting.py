@@ -1,4 +1,7 @@
+from datetime import date, datetime, time
+from typing import Optional, Any
 import enum
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, String, Integer, Enum
 from backend.app.models.base import Base
 
@@ -12,8 +15,8 @@ SETTING_LABELS = {
 class SystemSetting(Base):
     __tablename__ = "system_settings"
 
-    id = Column(Integer, primary_key=True, index=True)
-    key = Column(Enum(SystemSettingKey, native_enum=False), index=True, unique=True, nullable=False, info={
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    key: Mapped[Any] = mapped_column(Enum(SystemSettingKey, native_enum=False), index=True, unique=True, nullable=False, info={
         "label": "Paramètre système", 
         "type": "select",
         "options": [
@@ -21,7 +24,7 @@ class SystemSetting(Base):
             for k in SystemSettingKey
         ]
     })
-    value = Column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30"})
+    value: Mapped[str] = mapped_column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30"})
 
     def delete(self, db):
         if self.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION:

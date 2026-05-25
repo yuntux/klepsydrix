@@ -1,5 +1,6 @@
 from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from timefold.solver import SolverFactory
 from timefold.solver.config import SolverConfig, TerminationConfig, ScoreDirectorFactoryConfig, Duration, EnvironmentMode
 from timefold.solver import SolutionManager
@@ -64,10 +65,10 @@ class SolverState:
 
 
 def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
-    db_teachers = db.query(Teacher).all()
-    db_non_teaching_staffs = db.query(NonTeachingStaff).all()
-    db_classrooms = db.query(Classroom).all()
-    db_divisions = db.query(Division).all()
+    db_teachers = db.execute(select(Teacher)).scalars().unique().all()
+    db_non_teaching_staffs = db.execute(select(NonTeachingStaff)).scalars().unique().all()
+    db_classrooms = db.execute(select(Classroom)).scalars().unique().all()
+    db_divisions = db.execute(select(Division)).scalars().unique().all()
     
     db_timeslots = Timeslot.get_active_timeslots(db)
     
@@ -75,11 +76,11 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     # Les cours simples enfants (qui subdivisent un cours composé) sont uniquement
     # utilisés pour l'affichage et le détail des ressources. Le placement global sur
     # la grille horaire est géré exclusivement au niveau du cours parent.
-    db_courses = db.query(Course).filter(Course.parent_id == None).all()
-    db_links = db.query(ClassPartLink).all()
-    db_preferences = db.query(ResourcePreference).all()
-    db_constraints = db.query(ResourceConstraint).all()
-    db_periods = db.query(Period).all()
+    db_courses = db.execute(select(Course).filter(Course.parent_id == None)).scalars().unique().all()
+    db_links = db.execute(select(ClassPartLink)).scalars().unique().all()
+    db_preferences = db.execute(select(ResourcePreference)).scalars().unique().all()
+    db_constraints = db.execute(select(ResourceConstraint)).scalars().unique().all()
+    db_periods = db.execute(select(Period)).scalars().unique().all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
     non_teaching_staffs_map = {s.id: PlanningNonTeachingStaff(s.id, s.first_name, s.last_name) for s in db_non_teaching_staffs}
@@ -233,7 +234,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
 
         # Mettre à jour les enregistrements
         for pc in solution.courses:
-            db_course = db.query(Course).filter(Course.id == pc.id).first()
+            db_course = db.get(Course, pc.id)
             if db_course:
                 db_course._via_crud_mixin_update = True
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None

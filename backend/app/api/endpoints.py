@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from typing import Dict, Any, Optional
 
 from backend.app.core.database import get_db
@@ -15,10 +16,10 @@ router = APIRouter(prefix="/api/timetable")
 
 @router.get("", response_model=Dict[str, Any])
 def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)):
-    teachers_query = db.query(Teacher)
-    classrooms_query = db.query(Classroom)
-    divisions_query = db.query(Division)
-    courses_query = db.query(Course)
+    teachers_query = select(Teacher)
+    classrooms_query = select(Classroom)
+    divisions_query = select(Division)
+    courses_query = select(Course)
     
     if school_id is not None:
         teachers_query = teachers_query.filter(Teacher.school_id == school_id)
@@ -26,12 +27,12 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
         divisions_query = divisions_query.filter(Division.school_id == school_id)
         courses_query = courses_query.filter(Course.school_id == school_id)
         
-    teachers = teachers_query.all()
-    classrooms = classrooms_query.all()
-    divisions = divisions_query.all()
+    teachers = db.execute(teachers_query).scalars().unique().all()
+    classrooms = db.execute(classrooms_query).scalars().unique().all()
+    divisions = db.execute(divisions_query).scalars().unique().all()
     timeslots = Timeslot.get_active_timeslots(db)
-    courses = courses_query.all()
-    non_teaching_staffs = db.query(NonTeachingStaff).all()
+    courses = db.execute(courses_query).scalars().unique().all()
+    non_teaching_staffs = db.execute(select(NonTeachingStaff)).scalars().unique().all()
 
     return {
         "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.name, "school_id": t.school_id} for t in teachers],
@@ -87,7 +88,7 @@ def stop_solve():
 
 @router.post("/reset")
 def reset(db: Session = Depends(get_db)):
-    courses = db.query(Course).all()
+    courses = db.execute(select(Course)).scalars().unique().all()
     for c in courses:
         c.update(db, {
             "timeslot_id": None,
@@ -105,7 +106,7 @@ class CourseUpdate(BaseModel):
 
 @router.put("/courses/{course_id}")
 def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(get_db)):
-    course = db.query(Course).filter(Course.id == course_id).first()
+    course = db.get(Course, course_id)
     if not course:
         raise HTTPException(status_code=404, detail="Cours non trouvé")
     
@@ -151,7 +152,7 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
     impacted = []
     
     if action == "DELETE_RESOURCE" or action == "UPDATE_GROUP_PARTITION":
-        courses_query = db.query(Course)
+        courses_query = select(Course)
         if resource_type == "Teacher":
             courses_query = courses_query.filter(Course.teachers.any(Teacher.id == resource_id))
         elif resource_type == "NonTeachingStaff":
@@ -163,10 +164,10 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
         elif resource_type == "Group":
             courses_query = courses_query.filter(Course.groups.any(Group.id == resource_id))
             
-        courses = courses_query.all()
+        courses = db.execute(courses_query).scalars().unique().all()
         for c in courses:
             if c.timeslot_id is not None:
-                ts = db.query(Timeslot).filter(Timeslot.id == c.timeslot_id).first()
+                ts = db.get(Timeslot, c.timeslot_id)
                 ts_str = f"Jour {ts.day_of_week} à {ts.hour}h00" if ts else "Créneau Inconnu"
                 
                 t_name = c.teachers[0].name if c.teachers else "Sans Prof"
@@ -194,7 +195,7 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
     
     deplaced_count = 0
     
-    courses_query = db.query(Course)
+    courses_query = select(Course)
     if resource_type == "Teacher":
         courses_query = courses_query.filter(Course.teachers.any(Teacher.id == resource_id))
     elif resource_type == "Classroom":
@@ -204,7 +205,7 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
     elif resource_type == "Group":
         courses_query = courses_query.filter(Course.groups.any(Group.id == resource_id))
         
-    courses = courses_query.all()
+    courses = db.execute(courses_query).scalars().unique().all()
     for c in courses:
         if c.timeslot_id is not None:
             c.update(db, {

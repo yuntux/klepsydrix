@@ -1,3 +1,6 @@
+from datetime import date, datetime, time
+from typing import Optional, Any
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Table
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, constrains
@@ -13,43 +16,43 @@ group_class_parts = Table(
 class Partition(Base):
     __tablename__ = "partitions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(20), nullable=False)
-    name = Column(String(100), nullable=False)
-    division_id = Column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
 
     # Relations de navigation
-    division = relationship("Division", back_populates="partitions")
-    class_parts = relationship("ClassPart", back_populates="partition", passive_deletes="all")
+    division: Mapped[Optional["Division"]] = relationship("Division", back_populates="partitions")
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", back_populates="partition", passive_deletes="all")
 
 class ClassPart(Base):
     __tablename__ = "class_parts"
 
-    id = Column(Integer, primary_key=True, index=True)
-    division_id = Column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
-    partition_id = Column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False)
-    code = Column(String(30), unique=True, index=True, nullable=False)
-    name = Column(String(50), nullable=False)
-    student_count = Column(Integer, nullable=False, default=0)
-    color = Column(String(7), nullable=False, default="#CCCCCC")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
+    partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False)
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC")
 
     # Relations de navigation
-    division = relationship("Division", back_populates="class_parts")
-    partition = relationship("Partition", back_populates="class_parts")
-    groups = relationship("Group", secondary=group_class_parts, back_populates="class_parts")
+    division: Mapped[Optional["Division"]] = relationship("Division", back_populates="class_parts")
+    partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
+    groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts")
 
 class ClassPartLink(Base):
     __tablename__ = "class_part_links"
 
-    id = Column(Integer, primary_key=True, index=True)
-    class_part_a_id = Column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
-    class_part_b_id = Column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
-    link_type = Column(String(20), nullable=False) # 'CoPlaned' ou 'Excluded'
-    is_system_generated = Column(Boolean, nullable=False, default=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    class_part_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
+    class_part_b_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
+    link_type: Mapped[str] = mapped_column(String(20), nullable=False) # 'CoPlaned' ou 'Excluded'
+    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relations de navigation
-    class_part_a = relationship("ClassPart", foreign_keys=[class_part_a_id])
-    class_part_b = relationship("ClassPart", foreign_keys=[class_part_b_id])
+    class_part_a: Mapped[Optional["ClassPart"]] = relationship("ClassPart", foreign_keys=[class_part_a_id])
+    class_part_b: Mapped[Optional["ClassPart"]] = relationship("ClassPart", foreign_keys=[class_part_b_id])
 
     __table_args__ = (
         UniqueConstraint("class_part_a_id", "class_part_b_id", name="uq_class_part_pair"),
@@ -67,13 +70,13 @@ class ClassPartLink(Base):
 class Group(Base):
     __tablename__ = "groups"
 
-    id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(20), unique=True, index=True, nullable=False, info={"label": "Code du groupe", "placeholder": "ex: GRP_6A"})
-    name = Column(String(100), nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: Groupe 1"})
-    student_count = Column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
-    color = Column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #F59E0B"})
-    is_variable_size = Column(Boolean, nullable=False, default=False, info={"label": "Taille variable"})
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False, info={"label": "Code du groupe", "placeholder": "ex: GRP_6A"})
+    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: Groupe 1"})
+    student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
+    color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #F59E0B"})
+    is_variable_size: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Taille variable"})
 
     # Relations de navigation
-    class_parts = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")
-    courses = relationship("Course", secondary="course_groups", back_populates="groups")
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")
+    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_groups", back_populates="groups")

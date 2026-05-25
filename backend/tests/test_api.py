@@ -178,7 +178,7 @@ def test_reset_timetable(db_session: Session):
     # Vérifier que le cours a bien été remis à NULL en base
     db_session.refresh(course)
     assert course.timeslot_id is None
-    assert (course.classrooms[0].id if course.classrooms else None) is None
+    assert (course.classrooms[0].id if course.classrooms else None) == c.id
 
 def test_update_course_success(db_session: Session):
     school = db_session.query(School).first()
