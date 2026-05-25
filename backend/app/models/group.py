@@ -19,7 +19,7 @@ class Partition(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     code: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
+    division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
 
     # Relations de navigation
     division: Mapped[Optional["Division"]] = relationship("Division", back_populates="partitions")
@@ -34,8 +34,8 @@ class ClassPart(Base):
     __tablename__ = "class_parts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False)
-    division_id = related_field("partition", "division_id", info={"label": "Division"})
+    partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
+    division_id = related_field("partition", "division_id", info={"label": "Division", "readOnly": True})
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
