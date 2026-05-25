@@ -45,7 +45,134 @@
             "id": "divisions_preferences_tab",
             "title": "Vœux et contraintes",
             "borderColor": "#8B5CF6",
-            "panels": []
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "divisions_pref_list",
+                "component": "GenericList",
+                "resourceKey": "divisions",
+                "width": "20%",
+                "listConfig": {
+                  "editableInline": false,
+                  "allowMultiSelect": true,
+                  "disableAdd": true,
+                  "columns": {
+                    "code": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Code"
+                    },
+                    "name": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Nom de la classe"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "divisions_pref_grid",
+                "component": "PreferenceGrid",
+                "width": "50%"
+              },
+              {
+                "id": "divisions_pref_form",
+                "component": "GenericForm",
+                "resourceKey": "resource_constraints",
+                "relationName": "constraint_record",
+                "width": "30%",
+                "placeholderText": "Veuillez choisir une classe dans la liste de gauche pour configurer ses contraintes.",
+                "formConfig": {
+                  "editableForm": true,
+                  "fields": [
+                    {
+                      "type": "group",
+                      "string": "Max Horaire [M]",
+                      "col": 3,
+                      "children": [
+                        {
+                          "key": "max_hours_per_day",
+                          "overrideLabel": "Journée",
+                          "readOnly": false,
+                          "help": "Nombre maximum d'heures de cours d'une classe par jour.\n- **Valeur type** : 6 à 8 heures."
+                        },
+                        {
+                          "key": "max_hours_per_am",
+                          "overrideLabel": "Matin",
+                          "readOnly": false,
+                          "help": "Volume d'heures maximum autorisées en matinée (avant 12h)."
+                        },
+                        {
+                          "key": "max_hours_per_pm",
+                          "overrideLabel": "Après-midi",
+                          "readOnly": false,
+                          "help": "Volume d'heures maximum autorisées l'après-midi (à partir de 12h)."
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Horaires Aménagés [A]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "late_start_days_per_week",
+                          "overrideLabel": "Commencer",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "late_start_time",
+                          "overrideLabel": "jours/sem. au plus tôt à",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "early_end_days_per_week",
+                          "overrideLabel": "Terminer",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "early_end_time",
+                          "overrideLabel": "jours/sem. au plus tard à",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Maximum de demi-journées de cours [J]",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_worked_am_per_week",
+                          "overrideLabel": "Matin",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_worked_pm_per_week",
+                          "overrideLabel": "Après-midi",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "only_one_half_day_per_day",
+                          "overrideLabel": "N'avoir cours\n qu'1/2 j. par j.",
+                          "readOnly": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Préférences d'Optimisation",
+                      "col": 2,
+                      "children": [
+                        {
+                          "key": "max_gap_hours_per_week",
+                          "overrideLabel": "Nombre d'heures de trous tolérées",
+                          "readOnly": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       },
