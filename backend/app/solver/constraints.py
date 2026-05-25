@@ -137,8 +137,8 @@ class PlanningCourse:
     teachers: List[PlanningTeacher] = field(default_factory=list)
     non_teaching_staffs: List[PlanningNonTeachingStaff] = field(default_factory=list)
     divisions: List[PlanningDivision] = field(default_factory=list)
-    timeslot: Annotated[PlanningTimeslot, PlanningVariable(value_range_provider_refs=['timeslotRange'])] = None
-    classroom: Annotated[PlanningClassroom, PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
+    timeslot: Annotated[typing.Optional[PlanningTimeslot], PlanningVariable(value_range_provider_refs=['timeslotRange'], allows_unassigned=True)] = None
+    classroom: Annotated[typing.Optional[PlanningClassroom], PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
     original_timeslot_id: typing.Optional[int] = None
     original_classroom_id: typing.Optional[int] = None
@@ -186,6 +186,7 @@ def periods_overlap(periods_a: List[int], periods_b: List[int]) -> bool:
 @constraint_provider
 def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint]:
     return [
+        penalize_unassigned_course(constraint_factory),
         teacher_conflict(constraint_factory),
         non_teaching_staff_conflict(constraint_factory),
         classroom_conflict(constraint_factory),
@@ -231,6 +232,30 @@ def _check_teacher_overlap(c1, c2):
             if t1.id == t2.id:
                 return True
     return False
+
+# ==========================================
+# 0. OVERCONSTRAINED PLANNING
+# ==========================================
+
+def penalize_unassigned_course(constraint_factory: ConstraintFactory) -> Constraint:
+    """
+    Overconstrained Planning : on autorise Timefold à ne pas placer un cours (timeslot=None)
+    si le placer créerait un conflit dur (Hard Conflict).
+    Pour éviter que Timefold ne place rien du tout, on ajoute une très forte pénalité Soft.
+    Ainsi, l'IA cherchera toujours à le placer, sauf si c'est physiquement impossible.
+    NOTE: On DOIT utiliser `for_each_including_unassigned` car `for_each` ignore les variables None.
+    """
+    return (
+        constraint_factory.for_each_including_unassigned(PlanningCourse)
+        .filter(lambda c: getattr(c, 'timeslot', None) is None)
+        .penalize(HardSoftScore.ONE_SOFT, lambda c: 1_000_000)
+        .as_constraint("Pénaliser les cours non assignés (Overconstrained Planning)")
+    )
+
+
+# ==========================================
+# 1. CONTRAINTES DURES (HardScore)
+# ==========================================
 
 def course_day_overflow(constraint_factory: ConstraintFactory) -> Constraint:
     return (
