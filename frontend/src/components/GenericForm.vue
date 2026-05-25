@@ -544,22 +544,34 @@ const FormLayoutGrid: any = defineComponent({
               class: 'form-label',
               for: key,
               style: {
-                gridColumn: 'auto'
+                gridColumn: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: '2px'
               }
             }, [
-              h('span', {}, label),
-              required ? h('span', { class: 'required-indicator' }, ' *') : null,
-              isModified(key) ? h('span', { class: 'field-modified-badge' }, '✏️ Modifié') : null,
-              elem.help ? h('span', {
-                class: 'help-tooltip-wrapper',
-                onClick: (e: Event) => e.stopPropagation()
+              h('span', {
+                style: {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }
               }, [
-                h('span', { class: 'help-icon' }, '?'),
-                h('span', {
-                  class: 'help-tooltip',
-                  innerHTML: renderMarkdown(elem.help)
-                })
-              ]) : null
+                h('span', {}, label),
+                required ? h('span', { class: 'required-indicator' }, ' *') : null,
+                elem.help ? h('span', {
+                  class: 'help-tooltip-wrapper',
+                  onClick: (e: Event) => e.stopPropagation()
+                }, [
+                  h('span', { class: 'help-icon' }, '?'),
+                  h('span', {
+                    class: 'help-tooltip',
+                    innerHTML: renderMarkdown(elem.help)
+                  })
+                ]) : null
+              ]),
+              isModified(key) ? h('span', { class: 'field-modified-badge', style: { marginLeft: '0px', marginTop: '4px' } }, '✏️ Modifié') : null
             ]);
 
             return [ labelElement, inputElement ];
