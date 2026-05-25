@@ -917,6 +917,7 @@ async function refreshScoreAndNotify(oldScore: any, actionName: string = 'Modifi
         for (const [ruleName, detail] of Object.entries(newScore.matches)) {
           const oldDetail = oldScore.matches?.[ruleName] || { count: 0 };
           if (detail.count > oldDetail.count) {
+             if (ruleName === "Pénaliser les cours non assignés (Overconstrained Planning)") continue;
              brokenRule = constraintTranslations[ruleName] || `Règle enfreinte : ${ruleName}`;
              break;
           }

@@ -270,9 +270,9 @@ def seed_v2_data():
             for g_idx in range(1, 4):
                 cp_code = f"{d_id}_SCI_G{g_idx}"
                 db.execute(text(
-                    "INSERT INTO class_parts (division_id, partition_id, code, name, student_count, color) "
-                    "VALUES (:div_id, :part_id, :code, :name, 10, '#CCCCCC')"
-                ), {"div_id": d_id, "part_id": part_id, "code": cp_code, "name": f"Groupe {g_idx}"})
+                    "INSERT INTO class_parts (partition_id, code, name, student_count, color) "
+                    "VALUES (:part_id, :code, :name, 10, '#CCCCCC')"
+                ), {"part_id": part_id, "code": cp_code, "name": f"Groupe {g_idx}"})
                 cp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
                 
                 grp_code = f"GRP_{cp_code}"

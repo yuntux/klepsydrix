@@ -172,13 +172,11 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
                 class_part_ids.extend([cp.id for cp in grp.class_parts])
         if c.divisions:
             for div in c.divisions:
-                class_part_ids.extend([cp.id for cp in div.class_parts])
+                for part in div.partitions:
+                    class_part_ids.extend([cp.id for cp in part.class_parts])
             
         if c.class_parts:
             class_part_ids.extend([cp.id for cp in c.class_parts])
-        if c.groups:
-            for grp in c.groups:
-                class_part_ids.extend([cp.id for cp in grp.class_parts])
                     
         class_part_ids = list(set(class_part_ids))
             
@@ -297,9 +295,18 @@ def explain_timetable_score(db: Session, school_id: Optional[int] = None) -> dic
             "count": len(cmt.constraint_match_set)
         }
 
+    # Calcul d'un score soft épuré de la pénalité artificielle d'Overconstrained Planning
+    original_soft_score = score.soft_score if score else 0
+    unassigned_constraint_name = "Pénaliser les cours non assignés (Overconstrained Planning)"
+    unassigned_soft_impact = 0
+    if unassigned_constraint_name in matches_detail:
+        unassigned_soft_impact = matches_detail[unassigned_constraint_name]["soft"]
+        
+    clean_soft_score = original_soft_score - unassigned_soft_impact
+
     return {
         "hard_score": score.hard_score if score else 0,
-        "soft_score": score.soft_score if score else 0,
+        "soft_score": clean_soft_score,
         "summary": score_explanation.summary,
         "matches": matches_detail
     }

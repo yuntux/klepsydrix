@@ -54,7 +54,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Gestion des changements de salles
 - Gestion des élèves et de leurs responsables
 - Gestion de la pause déjeuner
-- Gestion des permanences
+- Gestion des permanences / CDI
 - Recherche des salles disponibles
 - Gestion des statistiques
 
