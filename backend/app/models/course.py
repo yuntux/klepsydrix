@@ -439,6 +439,19 @@ class Course(Base):
         target_start = target_ts.hour * 60
         target_end = target_start + self.duration_minutes
 
+        # Vérification du débordement en fin de journée
+        from sqlalchemy import func
+        from backend.app.models.system_setting import SystemSetting, SystemSettingKey
+        max_hour = db.query(func.max(Timeslot.hour)).filter(Timeslot.day_of_week == target_ts.day_of_week).scalar()
+        if max_hour is not None:
+            setting = db.query(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION).first()
+            if not setting or not setting.value:
+                raise ValueError("Le paramètre système obligatoire 'STANDARD_TIMESLOT_DURATION' est manquant ou non défini.")
+            std_duration_min = int(setting.value)
+            absolute_end_minutes = (max_hour * 60) + std_duration_min
+            if target_end > absolute_end_minutes:
+                raise ValueError("Le cours déborde de la grille horaire de la journée.")
+
         target_week_type = vals.get('week_type', getattr(self, 'week_type', 'W'))
         
         def get_conflict_query(resource_filter):

@@ -86,7 +86,19 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     non_teaching_staffs_map = {s.id: PlanningNonTeachingStaff(s.id, s.first_name, s.last_name) for s in db_non_teaching_staffs}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
     divisions_map = {d.id: PlanningDivision(d.id, d.name) for d in db_divisions}
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.hour) for ts in db_timeslots}
+    from backend.app.models.system_setting import SystemSetting, SystemSettingKey
+    setting = db.execute(select(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION)).scalars().first()
+    if not setting or not setting.value:
+        raise ValueError("Le paramètre système obligatoire 'STANDARD_TIMESLOT_DURATION' est manquant ou non défini.")
+    std_duration_min = int(setting.value)
+    std_duration_hours = std_duration_min / 60.0
+
+    max_hours_by_day = {}
+    for ts in db_timeslots:
+        if ts.day_of_week not in max_hours_by_day or ts.hour > max_hours_by_day[ts.day_of_week]:
+            max_hours_by_day[ts.day_of_week] = ts.hour
+
+    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.hour, max_hours_by_day[ts.day_of_week] + std_duration_hours) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())
@@ -233,6 +245,12 @@ def _solve_timetable_job(db_session=None, school_id=None):
             SolverState.set_not_solving()
 
         # Mettre à jour les enregistrements
+        # ATTENTION ARCHITECTURE : Le solveur n'appelle JAMAIS la méthode Course.update() du CRUDMixin
+        # pour des raisons de performances (éviter de déclencher des milliers de validations Pydantic/Python).
+        # Il assigne directement les attributs (Direct Attribute Assignment) et fait un db.commit() brut.
+        # CONSÉQUENCE : Toute règle métier vérifiée dans `Course.validate_placement_conflicts()` 
+        # (ex: débordement de grille) DOIT obligatoirement être dupliquée en tant que contrainte Timefold
+        # dans `constraints.py`, sinon l'IA contournera la sécurité lors de la sauvegarde.
         for pc in solution.courses:
             db_course = db.get(Course, pc.id)
             if db_course:

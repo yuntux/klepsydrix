@@ -41,6 +41,7 @@ graph TD
 - **Rôle API** : Exposer les endpoints REST sécurisés, orchestrer les données et valider les modifications.
 - **Moteur d'Optimisation** : Timefold Solver (version Python).
   - *Fonctionnement* : Le backend convertit les données persistées en un graphe d'objets en mémoire (Planning Solution), configure les variables (créneaux et salles) et les contraintes (Hard/Soft), puis délègue la résolution au moteur de recherche locale Timefold.
+  - *Architecture de Validation Duale* : Pour des raisons de performance, lors de la sauvegarde de la solution, le Solveur accède directement aux attributs ORM (Direct Attribute Assignment) et fait un `commit()` brut, sans appeler les méthodes de validation de l'API (ex: `Course.validate_placement_conflicts()`). Celà éviter de vérifier à nouveau en Python une règle métier déjà vérifiée par le solver Timefold (ex: chevauchements, débordement de grille).
 
 ### C. Couche Données (Persistance)
 - **Technologie de Persistance (Développement & V1)** : SQLite (Base locale et légère).

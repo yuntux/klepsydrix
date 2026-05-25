@@ -704,3 +704,46 @@ def test_course_status_calculation(db_session: Session):
     assert parent.status == "PLACED"
     assert parent.decomposition_status == "FULLY_VENTILATED"
 
+
+def test_course_day_overflow_conflict(db_session: Session):
+    """
+    Vérifie qu'un cours ne peut pas déborder au-delà du dernier créneau de la journée.
+    Par exemple, si le dernier créneau est à 17h30, on ne peut pas y placer un cours de 1h.
+    """
+    from backend.app.models.system_setting import SystemSetting
+    
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher(code="T_OVERFLOW", name="Prof", last_name="Overflow", school_id=school.id)
+    teacher._via_crud_mixin_create = True
+    db_session.add(teacher)
+    
+    # On crée deux créneaux : l'avant-dernier et le dernier de la journée
+    # Ex: 17h00 et 17h30.
+    ts1 = Timeslot(day_of_week=1, hour=17.0)
+    ts2 = Timeslot(day_of_week=1, hour=17.5) # Le tout dernier créneau
+    ts1._via_crud_mixin_create = True
+    ts2._via_crud_mixin_create = True
+    db_session.add_all([ts1, ts2])
+    db_session.commit()
+
+    # Création d'un cours d'une heure (60 minutes), donc 2 blocs de 30 minutes.
+    course = Course(
+        subject_id=subject.id, 
+        school_id=school.id, 
+        teachers=[teacher], 
+        duration_minutes=60
+    )
+    course._via_crud_mixin_create = True
+    db_session.add(course)
+    db_session.commit()
+
+    # 1. Placement sur l'avant-dernier créneau (17h00) : succès car il déborde sur 17h30 qui existe.
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts1.id})
+    assert response.status_code == 200
+
+    # 2. Placement sur le dernier créneau (17h30) : doit échouer (Conflit 409) 
+    # car il a besoin de 60 minutes et déborderait de la journée (pas de créneau à 18h00)
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts2.id})
+    assert response.status_code == 409
+    assert "déborde" in response.json()["detail"].lower()

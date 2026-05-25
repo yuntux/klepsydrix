@@ -62,6 +62,7 @@ class PlanningTimeslot:
     id: int
     day_of_week: int
     hour: float
+    absolute_end_of_day: float
 
 
 @dataclass
@@ -191,6 +192,7 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         classroom_immobility(constraint_factory),
         division_conflict(constraint_factory),
         group_link_conflict(constraint_factory),
+        course_day_overflow(constraint_factory),
         stability_penalty(constraint_factory),
         teacher_room_stability(constraint_factory),
         student_group_subject_variety(constraint_factory),
@@ -229,6 +231,15 @@ def _check_teacher_overlap(c1, c2):
             if t1.id == t2.id:
                 return True
     return False
+
+def course_day_overflow(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda course: course.timeslot is not None)
+        .filter(lambda course: (course.timeslot.hour + course.step) > course.timeslot.absolute_end_of_day)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Course day overflow")
+    )
 
 def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
     return (
