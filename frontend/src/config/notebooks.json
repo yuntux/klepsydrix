@@ -528,7 +528,40 @@
             "id": "classrooms_preferences_tab",
             "title": "Vœux et contraintes",
             "borderColor": "#06B6D4",
-            "panels": []
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "classrooms_pref_list",
+                "component": "GenericList",
+                "resourceKey": "classrooms",
+                "width": "35%",
+                "listConfig": {
+                  "editableInline": false,
+                  "allowMultiSelect": true,
+                  "disableAdd": true,
+                  "disableEditModal": true,
+                  "columns": {
+                    "code": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Code"
+                    },
+                    "name": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Nom de la salle"
+                    },
+                    "capacity": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Capacité"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "classrooms_pref_grid",
+                "component": "PreferenceGrid",
+                "width": "65%"
+              }
+            ]
           }
         ]
       },

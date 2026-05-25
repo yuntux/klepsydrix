@@ -389,7 +389,6 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
   padding: 12px 16px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
 }
 
 .filter-item {

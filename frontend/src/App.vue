@@ -285,6 +285,13 @@ const isListEditableInline = computed(() => {
   return listPanel.listConfig?.editableInline !== false;
 });
 
+const isEditModalDisabled = computed(() => {
+  if (!activeLeaf.value || !activeLeaf.value.panels) return false;
+  const listPanel = activeLeaf.value.panels.find((p: any) => p.component === 'GenericList');
+  if (!listPanel) return false;
+  return listPanel.listConfig?.disableEditModal === true;
+});
+
 const inlineFormTitle = computed(() => {
   return isEditing.value ? `Modifier l'élément` : `Ajouter un élément`;
 });
@@ -548,7 +555,7 @@ async function onSelectionChangeGeneric(ids: any[]) {
           formModel.value = {};
           isEditing.value = false;
         }
-      } else if (!isListEditableInline.value) {
+      } else if (!isListEditableInline.value && !isEditModalDisabled.value) {
         onEditGeneric(item);
       }
     }

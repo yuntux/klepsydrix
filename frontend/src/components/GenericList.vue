@@ -314,6 +314,7 @@ interface ListConfig {
   editableInline?: boolean;
   allowMultiSelect?: boolean;
   disableAdd?: boolean;
+  disableEditModal?: boolean;
   columns?: Record<string, ColumnConfig>;
 }
 
