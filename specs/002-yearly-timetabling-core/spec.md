@@ -442,16 +442,36 @@ Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de cla
 *   `id` : Clé primaire (Entier)
 *   `class_part_a_id` : Clé étrangère vers la première **ClassPart** (Entier)
 *   `class_part_b_id` : Clé étrangère vers la seconde **ClassPart** (Entier)
-*   `is_system_generated` : Vrai si le lien a été généré automatiquement par précaution par le système lors de la création de partitions croisées (Booléen, par défaut `True`)
+*   `is_system_generated` : Vrai si le lien a été généré automatiquement par le système lors de la création de partitions croisées (Booléen, par défaut `True`)
 
-> **Contrainte d'intégrité (@constrains) :**
-> - **Orthogonalité stricte :** Il est strictement interdit de lier deux `ClassPart` appartenant à la même `Partition`. Au sein d'une même partition, les parties sont disjointes par nature (ex: on ne peut pas lier "Anglais" et "Espagnol" s'ils sont dans la même partition "Choix de Langues"). Cette validation empêche la saisie de données absurdes en base.
+> **Contraintes et règles métier de ClassPartLink :**
+> - **Tri des IDs :** La base de données impose `class_part_a_id < class_part_b_id` afin d'éviter les doublons de paires désordonnées.
+> - **Unicité :** Il existe une contrainte d'unicité sur le couple `(class_part_a_id, class_part_b_id)`.
+> - **Orthogonalité stricte (@constrains) :** Il est strictement interdit de lier deux `ClassPart` appartenant à la même `Partition`. Au sein d'une même partition, les parties sont disjointes par nature.
+> - **Immutabilité (Surcharge update) :** Il est strictement impossible de modifier un `ClassPartLink` après sa création. Pour changer un lien, il faut le supprimer et le recréer.
+> - **Validation de suppression (Surcharge delete) :** Un utilisateur ne peut supprimer un lien d'incompatibilité que si et seulement si l'intersection des élèves inscrits dans les deux parties de classe est vide (aucun élève n'est membre des deux parties à la fois).
+
+### 6ter. Student (Élève) [student.py]
+Représente un élève physique inscrit dans l'établissement, rattaché à une division et éventuellement à plusieurs parties de classe.
+*   `id` : Clé primaire (Entier)
+*   `first_name` : Prénom de l'élève (Chaîne, max 50 car.)
+*   `last_name` : Nom de l'élève (Chaîne, max 50 car.)
+*   `division_id` : Clé étrangère vers la **Division** (Entier)
+
+> **Contraintes d'intégrité de Student :**
+> - **Unicité de partition :** Un élève ne peut pas appartenir à deux parties de classe différentes de la même partition (les parties d'une même partition étant disjointes par nature).
+
+> [!NOTE]
+> **Règles d'intégrité de la structure des groupes (déjà implémentées dans `group.py`) :**
+> - **Partition :** Il est strictement interdit de modifier l'association `division_id` d'une partition après sa création (immutabilité de la division d'attachement).
+> - **ClassPart :** Il est strictement interdit de modifier l'association `partition_id` d'une partie de classe après sa création (immutabilité de la partition d'attachement).
+> - **Génération automatique de liens à la création (Surcharge create) :** Lors de la création d'une nouvelle `ClassPart`, le système génère automatiquement des liens `ClassPartLink` avec toutes les autres parties de classe déjà existantes appartenant aux autres partitions de la même division (orthogonalité).
 
 > [!NOTE]
 > **Pourquoi n'y a-t-il pas de lien d'incompatibilité direct entre les Groupes (`GroupLink`) ?**
 > Le Groupe n'est qu'un conteneur (un agrégateur) de parties de classe (`ClassPart`), qui sont les véritables briques élémentaires du système.
-> Puisque le solveur raisonne toujours au niveau de ces briques élémentaires, l'incompatibilité entre deux Groupes se déduit mathématiquement de l'incompatibilité de leurs parties sous-jacentes. Si une `ClassPart` du Groupe A est en conflit (via `ClassPartLink` ou par appartenance à la même division sans orthogonalité) avec une `ClassPart` du Groupe B, le solveur saura instantanément et automatiquement interdire le placement simultané de ces deux groupes.
-> Modéliser un lien d'incompatibilité explicitement au niveau du Groupe serait donc redondant et source d'incohérences de données (par exemple si la composition interne du groupe venait à être modifiée).
+> Puisque le solveur raisonne toujours au niveau de ces briques élémentaires, l'incompatibilité entre deux Groupes se déduit mathématiquement de l'incompatibilité de leurs parties sous-jacentes. Si une `ClassPart` du Groupe A est en conflit (via `ClassPartLink` ou par appartenance à la même division sans orthogonalité) avec une `ClassPart_B` du Groupe B, le solveur saura interdire le placement simultané de ces deux groupes.
+> Modéliser un lien d'incompatibilité explicitement au niveau du Groupe serait donc redondant et source d'incohérences de données.
 
 ### 7. AlternationCalendar (Calendrier d'Alternance)
 Modélise pour un établissement donné le découpage hebdomadaire de l'année scolaire en attribuant à chaque semaine calendaire réelle un type de semaine spécifique.

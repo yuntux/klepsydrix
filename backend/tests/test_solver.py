@@ -11,6 +11,7 @@ from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
+from backend.app.models.student import Student
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.period import Period
 from backend.app.solver.solver import _solve_timetable_job
@@ -96,8 +97,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
 
     cp1 = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "code": "CP_ANG", "name": "Anglais"})
     cp2 = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "code": "CP_ESP", "name": "Espagnol"})
-
-    link = ClassPartLink.create(db_session, {"class_part_a_id": cp1.id, "class_part_b_id": cp2.id, "link_type": "Excluded", "is_system_generated": True})
+    link = db_session.query(ClassPartLink).filter_by(class_part_a_id=min(cp1.id, cp2.id), class_part_b_id=max(cp1.id, cp2.id)).first()
+    assert link is not None
 
     g1 = Group.create(db_session, {"code": "G1", "name": "Groupe 1", "class_part_ids": [cp1.id]})
     g2 = Group.create(db_session, {"code": "G2", "name": "Groupe 2", "class_part_ids": [cp2.id]})
@@ -553,6 +554,122 @@ def test_solver_leaves_unplaceable_course_unassigned(db_session: Session):
     timeslots = {course1.timeslot_id, course2.timeslot_id}
     assert None in timeslots
     assert ts1.id in timeslots
+
+
+def test_auto_create_class_part_links(db_session: Session):
+    school = db_session.query(School).first()
+    d1 = Division.create(db_session, {"code": "DIV_TEST_LINKS", "name": "Div Test Links", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+
+    # Création de deux partitions pour la même division
+    partition1 = Partition.create(db_session, {"code": "P_LANG", "name": "Partition Langues", "division_id": d1.id})
+    partition2 = Partition.create(db_session, {"code": "P_ART", "name": "Partition Arts", "division_id": d1.id})
+
+    # Création des parties pour partition 1
+    cp1_a = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "code": "CP_ANG_TEST", "name": "Anglais"})
+    cp1_b = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "code": "CP_GER_TEST", "name": "Allemand"})
+
+    # À ce stade, pas de liens créés car pas d'autre partition contenant des parties
+    links_before = db_session.query(ClassPartLink).all()
+    links_test_before = [l for l in links_before if l.class_part_a_id in (cp1_a.id, cp1_b.id) or l.class_part_b_id in (cp1_a.id, cp1_b.id)]
+    assert len(links_test_before) == 0
+
+    # Création des parties pour partition 2
+    cp2_a = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "code": "CP_ART_TEST", "name": "Arts Plastiques"})
+    
+    # cp2_a doit être liée automatiquement à cp1_a et cp1_b
+    links = db_session.query(ClassPartLink).all()
+    links_cp2_a = [l for l in links if l.class_part_a_id == min(cp2_a.id, cp1_a.id) and l.class_part_b_id == max(cp2_a.id, cp1_a.id)]
+    assert len(links_cp2_a) == 1
+    assert links_cp2_a[0].is_system_generated is True
+
+    links_cp2_a_ger = [l for l in links if l.class_part_a_id == min(cp2_a.id, cp1_b.id) and l.class_part_b_id == max(cp2_a.id, cp1_b.id)]
+    assert len(links_cp2_a_ger) == 1
+
+    # Création de cp2_b
+    cp2_b = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "code": "CP_MUS_TEST", "name": "Musique"})
+
+    # cp2_b doit être liée à cp1_a et cp1_b
+    links = db_session.query(ClassPartLink).all()
+    links_cp2_b = [l for l in links if l.class_part_a_id == min(cp2_b.id, cp1_a.id) and l.class_part_b_id == max(cp2_b.id, cp1_a.id)]
+    assert len(links_cp2_b) == 1
+
+    links_cp2_b_ger = [l for l in links if l.class_part_a_id == min(cp2_b.id, cp1_b.id) and l.class_part_b_id == max(cp2_b.id, cp1_b.id)]
+    assert len(links_cp2_b_ger) == 1
+
+    # Vérifier que cp2_a et cp2_b ne sont pas liées entre elles (même partition)
+    links_intra = [l for l in links if l.class_part_a_id == min(cp2_a.id, cp2_b.id) and l.class_part_b_id == max(cp2_a.id, cp2_b.id)]
+    assert len(links_intra) == 0
+
+
+def test_student_and_link_constraints(db_session: Session):
+    import pytest
+    school = db_session.query(School).first()
+    d = Division.create(db_session, {"code": "DIV_STUD_TEST", "name": "Div Stud Test", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    d_id = d.id
+    
+    # Partitions
+    p1 = Partition.create(db_session, {"code": "P_STUD_1", "name": "Partition 1", "division_id": d_id})
+    p2 = Partition.create(db_session, {"code": "P_STUD_2", "name": "Partition 2", "division_id": d_id})
+    p1_id = p1.id
+    p2_id = p2.id
+    
+    # ClassParts
+    cp1_a = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p1_id, "code": "CP_1A", "name": "Part 1A"})
+    cp1_b = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p1_id, "code": "CP_1B", "name": "Part 1B"})
+    cp1_a_id = cp1_a.id
+    cp1_b_id = cp1_b.id
+    
+    # cp2_a est automatiquement liée à cp1_a et cp1_b via des liens d'exclusion système
+    cp2_a = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p2_id, "code": "CP_2A", "name": "Part 2A"})
+    cp2_a_id = cp2_a.id
+    
+    db_session.commit()
+    
+    # 1. Vérifier que modifier un ClassPartLink lève une ValueError
+    link = db_session.query(ClassPartLink).filter_by(class_part_a_id=min(cp1_a_id, cp2_a_id), class_part_b_id=max(cp1_a_id, cp2_a_id)).first()
+    assert link is not None
+    link_id = link.id
+    
+    with pytest.raises(ValueError, match="strictly forbidden|strictement interdit"):
+        link_to_up = db_session.get(ClassPartLink, link_id)
+        link_to_up.update(db_session, {"is_system_generated": False})
+        
+    db_session.commit()
+    
+    # 2. Création d'élèves pour tester les contraintes
+    # Élève valide : appartient à cp1_a et cp2_a
+    student1 = Student.create(db_session, {
+        "first_name": "Jean",
+        "last_name": "Dupont",
+        "division_id": d_id,
+        "class_part_ids": [cp1_a_id, cp2_a_id]
+    })
+    assert student1.id is not None
+    student1_id = student1.id
+    
+    db_session.commit()
+    
+    # Élève invalide : appartient à cp1_a et cp1_b (même partition -> interdit)
+    with pytest.raises(ValueError, match="same partition|m.me partition"):
+        Student.create(db_session, {
+            "first_name": "Invalide",
+            "last_name": "SamePart",
+            "division_id": d_id,
+            "class_part_ids": [cp1_a_id, cp1_b_id]
+        })
+        
+    db_session.commit()
+    
+    # 3. Vérifier que supprimer le lien d'incompatibilité entre cp1_a et cp2_a lève une ValueError car student1 y appartient
+    link_to_delete = db_session.query(ClassPartLink).filter_by(class_part_a_id=min(cp1_a_id, cp2_a_id), class_part_b_id=max(cp1_a_id, cp2_a_id)).first()
+    assert link_to_delete is not None
+    link_to_delete_id = link_to_delete.id
+    
+    with pytest.raises(ValueError, match="Impossible de supprimer ce lien|Cannot delete"):
+        l_del = db_session.get(ClassPartLink, link_to_delete_id)
+        l_del.delete(db_session)
+
+
 
 
 

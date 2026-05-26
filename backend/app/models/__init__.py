@@ -12,6 +12,7 @@ from backend.app.models.material import Material
 from backend.app.models.mission import Mission
 from backend.app.models.election_method import ElectionMethod
 from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
+from backend.app.models.student import Student
 from backend.app.models.period import Period
 from backend.app.models.period_type import PeriodType
 from backend.app.models.alternation import Alternation

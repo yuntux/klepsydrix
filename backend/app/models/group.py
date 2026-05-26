@@ -44,11 +44,60 @@ class ClassPart(Base):
     # Relations de navigation
     partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
     groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts")
+    students: Mapped[list["Student"]] = relationship("Student", secondary="student_class_parts", back_populates="class_parts", passive_deletes="all")
+
+    @classmethod
+    def create(cls, db: Session, vals: dict):
+        instance = super().create(db, vals)
+        instance._auto_generate_links(db)
+        return instance
 
     def update(self, db: Session, vals: dict):
         if 'partition_id' in vals and vals['partition_id'] != self.partition_id:
             raise ValueError("Il est strictement interdit de modifier l'attribut 'partition_id' d'une partie de classe après sa création.")
         return super().update(db, vals)
+
+    def _auto_generate_links(self, db: Session):
+        from sqlalchemy import select
+        # 1. Obtenir la partition de cette partie de classe
+        partition = db.get(Partition, self.partition_id)
+        if not partition:
+            return
+        
+        division_id = partition.division_id
+        
+        # 2. Trouver toutes les autres partitions de la même division
+        other_partitions = db.execute(
+            select(Partition).filter(
+                Partition.division_id == division_id,
+                Partition.id != self.partition_id
+            )
+        ).scalars().all()
+        
+        if not other_partitions:
+            return
+            
+        other_partition_ids = [p.id for p in other_partitions]
+        
+        # 3. Trouver toutes les parties de classe associées à ces autres partitions
+        other_class_parts = db.execute(
+            select(ClassPart).filter(
+                ClassPart.partition_id.in_(other_partition_ids)
+            )
+        ).scalars().all()
+        
+        for other_cp in other_class_parts:
+            # Assurer l'ordre des IDs pour respecter la contrainte check_class_part_order
+            cp_a_id = min(self.id, other_cp.id)
+            cp_b_id = max(self.id, other_cp.id)
+            
+            # Créer le lien automatique
+            ClassPartLink.create(db, {
+                "class_part_a_id": cp_a_id,
+                "class_part_b_id": cp_b_id,
+                "is_system_generated": True
+            })
+
 
 class ClassPartLink(Base):
     __tablename__ = "class_part_links"
@@ -56,7 +105,6 @@ class ClassPartLink(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     class_part_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
     class_part_b_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
-    link_type: Mapped[str] = mapped_column(String(20), nullable=False) # 'CoPlaned' ou 'Excluded'
     is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relations de navigation
@@ -76,6 +124,27 @@ class ClassPartLink(Base):
             if cp_a and cp_b and cp_a.partition_id == cp_b.partition_id:
                 raise ValueError("Impossible de lier deux parties d'une même partition, elles sont disjointes par nature.")
 
+    def update(self, db: Session, vals: dict):
+        raise ValueError("Il est strictement interdit de modifier un lien entre parties de classe après sa création. Supprimez-le et recréez-le si nécessaire.")
+
+    def delete(self, db: Session):
+        from sqlalchemy import select
+        from backend.app.models.student import student_class_parts
+        # 1. Vérifier s'il y a des élèves communs entre les deux parties
+        stmt_a = select(student_class_parts.c.student_id).filter(student_class_parts.c.class_part_id == self.class_part_a_id)
+        stmt_b = select(student_class_parts.c.student_id).filter(student_class_parts.c.class_part_id == self.class_part_b_id)
+        
+        common_students = db.execute(
+            select(student_class_parts.c.student_id)
+            .filter(student_class_parts.c.student_id.in_(stmt_a))
+            .filter(student_class_parts.c.student_id.in_(stmt_b))
+        ).scalars().all()
+        
+        if common_students:
+            raise ValueError("Impossible de supprimer ce lien d'incompatibilité car des élèves appartiennent simultanément aux deux parties de classe.")
+            
+        return super().delete(db)
+
 class Group(Base):
     __tablename__ = "groups"
 
@@ -89,3 +158,4 @@ class Group(Base):
     # Relations de navigation
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_groups", back_populates="groups")
+
