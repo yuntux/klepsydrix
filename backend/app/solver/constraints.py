@@ -83,6 +83,17 @@ class PlanningPreference:
 
 
 @dataclass
+class PlanningCourseToCourseConstraint:
+    id: int
+    type: str  # 'FORCE_SAME_SCOPE', 'FORBID_SAME_SCOPE', 'ORDER', 'FORBID_CONSECUTIVE'
+    scope: str = "SLOT"  # 'SLOT', 'DAY', 'HALF_DAY', 'QUINZAINE', 'CUSTOM_HALF_DAYS'
+    custom_half_days: typing.Optional[int] = None
+    course_ids: List[int] = field(default_factory=list)
+    is_optional: bool = True
+    label: typing.Optional[str] = None
+
+
+@dataclass
 class PlanningResourceConstraint:
     id: int
     resource_type: str
@@ -161,6 +172,7 @@ class PlanningTimetable:
     class_part_links: Annotated[List[PlanningClassPartLink], ProblemFactCollectionProperty] = field(default_factory=list)
     preferences: Annotated[List[PlanningPreference], ProblemFactCollectionProperty] = field(default_factory=list)
     resource_constraints: Annotated[List[PlanningResourceConstraint], ProblemFactCollectionProperty] = field(default_factory=list)
+    course_to_course_constraints: Annotated[List[PlanningCourseToCourseConstraint], ProblemFactCollectionProperty] = field(default_factory=list)
     score: Annotated[HardSoftScore, PlanningScore] = None
 
 
@@ -215,6 +227,14 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         division_max_hours_per_day(constraint_factory),
         division_max_hours_per_am(constraint_factory),
         division_max_hours_per_pm(constraint_factory),
+        course_to_course_force_same_scope_mandatory(constraint_factory),
+        course_to_course_force_same_scope_optional(constraint_factory),
+        course_to_course_forbid_same_scope_mandatory(constraint_factory),
+        course_to_course_forbid_same_scope_optional(constraint_factory),
+        course_to_course_order_mandatory(constraint_factory),
+        course_to_course_order_optional(constraint_factory),
+        course_to_course_forbid_consecutive_mandatory(constraint_factory),
+        course_to_course_forbid_consecutive_optional(constraint_factory),
     ]
 
 def _courses_overlap_in_time(c1, c2):
@@ -773,6 +793,205 @@ def division_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constrai
         .filter(lambda division_id, day, count, rc: rc.max_hours_per_pm is not None and count > rc.max_hours_per_pm)
         .penalize(HardSoftScore.ONE_HARD, lambda division_id, day, count, rc: int((count - rc.max_hours_per_pm) * 10))
         .as_constraint("Division max hours per afternoon")
+    )
+
+
+def _is_not_chronologically_before(c1: PlanningCourse, c2: PlanningCourse) -> bool:
+    if c1.timeslot is None or c2.timeslot is None:
+        return False
+    if c1.timeslot.day_of_week > c2.timeslot.day_of_week:
+        return True
+    if c1.timeslot.day_of_week == c2.timeslot.day_of_week:
+        return c1.timeslot.hour >= c2.timeslot.hour
+    return False
+
+
+def _are_consecutive(c1: PlanningCourse, c2: PlanningCourse) -> bool:
+    if c1.timeslot is None or c2.timeslot is None:
+        return False
+    if c1.timeslot.day_of_week != c2.timeslot.day_of_week:
+        return False
+    if not weeks_overlap(c1.week_type, c2.week_type):
+        return False
+    t1 = c1.timeslot.hour
+    t2 = c2.timeslot.hour
+    if abs(t1 + c1.step - t2) < 0.01:
+        return True
+    if abs(t2 + c2.step - t1) < 0.01:
+        return True
+    return False
+
+
+def _share_reference_period(c1: PlanningCourse, c2: PlanningCourse, scope: str, custom_half_days: typing.Optional[int] = None) -> bool:
+    if c1.timeslot is None or c2.timeslot is None:
+        return False
+    
+    if scope == "QUINZAINE":
+        # Même quinzaine / même alternance de semaine (A vs B)
+        return c1.week_type == c2.week_type or c1.week_type == "T" or c2.week_type == "T"
+        
+    if not weeks_overlap(c1.week_type, c2.week_type):
+        return False
+        
+    if scope == "SLOT":
+        return c1.timeslot.id == c2.timeslot.id
+    elif scope == "DAY":
+        return c1.timeslot.day_of_week == c2.timeslot.day_of_week
+    elif scope == "HALF_DAY":
+        c1_am = c1.timeslot.hour < 12.0
+        c2_am = c2.timeslot.hour < 12.0
+        return c1.timeslot.day_of_week == c2.timeslot.day_of_week and c1_am == c2_am
+    elif scope == "CUSTOM_HALF_DAYS":
+        n = custom_half_days if custom_half_days is not None and custom_half_days > 0 else 1
+        c1_hd = (c1.timeslot.day_of_week - 1) * 2 + (0 if c1.timeslot.hour < 12.0 else 1)
+        c2_hd = (c2.timeslot.day_of_week - 1) * 2 + (0 if c2.timeslot.hour < 12.0 else 1)
+        return (c1_hd // n) == (c2_hd // n)
+    return False
+
+
+def course_to_course_force_same_scope_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "FORCE_SAME_SCOPE" and not ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: not _share_reference_period(c1, c2, ctc.scope, ctc.custom_half_days))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Course-to-course force same scope mandatory")
+    )
+
+
+def course_to_course_force_same_scope_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "FORCE_SAME_SCOPE" and ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: not _share_reference_period(c1, c2, ctc.scope, ctc.custom_half_days))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Course-to-course force same scope optional")
+    )
+
+
+def course_to_course_forbid_same_scope_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "FORBID_SAME_SCOPE" and not ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: _share_reference_period(c1, c2, ctc.scope, ctc.custom_half_days))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Course-to-course forbid same scope mandatory")
+    )
+
+
+def course_to_course_forbid_same_scope_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "FORBID_SAME_SCOPE" and ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: _share_reference_period(c1, c2, ctc.scope, ctc.custom_half_days))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Course-to-course forbid same scope optional")
+    )
+
+
+def course_to_course_order_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "ORDER" and not ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: ctc.course_ids.index(c1.id) < ctc.course_ids.index(c2.id))
+        .filter(lambda ctc, c1, c2: _is_not_chronologically_before(c1, c2))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Course-to-course order mandatory")
+    )
+
+
+def course_to_course_order_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "ORDER" and ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: ctc.course_ids.index(c1.id) < ctc.course_ids.index(c2.id))
+        .filter(lambda ctc, c1, c2: _is_not_chronologically_before(c1, c2))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Course-to-course order optional")
+    )
+
+
+def course_to_course_forbid_consecutive_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "FORBID_CONSECUTIVE" and not ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: _are_consecutive(c1, c2))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Course-to-course forbid consecutive mandatory")
+    )
+
+
+def course_to_course_forbid_consecutive_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourseToCourseConstraint)
+        .filter(lambda ctc: ctc.type == "FORBID_CONSECUTIVE" and ctc.is_optional)
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c: c.id in ctc.course_ids and c.timeslot is not None)
+        )
+        .join(
+            PlanningCourse,
+            Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
+        )
+        .filter(lambda ctc, c1, c2: _are_consecutive(c1, c2))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Course-to-course forbid consecutive optional")
     )
 
 

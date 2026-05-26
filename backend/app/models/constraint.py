@@ -47,3 +47,31 @@ class ResourceConstraint(Base):
 
     # Navigation
     target_subject_b: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[target_subject_b_id])
+
+
+# Table de jointure pour CourseToCourseConstraint <-> Course
+from sqlalchemy import Table
+course_constraint_associations = Table(
+    "course_constraint_associations",
+    Base.metadata,
+    Column("constraint_id", Integer, ForeignKey("course_to_course_constraints.id", ondelete="CASCADE"), primary_key=True),
+    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("sequence_order", Integer, nullable=False, default=0)
+)
+
+
+class CourseToCourseConstraint(Base):
+    __tablename__ = "course_to_course_constraints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    type: Mapped[str] = mapped_column(String(30), nullable=False) # 'FORCE_SAME_SCOPE', 'FORBID_SAME_SCOPE', 'ORDER', 'FORBID_CONSECUTIVE'
+    scope: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="SLOT") # 'SLOT', 'DAY', 'HALF_DAY', 'QUINZAINE', 'CUSTOM_HALF_DAYS'
+    custom_half_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_optional: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    courses: Mapped[list["Course"]] = relationship(
+        "Course",
+        secondary=course_constraint_associations,
+        order_by="course_constraint_associations.c.sequence_order"
+    )

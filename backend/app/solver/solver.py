@@ -13,7 +13,7 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import ClassPartLink
 from backend.app.models.preference import ResourcePreference
-from backend.app.models.constraint import ResourceConstraint
+from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint
 from backend.app.models.period import Period
 from backend.app.core.database import SessionLocal
 import threading
@@ -27,6 +27,7 @@ from backend.app.solver.constraints import (
     PlanningClassPartLink,
     PlanningPreference,
     PlanningResourceConstraint,
+    PlanningCourseToCourseConstraint,
     PlanningTimetable,
     define_constraints,
 )
@@ -85,6 +86,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_links = db.execute(select(ClassPartLink)).scalars().unique().all()
     db_preferences = db.execute(select(ResourcePreference)).scalars().unique().all()
     db_constraints = db.execute(select(ResourceConstraint)).scalars().unique().all()
+    db_course_constraints = db.execute(select(CourseToCourseConstraint)).scalars().unique().all()
     db_periods = db.execute(select(Period)).scalars().unique().all()
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
@@ -156,6 +158,18 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         ) for rc in db_constraints
     ]
 
+    course_constraints_list = [
+        PlanningCourseToCourseConstraint(
+            id=cc.id,
+            type=cc.type,
+            scope=cc.scope or "SLOT",
+            custom_half_days=cc.custom_half_days,
+            course_ids=[c.id for c in cc.courses],
+            is_optional=cc.is_optional,
+            label=cc.label
+        ) for cc in db_course_constraints
+    ]
+
     courses_list = []
     for c in db_courses:
         ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
@@ -222,6 +236,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         class_part_links=links_list,
         preferences=preferences_list,
         resource_constraints=constraints_list,
+        course_to_course_constraints=course_constraints_list,
         score=None,
     )
 

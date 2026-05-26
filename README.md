@@ -100,6 +100,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Mode "calcul annuel" en local : 
     - Verrouillage des données du serveur centralisé quand un planificateur travaille sur son poste en mode déconnecté.
     - Intégration dans la JVM locale ou bien capacité à faire tourner le moteur de calcul Timefold en local. Les résultats des calculs sont ensuite renvoyés au serveur centralisé à la reconnexion.
+    https://gemini.google.com/share/77be84df8d17
 
 ### 12. Traduction
 - Faire évoluer le socle pour supporter la traduction

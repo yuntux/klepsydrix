@@ -21,5 +21,5 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.preference import ResourcePreference
-from backend.app.models.constraint import ResourceConstraint
+from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint
 from backend.app.models.system_setting import SystemSetting

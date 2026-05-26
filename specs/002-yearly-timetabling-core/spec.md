@@ -664,6 +664,27 @@ Délimite les conditions de travail des élèves d'une division (classe entière
 Gère les contraintes logistiques liées aux déplacements des professeurs ou élèves sur les différents campus :
 *   `max_travel_trips_per_day` : Nombre maximum de déplacements / trajets inter-sites autorisés par jour pour une même ressource (enseignant ou division/élèves) (Entier, optionnel). Si le nombre de déplacements réels dépasse ce seuil lors de la planification d'un jour donné, une alerte est levée ou le placement automatique échoue.
 
+### 15bis. CourseToCourseConstraint (Contrainte cours à cours)
+Représente une contrainte spécifique reliant directement plusieurs instances de cours précises entre elles.
+*   `id` : Clé primaire (Entier)
+*   `type` : Type de contrainte temporelle à appliquer (Chaîne, valeurs autorisées :
+    *   `FORCE_SAME_SCOPE` : **Placement dans la même période** — Impose que les cours associés soient planifiés sur la même période de référence (définie par le paramètre `scope`).
+    *   `FORBID_SAME_SCOPE` : **Interdire le placement dans la même période** — Interdit que les cours associés soient planifiés sur la même période de référence (définie par le paramètre `scope`).
+    *   `ORDER` : **Ordre chronologique** — Impose un ordre de passage strict au cours de la semaine selon l'ordre défini dans la liste `courses` (le cours $N$ doit se terminer avant le début du cours $N+1$).
+    *   `FORBID_CONSECUTIVE` : **Interdire la succession** — Interdit que les cours liés soient planifiés sur des créneaux horaires consécutifs directs. Force une pause ou un autre cours intermédiaire entre eux.
+*   `scope` : Période de référence pour l'évaluation de la simultanéité/exclusion (Chaîne, optionnel, par défaut `SLOT`) :
+    *   `SLOT` : Même créneau horaire et même type de semaine.
+    *   `DAY` : Même journée de la semaine.
+    *   `HALF_DAY` : Même demi-journée (matinée ou après-midi).
+    *   `QUINZAINE` : Vérifie que les cours appartiennent au même cycle d'alternance hebdomadaire (semaines compatibles ou identiques A/B/T).
+    *   `CUSTOM_HALF_DAYS` : Calcule l'index séquentiel de demi-journée de la semaine pour chaque cours, puis vérifie qu'ils tombent dans le même bloc personnalisé de $N$ demi-journées (ex: $N=4$ pour regrouper par tranches de 2 jours consécutifs).
+*   `custom_half_days` : Nombre personnalisé de demi-journées ($N$) à utiliser si le scope est `CUSTOM_HALF_DAYS` (Entier, optionnel).
+*   `label` : Libellé descriptif optionnel de la contrainte (Chaîne)
+*   `is_optional` : Vrai si la contrainte est optionnelle (peut être levée par le solveur en cas d'échec), Faux si elle est impérative (Booléen, par défaut `True`)
+
+*Relations (N-à-N)* :
+*   `courses` : Liste ordonnée des cours associés à cette contrainte. Pour le type `ORDER`, l'ordre de la liste définit l'ordre chronologique attendu des cours dans la semaine.
+
 ### 16. Configuration JSON de l'Arbre des Notebooks
 La structure générale de l'interface de l'application est définie par un arbre JSON de configuration dynamique. Cet arbre est composé de nœuds (Notebooks) de niveau 1 à N, où les feuilles décrivent la disposition des panneaux de travail.
 

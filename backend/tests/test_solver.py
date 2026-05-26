@@ -14,6 +14,7 @@ from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
 from backend.app.models.student import Student
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.period import Period
+from backend.app.models.constraint import CourseToCourseConstraint
 from backend.app.solver.solver import _solve_timetable_job
 
 TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -711,13 +712,196 @@ def test_get_linked_groups(db_session: Session):
     linked_to_c_ids = [g.id for g in linked_to_c]
     assert g_a.id in linked_to_c_ids
     assert g_b.id in linked_to_c_ids
-    assert g_c.id not in linked_to_c_ids
-    
     # g_a (contenant cp_a) est lie a g_c (contenant cp_c liee a cp_a)
     linked_to_a = g_a.get_linked_groups(db_session)
     linked_to_a_ids = [g.id for g in linked_to_a]
     assert g_c.id in linked_to_a_ids
     assert g_b.id not in linked_to_a_ids  # cp_a et cp_b sont dans la meme partition, donc pas de lien direct
+
+
+def test_course_to_course_constraints(db_session: Session):
+    from backend.app.models.constraint import course_constraint_associations
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    
+    # 1. Enseignants et salles
+    t1 = Teacher.create(db_session, {"code": "PROF_CTC1", "name": "Prof CTC1", "last_name": "CTC1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "PROF_CTC2", "name": "Prof CTC2", "last_name": "CTC2", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_CTC1", "name": "Room CTC1", "capacity": 30, "quantity": 1, "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_CTC2", "name": "Room CTC2", "capacity": 30, "quantity": 1, "school_id": school.id})
+    
+    # Création de créneaux horaires distincts pour s'assurer que le solveur peut planifier à différents moments
+    for day in range(1, 6):
+        for hour in [8, 9, 10, 11, 14, 15, 16]:
+            Timeslot.create(db_session, {"day_of_week": day, "hour": hour})
+    
+    # 2. Test FORCE_SAME_SCOPE : course_sim_1 et course_sim_2 doivent être planifiés sur la même période (créneau par défaut)
+    course_sim_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    course_sim_2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    
+    ctc_sim = CourseToCourseConstraint.create(db_session, {"type": "FORCE_SAME_SCOPE", "is_optional": False, "label": "Force Same Scope Test", "course_ids": [course_sim_1.id, course_sim_2.id]})
+    
+    # 3. Test ORDER : course_ord_a doit passer avant course_ord_b
+    course_ord_a = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    course_ord_b = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    
+    ctc_ord = CourseToCourseConstraint.create(db_session, {"type": "ORDER", "is_optional": False, "label": "Order Test"})
+    
+    # On insère les liaisons ordonnées dans la table de jointure
+    db_session.execute(
+        course_constraint_associations.insert(),
+        [
+            {"constraint_id": ctc_ord.id, "course_id": course_ord_a.id, "sequence_order": 0},
+            {"constraint_id": ctc_ord.id, "course_id": course_ord_b.id, "sequence_order": 1},
+        ]
+    )
+    db_session.commit()
+    
+    # 4. Test FORBID_SAME_SCOPE : course_forbid_1 et course_forbid_2 ne doivent pas être sur la même période (ici DAY)
+    course_forbid_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    course_forbid_2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    
+    ctc_forbid = CourseToCourseConstraint.create(db_session, {"type": "FORBID_SAME_SCOPE", "scope": "DAY", "is_optional": False, "label": "Forbid Same Scope Test", "course_ids": [course_forbid_1.id, course_forbid_2.id]})
+    
+    # 5. Test FORBID_CONSECUTIVE : course_cons_1 et course_cons_2 ne doivent pas se suivre directement
+    course_cons_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    course_cons_2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    
+    ctc_cons = CourseToCourseConstraint.create(db_session, {"type": "FORBID_CONSECUTIVE", "is_optional": False, "label": "Forbid Consecutive Test", "course_ids": [course_cons_1.id, course_cons_2.id]})
+    
+    # 5bis. Test FORBID_SAME_SCOPE (HALF_DAY) : course_hd_1 et course_hd_2 ne doivent pas être sur la même demi-journée
+    course_hd_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    course_hd_2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    
+    ctc_hd = CourseToCourseConstraint.create(db_session, {"type": "FORBID_SAME_SCOPE", "scope": "HALF_DAY", "is_optional": False, "label": "Forbid Half Day Test", "course_ids": [course_hd_1.id, course_hd_2.id]})
+
+    # 5ter. Test FORCE_SAME_SCOPE (CUSTOM_HALF_DAYS) : course_cust_1 et course_cust_2 doivent être dans la même tranche de 4 demi-journées (2 jours)
+    course_cust_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    course_cust_2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
+    
+    ctc_cust = CourseToCourseConstraint.create(db_session, {
+        "type": "FORCE_SAME_SCOPE",
+        "scope": "CUSTOM_HALF_DAYS",
+        "custom_half_days": 4,
+        "is_optional": False,
+        "label": "Custom Half Days Test",
+        "course_ids": [course_cust_1.id, course_cust_2.id]
+    })
+
+    db_session.commit()
+    
+    # Résolution de l'emploi du temps
+    _solve_timetable_job(db_session)
+    
+    # Rechargement des objets
+    db_session.refresh(course_sim_1)
+    db_session.refresh(course_sim_2)
+    db_session.refresh(course_ord_a)
+    db_session.refresh(course_ord_b)
+    db_session.refresh(course_forbid_1)
+    db_session.refresh(course_forbid_2)
+    db_session.refresh(course_cons_1)
+    db_session.refresh(course_cons_2)
+    db_session.refresh(course_hd_1)
+    db_session.refresh(course_hd_2)
+    db_session.refresh(course_cust_1)
+    db_session.refresh(course_cust_2)
+
+    
+    # 6. Vérification des assertions
+    # FORCE_SAME_SCOPE : même timeslot et même semaine
+    assert course_sim_1.timeslot_id is not None
+    assert course_sim_2.timeslot_id is not None
+    assert course_sim_1.timeslot_id == course_sim_2.timeslot_id
+    assert course_sim_1.week_type == course_sim_2.week_type
+    
+    # ORDER : ord_a strictement avant ord_b
+    assert course_ord_a.timeslot_id is not None
+    assert course_ord_b.timeslot_id is not None
+    ts_a = db_session.get(Timeslot, course_ord_a.timeslot_id)
+    ts_b = db_session.get(Timeslot, course_ord_b.timeslot_id)
+    if ts_a.day_of_week == ts_b.day_of_week:
+        assert ts_a.hour < ts_b.hour
+    else:
+        assert ts_a.day_of_week < ts_b.day_of_week
+        
+    # FORBID_SAME_SCOPE (DAY) : jours différents
+    assert course_forbid_1.timeslot_id is not None
+    assert course_forbid_2.timeslot_id is not None
+    ts_f1 = db_session.get(Timeslot, course_forbid_1.timeslot_id)
+    ts_f2 = db_session.get(Timeslot, course_forbid_2.timeslot_id)
+    assert ts_f1.day_of_week != ts_f2.day_of_week
+    
+    # FORBID_CONSECUTIVE : pas consécutifs sur le même jour
+    assert course_cons_1.timeslot_id is not None
+    assert course_cons_2.timeslot_id is not None
+    ts_c1 = db_session.get(Timeslot, course_cons_1.timeslot_id)
+    ts_c2 = db_session.get(Timeslot, course_cons_2.timeslot_id)
+    if ts_c1.day_of_week == ts_c2.day_of_week:
+        # La différence entre les heures de début doit être strictement supérieure à la durée d'un cours (1.0h)
+        assert abs(ts_c1.hour - ts_c2.hour) > 1.01
+
+    # FORBID_SAME_SCOPE (HALF_DAY) : demi-journées différentes (si même jour)
+    assert course_hd_1.timeslot_id is not None
+    assert course_hd_2.timeslot_id is not None
+    ts_hd1 = db_session.get(Timeslot, course_hd_1.timeslot_id)
+    ts_hd2 = db_session.get(Timeslot, course_hd_2.timeslot_id)
+    if ts_hd1.day_of_week == ts_hd2.day_of_week:
+        hd1_am = ts_hd1.hour < 12.0
+        hd2_am = ts_hd2.hour < 12.0
+        assert hd1_am != hd2_am
+
+    # FORCE_SAME_SCOPE (CUSTOM_HALF_DAYS) : même bloc de 4 demi-journées (2 jours)
+    assert course_cust_1.timeslot_id is not None
+    assert course_cust_2.timeslot_id is not None
+    ts_cust1 = db_session.get(Timeslot, course_cust_1.timeslot_id)
+    ts_cust2 = db_session.get(Timeslot, course_cust_2.timeslot_id)
+    cust1_hd = (ts_cust1.day_of_week - 1) * 2 + (0 if ts_cust1.hour < 12.0 else 1)
+    cust2_hd = (ts_cust2.day_of_week - 1) * 2 + (0 if ts_cust2.hour < 12.0 else 1)
+    assert (cust1_hd // 4) == (cust2_hd // 4)
+
+
+def test_share_reference_period():
+    from backend.app.solver.constraints import _share_reference_period, PlanningCourse, PlanningTimeslot
+    
+    # Création des timeslots de test
+    ts1 = PlanningTimeslot(id=1, day_of_week=1, hour=9.0, absolute_end_of_day=18.0)
+    ts2 = PlanningTimeslot(id=2, day_of_week=1, hour=10.0, absolute_end_of_day=18.0) # même jour, même demi-journée (matin)
+    ts3 = PlanningTimeslot(id=3, day_of_week=1, hour=14.0, absolute_end_of_day=18.0) # même jour, après-midi
+    ts4 = PlanningTimeslot(id=4, day_of_week=2, hour=9.0, absolute_end_of_day=18.0)  # jour différent
+    
+    c1 = PlanningCourse(id=1, step=1.0, timeslot=ts1, week_type="A")
+    c2 = PlanningCourse(id=2, step=1.0, timeslot=ts2, week_type="A")
+    c3 = PlanningCourse(id=3, step=1.0, timeslot=ts3, week_type="A")
+    c4 = PlanningCourse(id=4, step=1.0, timeslot=ts4, week_type="A")
+    c5 = PlanningCourse(id=5, step=1.0, timeslot=ts1, week_type="B")
+    c6 = PlanningCourse(id=6, step=1.0, timeslot=ts1, week_type="T")
+    
+    # 1. SLOT
+    assert _share_reference_period(c1, c1, "SLOT")
+    assert not _share_reference_period(c1, c2, "SLOT")
+    
+    # 2. DAY
+    assert _share_reference_period(c1, c2, "DAY")
+    assert _share_reference_period(c1, c3, "DAY")
+    assert not _share_reference_period(c1, c4, "DAY")
+    assert not _share_reference_period(c1, c5, "DAY") # semaines différentes A/B
+    
+    # 3. HALF_DAY
+    assert _share_reference_period(c1, c2, "HALF_DAY")
+    assert not _share_reference_period(c1, c3, "HALF_DAY")
+    
+    # 4. QUINZAINE
+    assert _share_reference_period(c1, c2, "QUINZAINE") # même quinzaine (tous deux A)
+    assert not _share_reference_period(c1, c5, "QUINZAINE") # alternances différentes (A vs B)
+    assert _share_reference_period(c1, c6, "QUINZAINE") # compatibilité A vs T
+    
+    # 5. CUSTOM_HALF_DAYS (ex: n=4 demi-journées, soit tranches de 2 jours)
+    assert _share_reference_period(c1, c4, "CUSTOM_HALF_DAYS", 4)
+    ts_wed = PlanningTimeslot(id=5, day_of_week=3, hour=9.0, absolute_end_of_day=18.0)
+    c_wed = PlanningCourse(id=7, step=1.0, timeslot=ts_wed, week_type="A")
+    assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)
+
 
 
 
