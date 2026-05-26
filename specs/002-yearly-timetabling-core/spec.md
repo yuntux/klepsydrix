@@ -437,6 +437,11 @@ Regroupement d'élèves (éventuellement à effectif variable) constitué par l'
 *   `is_variable_size` : Indicateur si le groupe est à effectif variable en cours d'année (Booléen, par défaut `False`)
 *   *Relations (N-à-N)* : `class_parts` (Les parties de classe composant ce groupe)
 
+> **Méthodes et logique métier de Group :**
+> - **Recherche des groupes liés (`get_linked_groups`) :** Retourne tous les autres groupes qui possèdent une partie de classe incompatible avec l'une des parties du groupe actuel.
+>   * *Définition du lien* : Un groupe $G'$ est lié à $G$ s'il contient au moins une partie de classe $CP'$ qui est liée (via `ClassPartLink`) à l'une des parties de classe $CP$ de $G$.
+>   * Un groupe n'est jamais lié à lui-même (le groupe actuel est exclu du résultat).
+
 ### 6bis. ClassPartLink (Lien entre parties de classe)
 Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de classe indique qu'elles ont (ou peuvent avoir) des élèves en commun. Par conséquent, le solveur de conflits s'assure que deux séances affectées à ces deux parties respectives ne peuvent pas être planifiées en même temps.
 *   `id` : Clé primaire (Entier)
@@ -451,7 +456,7 @@ Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de cla
 > - **Immutabilité (Surcharge update) :** Il est strictement impossible de modifier un `ClassPartLink` après sa création. Pour changer un lien, il faut le supprimer et le recréer.
 > - **Validation de suppression (Surcharge delete) :** Un utilisateur ne peut supprimer un lien d'incompatibilité que si et seulement si l'intersection des élèves inscrits dans les deux parties de classe est vide (aucun élève n'est membre des deux parties à la fois).
 
-### 6ter. Student (Élève) [student.py]
+### 6ter. Student (Élève)
 Représente un élève physique inscrit dans l'établissement, rattaché à une division et éventuellement à plusieurs parties de classe.
 *   `id` : Clé primaire (Entier)
 *   `first_name` : Prénom de l'élève (Chaîne, max 50 car.)

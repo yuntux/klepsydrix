@@ -670,6 +670,40 @@ def test_student_and_link_constraints(db_session: Session):
         l_del.delete(db_session)
 
 
+def test_get_linked_groups(db_session: Session):
+    school = db_session.query(School).first()
+    d = Division.create(db_session, {"code": "DIV_GGRP", "name": "Div GGrp", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    
+    p1 = Partition.create(db_session, {"code": "P_GGRP_1", "name": "Partition GGrp 1", "division_id": d.id})
+    p2 = Partition.create(db_session, {"code": "P_GGRP_2", "name": "Partition GGrp 2", "division_id": d.id})
+    
+    cp_a = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p1.id, "code": "CP_GGRP_A", "name": "Part GGrp A"})
+    cp_b = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p1.id, "code": "CP_GGRP_B", "name": "Part GGrp B"})
+    
+    # cp_c est cree dans partition 2, ce qui declenche automatiquement la creation de liens ClassPartLink avec cp_a et cp_b
+    cp_c = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p2.id, "code": "CP_GGRP_C", "name": "Part GGrp C"})
+    
+    g_a = Group.create(db_session, {"code": "GRP_A", "name": "Groupe A", "class_part_ids": [cp_a.id]})
+    g_b = Group.create(db_session, {"code": "GRP_B", "name": "Groupe B", "class_part_ids": [cp_b.id]})
+    g_c = Group.create(db_session, {"code": "GRP_C", "name": "Groupe C", "class_part_ids": [cp_c.id]})
+    
+    db_session.commit()
+    
+    # cp_c est liee a cp_a et cp_b
+    # Donc g_c (contenant cp_c) est lie a g_a (contenant cp_a) et g_b (contenant cp_b)
+    linked_to_c = g_c.get_linked_groups(db_session)
+    linked_to_c_ids = [g.id for g in linked_to_c]
+    assert g_a.id in linked_to_c_ids
+    assert g_b.id in linked_to_c_ids
+    assert g_c.id not in linked_to_c_ids
+    
+    # g_a (contenant cp_a) est lie a g_c (contenant cp_c liee a cp_a)
+    linked_to_a = g_a.get_linked_groups(db_session)
+    linked_to_a_ids = [g.id for g in linked_to_a]
+    assert g_c.id in linked_to_a_ids
+    assert g_b.id not in linked_to_a_ids  # cp_a et cp_b sont dans la meme partition, donc pas de lien direct
+
+
 
 
 

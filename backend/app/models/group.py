@@ -159,3 +159,37 @@ class Group(Base):
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_groups", back_populates="groups")
 
+    def get_linked_groups(self, db: Session) -> list["Group"]:
+        from sqlalchemy import select, or_
+        cp_ids = [cp.id for cp in self.class_parts]
+        if not cp_ids:
+            return []
+
+        # Trouver tous les liens d'incompatibilité associés à ces parties de classe
+        links = db.execute(
+            select(ClassPartLink).filter(
+                or_(
+                    ClassPartLink.class_part_a_id.in_(cp_ids),
+                    ClassPartLink.class_part_b_id.in_(cp_ids)
+                )
+            )
+        ).scalars().all()
+
+        linked_cp_ids = set()
+        for l in links:
+            if l.class_part_a_id in cp_ids:
+                linked_cp_ids.add(l.class_part_b_id)
+            if l.class_part_b_id in cp_ids:
+                linked_cp_ids.add(l.class_part_a_id)
+
+        if not linked_cp_ids:
+            return []
+
+        # Récupérer les autres groupes contenant ces parties de classe liées
+        stmt_groups = select(Group).join(group_class_parts).filter(
+            group_class_parts.c.class_part_id.in_(linked_cp_ids),
+            Group.id != self.id
+        ).distinct()
+
+        return list(db.execute(stmt_groups).scalars().all())
+

@@ -46,6 +46,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Affections automatique des élèves aux classes
 - Génération automatique des groupes et affectation automatique des élèves aux groupes
 - Fonction d'ajustement en masse des liens entre groupes en fonction de la répartition des élèvs dans les groupes
+- Gérer les élèves déttachés
 
 ### 4. Emploi du temps opérationnel (hebdomadaire)
 - Déclinaison de l'emploi du temps annuel en emploi du temps hebdomadaire
@@ -57,6 +58,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Gestion des permanences / CDI
 - Recherche des salles disponibles
 - Gestion des statistiques
+- Fonction permettant de supprimer tous les liens inutiles entre parties de classe une fois les éleèves affectées aux parties de classe.
 
 ### 5. Rencontres parents professeurs
 - Paramétrage des rencontres parents professeurs
@@ -98,3 +100,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Mode "calcul annuel" en local : 
     - Verrouillage des données du serveur centralisé quand un planificateur travaille sur son poste en mode déconnecté.
     - Intégration dans la JVM locale ou bien capacité à faire tourner le moteur de calcul Timefold en local. Les résultats des calculs sont ensuite renvoyés au serveur centralisé à la reconnexion.
+
+### 12. Traduction
+- Faire évoluer le socle pour supporter la traduction
+- Traduire en anglais, espagnol, portugais, italien et allemand les textes de l'application
