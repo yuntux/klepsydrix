@@ -450,3 +450,110 @@ def test_solver_respects_course_preferences(db_session: Session):
     assert _is_preference_violated(p_pref, other_course) is False
 
 
+def test_course_heatmap_with_indisponibility(db_session: Session):
+    from backend.app.solver.solver import calculate_course_heatmap, _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    # Création du professeur
+    teacher = Teacher.create(db_session, {
+        "code": "PROF_ART",
+        "name": "Prof Art",
+        "last_name": "Art",
+        "school_id": school.id
+    })
+
+    # Création d'une salle de classe
+    classroom = Classroom.create(db_session, {
+        "code": "ROOM_ART",
+        "name": "Room Art",
+        "capacity": 30,
+        "school_id": school.id
+    })
+
+    # Création de deux créneaux : ts1 (disponible) et ts2 (indisponible)
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+
+    # Ajouter le vœu INDISPONIBLE (Unsuited) pour ts2 pour ce professeur
+    pref = ResourcePreference.create(db_session, {
+        "resource_type": "Teacher",
+        "resource_id": teacher.id,
+        "timeslot_id": ts2.id,
+        "preference_level": "Unsuited",
+        "week_type": "W"
+    })
+
+    # Création du cours (non placé initialement, mais avec salle de classe rattachée)
+    course = Course.create(db_session, {
+        "subject_id": subject.id,
+        "teacher_ids": [teacher.id],
+        "classroom_ids": [classroom.id],
+        "school_id": school.id,
+        "duration_minutes": 30
+    })
+    db_session.commit()
+
+    # Calculer la heatmap pour ce cours
+    heatmap = calculate_course_heatmap(db_session, course.id, school.id)
+
+    # Vérifier que les résultats pour ts1 et ts2 existent
+    assert str(ts1.id) in heatmap
+    assert str(ts2.id) in heatmap
+
+    # ts1 est disponible : pas de conflit physique, donc delta Hard = 0
+    assert heatmap[str(ts1.id)]["hard"] == 0
+    assert len(heatmap[str(ts1.id)]["reasons"]) == 0
+
+    # ts2 est indisponible : conflit physique, donc delta Hard = -1
+    assert heatmap[str(ts2.id)]["hard"] == -1
+    reasons = [r["name"] for r in heatmap[str(ts2.id)]["reasons"]]
+    assert "Resource unavailability (strict)" in reasons
+
+
+def test_solver_leaves_unplaceable_course_unassigned(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    t1 = Teacher.create(db_session, {"code": "PROF_UNPLACEABLE", "name": "Prof Unplaceable", "last_name": "Unplaceable", "school_id": school.id})
+    c1 = Classroom.create(db_session, {"code": "ROOM_UNPLACEABLE", "name": "Room Unplaceable", "capacity": 30, "quantity": 1, "school_id": school.id})
+    d1 = Division.create(db_session, {"code": "DIV_UNPLACEABLE", "name": "Div Unplaceable", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+
+    # Création d'un seul créneau
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+
+    # Création de deux cours pour le même enseignant (qui entrent en conflit si placés sur le même créneau unique)
+    course1 = Course.create(db_session, {
+        "subject_id": subject.id,
+        "teacher_ids": [t1.id],
+        "classroom_ids": [c1.id],
+        "division_ids": [d1.id],
+        "school_id": school.id,
+        "duration_minutes": 30
+    })
+    course2 = Course.create(db_session, {
+        "subject_id": subject.id,
+        "teacher_ids": [t1.id],
+        "classroom_ids": [c1.id],
+        "division_ids": [d1.id],
+        "school_id": school.id,
+        "duration_minutes": 30
+    })
+    db_session.commit()
+
+    # Lancer la résolution
+    from backend.app.solver.solver import _solve_timetable_job
+    _solve_timetable_job(db_session)
+
+    db_session.refresh(course1)
+    db_session.refresh(course2)
+
+    # L'un des deux cours doit être placé, et l'autre doit rester non placé
+    timeslots = {course1.timeslot_id, course2.timeslot_id}
+    assert None in timeslots
+    assert ts1.id in timeslots
+
+
+
+

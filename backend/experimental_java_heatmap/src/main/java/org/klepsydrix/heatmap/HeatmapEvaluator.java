@@ -46,26 +46,29 @@ public class HeatmapEvaluator {
             }
 
             // 1. Calculer le score de base (créneau = null)
-            fastScoreDirector.beforeVariableChanged(targetCourse, variableName);
-            setTimeslotMethod.invoke(targetCourse, new Object[]{null});
-            fastScoreDirector.afterVariableChanged(targetCourse, variableName);
+            Object fastWorkingCourse = findWorkingCourse(fastScoreDirector, targetCourse);
+            fastScoreDirector.beforeVariableChanged(fastWorkingCourse, variableName);
+            setTimeslotMethod.invoke(fastWorkingCourse, new Object[]{null});
+            fastScoreDirector.afterVariableChanged(fastWorkingCourse, variableName);
 
             Object baseScore = fastScoreDirector.calculateScore();
             int baseHard = extractHardScore(baseScore);
             int baseSoft = extractSoftScore(baseScore);
-            System.out.println("JAVA BASE SCORE HARD: " + baseHard);
 
             // 2. Boucler sur les créneaux
             for (Object ts : timeslots) {
-                fastScoreDirector.beforeVariableChanged(targetCourse, variableName);
-                setTimeslotMethod.invoke(targetCourse, ts);
-                fastScoreDirector.afterVariableChanged(targetCourse, variableName);
+                fastScoreDirector.beforeVariableChanged(fastWorkingCourse, variableName);
+                setTimeslotMethod.invoke(fastWorkingCourse, ts);
+                fastScoreDirector.afterVariableChanged(fastWorkingCourse, variableName);
 
                 Object currentScore = fastScoreDirector.calculateScore();
+
                 int currentHard = extractHardScore(currentScore);
                 int currentSoft = extractSoftScore(currentScore);
 
-                int deltaHard = currentHard - baseHard;
+                // L'annulation de la pénalité de non-assignation (ONE_HARD) améliore le score de +1 Hard.
+                // Le delta de conflit physique réel est donc le score courant moins (baseHard + 1).
+                int deltaHard = currentHard - (baseHard + 1);
                 int deltaSoft = currentSoft - baseSoft;
 
                 List<Map<String, Object>> reasons = new ArrayList<>();
@@ -81,21 +84,23 @@ public class HeatmapEvaluator {
                         
                         // Recalculer la base pour detailedScoreDirector
                         detailedScoreDirector.setWorkingSolution(problem);
-                        detailedScoreDirector.beforeVariableChanged(targetCourse, variableName);
-                        setTimeslotMethod.invoke(targetCourse, new Object[]{null});
-                        detailedScoreDirector.afterVariableChanged(targetCourse, variableName);
+                        Object detailedWorkingCourse = findWorkingCourse(detailedScoreDirector, targetCourse);
+                        detailedScoreDirector.beforeVariableChanged(detailedWorkingCourse, variableName);
+                        setTimeslotMethod.invoke(detailedWorkingCourse, new Object[]{null});
+                        detailedScoreDirector.afterVariableChanged(detailedWorkingCourse, variableName);
                         detailedScoreDirector.calculateScore();
                         baseCmtMap = new HashMap<>(detailedScoreDirector.getConstraintMatchTotalMap());
                         
                         // Remettre sur le TS actuel
-                        detailedScoreDirector.beforeVariableChanged(targetCourse, variableName);
-                        setTimeslotMethod.invoke(targetCourse, ts);
-                        detailedScoreDirector.afterVariableChanged(targetCourse, variableName);
+                        detailedScoreDirector.beforeVariableChanged(detailedWorkingCourse, variableName);
+                        setTimeslotMethod.invoke(detailedWorkingCourse, ts);
+                        detailedScoreDirector.afterVariableChanged(detailedWorkingCourse, variableName);
                     } else {
                         // Mettre à jour le detailedScoreDirector
-                        detailedScoreDirector.beforeVariableChanged(targetCourse, variableName);
-                        setTimeslotMethod.invoke(targetCourse, ts);
-                        detailedScoreDirector.afterVariableChanged(targetCourse, variableName);
+                        Object detailedWorkingCourse = findWorkingCourse(detailedScoreDirector, targetCourse);
+                        detailedScoreDirector.beforeVariableChanged(detailedWorkingCourse, variableName);
+                        setTimeslotMethod.invoke(detailedWorkingCourse, ts);
+                        detailedScoreDirector.afterVariableChanged(detailedWorkingCourse, variableName);
                     }
 
                     detailedScoreDirector.calculateScore();
@@ -182,5 +187,19 @@ public class HeatmapEvaluator {
             e.printStackTrace();
             return 0;
         }
+    }
+
+    private static Object findWorkingCourse(InnerScoreDirector scoreDirector, Object targetCourse) throws Exception {
+        Object workingSolution = scoreDirector.getWorkingSolution();
+        Method getCoursesMethod = workingSolution.getClass().getMethod("getCourses");
+        List<?> workingCourses = (List<?>) getCoursesMethod.invoke(workingSolution);
+        Method getIdMethod = targetCourse.getClass().getMethod("getId");
+        Object targetId = getIdMethod.invoke(targetCourse);
+        for (Object c : workingCourses) {
+            if (getIdMethod.invoke(c).equals(targetId)) {
+                return c;
+            }
+        }
+        throw new RuntimeException("Working course clone not found for ID: " + targetId);
     }
 }
