@@ -29,6 +29,10 @@ class Student(Base):
         from backend.app.models.group import ClassPartLink
         parts = self.class_parts
         for i in range(len(parts)):
+            # Cohérence de division : la division de la partie de classe doit correspondre à celle de l'élève
+            if parts[i].division_id != self.division_id:
+                raise ValueError(f"L'élève {self.first_name} {self.last_name} ne peut pas appartenir à la partie de classe {parts[i].name} car elle depend d'une autre division.")
+
             for j in range(i + 1, len(parts)):
                 cp_a = parts[i]
                 cp_b = parts[j]

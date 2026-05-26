@@ -465,6 +465,7 @@ Représente un élève physique inscrit dans l'établissement, rattaché à une 
 
 > **Contraintes d'intégrité de Student :**
 > - **Unicité de partition :** Un élève ne peut pas appartenir à deux parties de classe différentes de la même partition (les parties d'une même partition étant disjointes par nature).
+> - **Cohérence de division :** Un élève ne peut appartenir qu'à des parties de classe associées à sa propre division (c'est-à-dire que le `division_id` de la partition d'attachement doit correspondre au `division_id` de l'élève).
 
 > [!NOTE]
 > **Règles d'intégrité de la structure des groupes (déjà implémentées dans `group.py`) :**

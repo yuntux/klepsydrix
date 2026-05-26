@@ -659,6 +659,22 @@ def test_student_and_link_constraints(db_session: Session):
         })
         
     db_session.commit()
+
+    # Élève invalide : appartient à une partie d'une autre division (cohérence de division -> interdit)
+    d2 = Division.create(db_session, {"code": "DIV_STUD_TEST_2", "name": "Div Stud Test 2", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    p2_d2 = Partition.create(db_session, {"code": "P_STUD_D2", "name": "Partition D2", "division_id": d2.id})
+    cp_d2 = ClassPart.create(db_session, {"division_id": d2.id, "partition_id": p2_d2.id, "code": "CP_D2", "name": "Part D2"})
+    db_session.commit()
+    
+    with pytest.raises(ValueError, match="depend d'une autre division|another division"):
+        Student.create(db_session, {
+            "first_name": "Invalide",
+            "last_name": "WrongDiv",
+            "division_id": d_id,
+            "class_part_ids": [cp_d2.id]
+        })
+
+    db_session.commit()
     
     # 3. Vérifier que supprimer le lien d'incompatibilité entre cp1_a et cp2_a lève une ValueError car student1 y appartient
     link_to_delete = db_session.query(ClassPartLink).filter_by(class_part_a_id=min(cp1_a_id, cp2_a_id), class_part_b_id=max(cp1_a_id, cp2_a_id)).first()
