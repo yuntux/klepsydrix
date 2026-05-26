@@ -468,3 +468,37 @@ sequenceDiagram
 ### B. Explicabilité des Contraintes (Tooltips)
 Au-delà de la simple couleur (Vert/Orange/Rouge) induite par les scores `Hard` et `Soft`, le système exploite la fonction d'explicabilité (Explainability) native de Timefold.
 Le `ScoreDirector` extrait la liste des `ConstraintMatch` (les contraintes enfreintes ou récompensées). L'API filtre cette liste pour ne renvoyer à l'interface que les justifications impliquant explicitement le cours ciblé. L'IHM affiche ces justifications dans des infobulles au survol, transformant un outil purement répressif en un assistant de planification pédagogique.
+
+---
+
+## 14. Gestion des Problèmes Surcontraints (Overconstrained Planning)
+
+Dans la réalité des établissements scolaires, il arrive fréquemment que les contraintes soient contradictoires (ex: volume d'heures d'un enseignant supérieur à ses disponibilités). Plutôt que de bloquer la résolution en renvoyant un échec ou un emploi du temps rempli de conflits durs physiques, Klepsydrix implémente le patron d'**Overconstrained Planning** (Planification surcontrainte).
+
+### A. Variables Nullables (`allows_unassigned`)
+La variable de planification `timeslot` de la classe `PlanningCourse` est configurée avec `allows_unassigned=True`. Cela autorise le solveur à laisser la variable à `None` (cours non placé), ce qui se traduit dans l'IHM par un cours dans l'état `UNPLACED` sans créneau horaire associé.
+
+### B. Le Piège du Score Trap (Pénalité Soft vs Hard)
+Une implémentation classique de l'Overconstrained Planning consiste à pénaliser la non-assignation dans le score `Soft` (ex: `-1 000 000 Soft`) pour donner une priorité absolue à l'assignation par rapport aux vœux. Cependant, en présence de contraintes `Hard` strictes, cette configuration crée un **piège de score (score trap)** :
+* Un cours non placé a un score de `0 Hard / -1 000 000 Soft`.
+* Le placer sur un créneau occupé (conflit de professeur) dégrade le score à `-1 Hard / 0 Soft`.
+* Les scores `Hard` étant strictement prioritaires sur les `Soft` dans Timefold, le solveur considère `-1 Hard` comme infiniment pire que `0 Hard`. Il refuse donc de faire passer temporairement un cours à l'état conflictuel pour réorganiser l'emploi du temps, ce qui bloque la recherche locale dans un minimum local.
+
+### C. Alignement des Pénalités sur le Score Hard (`ONE_HARD`)
+Pour surmonter cette impasse, Klepsydrix applique une pénalité de non-assignation directement dans le score **`Hard`** via la contrainte `penalize_unassigned_course` avec un poids de `1` (`HardSoftScore.ONE_HARD`).
+
+```mermaid
+graph TD
+    classDef state fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef good fill:#bbf,stroke:#333,stroke-width:2px;
+    
+    A["Non assigné (-1 Hard)"] -->|Transition à coût nul| B("Placé avec Conflit (-1 Hard)")
+    B -->|Résolution du conflit| C("Placé sans Conflit (0 Hard)")
+    
+    class C good;
+```
+
+* **Transition en plateau** : Comme la non-assignation et un conflit dur (ex: professeur occupé) coûtent tous deux `-1 Hard`, le solveur peut temporairement placer un cours sur un créneau conflictuel sans dégrader son score Hard. Il effectue ainsi des mouvements horizontaux pour "shuffler" le planning.
+* **Résolution** : Une fois le cours positionné, le solveur résout le conflit en décalant le cours gênant vers un créneau libre, élevant le score à `0 Hard` (amélioration acceptée).
+* **Résilience** : Si le problème est réellement insoluble, le solveur choisira de laisser le cours non placé (`-1 Hard`) plutôt que de forcer son affectation sur un créneau qui générerait des conflits multiples en cascade (qui cumuleraient un score de `-2 Hard` ou pire).
+

@@ -241,14 +241,15 @@ def penalize_unassigned_course(constraint_factory: ConstraintFactory) -> Constra
     """
     Overconstrained Planning : on autorise Timefold à ne pas placer un cours (timeslot=None)
     si le placer créerait un conflit dur (Hard Conflict).
-    Pour éviter que Timefold ne place rien du tout, on ajoute une très forte pénalité Soft.
-    Ainsi, l'IA cherchera toujours à le placer, sauf si c'est physiquement impossible.
-    NOTE: On DOIT utiliser `for_each_including_unassigned` car `for_each` ignore les variables None.
+    Pour éviter que l'algorithme ne laisse tous les cours non assignés,
+    on applique une pénalité dure (ONE_HARD) à chaque cours non assigné.
+    Comme un conflit dur et une non-assignation coûtent le même prix (-1 Hard),
+    le solveur peut transiter par des états intermédiaires de conflit pour trouver la solution optimale.
     """
     return (
         constraint_factory.for_each_including_unassigned(PlanningCourse)
         .filter(lambda c: getattr(c, 'timeslot', None) is None)
-        .penalize(HardSoftScore.ONE_SOFT, lambda c: 1_000_000)
+        .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Pénaliser les cours non assignés (Overconstrained Planning)")
     )
 
