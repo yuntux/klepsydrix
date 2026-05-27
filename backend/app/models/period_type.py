@@ -12,4 +12,4 @@ class PeriodType(Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, info={"label": "Libellé du type de période", "placeholder": "ex: Trimestre"})
 
     # Relations de navigation
-    periods: Mapped[list["Period"]] = relationship("Period", back_populates="period_type", passive_deletes="all")
+    periods: Mapped[list["Period"]] = relationship("Period", back_populates="period_type", passive_deletes="all", info={"label": "Périodes"})

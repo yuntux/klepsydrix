@@ -13,5 +13,5 @@ class Discipline(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom complet", "placeholder": "ex: Mathématiques"})
 
     # Relations de navigation
-    subjects: Mapped[list["Subject"]] = relationship("Subject", back_populates="discipline", passive_deletes="all")
-    trmd_budgets: Mapped[list["TrmdBudget"]] = relationship("TrmdBudget", back_populates="discipline", passive_deletes="all")
+    subjects: Mapped[list["Subject"]] = relationship("Subject", back_populates="discipline", passive_deletes="all", info={"label": "Matières"})
+    trmd_budgets: Mapped[list["TrmdBudget"]] = relationship("TrmdBudget", back_populates="discipline", passive_deletes="all", info={"label": "Budgets TRMD"})

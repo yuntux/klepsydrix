@@ -14,5 +14,5 @@ class Family(Base):
     resource_type: Mapped[str] = mapped_column(String(20), nullable=False, info={"label": "Type de ressource", "placeholder": "ex: Subject"}) # 'Subject', 'Course', 'Teacher', 'Classroom'
 
     # Relations de navigation
-    subjects: Mapped[list["Subject"]] = relationship("Subject", back_populates="family")
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="family")
+    subjects: Mapped[list["Subject"]] = relationship("Subject", back_populates="family", info={"label": "Matières"})
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="family", info={"label": "Cours"})

@@ -152,7 +152,9 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
                 if rel.key.endswith("ies"):
                     field_name = f"{rel.key[:-3]}y_ids"
                 
-                fields[field_name] = (Optional[List[int]], None)
+                target_table = rel.mapper.class_.__tablename__
+                title = rel.info.get("label", field_name.replace("_", " ").title())
+                fields[field_name] = (Optional[List[int]], Field(None, title=title, json_schema_extra={"resource": target_table}))
             
     suffix = "_ReadPayload" if include_id else ("_UpdatePayload" if all_optional else "_CreatePayload")
     base_name = getattr(model, "__tablename__", model.__name__)

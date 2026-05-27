@@ -14,4 +14,4 @@ class Mission(Base):
     hours_allowance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, info={"label": "Heures allouées", "min": 0, "max": 40, "step": "0.5"})
 
     # Relations de navigation
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="mission")
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="mission", info={"label": "Cours"})

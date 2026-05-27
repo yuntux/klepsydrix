@@ -130,7 +130,7 @@
               v-for="col in visibleColumns" 
               :key="col.key"
               class="body-td"
-              :class="{ 'has-select': getFieldDef(col.key)?.type === 'select' }"
+              :class="{ 'has-select': getFieldDef(col.key)?.type === 'select' || getFieldDef(col.key)?.type === 'multiselect' }"
             >
               <!-- Formatage personnalisé des valeurs (Édition en ligne Airtable) -->
               <slot :name="'col-' + col.key" :item="item">
@@ -163,6 +163,16 @@
 
                 <SearchableSelect 
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
+                  :model-value="item[col.key]" 
+                  :options="getFieldDef(col.key)?.options || []"
+                  :disabled="isColumnReadOnly(col.key)"
+                  :required="isColumnRequired(col.key)"
+                  :inline="true"
+                  @update:model-value="updateInline(item, col.key, $event)"
+                />
+
+                <SearchableMultiSelect
+                  v-else-if="getFieldDef(col.key)?.type === 'multiselect'"
                   :model-value="item[col.key]" 
                   :options="getFieldDef(col.key)?.options || []"
                   :disabled="isColumnReadOnly(col.key)"
@@ -273,6 +283,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
+import SearchableMultiSelect from './SearchableMultiSelect.vue';
 
 interface ColumnDef {
   key: string;
@@ -285,7 +296,7 @@ interface ColumnDef {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
   required?: boolean;
   placeholder?: string;
   min?: number;
@@ -517,6 +528,14 @@ function getDisplayValue(item: any, key: string): string {
   if (val === undefined || val === null) return '';
   const fieldDef = getFieldDef(key);
   if (fieldDef && fieldDef.options) {
+    if (Array.isArray(val)) {
+      return val
+        .map(v => {
+          const opt = fieldDef.options?.find(o => String(o.value) === String(v));
+          return opt ? opt.label : String(v);
+        })
+        .join(', ');
+    }
     const option = fieldDef.options.find(o => String(o.value) === String(val));
     if (option) return option.label;
   }

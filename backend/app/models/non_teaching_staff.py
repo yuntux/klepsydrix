@@ -14,7 +14,7 @@ class NonTeachingStaff(Base):
     role: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Rôle / Fonction", "placeholder": "ex: AESH"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
 
-    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_non_teaching_staffs", back_populates="non_teaching_staffs", passive_deletes="all")
+    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_non_teaching_staffs", back_populates="non_teaching_staffs", passive_deletes="all", info={"label": "Cours"})
 
     @property
     def display_name(self) -> str:

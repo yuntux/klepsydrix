@@ -20,8 +20,8 @@ class Division(Base):
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="divisions")
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="divisions")
-    partitions: Mapped[list["Partition"]] = relationship("Partition", back_populates="division", passive_deletes="all")
-    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all")
+    partitions: Mapped[list["Partition"]] = relationship("Partition", back_populates="division", passive_deletes="all", info={"label": "Partitions"})
+    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all", info={"label": "Cours"})
 
     # Déclaration déclarative et compacte des champs liés de contrainte (Spécifiques aux divisions)
     max_hours_per_day = related_field("constraint_record", "max_hours_per_day", info={"label": "Max Heures par Jour", "min": 0, "max": 12, "step": "0.5"})

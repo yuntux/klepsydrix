@@ -455,8 +455,13 @@ async function loadFkOptionsForModel(model: string) {
   if (!schema || !schema.properties) return;
 
   for (const [key, prop] of Object.entries<any>(schema.properties)) {
-    if (prop.resource) {
-      const resourceName = prop.resource;
+    let resourceName = prop.resource;
+    if (!resourceName && prop.anyOf) {
+      const opt = prop.anyOf.find((o: any) => o.resource);
+      if (opt) resourceName = opt.resource;
+    }
+
+    if (resourceName) {
       if (!fkOptionsCache.value[resourceName]) {
         try {
           const res = await api.fetchGenericList(resourceName, 0, 1000);
@@ -886,10 +891,14 @@ function getFormFieldsConfig(resourceKey?: string) {
         if (key === 'id' || key === 'display_name') continue; // On masque l'ID et display_name dans le formulaire
         
         let baseType = prop.type;
+        let resourceName = prop.resource;
         // Gérer les champs optionnels (nullable) de Pydantic qui utilisent anyOf
         if (!baseType && prop.anyOf) {
           const validOption = prop.anyOf.find((o: any) => o.type && o.type !== 'null');
           if (validOption) baseType = validOption.type;
+          
+          const opt = prop.anyOf.find((o: any) => o.resource);
+          if (opt) resourceName = opt.resource;
         }
 
         let fieldType = prop.ui_type || baseType || 'text';
@@ -905,9 +914,13 @@ function getFormFieldsConfig(resourceKey?: string) {
         if (key === 'school_id') { fieldType = 'select'; options = schoolOptions; }
         else if (key === 'period_type_id') { fieldType = 'select'; options = periodTypeOptions; }
         else if (key === 'late_start_time' || key === 'early_end_time') { fieldType = 'select'; options = timeOptions; }
-        else if (prop.resource) {
+        else if (fieldType === 'array' && resourceName) {
+          fieldType = 'multiselect';
+          options = fkOptionsCache.value[resourceName] || [];
+        }
+        else if (resourceName) {
           fieldType = 'select';
-          options = fkOptionsCache.value[prop.resource] || [];
+          options = fkOptionsCache.value[resourceName] || [];
         }
         else if (options) { fieldType = 'select'; }
         
@@ -921,7 +934,7 @@ function getFormFieldsConfig(resourceKey?: string) {
           max: prop.max,
           step: prop.step,
           options: options,
-          resource: prop.resource
+          resource: resourceName
         });
       }
       return dynamicFields;

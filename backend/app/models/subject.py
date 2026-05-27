@@ -24,5 +24,5 @@ class Subject(Base):
     # Relations de navigation
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline", back_populates="subjects")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="subjects")
-    mef_services: Mapped[list["MefService"]] = relationship("MefService", back_populates="subject", passive_deletes="all")
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="subject_relation", passive_deletes="all")
+    mef_services: Mapped[list["MefService"]] = relationship("MefService", back_populates="subject", passive_deletes="all", info={"label": "Services MEF"})
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="subject_relation", passive_deletes="all", info={"label": "Cours"})

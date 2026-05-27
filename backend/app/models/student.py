@@ -22,7 +22,7 @@ class Student(Base):
 
     # Relations de navigation
     division: Mapped[Optional["Division"]] = relationship("Division")
-    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=student_class_parts, back_populates="students")
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=student_class_parts, back_populates="students", info={"label": "Parties de classe"})
 
     @constrains()
     def _check_student_class_parts(self, db: Session):

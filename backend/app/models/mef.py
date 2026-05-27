@@ -17,8 +17,8 @@ class Mef(Base):
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School")
-    mef_services: Mapped[list["MefService"]] = relationship("MefService", back_populates="mef", passive_deletes="all")
-    divisions: Mapped[list["Division"]] = relationship("Division", back_populates="mef")
+    mef_services: Mapped[list["MefService"]] = relationship("MefService", back_populates="mef", passive_deletes="all", info={"label": "Services MEF"})
+    divisions: Mapped[list["Division"]] = relationship("Division", back_populates="mef", info={"label": "Classes"})
 
 class MefService(Base):
     __tablename__ = "mef_services"

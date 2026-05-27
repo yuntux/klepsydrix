@@ -106,7 +106,7 @@ class Course(Base):
  
     # Relations de navigation hiérarchique
     parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
-    children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", cascade="all, delete-orphan")
+    children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", cascade="all, delete-orphan", info={"label": "Cours enfants"})
  
     # Relations de navigation Mto1
     subject_relation: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="courses")
@@ -118,14 +118,14 @@ class Course(Base):
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
     
     # Ressources N..N pures
-    teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=course_teachers, back_populates="courses")
-    non_teaching_staffs: Mapped[list["NonTeachingStaff"]] = relationship("NonTeachingStaff", secondary=course_non_teaching_staffs, back_populates="courses")
-    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", secondary=course_classrooms)
-    materials: Mapped[list["Material"]] = relationship("Material", secondary=course_materials)
-    divisions: Mapped[list["Division"]] = relationship("Division", secondary=course_divisions, back_populates="courses")
-    periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods)
-    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts)
-    groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses")
+    teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=course_teachers, back_populates="courses", info={"label": "Enseignants"})
+    non_teaching_staffs: Mapped[list["NonTeachingStaff"]] = relationship("NonTeachingStaff", secondary=course_non_teaching_staffs, back_populates="courses", info={"label": "Personnels non-enseignants"})
+    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", secondary=course_classrooms, info={"label": "Salles de classe"})
+    materials: Mapped[list["Material"]] = relationship("Material", secondary=course_materials, info={"label": "Matériels"})
+    divisions: Mapped[list["Division"]] = relationship("Division", secondary=course_divisions, back_populates="courses", info={"label": "Classes / Divisions"})
+    periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods, info={"label": "Périodes"})
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts, info={"label": "Groupes de classe"})
+    groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses", info={"label": "Groupes"})
 
     @property
     def has_conflict(self) -> bool:

@@ -23,7 +23,12 @@ class Partition(Base):
 
     # Relations de navigation
     division: Mapped[Optional["Division"]] = relationship("Division", back_populates="partitions")
-    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", back_populates="partition", passive_deletes="all")
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", back_populates="partition", passive_deletes="all", info={"label": "Parties de classe"})
+
+    @property
+    def display_name(self) -> str:
+        division_name = self.division.name if self.division else str(self.division_id)
+        return f"{division_name} - {self.name}"
 
     def update(self, db: Session, vals: dict):
         if 'division_id' in vals and vals['division_id'] != self.division_id:
@@ -43,8 +48,18 @@ class ClassPart(Base):
 
     # Relations de navigation
     partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
-    groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts")
-    students: Mapped[list["Student"]] = relationship("Student", secondary="student_class_parts", back_populates="class_parts", passive_deletes="all")
+    groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts", info={"label": "Groupes"})
+    students: Mapped[list["Student"]] = relationship("Student", secondary="student_class_parts", back_populates="class_parts", passive_deletes="all", info={"label": "Élèves"})
+
+    @property
+    def display_name(self) -> str:
+        if self.partition and self.partition.division:
+            prefix = self.partition.division.display_name
+        elif self.partition:
+            prefix = str(self.partition.division_id)
+        else:
+            prefix = str(self.partition_id)
+        return f"{prefix} - {self.name}"
 
     @classmethod
     def create(cls, db: Session, vals: dict):
@@ -156,8 +171,8 @@ class Group(Base):
     is_variable_size: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Taille variable"})
 
     # Relations de navigation
-    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups")
-    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_groups", back_populates="groups")
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups", info={"label": "Parties de classe"})
+    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_groups", back_populates="groups", info={"label": "Cours"})
 
     def get_linked_groups(self, db: Session) -> list["Group"]:
         from sqlalchemy import select, or_

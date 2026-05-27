@@ -14,4 +14,4 @@ class ElectionMethod(Base):
     export_code: Mapped[str] = mapped_column(String(20), nullable=False, info={"label": "Code d'export"})
 
     # Relations de navigation
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="election_method")
+    courses: Mapped[list["Course"]] = relationship("Course", back_populates="election_method", info={"label": "Cours"})

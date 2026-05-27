@@ -46,12 +46,13 @@
 import { ref, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
+import SearchableMultiSelect from './SearchableMultiSelect.vue';
 
 
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
   required?: boolean;
   placeholder?: string;
   min?: number;
@@ -421,7 +422,23 @@ const FormLayoutGrid: any = defineComponent({
 
             const isFk = !!field.resource;
 
-            if (isFk) {
+            if (field.type === 'multiselect') {
+              const options = field.options || [];
+              inputElement = h(SearchableMultiSelect, {
+                modelValue: Array.isArray(gridProps.localModel[key]) ? gridProps.localModel[key] : (gridProps.localModel[key] ? [gridProps.localModel[key]] : []),
+                options: options,
+                disabled: disabled,
+                placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : field.placeholder,
+                required: required && !gridProps.isMultiEdit,
+                style: inputStyle,
+                'onUpdate:modelValue': (val: any) => {
+                  gridProps.localModel[key] = val;
+                },
+                onChange: (val: any) => {
+                  gridProps.localModel[key] = val;
+                }
+              });
+            } else if (isFk) {
               const options = field.options || [];
               inputElement = h(SearchableSelect, {
                 modelValue: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : null,

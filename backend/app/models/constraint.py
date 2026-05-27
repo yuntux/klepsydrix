@@ -73,5 +73,6 @@ class CourseToCourseConstraint(Base):
     courses: Mapped[list["Course"]] = relationship(
         "Course",
         secondary=course_constraint_associations,
-        order_by="course_constraint_associations.c.sequence_order"
+        order_by="course_constraint_associations.c.sequence_order",
+        info={"label": "Cours concernés"}
     )

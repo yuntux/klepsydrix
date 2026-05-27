@@ -32,7 +32,7 @@ class ResourcePreference(Base):
 
     # Navigation
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
-    periods: Mapped[list["Period"]] = relationship("Period", secondary=preference_periods)
+    periods: Mapped[list["Period"]] = relationship("Period", secondary=preference_periods, info={"label": "Périodes"})
 
     @classmethod
     def create(cls, db: "Session", vals: dict):

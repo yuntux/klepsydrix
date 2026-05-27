@@ -18,7 +18,7 @@ class Teacher(Base):
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="teachers")
-    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all")
+    courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all", info={"label": "Cours"})
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)
 
     # Déclaration déclarative et compacte des champs liés (Style Odoo)

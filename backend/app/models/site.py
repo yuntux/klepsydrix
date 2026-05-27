@@ -13,7 +13,7 @@ class Site(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom du site", "placeholder": "ex: Site Principal"})
 
     # Relations de navigation
-    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", back_populates="site")
+    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", back_populates="site", info={"label": "Salles de classe"})
 
 class SiteTravelTime(Base):
     __tablename__ = "site_travel_times"
