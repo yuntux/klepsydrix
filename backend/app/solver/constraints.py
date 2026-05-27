@@ -519,6 +519,11 @@ def _is_preference_violated(pref, course):
         return False
     elif pref.resource_type == "Course":
         return course.id == pref.resource_id
+    elif pref.resource_type == "NonTeachingStaff":
+        for s in course.non_teaching_staffs:
+            if s.id == pref.resource_id:
+                return True
+        return False
     return False
 
 

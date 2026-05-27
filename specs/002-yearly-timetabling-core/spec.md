@@ -527,7 +527,7 @@ Représente soit une salle simple (ordinaire), soit un **Groupe de salles** inte
 ### 11. ResourcePreference (Vœux / Préférence)
 Association polymorphique entre n'importe quel type de ressource, un créneau (Timeslot), un niveau de préférence (Disponible, Vœu, Indisponible), rattachée obligatoirement à **1 à N périodes** (Trimestre, Période spécifique).
 *   `id` : Clé primaire (Entier)
-*   `resource_type` : Type de ressource concernée (Chaîne : `Teacher`, `Classroom`, `Division`, `Group`, `Material`, `ClassPart`, `Site`, `Subject`, `Course`)
+*   `resource_type` : Type de ressource concernée (Chaîne : `Teacher`, `NonTeachingStaff`, `Classroom`, `Division`, `Course`). Les `Group`, `ClassPart`, `Subject`, `Site` et `Material` sont exclus de cette table : il n'est pas possible de créer des vœux pour ces ressources.
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
 *   `timeslot_id` : Clé étrangère vers le créneau **Timeslot** (Entier)
 *   `level` : Niveau de vœu (Enum : `RED` (Indisponibilité impérative / Rouge), `ORANGE` (Indisponibilité optionnelle / Orange), `GREEN` (Souhait de présence / Vert), `WHITE` (Disponible / Blanc))
@@ -667,7 +667,7 @@ Gère les contraintes logistiques liées aux déplacements des professeurs ou é
 ### 15bis. CourseToCourseConstraint (Contrainte cours à cours)
 Représente une contrainte spécifique reliant directement plusieurs instances de cours précises entre elles.
 *   `id` : Clé primaire (Entier)
-*   `type` : Type de contrainte temporelle à appliquer (Chaîne, valeurs autorisées :
+*   `type` : Type de contrainte temporelle à appliquer (Chaîne, valeurs autorisées) :
     *   `FORCE_SAME_SCOPE` : **Placement dans la même période** — Impose que les cours associés soient planifiés sur la même période de référence (définie par le paramètre `scope`).
     *   `FORBID_SAME_SCOPE` : **Interdire le placement dans la même période** — Interdit que les cours associés soient planifiés sur la même période de référence (définie par le paramètre `scope`).
     *   `ORDER` : **Ordre chronologique** — Impose un ordre de passage strict au cours de la semaine selon l'ordre défini dans la liste `courses` (le cours $N$ doit se terminer avant le début du cours $N+1$).

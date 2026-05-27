@@ -24,7 +24,7 @@ class ResourcePreference(Base):
     __tablename__ = "resource_preferences"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    resource_type: Mapped[str] = mapped_column(String(30), nullable=False) # 'Teacher', 'Classroom', 'Division', 'Subject', 'Group', 'Material'
+    resource_type: Mapped[str] = mapped_column(String(30), nullable=False) # 'Teacher', 'Classroom', 'Division', 'NonTeachingStaff', 'Course'
     resource_id: Mapped[int] = mapped_column(Integer, nullable=False)
     timeslot_id: Mapped[int] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
     preference_level: Mapped[str] = mapped_column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
@@ -70,6 +70,11 @@ class ResourcePreference(Base):
         if resource_type == "Teacher":
             from backend.app.models.teacher import Teacher
             res = db.query(Teacher).filter_by(id=resource_id).first()
+            if res:
+                school_id = res.school_id
+        elif resource_type == "NonTeachingStaff":
+            from backend.app.models.non_teaching_staff import NonTeachingStaff
+            res = db.query(NonTeachingStaff).filter_by(id=resource_id).first()
             if res:
                 school_id = res.school_id
         elif resource_type == "Classroom":

@@ -496,6 +496,45 @@
                 "width": "40%"
               }
             ]
+          },
+          {
+            "id": "non_teaching_staffs_preferences_tab",
+            "title": "Vœux",
+            "borderColor": "#F59E0B",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "non_teaching_staffs_pref_list",
+                "component": "GenericList",
+                "resourceKey": "non_teaching_staffs",
+                "width": "50%",
+                "listConfig": {
+                  "editableInline": false,
+                  "allowMultiSelect": true,
+                  "disableAdd": true,
+                  "disableEditModal": true,
+                  "columns": {
+                    "last_name": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Nom de famille"
+                    },
+                    "first_name": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Prénom"
+                    },
+                    "role": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Rôle"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "non_teaching_staffs_pref_grid",
+                "component": "PreferenceGrid",
+                "width": "50%"
+              }
+            ]
           }
         ]
       },

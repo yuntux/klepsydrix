@@ -44,14 +44,15 @@
         <main v-else-if="panel.component === 'PreferenceGrid'" class="main-layout">
           <PreferenceGrid
             :teachers="teachers"
+            :nonTeachingStaffs="nonTeachingStaffs"
             :classrooms="classrooms"
             :divisions="divisions"
             :timeslots="timeslots"
             :schools="schoolsList"
-            :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : (activeAdminModel === 'courses' ? 'Course' : 'Teacher')))"
+            :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'non_teaching_staffs' ? 'NonTeachingStaff' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : (activeAdminModel === 'courses' ? 'Course' : 'Teacher'))))"
             :resourceIdProp="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : (formModel && formModel.id ? formModel.id : null)"
             :resourceIdsProp="selectedParentIds || []"
-            :hideSelectors="['teachers_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab', 'courses_preferences_tab'].includes(activeLeaf?.id)"
+            :hideSelectors="['teachers_preferences_tab', 'non_teaching_staffs_preferences_tab', 'classrooms_preferences_tab', 'divisions_preferences_tab', 'courses_preferences_tab'].includes(activeLeaf?.id)"
             :hideWeekSelectorProp="panel.gridConfig?.hideWeekSelector || false"
             :hidePeriodSelectorProp="panel.gridConfig?.hidePeriodSelector || false"
           />

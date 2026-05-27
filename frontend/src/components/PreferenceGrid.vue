@@ -164,16 +164,17 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Teacher, Classroom, Division, Timeslot } from '../types';
+import { Teacher, NonTeachingStaff, Classroom, Division, Timeslot } from '../types';
 import GridContainer from './GridContainer.vue';
 import BrushPalette from './BrushPalette.vue';
 
 const props = withDefaults(defineProps<{
   teachers: Teacher[];
+  nonTeachingStaffs?: NonTeachingStaff[];
   classrooms: Classroom[];
   divisions: Division[];
   timeslots: Timeslot[];
-  resourceTypeProp?: 'Teacher' | 'Classroom' | 'Division' | 'Course';
+  resourceTypeProp?: 'Teacher' | 'NonTeachingStaff' | 'Classroom' | 'Division' | 'Course';
   resourceIdProp?: number | null;
   resourceIdsProp?: number[];
   hideSelectors?: boolean;
@@ -181,6 +182,11 @@ const props = withDefaults(defineProps<{
   hideWeekSelectorProp?: boolean;
   hidePeriodSelectorProp?: boolean;
 }>(), {
+  teachers: () => [],
+  nonTeachingStaffs: () => [],
+  classrooms: () => [],
+  divisions: () => [],
+  timeslots: () => [],
   resourceTypeProp: 'Teacher',
   resourceIdsProp: () => [],
   hideSelectors: false,
@@ -189,7 +195,7 @@ const props = withDefaults(defineProps<{
   hidePeriodSelectorProp: false
 });
 
-const resourceType = ref<'Teacher' | 'Classroom' | 'Division' | 'Course'>('Teacher');
+const resourceType = ref<'Teacher' | 'NonTeachingStaff' | 'Classroom' | 'Division' | 'Course'>('Teacher');
 
 const currentStandardDuration = ref(30);
 
@@ -228,6 +234,8 @@ const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 const resourceOptions = computed(() => {
   if (resourceType.value === 'Teacher') {
     return props.teachers.map(t => ({ id: t.id, name: t.name, school_id: t.school_id }));
+  } else if (resourceType.value === 'NonTeachingStaff') {
+    return (props.nonTeachingStaffs || []).map(s => ({ id: s.id, name: s.first_name + ' ' + s.last_name, school_id: s.school_id }));
   } else if (resourceType.value === 'Classroom') {
     return props.classrooms.map(c => ({ id: c.id, name: c.name, school_id: c.school_id }));
   } else {
@@ -240,6 +248,8 @@ const activeResource = computed(() => {
   const id = resourceIds.value[0];
   if (resourceType.value === 'Teacher') {
     return props.teachers.find(t => t.id === id);
+  } else if (resourceType.value === 'NonTeachingStaff') {
+    return (props.nonTeachingStaffs || []).find(s => s.id === id);
   } else if (resourceType.value === 'Classroom') {
     return props.classrooms.find(c => c.id === id);
   } else {

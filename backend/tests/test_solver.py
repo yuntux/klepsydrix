@@ -903,6 +903,63 @@ def test_share_reference_period():
     assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)
 
 
+def test_solver_respects_non_teaching_staff_preferences(db_session: Session):
+    from backend.app.models.non_teaching_staff import NonTeachingStaff
+    from backend.app.models.system_setting import SystemSetting, SystemSettingKey
+    
+    # Configuration minimale requise
+    from sqlalchemy import select
+    existing_setting = db_session.execute(
+        select(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION)
+    ).scalars().first()
+    if not existing_setting:
+        SystemSetting.create(db_session, {"key": SystemSettingKey.STANDARD_TIMESLOT_DURATION, "value": "60"})
+    else:
+        existing_setting.update(db_session, {"value": "60"})
+    
+    school = School.create(db_session, {"uai": "9999999Z", "name": "Test School"})
+    discipline = Discipline.create(db_session, {"code": "DISC", "name": "Discipline"})
+    subject = Subject.create(db_session, {"code": "SUBJ", "code_nomenclature": "SUBJ01", "short_label": "Subj", "long_label": "Subject", "discipline_id": discipline.id, "color": "#123456"})
+    classroom = Classroom.create(db_session, {"code": "ROOM_TEST", "name": "Room Test", "capacity": 30, "quantity": 1, "school_id": school.id})
+    
+    # Création du personnel non enseignant
+    staff = NonTeachingStaff.create(db_session, {
+        "first_name": "John",
+        "last_name": "Doe",
+        "role": "Assistant",
+        "school_id": school.id
+    })
+    
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    
+    # Créer un vœu Unsuited sur ts1
+    ResourcePreference.create(db_session, {
+        "resource_type": "NonTeachingStaff",
+        "resource_id": staff.id,
+        "timeslot_id": ts1.id,
+        "preference_level": "Unsuited",
+        "week_type": "W"
+    })
+    
+    # Création du cours avec ce staff
+    course = Course.create(db_session, {
+        "subject_id": subject.id,
+        "non_teaching_staff_ids": [staff.id],
+        "school_id": school.id,
+        "duration_minutes": 60
+    })
+    db_session.commit()
+    
+    # Lancement du solveur pour cette école
+    _solve_timetable_job(db_session=db_session, school_id=school.id)
+    
+    # Le cours doit être planifié sur ts2 (et pas ts1 car ts1 est Unsuited pour le staff)
+    db_session.refresh(course)
+    assert course.timeslot_id == ts2.id
+
+
+
 
 
 
