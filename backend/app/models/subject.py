@@ -18,8 +18,8 @@ class Subject(Base):
     is_specialty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Matière de Spécialité"})
     pedagogic_weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Poids Pédagogique", "min": 0.1, "max": 10.0, "step": "0.1"})
     
-    discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False)
-    family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True)
+    discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
+    family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
 
     # Relations de navigation
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline", back_populates="subjects")

@@ -17,8 +17,8 @@ class Partition(Base):
     __tablename__ = "partitions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    code: Mapped[str] = mapped_column(String(20), nullable=False)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[str] = mapped_column(String(20), nullable=False, info={"label": "Code de la partition", "placeholder": "ex: PART1"})
+    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom de la partition", "placeholder": "ex: Groupes de Langue"})
     division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
 
     # Relations de navigation
@@ -36,10 +36,10 @@ class ClassPart(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
     division_id = related_field("partition", "division_id", info={"label": "Division", "readOnly": True})
-    code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC")
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code de la partie", "placeholder": "ex: LV2_ESP"})
+    name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de la partie", "placeholder": "ex: Espagnol"})
+    student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
+    color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #2ECC71"})
 
     # Relations de navigation
     partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
@@ -103,9 +103,9 @@ class ClassPartLink(Base):
     __tablename__ = "class_part_links"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    class_part_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
-    class_part_b_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False)
-    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    class_part_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False, info={"label": "Partie de classe A"})
+    class_part_b_id: Mapped[int] = mapped_column(Integer, ForeignKey("class_parts.id", ondelete="CASCADE"), nullable=False, info={"label": "Partie de classe B"})
+    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, info={"label": "Généré par le système"})
 
     # Relations de navigation
     class_part_a: Mapped[Optional["ClassPart"]] = relationship("ClassPart", foreign_keys=[class_part_a_id])

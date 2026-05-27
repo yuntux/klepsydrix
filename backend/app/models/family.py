@@ -9,9 +9,9 @@ class Family(Base):
     __tablename__ = "families"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    resource_type: Mapped[str] = mapped_column(String(20), nullable=False) # 'Subject', 'Course', 'Teacher', 'Classroom'
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False, info={"label": "Code de la famille", "placeholder": "ex: FAM1"})
+    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom de la famille", "placeholder": "ex: Sciences"})
+    resource_type: Mapped[str] = mapped_column(String(20), nullable=False, info={"label": "Type de ressource", "placeholder": "ex: Subject"}) # 'Subject', 'Course', 'Teacher', 'Classroom'
 
     # Relations de navigation
     subjects: Mapped[list["Subject"]] = relationship("Subject", back_populates="family")

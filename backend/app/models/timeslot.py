@@ -9,8 +9,8 @@ class Timeslot(Base):
     __tablename__ = "timeslots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False) # 1 = Lundi, 6 = Samedi
-    hour: Mapped[float] = mapped_column(Float, nullable=False)          # ex: 8.0 = 8h00, 8.5 = 8h30
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False, info={"label": "Jour de la semaine", "min": 1, "max": 7}) # 1 = Lundi, 6 = Samedi
+    hour: Mapped[float] = mapped_column(Float, nullable=False, info={"label": "Heure de début", "min": 0.0, "max": 24.0, "step": "0.5"})          # ex: 8.0 = 8h00, 8.5 = 8h30
 
     # Relation avec les séances planifiées sur ce créneau
 

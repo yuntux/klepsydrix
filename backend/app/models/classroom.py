@@ -15,7 +15,7 @@ class Classroom(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Quantité", "min": 1, "max": 10}) # > 1 = groupe de salles
     
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
-    site_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("sites.id", ondelete="SET NULL"), nullable=True)
+    site_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("sites.id", ondelete="SET NULL"), nullable=True, info={"label": "Site / Bâtiment"})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="classrooms")
