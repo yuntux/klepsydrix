@@ -79,7 +79,7 @@ def seed_v2_data():
         subject_ids = {}
         for code, nomenclature, short, long, color, d_code in subjects_data:
             db.execute(text(
-                "INSERT INTO subjects (code, code_nomenclature, short_label, long_label, color, is_etp, is_specialty, pedagogic_weight, discipline_id) "
+                "INSERT INTO subjects (code, code_nomenclature, short_name, name, color, is_etp, is_specialty, pedagogic_weight, discipline_id) "
                 "VALUES (:code, :nomenclature, :short, :long, :color, 1, 0, 1.0, :discipline_id)"
             ), {
                 "code": code,
@@ -94,10 +94,10 @@ def seed_v2_data():
             subject_ids[code] = s_id
 
         # 6. Création des MEFs (2 pour collège, 2 pour lycée)
-        db.execute(text("INSERT INTO mefs (school_id, code_national, label, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012110', '6EME GENERALE', 120, 30)"), {"school_id": clg_id})
-        db.execute(text("INSERT INTO mefs (school_id, code_national, label, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012111', '5EME GENERALE', 115, 30)"), {"school_id": clg_id})
-        db.execute(text("INSERT INTO mefs (school_id, code_national, label, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012110', '2NDE GENERALE', 150, 35)"), {"school_id": lyc_id})
-        db.execute(text("INSERT INTO mefs (school_id, code_national, label, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012111', '1ERE GENERALE', 140, 35)"), {"school_id": lyc_id})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012110', '6EME GENERALE', 120, 30)"), {"school_id": clg_id})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012111', '5EME GENERALE', 115, 30)"), {"school_id": clg_id})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012110', '2NDE GENERALE', 150, 35)"), {"school_id": lyc_id})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012111', '1ERE GENERALE', 140, 35)"), {"school_id": lyc_id})
         db.commit()
         
         mef_6_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '10010012110'")).scalar()
@@ -115,11 +115,11 @@ def seed_v2_data():
                 h_val += 0.25
 
         # 8. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
-        db.execute(text("INSERT INTO period_types (label) VALUES ('Trimestre')"))
-        db.execute(text("INSERT INTO period_types (label) VALUES ('Semestre')"))
+        db.execute(text("INSERT INTO period_types (name) VALUES ('Trimestre')"))
+        db.execute(text("INSERT INTO period_types (name) VALUES ('Semestre')"))
         db.commit()
 
-        sem_type_id = db.execute(text("SELECT id FROM period_types WHERE label = 'Semestre'")).scalar()
+        sem_type_id = db.execute(text("SELECT id FROM period_types WHERE name = 'Semestre'")).scalar()
 
         db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S1_CLG', 'Semestre 1 Collège', '2026-09-01', '2027-01-31')"), {"type_id": sem_type_id, "school_id": clg_id})
         db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S2_CLG', 'Semestre 2 Collège', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id, "school_id": clg_id})
@@ -140,11 +140,10 @@ def seed_v2_data():
             first_name = "Prof"
             last_name = f"Teacher_{i}"
             code = f"T{i}"
-            name = f"M. {last_name}"
             db.execute(text(
-                "INSERT INTO teachers (code, first_name, last_name, name, max_weekly_hours, school_id) "
-                "VALUES (:code, :first_name, :last_name, :name, 18.0, :school_id)"
-            ), {"code": code, "first_name": first_name, "last_name": last_name, "name": name, "school_id": school_idx})
+                "INSERT INTO teachers (code, first_name, last_name, max_weekly_hours, school_id) "
+                "VALUES (:code, :first_name, :last_name, 18.0, :school_id)"
+            ), {"code": code, "first_name": first_name, "last_name": last_name, "school_id": school_idx})
             db.commit()
             t_id = db.execute(text("SELECT id FROM teachers WHERE code = :code"), {"code": code}).scalar()
             teachers.append((t_id, school_idx))
@@ -292,7 +291,7 @@ def seed_v2_data():
 
             # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
             db.execute(text(
-                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, label, parent_timeslot_offset) "
+                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, parent_timeslot_offset) "
                 "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', 0)"
             ), {"school_id": s_id})
             parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()

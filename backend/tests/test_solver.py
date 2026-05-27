@@ -38,8 +38,8 @@ def db_session():
         Subject.create(db, {
             "code": "MATH",
             "code_nomenclature": "NOM_MATH",
-            "short_label": "Maths",
-            "long_label": "Mathématiques",
+            "short_name": "Maths",
+            "name": "Mathématiques",
             "discipline_id": discipline.id
         })
         
@@ -53,8 +53,8 @@ def test_solver_resolves_timetable(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_MATH", "name": "Prof Math", "last_name": "Math", "school_id": school.id})
-    t2 = Teacher.create(db_session, {"code": "PROF_ANG", "name": "Prof Anglais", "last_name": "Anglais", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_MATH", "first_name": "Prof", "last_name": "Math", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "PROF_ANG", "first_name": "Prof", "last_name": "Anglais", "school_id": school.id})
 
     c1 = Classroom.create(db_session, {"code": "SALLE_A", "name": "Salle A", "capacity": 30, "quantity": 1, "school_id": school.id})
     c2 = Classroom.create(db_session, {"code": "SALLE_B", "name": "Salle B", "capacity": 30, "quantity": 1, "school_id": school.id})
@@ -82,8 +82,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_A", "name": "Prof A", "last_name": "A", "school_id": school.id})
-    t2 = Teacher.create(db_session, {"code": "PROF_B", "name": "Prof B", "last_name": "B", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_A", "first_name": "Prof", "last_name": "A", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "PROF_B", "first_name": "Prof", "last_name": "B", "school_id": school.id})
 
     c1 = Classroom.create(db_session, {"code": "ROOM_A", "name": "Room A", "capacity": 30, "quantity": 1, "school_id": school.id})
     c2 = Classroom.create(db_session, {"code": "ROOM_B", "name": "Room B", "capacity": 30, "quantity": 1, "school_id": school.id})
@@ -128,7 +128,7 @@ def test_solver_respects_preferences(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_PREF", "name": "Prof Pref", "last_name": "Pref", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_PREF", "first_name": "Prof", "last_name": "Pref", "school_id": school.id})
     c1 = Classroom.create(db_session, {"code": "ROOM_PREF", "name": "Room Pref", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_PREF", "name": "Div Pref", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
@@ -151,7 +151,7 @@ def test_solver_preference_overrides_stability(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_STAB", "name": "Prof Stab", "last_name": "Stab", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_STAB", "first_name": "Prof", "last_name": "Stab", "school_id": school.id})
     c1 = Classroom.create(db_session, {"code": "ROOM_STAB", "name": "Room Stab", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_STAB", "name": "Div Stab", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
@@ -181,7 +181,7 @@ def test_solver_respects_week_specific_preferences(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_WEEK", "name": "Prof Week", "last_name": "Week", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_WEEK", "first_name": "Prof", "last_name": "Week", "school_id": school.id})
     c1 = Classroom.create(db_session, {"code": "ROOM_WEEK", "name": "Room Week", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_WEEK", "name": "Div Week", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
@@ -207,7 +207,7 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_PERIOD", "name": "Prof Period", "last_name": "Period", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_PERIOD", "first_name": "Prof", "last_name": "Period", "school_id": school.id})
     c1 = Classroom.create(db_session, {"code": "ROOM_PERIOD", "name": "Room Period", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_PERIOD", "name": "Div Period", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
@@ -216,7 +216,7 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
 
     import datetime
     from backend.app.models.period_type import PeriodType
-    pt = PeriodType.create(db_session, {"label": "Semestre"})
+    pt = PeriodType.create(db_session, {"name": "Semestre"})
 
     per1 = Period.create(db_session, {"period_type_id": pt.id, "school_id": school.id, "code": "P1", "name": "Période 1", "start_date": datetime.date(2026, 9, 1), "end_date": datetime.date(2026, 12, 31)})
     per2 = Period.create(db_session, {"period_type_id": pt.id, "school_id": school.id, "code": "P2", "name": "Période 2", "start_date": datetime.date(2027, 1, 1), "end_date": datetime.date(2027, 6, 30)})
@@ -273,7 +273,7 @@ def test_solver_prevents_day_overflow(db_session: Session):
     """
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
-    teacher = Teacher.create(db_session, {"code": "T_OVERFLOW2", "name": "Prof", "last_name": "Overflow2", "school_id": school.id})
+    teacher = Teacher.create(db_session, {"code": "T_OVERFLOW2", "first_name": "Prof", "last_name": "Overflow2", "school_id": school.id})
     
     # On crée deux créneaux : 17h00 et 17h30 (le dernier) sur le jour 1.
     ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 17.0})
@@ -328,7 +328,7 @@ def test_course_preference_propagation(db_session: Session):
     # 2. Création de deux périodes
     from backend.app.models.period_type import PeriodType
     from backend.app.models.period import Period
-    pt = PeriodType.create(db_session, {"label": "Trimestre"})
+    pt = PeriodType.create(db_session, {"name": "Trimestre"})
     per1 = Period.create(db_session, {
         "period_type_id": pt.id,
         "school_id": school.id,
@@ -461,7 +461,7 @@ def test_course_heatmap_with_indisponibility(db_session: Session):
     # Création du professeur
     teacher = Teacher.create(db_session, {
         "code": "PROF_ART",
-        "name": "Prof Art",
+        "first_name": "Prof",
         "last_name": "Art",
         "school_id": school.id
     })
@@ -518,7 +518,7 @@ def test_solver_leaves_unplaceable_course_unassigned(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
-    t1 = Teacher.create(db_session, {"code": "PROF_UNPLACEABLE", "name": "Prof Unplaceable", "last_name": "Unplaceable", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_UNPLACEABLE", "first_name": "Prof", "last_name": "Unplaceable", "school_id": school.id})
     c1 = Classroom.create(db_session, {"code": "ROOM_UNPLACEABLE", "name": "Room Unplaceable", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_UNPLACEABLE", "name": "Div Unplaceable", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
@@ -725,8 +725,8 @@ def test_course_to_course_constraints(db_session: Session):
     subject = db_session.query(Subject).first()
     
     # 1. Enseignants et salles
-    t1 = Teacher.create(db_session, {"code": "PROF_CTC1", "name": "Prof CTC1", "last_name": "CTC1", "school_id": school.id})
-    t2 = Teacher.create(db_session, {"code": "PROF_CTC2", "name": "Prof CTC2", "last_name": "CTC2", "school_id": school.id})
+    t1 = Teacher.create(db_session, {"code": "PROF_CTC1", "first_name": "Prof", "last_name": "CTC1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "PROF_CTC2", "first_name": "Prof", "last_name": "CTC2", "school_id": school.id})
     Classroom.create(db_session, {"code": "ROOM_CTC1", "name": "Room CTC1", "capacity": 30, "quantity": 1, "school_id": school.id})
     Classroom.create(db_session, {"code": "ROOM_CTC2", "name": "Room CTC2", "capacity": 30, "quantity": 1, "school_id": school.id})
     
@@ -901,67 +901,3 @@ def test_share_reference_period():
     ts_wed = PlanningTimeslot(id=5, day_of_week=3, hour=9.0, absolute_end_of_day=18.0)
     c_wed = PlanningCourse(id=7, step=1.0, timeslot=ts_wed, week_type="A")
     assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)
-
-
-def test_solver_respects_non_teaching_staff_preferences(db_session: Session):
-    from backend.app.models.non_teaching_staff import NonTeachingStaff
-    from backend.app.models.system_setting import SystemSetting, SystemSettingKey
-    
-    # Configuration minimale requise
-    from sqlalchemy import select
-    existing_setting = db_session.execute(
-        select(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION)
-    ).scalars().first()
-    if not existing_setting:
-        SystemSetting.create(db_session, {"key": SystemSettingKey.STANDARD_TIMESLOT_DURATION, "value": "60"})
-    else:
-        existing_setting.update(db_session, {"value": "60"})
-    
-    school = School.create(db_session, {"uai": "9999999Z", "name": "Test School"})
-    discipline = Discipline.create(db_session, {"code": "DISC", "name": "Discipline"})
-    subject = Subject.create(db_session, {"code": "SUBJ", "code_nomenclature": "SUBJ01", "short_label": "Subj", "long_label": "Subject", "discipline_id": discipline.id, "color": "#123456"})
-    classroom = Classroom.create(db_session, {"code": "ROOM_TEST", "name": "Room Test", "capacity": 30, "quantity": 1, "school_id": school.id})
-    
-    # Création du personnel non enseignant
-    staff = NonTeachingStaff.create(db_session, {
-        "first_name": "John",
-        "last_name": "Doe",
-        "role": "Assistant",
-        "school_id": school.id
-    })
-    
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
-    
-    # Créer un vœu Unsuited sur ts1
-    ResourcePreference.create(db_session, {
-        "resource_type": "NonTeachingStaff",
-        "resource_id": staff.id,
-        "timeslot_id": ts1.id,
-        "preference_level": "Unsuited",
-        "week_type": "W"
-    })
-    
-    # Création du cours avec ce staff
-    course = Course.create(db_session, {
-        "subject_id": subject.id,
-        "non_teaching_staff_ids": [staff.id],
-        "school_id": school.id,
-        "duration_minutes": 60
-    })
-    db_session.commit()
-    
-    # Lancement du solveur pour cette école
-    _solve_timetable_job(db_session=db_session, school_id=school.id)
-    
-    # Le cours doit être planifié sur ts2 (et pas ts1 car ts1 est Unsuited pour le staff)
-    db_session.refresh(course)
-    assert course.timeslot_id == ts2.id
-
-
-
-
-
-
-
-

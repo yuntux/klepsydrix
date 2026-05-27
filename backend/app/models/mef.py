@@ -11,7 +11,7 @@ class Mef(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
     code_national: Mapped[str] = mapped_column(String(11), unique=True, index=True, nullable=False, info={"label": "Code National (MEF10)", "placeholder": "ex: 1001001211"})
-    label: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Libellé", "placeholder": "ex: 6EME"})
+    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Libellé", "placeholder": "ex: 6EME"})
     forecast_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif prévisionnel d'élèves", "min": 0, "max": 1000})
     max_students_per_class: Mapped[int] = mapped_column(Integer, nullable=False, default=30, info={"label": "Capacité maximale par classe", "min": 1, "max": 100})
 

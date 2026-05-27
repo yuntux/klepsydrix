@@ -112,14 +112,23 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
             py_type = Any
             
         field_kwargs = {}
+        json_schema_extra = {}
         if hasattr(column, "info") and column.info:
             if "label" in column.info:
                 field_kwargs["title"] = column.info["label"]
             json_schema_extra = {k: v for k, v in column.info.items() if k not in ("label", "type")}
             if "type" in column.info:
                 json_schema_extra["ui_type"] = column.info["type"]
-            if json_schema_extra:
-                field_kwargs["json_schema_extra"] = json_schema_extra
+        
+        # Détection automatique de la ressource liée via la clé étrangère SQL
+        if hasattr(column, "foreign_keys") and column.foreign_keys:
+            fk_list = list(column.foreign_keys)
+            if fk_list:
+                target_table = fk_list[0].column.table.name
+                json_schema_extra["resource"] = target_table
+                
+        if json_schema_extra:
+            field_kwargs["json_schema_extra"] = json_schema_extra
         
         if all_optional or column.nullable or column.default is not None or column.server_default is not None:
             fields[column.name] = (Optional[py_type], Field(None, **field_kwargs))

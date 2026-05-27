@@ -226,3 +226,43 @@ def test_teacher_constraints_crud(db_session: Session):
     assert fetched_data["only_one_half_day_per_day"] is False
 
 
+def test_generic_display_name(db_session: Session):
+    # 1. Créer une école de test
+    school = School(uai="7777777Y", name="Ecole Test Display")
+    school._via_crud_mixin_create = True
+    db_session.add(school)
+    db_session.commit()
+    db_session.refresh(school)
+
+    # L'école a un attribut 'name'. Donc display_name doit renvoyer "Ecole Test Display"
+    response = client.get(f"/api/generic/schools/{school.id}")
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "Ecole Test Display"
+
+    # 2. Créer une matière (Subject), qui a les attributs 'short_name' et 'name'
+    from backend.app.models.discipline import Discipline
+    discipline = Discipline(code="DISC_TEST", name="Discipline Test")
+    discipline._via_crud_mixin_create = True
+    db_session.add(discipline)
+    db_session.commit()
+    db_session.refresh(discipline)
+
+    from backend.app.models.subject import Subject
+    subject = Subject(
+        code="SUBJ_TEST",
+        code_nomenclature="N_TEST",
+        short_name="SubjTest",
+        name="Subject Test Long Label",
+        discipline_id=discipline.id
+    )
+    subject._via_crud_mixin_create = True
+    db_session.add(subject)
+    db_session.commit()
+    db_session.refresh(subject)
+
+    # Subject a display_name qui renvoie name
+    response = client.get(f"/api/generic/subjects/{subject.id}")
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "Subject Test Long Label"
+
+

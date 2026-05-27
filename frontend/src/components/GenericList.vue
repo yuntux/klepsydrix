@@ -130,6 +130,7 @@
               v-for="col in visibleColumns" 
               :key="col.key"
               class="body-td"
+              :class="{ 'has-select': getFieldDef(col.key)?.type === 'select' }"
             >
               <!-- Formatage personnalisé des valeurs (Édition en ligne Airtable) -->
               <slot :name="'col-' + col.key" :item="item">
@@ -160,24 +161,15 @@
                   />
                 </div>
 
-                <!-- Menu Déroulant Select (ex: école principale) -->
-                <select 
+                <SearchableSelect 
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
-                  :value="item[col.key]" 
+                  :model-value="item[col.key]" 
+                  :options="getFieldDef(col.key)?.options || []"
                   :disabled="isColumnReadOnly(col.key)"
                   :required="isColumnRequired(col.key)"
-                  @change="updateInline(item, col.key, $event.target.value === '' ? null : (isNaN(Number($event.target.value)) ? $event.target.value : Number($event.target.value)))"
-                  class="inline-select"
-                >
-                  <option :value="null">-- Choisir --</option>
-                  <option 
-                    v-for="opt in getFieldDef(col.key)?.options" 
-                    :key="opt.value" 
-                    :value="opt.value"
-                  >
-                    {{ opt.label }}
-                  </option>
-                </select>
+                  :inline="true"
+                  @update:model-value="updateInline(item, col.key, $event)"
+                />
 
                 <!-- Nombre -->
                 <input 
@@ -280,6 +272,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
+import SearchableSelect from './SearchableSelect.vue';
 
 interface ColumnDef {
   key: string;
@@ -519,6 +512,17 @@ function getFieldDef(key: string): FormField | undefined {
   return props.fields?.find(f => f.key === key);
 }
 
+function getDisplayValue(item: any, key: string): string {
+  const val = item[key];
+  if (val === undefined || val === null) return '';
+  const fieldDef = getFieldDef(key);
+  if (fieldDef && fieldDef.options) {
+    const option = fieldDef.options.find(o => String(o.value) === String(val));
+    if (option) return option.label;
+  }
+  return String(val);
+}
+
 const pendingUpdates = new Map<string, any>();
 
 function updateInline(item: any, key: string, value: any) {
@@ -677,9 +681,8 @@ const filteredItems = computed(() => {
     if (val) {
       const lowerVal = val.toLowerCase();
       result = result.filter(item => {
-        const itemVal = item[key];
-        if (itemVal === undefined || itemVal === null) return false;
-        return String(itemVal).toLowerCase().includes(lowerVal);
+        const displayVal = getDisplayValue(item, key);
+        return displayVal.toLowerCase().includes(lowerVal);
       });
     }
   });
@@ -687,12 +690,23 @@ const filteredItems = computed(() => {
   // 2. Tri
   if (sortBy.value) {
     const key = sortBy.value;
+    const fieldDef = getFieldDef(key);
+    const isSelect = fieldDef && fieldDef.type === 'select';
+
     result.sort((a, b) => {
       let valA = a[key];
       let valB = b[key];
 
       if (valA === undefined || valA === null) return 1;
       if (valB === undefined || valB === null) return -1;
+
+      if (isSelect) {
+        const displayA = getDisplayValue(a, key);
+        const displayB = getDisplayValue(b, key);
+        return sortDesc.value 
+          ? displayB.localeCompare(displayA)
+          : displayA.localeCompare(displayB);
+      }
 
       if (typeof valA === 'string') {
         return sortDesc.value 
@@ -1151,6 +1165,10 @@ function onDrop(event: DragEvent, index: number) {
   overflow: hidden;
   text-overflow: ellipsis;
   border-right: 1px solid var(--border-color);
+}
+
+.body-td.has-select {
+  overflow: visible !important;
 }
 
 .empty-td {

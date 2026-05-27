@@ -39,3 +39,7 @@ class Student(Base):
                 
                 if cp_a.partition_id == cp_b.partition_id:
                     raise ValueError(f"L'élève {self.first_name} {self.last_name} ne peut pas appartenir à deux parties de la même partition.")
+
+    @property
+    def display_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"

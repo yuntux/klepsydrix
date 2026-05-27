@@ -71,3 +71,11 @@ class Timeslot(Base):
             raise ValueError(f"Le créneau de destination (offset +{offset}) n'existe pas ou déborde de la journée.")
             
         return timeslots[-1].id
+
+    @property
+    def display_name(self) -> str:
+        days = {1: "Lundi", 2: "Mardi", 3: "Mercredi", 4: "Jeudi", 5: "Vendredi", 6: "Samedi", 7: "Dimanche"}
+        day_str = days.get(self.day_of_week, f"Jour {self.day_of_week}")
+        h = int(self.hour)
+        m = int((self.hour - h) * 60)
+        return f"{day_str} {h:02d}h{m:02d}"

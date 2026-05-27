@@ -35,7 +35,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
     non_teaching_staffs = db.execute(select(NonTeachingStaff)).scalars().unique().all()
 
     return {
-        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.name, "school_id": t.school_id} for t in teachers],
+        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.display_name, "school_id": t.school_id} for t in teachers],
         "non_teaching_staffs": [{"id": s.id, "first_name": s.first_name, "last_name": s.last_name, "role": s.role, "school_id": s.school_id} for s in non_teaching_staffs],
         "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "name": c.name, "capacity": c.capacity, "school_id": c.school_id} for c in classrooms],
         "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "name": d.name, "school_id": d.school_id} for d in divisions],
@@ -43,7 +43,7 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
         "courses": [
             {
                 "id": c.id,
-                "subject": c.subject_relation.short_label if c.subject_relation else "Cours",
+                "subject": c.subject_relation.short_name if c.subject_relation else "Cours",
                 "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
                 "teacher_ids": [t.id for t in c.teachers],
                 "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
@@ -122,7 +122,7 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
     serialized_courses = [
         {
             "id": c.id,
-            "subject": c.subject_relation.short_label if c.subject_relation else "Cours",
+            "subject": c.subject_relation.short_name if c.subject_relation else "Cours",
             "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
             "teacher_ids": [t.id for t in c.teachers],
             "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
@@ -170,12 +170,12 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
                 ts = db.get(Timeslot, c.timeslot_id)
                 ts_str = f"Jour {ts.day_of_week} à {ts.hour}h00" if ts else "Créneau Inconnu"
                 
-                t_name = c.teachers[0].name if c.teachers else "Sans Prof"
+                t_name = c.teachers[0].display_name if c.teachers else "Sans Prof"
                 d_name = c.divisions[0].name if c.divisions else "Sans Division"
                 
                 impacted.append({
                     "session_id": c.id,
-                    "course_label": f"{c.subject_relation.short_label if c.subject_relation else 'Cours'} - {t_name} - {d_name}",
+                    "course_label": f"{c.subject_relation.short_name if c.subject_relation else 'Cours'} - {t_name} - {d_name}",
                     "timeslot": ts_str,
                     "reason": f"Modification ou suppression de la structure de {resource_type} associée"
                 })

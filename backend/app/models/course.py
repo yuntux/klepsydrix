@@ -92,7 +92,7 @@ class Course(Base):
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=55)
-    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -553,4 +553,3 @@ class Course(Base):
                 parent.recompute_status(exclude_child_id=self.id)
             self._sync_parent_week_type(db, exclude_child_id=self.id)
         return res
-

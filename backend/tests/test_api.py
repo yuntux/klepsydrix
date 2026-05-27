@@ -84,8 +84,8 @@ def db_session():
         subject = Subject(
             code="MATH",
             code_nomenclature="NOM_MATH",
-            short_label="Maths",
-            long_label="Mathématiques",
+            short_name="Maths",
+            name="Mathématiques",
             discipline_id=discipline.id
         )
         subject._via_crud_mixin_create = True
@@ -99,7 +99,7 @@ def db_session():
 
 def test_get_timetable(db_session: Session):
     school = db_session.query(School).first()
-    t = Teacher(code="MARTIN", name="Prof Martin", last_name="Martin", school_id=school.id)
+    t = Teacher(code="MARTIN", first_name="Prof", last_name="Martin", school_id=school.id)
     t._via_crud_mixin_create = True
     db_session.add(t)
     db_session.commit()
@@ -115,7 +115,7 @@ def test_solve_timetable(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
@@ -152,7 +152,7 @@ def test_reset_timetable(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
@@ -184,7 +184,7 @@ def test_update_course_success(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
@@ -213,7 +213,7 @@ def test_update_course_conflict(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c1 = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     c2 = Classroom(code="SALLE_B", name="Salle B", capacity=25, quantity=1, school_id=school.id)
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
@@ -250,7 +250,7 @@ def test_solve_pinned_course(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c1 = Classroom(code="SALLE_1", name="Salle 1", capacity=30, quantity=1, school_id=school.id)
     c2 = Classroom(code="SALLE_2", name="Salle 2", capacity=30, quantity=1, school_id=school.id)
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
@@ -305,7 +305,7 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    t = Teacher(code="PROF_A", name="Prof A", last_name="A", school_id=school.id)
+    t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, hour=8)
@@ -447,7 +447,7 @@ def test_preferences_period_split_logic(db_session: Session):
     school = db_session.query(School).first()
     
     # 1. Créer le type de période et les périodes
-    pt = PeriodType(label="Trimestres")
+    pt = PeriodType(name="Trimestres")
     pt._via_crud_mixin_create = True
     db_session.add(pt)
     db_session.commit()
@@ -459,7 +459,7 @@ def test_preferences_period_split_logic(db_session: Session):
     db_session.add_all([p1, p2])
     db_session.commit()
 
-    teacher = Teacher(code="TESTPER", name="Prof Test", last_name="Test", school_id=school.id)
+    teacher = Teacher(code="TESTPER", first_name="Prof", last_name="Test", school_id=school.id)
     teacher._via_crud_mixin_create = True
     db_session.add(teacher)
     
@@ -545,7 +545,7 @@ def test_course_week_alternation_conflicts(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    teacher = Teacher(code="T1", name="John", last_name="Doe", school_id=school.id)
+    teacher = Teacher(code="T1", first_name="John", last_name="Doe", school_id=school.id)
     teacher._via_crud_mixin_create = True
     db_session.add(teacher)
     db_session.commit()
@@ -652,7 +652,7 @@ def test_course_status_calculation(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
-    teacher1 = Teacher(code="T1", name="Prof 1", last_name="One", school_id=school.id)
+    teacher1 = Teacher(code="T1", first_name="Prof", last_name="One", school_id=school.id)
     teacher1._via_crud_mixin_create = True
     
     ts1 = Timeslot(day_of_week=1, hour=8.0)
@@ -774,7 +774,7 @@ def test_course_day_overflow_conflict(db_session: Session):
     
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
-    teacher = Teacher(code="T_OVERFLOW", name="Prof", last_name="Overflow", school_id=school.id)
+    teacher = Teacher(code="T_OVERFLOW", first_name="Prof", last_name="Overflow", school_id=school.id)
     teacher._via_crud_mixin_create = True
     db_session.add(teacher)
     
@@ -818,8 +818,8 @@ def test_course_periods_and_type_validation(db_session: Session):
     subject = db_session.query(Subject).first()
     
     # 1. Créer deux types de périodes
-    pt_semestre = PeriodType.create(db_session, {"label": "Semestre"})
-    pt_trimestre = PeriodType.create(db_session, {"label": "Trimestre"})
+    pt_semestre = PeriodType.create(db_session, {"name": "Semestre"})
+    pt_trimestre = PeriodType.create(db_session, {"name": "Trimestre"})
     
     # 2. Créer des périodes de chaque type
     p_sem1 = Period.create(db_session, {

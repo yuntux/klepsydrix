@@ -22,16 +22,21 @@ class CRUDMixin:
         ]
 
         # Découverte automatique des champs calculés exposés à l'API
-        exposed_fields = []
+        exposed_fields = ["display_name"]
         for name, attr in cls.__dict__.items():
             if getattr(attr, "_is_exposed", False):
                 exposed_fields.append(name)
             elif isinstance(attr, (property, hybrid_property)):
                 if getattr(attr.fget, "_is_exposed", False) or getattr(attr.fset, "_is_exposed", False):
                     exposed_fields.append(name)
-        if exposed_fields:
-            existing = getattr(cls, "_extra_fields", [])
-            cls._extra_fields = list(set(existing + exposed_fields))
+        existing = getattr(cls, "_extra_fields", [])
+        cls._extra_fields = list(set(existing + exposed_fields))
+
+    @property
+    def display_name(self) -> str:
+        if hasattr(self, "name") and getattr(self, "name") is not None:
+            return str(self.name)
+        return str(getattr(self, "id", "")) if getattr(self, "id", None) is not None else ""
 
     def ensure_related_record(self, relation_name: str):
         """

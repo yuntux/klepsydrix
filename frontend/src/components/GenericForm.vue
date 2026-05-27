@@ -45,6 +45,8 @@
 <script setup lang="ts">
 import { ref, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
+import SearchableSelect from './SearchableSelect.vue';
+
 
 interface FormField {
   key: string;
@@ -58,6 +60,7 @@ interface FormField {
   fullWidth?: boolean;
   options?: Array<{ value: any; label: string }>;
   help?: string;
+  resource?: string;
 }
 interface LayoutElement {
   type: 'field' | 'group' | 'separator' | 'newline';
@@ -133,6 +136,7 @@ const props = defineProps<{
   inline?: boolean;
   formConfig?: FormConfig;
   selectedRecords?: any[];
+  resourceKey?: string;
 }>();
 
 const emit = defineEmits<{
@@ -141,6 +145,8 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
   (e: 'delete', value: Record<string, any>): void;
 }>();
+
+
 
 const isEditableForm = computed(() => {
   return props.formConfig?.editableForm !== false;
@@ -284,29 +290,29 @@ const FormLayoutGrid: any = defineComponent({
       default: () => ({})
     }
   },
-  setup(props) {
+  setup(gridProps) {
     return () => {
       // Si inline : max-content 1fr
       // Si non inline : max-content 1fr max-content 1fr
-      const gridTemplate = props.inline
+      const gridTemplate = gridProps.inline
         ? 'max-content 1fr'
         : 'max-content 1fr max-content 1fr';
 
       const isDivergent = (key: string) => {
-        return props.isMultiEdit && props.initialModelValue[key] === undefined;
+        return gridProps.isMultiEdit && gridProps.initialModelValue[key] === undefined;
       };
 
       const isModified = (key: string) => {
-        if (!props.isMultiEdit) return false;
-        const current = props.localModel[key];
-        const initial = props.initialModelValue[key];
+        if (!gridProps.isMultiEdit) return false;
+        const current = gridProps.localModel[key];
+        const initial = gridProps.initialModelValue[key];
         if (current === undefined && initial === undefined) return false;
         return current !== initial;
       };
 
       return h('div', {
         class: 'fields-layout-container',
-        style: props.isNested ? {
+        style: gridProps.isNested ? {
           display: 'contents'
         } : {
           display: 'grid',
@@ -316,7 +322,7 @@ const FormLayoutGrid: any = defineComponent({
           width: '100%'
         }
       },
-        props.elements.flatMap(elem => {
+        gridProps.elements.flatMap(elem => {
           if (elem.type === 'newline') {
             return [ h('div', {
               class: 'form-layout-newline',
@@ -350,7 +356,7 @@ const FormLayoutGrid: any = defineComponent({
           }
 
           if (elem.type === 'group') {
-            const cols = elem.col || (props.inline ? 1 : 2);
+            const cols = elem.col || (gridProps.inline ? 1 : 2);
             const groupGridTemplate = Array(cols).fill('max-content 1fr').join(' ');
             let gridCol = '1 / -1';
             if (elem.span) {
@@ -388,12 +394,12 @@ const FormLayoutGrid: any = defineComponent({
                 }, elem.string) : null,
                 h(FormLayoutGrid, {
                   elements: elem.children || [],
-                  localModel: props.localModel,
-                  isEditableForm: props.isEditableForm,
-                  inline: props.inline,
+                  localModel: gridProps.localModel,
+                  isEditableForm: gridProps.isEditableForm,
+                  inline: gridProps.inline,
                   isNested: true,
-                  isMultiEdit: props.isMultiEdit,
-                  initialModelValue: props.initialModelValue
+                  isMultiEdit: gridProps.isMultiEdit,
+                  initialModelValue: gridProps.initialModelValue
                 })
               ])
             ];
@@ -403,17 +409,35 @@ const FormLayoutGrid: any = defineComponent({
             const field = elem.originalField;
             const key = elem.key!;
             const required = elem.required === true;
-            const disabled = props.isEditableForm === false || elem.disabled === true;
+            const disabled = gridProps.isEditableForm === false || elem.disabled === true;
             const label = elem.label || field.label;
 
             const isFull = field.fullWidth === true;
             const inputStyle = {
-              gridColumn: (isFull && !props.inline) ? 'span 3' : 'auto'
+              gridColumn: (isFull && !gridProps.inline) ? 'span 3' : 'auto'
             };
 
             let inputElement: any = null;
 
-            if (field.type === 'text') {
+            const isFk = !!field.resource;
+
+            if (isFk) {
+              const options = field.options || [];
+              inputElement = h(SearchableSelect, {
+                modelValue: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : null,
+                options: options,
+                disabled: disabled,
+                placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : field.placeholder,
+                required: required && !gridProps.isMultiEdit,
+                style: inputStyle,
+                'onUpdate:modelValue': (val: any) => {
+                  gridProps.localModel[key] = val;
+                },
+                onChange: (val: any) => {
+                  gridProps.localModel[key] = val;
+                }
+              });
+            } else if (field.type === 'text') {
               inputElement = h('input', {
                 type: 'text',
                 class: [
@@ -422,14 +446,14 @@ const FormLayoutGrid: any = defineComponent({
                   isModified(key) ? 'form-input-modified' : ''
                 ],
                 style: inputStyle,
-                value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
-                required: required && !props.isMultiEdit,
+                value: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : '',
+                required: required && !gridProps.isMultiEdit,
                 disabled: disabled,
                 placeholder: isDivergent(key) && !isModified(key)
                   ? '(Valeurs multiples - Saisir pour modifier)'
                   : (field.placeholder || ''),
                 onInput: (e: Event) => {
-                  props.localModel[key] = (e.target as HTMLInputElement).value;
+                  gridProps.localModel[key] = (e.target as HTMLInputElement).value;
                 }
               });
             } else if (field.type === 'number') {
@@ -441,8 +465,8 @@ const FormLayoutGrid: any = defineComponent({
                   isModified(key) ? 'form-input-modified' : ''
                 ],
                 style: inputStyle,
-                value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
-                required: required && !props.isMultiEdit,
+                value: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : '',
+                required: required && !gridProps.isMultiEdit,
                 disabled: disabled,
                 min: field.min,
                 max: field.max,
@@ -450,7 +474,7 @@ const FormLayoutGrid: any = defineComponent({
                 placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : '',
                 onInput: (e: Event) => {
                   const val = (e.target as HTMLInputElement).value;
-                  props.localModel[key] = val !== '' ? Number(val) : null;
+                  gridProps.localModel[key] = val !== '' ? Number(val) : null;
                 }
               });
             } else if (field.type === 'date') {
@@ -462,11 +486,11 @@ const FormLayoutGrid: any = defineComponent({
                   isModified(key) ? 'form-input-modified' : ''
                 ],
                 style: inputStyle,
-                value: props.localModel[key] || '',
-                required: required && !props.isMultiEdit,
+                value: gridProps.localModel[key] || '',
+                required: required && !gridProps.isMultiEdit,
                 disabled: disabled,
                 onInput: (e: Event) => {
-                  props.localModel[key] = (e.target as HTMLInputElement).value;
+                  gridProps.localModel[key] = (e.target as HTMLInputElement).value;
                 }
               });
             } else if (field.type === 'boolean') {
@@ -477,10 +501,10 @@ const FormLayoutGrid: any = defineComponent({
                 h('label', { class: ['switch', disabled ? 'disabled-switch' : '', isDivergent(key) && !isModified(key) ? 'switch-divergent' : '', isModified(key) ? 'switch-modified' : ''] }, [
                   h('input', {
                     type: 'checkbox',
-                    checked: !!props.localModel[key],
+                    checked: !!gridProps.localModel[key],
                     disabled: disabled,
                     onChange: (e: Event) => {
-                      props.localModel[key] = (e.target as HTMLInputElement).checked;
+                      gridProps.localModel[key] = (e.target as HTMLInputElement).checked;
                     }
                   }),
                   h('span', { class: 'slider round' })
@@ -490,7 +514,7 @@ const FormLayoutGrid: any = defineComponent({
                     'toggle-status',
                     isDivergent(key) && !isModified(key) ? 'status-divergent' : ''
                   ]
-                }, props.localModel[key] === undefined ? 'Divergent (cliquez pour cocher)' : (props.localModel[key] ? 'Oui' : 'Non'))
+                }, gridProps.localModel[key] === undefined ? 'Divergent (cliquez pour cocher)' : (gridProps.localModel[key] ? 'Oui' : 'Non'))
               ]);
             } else if (field.type === 'select') {
               inputElement = h('select', {
@@ -500,16 +524,16 @@ const FormLayoutGrid: any = defineComponent({
                   isModified(key) ? 'form-select-modified' : ''
                 ],
                 style: inputStyle,
-                value: props.localModel[key] !== undefined && props.localModel[key] !== null ? props.localModel[key] : '',
-                required: required && !props.isMultiEdit,
+                value: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : '',
+                required: required && !gridProps.isMultiEdit,
                 disabled: disabled,
                 onChange: (e: Event) => {
                   const val = (e.target as HTMLSelectElement).value;
                   if (val === '') {
-                    props.localModel[key] = null;
+                    gridProps.localModel[key] = null;
                   } else {
                     const num = Number(val);
-                    props.localModel[key] = isNaN(num) ? val : num;
+                    gridProps.localModel[key] = isNaN(num) ? val : num;
                   }
                 }
               }, [
@@ -529,9 +553,9 @@ const FormLayoutGrid: any = defineComponent({
                 style: inputStyle
               }, [
                 h(ColorSwatchPicker, {
-                  modelValue: props.localModel[key] !== undefined ? props.localModel[key] : '',
+                  modelValue: gridProps.localModel[key] !== undefined ? gridProps.localModel[key] : '',
                   onChange: (val: string) => {
-                    props.localModel[key] = val;
+                    gridProps.localModel[key] = val;
                   }
                 }),
                 isDivergent(key) && !isModified(key)

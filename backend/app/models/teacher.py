@@ -12,7 +12,6 @@ class Teacher(Base):
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code Enseignant", "placeholder": "ex: T1"})
     first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Prénom", "placeholder": "ex: Marc"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
-    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom d'usage complet", "placeholder": "ex: M. Dupont"}) # ex: 'M. Martin' (compatibilité V1)
     max_weekly_hours: Mapped[float] = mapped_column(Float, nullable=False, default=18.0, info={"label": "Heures max hebdomadaires", "min": 1.0, "max": 40.0, "step": "0.5"})
     
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement Principal"})
@@ -75,3 +74,9 @@ class Teacher(Base):
             constraint._via_crud_mixin_create = True
             session.add(constraint)
         return constraint
+
+    @property
+    def display_name(self) -> str:
+        if self.first_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.last_name

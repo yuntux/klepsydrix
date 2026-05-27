@@ -106,6 +106,7 @@
             :inline="true"
             :formConfig="panel.formConfig"
             :selectedRecords="selectedRelatedRecords"
+            :resourceKey="panel.resourceKey || activeAdminModel"
             @submit="onSubmitGeneric"
             @delete="onDeleteGeneric"
             @cancel="isAddingInline = false"
@@ -121,6 +122,7 @@
       :fields="formFieldsConfig"
       v-model="formModel"
       :selectedRecords="selectedRelatedRecords"
+      :resourceKey="activeAdminModel"
       @submit="onSubmitGeneric"
       @cancel="showFormModal = false"
       @delete="onDeleteGeneric"
@@ -443,6 +445,37 @@ async function loadGenericItems() {
     genericLoading.value = false;
   }
 }
+
+const fkOptionsCache = ref<Record<string, Array<{ value: any; label: string }>>>({});
+
+async function loadFkOptionsForModel(model: string) {
+  if (!openApiSpec.value) return;
+  const schemaName = `${model}_CreatePayload`;
+  const schema = openApiSpec.value.components?.schemas?.[schemaName];
+  if (!schema || !schema.properties) return;
+
+  for (const [key, prop] of Object.entries<any>(schema.properties)) {
+    if (prop.resource) {
+      const resourceName = prop.resource;
+      if (!fkOptionsCache.value[resourceName]) {
+        try {
+          const res = await api.fetchGenericList(resourceName, 0, 1000);
+          fkOptionsCache.value[resourceName] = (res.items || []).map((item: any) => ({
+            value: item.id,
+            label: item.display_name || item.name || item.code || String(item.id)
+          }));
+        } catch (e) {
+          console.error(`Failed to fetch options for resource ${resourceName}`, e);
+          fkOptionsCache.value[resourceName] = [];
+        }
+      }
+    }
+  }
+}
+
+watch([activeAdminModel, openApiSpec], () => {
+  loadFkOptionsForModel(activeAdminModel.value);
+}, { immediate: true });
 
 function updateDefaultSelection() {
   if (selectedDivisionIds.value.length === 0 && selectedTeacherIds.value.length === 0 && selectedClassroomIds.value.length === 0 && selectedNonTeachingStaffIds.value.length === 0) {
@@ -788,7 +821,7 @@ const columnsConfig = computed(() => {
     if (schema && schema.properties) {
       const dynamicColumns = [];
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
-        if (key === 'id') continue; // On masque l'ID technique
+        if (key === 'id' || key === 'display_name') continue; // On masque l'ID technique et display_name
         
         dynamicColumns.push({
           key: key,
@@ -808,7 +841,7 @@ const columnsConfig = computed(() => {
 function getFormFieldsConfig(resourceKey?: string) {
   const model = resourceKey || activeAdminModel.value;
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
-  const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.label }));
+  const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.name || pt.label }));
 
   // On extrait dynamiquement les heures de début de la vraie grille de l'école !
   const timeSet = new Set<string>();
@@ -849,9 +882,8 @@ function getFormFieldsConfig(resourceKey?: string) {
     if (schema && schema.properties) {
       const dynamicFields = [];
       const requiredFields = schema.required || [];
-
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
-        if (key === 'id') continue; // On masque l'ID dans le formulaire
+        if (key === 'id' || key === 'display_name') continue; // On masque l'ID et display_name dans le formulaire
         
         let baseType = prop.type;
         // Gérer les champs optionnels (nullable) de Pydantic qui utilisent anyOf
@@ -873,6 +905,10 @@ function getFormFieldsConfig(resourceKey?: string) {
         if (key === 'school_id') { fieldType = 'select'; options = schoolOptions; }
         else if (key === 'period_type_id') { fieldType = 'select'; options = periodTypeOptions; }
         else if (key === 'late_start_time' || key === 'early_end_time') { fieldType = 'select'; options = timeOptions; }
+        else if (prop.resource) {
+          fieldType = 'select';
+          options = fkOptionsCache.value[prop.resource] || [];
+        }
         else if (options) { fieldType = 'select'; }
         
         dynamicFields.push({
@@ -884,7 +920,8 @@ function getFormFieldsConfig(resourceKey?: string) {
           min: prop.min,
           max: prop.max,
           step: prop.step,
-          options: options
+          options: options,
+          resource: prop.resource
         });
       }
       return dynamicFields;
@@ -892,7 +929,6 @@ function getFormFieldsConfig(resourceKey?: string) {
   }
   // ---------------------------------------------------
 
-  return [];
   return [];
 }
 

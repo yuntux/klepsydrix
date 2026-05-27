@@ -89,7 +89,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     db_course_constraints = db.execute(select(CourseToCourseConstraint)).scalars().unique().all()
     db_periods = db.execute(select(Period)).scalars().unique().all()
 
-    teachers_map = {t.id: PlanningTeacher(t.id, t.name) for t in db_teachers}
+    teachers_map = {t.id: PlanningTeacher(t.id, t.display_name) for t in db_teachers}
     non_teaching_staffs_map = {s.id: PlanningNonTeachingStaff(s.id, s.first_name, s.last_name) for s in db_non_teaching_staffs}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
     divisions_map = {d.id: PlanningDivision(d.id, d.name) for d in db_divisions}

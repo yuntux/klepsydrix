@@ -15,3 +15,7 @@ class NonTeachingStaff(Base):
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
 
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_non_teaching_staffs", back_populates="non_teaching_staffs", passive_deletes="all")
+
+    @property
+    def display_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"
