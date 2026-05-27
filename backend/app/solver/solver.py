@@ -291,6 +291,19 @@ def _solve_timetable_job(db_session=None, school_id=None):
                             db_course.classrooms = [db_classroom]
                     else:
                         db_course.classrooms = []
+                else:
+                    # Synchroniser le timeslot de chaque cours enfant par rapport au parent
+                    from backend.app.models.timeslot import Timeslot
+                    parent_ts = db.get(Timeslot, db_course.timeslot_id) if db_course.timeslot_id else None
+                    for child in db_course.children:
+                        child._via_crud_mixin_update = True
+                        if parent_ts:
+                            child.timeslot_id = parent_ts.get_offset_timeslot(db, child.parent_timeslot_offset)
+                        else:
+                            child.timeslot_id = None
+                        child.recompute_status()
+                
+                db_course.recompute_status()
 
         db.commit()
 
