@@ -565,7 +565,7 @@
           },
           {
             "id": "classrooms_preferences_tab",
-            "title": "Vœux et contraintes",
+            "title": "Vœux",
             "borderColor": "#06B6D4",
             "layout": "VERTICAL",
             "panels": [
@@ -608,19 +608,47 @@
         "id": "subjects_setting",
         "title": "📖 Matières",
         "borderColor": "#EC4899",
-        "layout": "VERTICAL",
-        "panels": [
+        "children": [
           {
-            "id": "subjects_list",
-            "component": "GenericList",
-            "resourceKey": "subjects",
-            "width": "60%"
+            "id": "subjects_list_tab",
+            "title": "Liste",
+            "borderColor": "#EC4899",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "subjects_list",
+                "component": "GenericList",
+                "resourceKey": "subjects",
+                "width": "60%"
+              },
+              {
+                "id": "subjects_form",
+                "component": "GenericForm",
+                "resourceKey": "subjects",
+                "width": "40%"
+              }
+            ]
           },
           {
-            "id": "subjects_form",
-            "component": "GenericForm",
-            "resourceKey": "subjects",
-            "width": "40%"
+            "id": "subjects_constraints_tab",
+            "title": "Contraintes 2 à 2",
+            "borderColor": "#EC4899",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "subjects_constraint_list",
+                "component": "GenericList",
+                "resourceKey": "course_to_course_constraints",
+                "width": "60%"
+              },
+              {
+                "id": "subjects_constraint_form",
+                "component": "GenericForm",
+                "resourceKey": "course_to_course_constraints",
+                "width": "40%",
+                "placeholderText": "Sélectionnez une contrainte ou créez-en une nouvelle."
+              }
+            ]
           }
         ]
       },
@@ -671,7 +699,7 @@
           },
           {
             "id": "courses_preferences_tab",
-            "title": "Vœux et contraintes",
+            "title": "Vœux",
             "borderColor": "#F43F5E",
             "layout": "VERTICAL",
             "panels": [
@@ -708,6 +736,52 @@
                 "gridConfig": {
                   "hideWeekSelector": true,
                   "hidePeriodSelector": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "courses_constraints_tab",
+            "title": "Contraintes",
+            "borderColor": "#F43F5E",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "courses_constraint_list",
+                "component": "GenericList",
+                "resourceKey": "courses",
+                "width": "35%",
+                "listConfig": {
+                  "editableInline": false,
+                  "allowMultiSelect": false,
+                  "disableAdd": true,
+                  "disableEditModal": true,
+                  "columns": {
+                    "label": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Libellé"
+                    },
+                    "duration_minutes": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Durée (min)"
+                    },
+                    "week_type": {
+                      "visibleByDefault": true,
+                      "overrideLabel": "Semaine"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "courses_constraint_form",
+                "component": "GenericForm",
+                "resourceKey": "resource_constraints",
+                "relationName": "constraint_record",
+                "width": "65%",
+                "placeholderText": "Veuillez choisir un cours dans la liste de gauche pour configurer ses contraintes.",
+                "formConfig": {
+                  "editableForm": true,
+                  "fields": []
                 }
               }
             ]
