@@ -446,7 +446,16 @@ async function loadGenericItems() {
   }
 }
 
-const fkOptionsCache = ref<Record<string, Array<{ value: any; label: string }>>>({});
+const FK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: string }>; loadedAt: number }>>({});
+
+function invalidateFkCache(resourceName: string) {
+  delete fkOptionsCache.value[resourceName];
+}
+
+function fkOptions(resourceName: string): Array<{ value: any; label: string }> {
+  return fkOptionsCache.value[resourceName]?.items || [];
+};
 
 async function loadFkOptionsForModel(model: string) {
   if (!openApiSpec.value) return;
@@ -454,6 +463,7 @@ async function loadFkOptionsForModel(model: string) {
   const schema = openApiSpec.value.components?.schemas?.[schemaName];
   if (!schema || !schema.properties) return;
 
+  const now = Date.now();
   for (const [key, prop] of Object.entries<any>(schema.properties)) {
     let resourceName = prop.resource;
     if (!resourceName && prop.anyOf) {
@@ -462,16 +472,21 @@ async function loadFkOptionsForModel(model: string) {
     }
 
     if (resourceName) {
-      if (!fkOptionsCache.value[resourceName]) {
+      const cached = fkOptionsCache.value[resourceName];
+      const isStale = !cached || (now - cached.loadedAt > FK_CACHE_TTL_MS);
+      if (isStale) {
         try {
           const res = await api.fetchGenericList(resourceName, 0, 1000);
-          fkOptionsCache.value[resourceName] = (res.items || []).map((item: any) => ({
-            value: item.id,
-            label: item.display_name || item.name || item.code || String(item.id)
-          }));
+          fkOptionsCache.value[resourceName] = {
+            items: (res.items || []).map((item: any) => ({
+              value: item.id,
+              label: item.display_name || item.name || item.code || String(item.id)
+            })),
+            loadedAt: now
+          };
         } catch (e) {
           console.error(`Failed to fetch options for resource ${resourceName}`, e);
-          fkOptionsCache.value[resourceName] = [];
+          fkOptionsCache.value[resourceName] = { items: [], loadedAt: now };
         }
       }
     }
@@ -651,6 +666,7 @@ async function onSubmitGeneric(value: Record<string, any>) {
     } else if (isEditing.value) {
       await api.updateGenericItem(targetResource, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
+      invalidateFkCache(targetResource);;
       
       // Update local state directly instead of full reload if we modified the main resource
       if (targetResource === activeAdminModel.value) {
@@ -686,6 +702,7 @@ async function onSubmitGeneric(value: Record<string, any>) {
     } else {
       const created = await api.createGenericItem(targetResource, value);
       showNotification('success', 'Ressource créée avec succès !');
+      invalidateFkCache(targetResource);
       
       // Full reload on creation since there might be server-generated fields or ordering changes
       await loadGenericItems();
@@ -725,9 +742,11 @@ async function onUpdateGenericInline(item: any) {
       if (idx !== -1) {
         genericItems.value[idx] = created;
       }
+      invalidateFkCache(activeAdminModel.value);
       showNotification('success', 'Élément créé directement !');
     } else {
       await api.updateGenericItem(activeAdminModel.value, item.id, item);
+      invalidateFkCache(activeAdminModel.value);
       showNotification('success', 'Élément mis à jour directement !');
     }
     
@@ -766,6 +785,7 @@ async function onDeleteGeneric(item: any) {
         pendingDeleteCallback.value = async () => {
           await api.applyChange("DELETE_RESOURCE", resourceType, item.id);
           await api.deleteGenericItem(activeAdminModel.value, item.id);
+          invalidateFkCache(activeAdminModel.value);
           showNotification('success', 'Ressource supprimée et séances dépositionnées avec succès !');
           showFormModal.value = false;
           formModel.value = {};
@@ -782,6 +802,7 @@ async function onDeleteGeneric(item: any) {
   if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement cet élément ?`)) {
     try {
       await api.deleteGenericItem(activeAdminModel.value, item.id);
+      invalidateFkCache(activeAdminModel.value);
       showNotification('success', 'Ressource supprimée avec succès !');
       showFormModal.value = false;
       formModel.value = {};
@@ -916,11 +937,11 @@ function getFormFieldsConfig(resourceKey?: string) {
         else if (key === 'late_start_time' || key === 'early_end_time') { fieldType = 'select'; options = timeOptions; }
         else if (fieldType === 'array' && resourceName) {
           fieldType = 'multiselect';
-          options = fkOptionsCache.value[resourceName] || [];
+          options = fkOptions(resourceName);
         }
         else if (resourceName) {
           fieldType = 'select';
-          options = fkOptionsCache.value[resourceName] || [];
+          options = fkOptions(resourceName);
         }
         else if (options) { fieldType = 'select'; }
         

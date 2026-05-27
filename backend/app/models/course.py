@@ -75,34 +75,34 @@ class Course(Base):
     __tablename__ = "courses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True, info={"label": "Cours parent"})
     
     # Pour les cours simples, un subject_id est requis. Pour les cours complexes (parents), il peut être NULL.
-    subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=True, info={"label": "Matière"})
     
     # Placements et attributs directs
-    timeslot_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True)
-    is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    timeslot_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True, info={"label": "Créneau de placement"})
+    is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Épinglé"})
     
     # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au parent)
-    parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Décalage par rapport au parent"})
     
-    week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W)
-    period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True)
-    is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W, info={"label": "Semaine", "placeholder": "ex: A, B, M"})
+    period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de période"})
+    is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=55)
-    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED")
-    decomposition_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED")
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=55, info={"label": "Durée (minutes)"})
+    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Nom / Libellé", "placeholder": "ex: Cours de maths avancé"})
+    memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True, info={"label": "Mémo / Note interne"})
+    is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})
+    lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Structure verrouillée"})
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED", info={"label": "Statut de placement"})
+    decomposition_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED", info={"label": "Statut de décomposition"})
     
-    mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True)
-    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True)
-    family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True)
-    school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
+    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
+    family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
+    school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
  
     # Relations de navigation hiérarchique
     parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
