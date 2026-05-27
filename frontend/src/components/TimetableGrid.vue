@@ -80,6 +80,7 @@
           <div v-for="res in activeResources.slice(0, 4)" :key="res.id" class="resource-grid-wrapper">
             <h3 class="resource-grid-title">{{ res.name }}</h3>
             <BaseGrid
+              :timeslots="timeslots"
               :dragOverCells="activeDragCells"
               layoutMode="merged"
               @cell-dragover="onDragOver"
@@ -132,6 +133,7 @@
         
         <!-- Mode: Défaut ou Une colonne par ressource -->
         <BaseGrid v-else
+          :timeslots="timeslots"
           :dragOverCells="activeDragCells"
           :layoutMode="layoutMode"
           :activeResources="activeResources"

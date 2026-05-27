@@ -27,8 +27,9 @@ export interface Division {
 
 export interface Timeslot {
   id: number;
-  day_of_week: number; // 1 = Lundi, 6 = Samedi
-  hour: number;        // 8 to 17
+  day_of_week: number;
+  day_of_week_str?: string;
+  hour: number;
 }
 
 export interface Course {

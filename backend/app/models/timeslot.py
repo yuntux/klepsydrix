@@ -73,9 +73,12 @@ class Timeslot(Base):
         return timeslots[-1].id
 
     @property
-    def display_name(self) -> str:
+    def day_of_week_str(self) -> str:
         days = {1: "Lundi", 2: "Mardi", 3: "Mercredi", 4: "Jeudi", 5: "Vendredi", 6: "Samedi", 7: "Dimanche"}
-        day_str = days.get(self.day_of_week, f"Jour {self.day_of_week}")
+        return days.get(self.day_of_week, f"Jour {self.day_of_week}")
+
+    @property
+    def display_name(self) -> str:
         h = int(self.hour)
         m = int((self.hour - h) * 60)
-        return f"{day_str} {h:02d}h{m:02d}"
+        return f"{self.day_of_week_str} {h:02d}h{m:02d}"

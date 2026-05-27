@@ -62,6 +62,7 @@
       <div class="grid-wrapper">
         <slot name="grid-content">
           <BaseGrid
+            :timeslots="timeslots"
             :dragOverCells="dragOverCells"
             @cell-dragover="(day, time, ev) => $emit('cell-dragover', day, time, ev)"
             @cell-dragleave="(day, time, ev) => $emit('cell-dragleave', day, time, ev)"
@@ -111,6 +112,7 @@ withDefaults(defineProps<{
   classrooms?: any[];
   periodTypes?: any[];
   periods?: any[];
+  timeslots?: any[];
   
   selectedTeacherIds?: number[];
   selectedNonTeachingStaffIds?: number[];
@@ -143,6 +145,7 @@ withDefaults(defineProps<{
   classrooms: () => [],
   periodTypes: () => [],
   periods: () => [],
+  timeslots: () => [],
   selectedTeacherIds: () => [],
   selectedNonTeachingStaffIds: () => [],
   selectedDivisionIds: () => [],

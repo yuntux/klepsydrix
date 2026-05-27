@@ -1,5 +1,9 @@
 import { TimetableData, Course } from '../types';
 
+// ==========================================
+// CLIENTS D'API TIMETABLE
+// ==========================================
+
 export async function fetchTimetable(): Promise<TimetableData> {
   const response = await fetch('/api/timetable');
   if (!response.ok) {
@@ -162,6 +166,10 @@ export async function deleteGenericItem(resourceName: string, id: number): Promi
   }
   return response.json();
 }
+
+// ==========================================
+// CLIENTS D'API STRUCTURES
+// ==========================================
 
 export async function simulateChange(action: string, resourceType: string, resourceId: number, payload: any = {}): Promise<{
   can_proceed: boolean;

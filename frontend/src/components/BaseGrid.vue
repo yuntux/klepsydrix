@@ -1,11 +1,11 @@
 <template>
   <div class="grid-container">
     <div class="grid-wrapper">
-      <div class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns }">
+      <div v-if="days.length > 0" class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns }">
         <!-- Coin supérieur gauche -->
         <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;" :style="{ gridRow: layoutMode === 'resource_columns' && activeResources && activeResources.length > 0 ? '1 / span 2' : '1' }">Horaire</div>
 
-        <!-- En-têtes des jours (Lundi au Samedi) -->
+        <!-- En-têtes des jours -->
         <div v-for="day in days" :key="'day-'+day.value" class="grid-header-cell" :style="{ gridColumn: `span ${(layoutMode === 'resource_columns' && activeResources && activeResources.length > 0) ? activeResources.length : 1}` }">
           {{ day.label }}
           <div
@@ -41,7 +41,10 @@
               v-for="idx in subCellCount"
               :key="idx"
               class="sub-cell"
-              :class="{ 'drag-over': dragOverCells[getCellKey(col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60))] }"
+              :class="{ 
+                'drag-over': dragOverCells[getCellKey(col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60))],
+                'pref-level-off-hashed': !isTimeslotActive(col.dayValue, hour, idx - 1)
+              }"
               @dragover.prevent="$emit('cell-dragover', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
               @dragleave="$emit('cell-dragleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
               @drop="$emit('cell-drop', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
@@ -63,6 +66,12 @@
           </div>
         </template>
       </div>
+      
+      <div v-else class="no-timeslots-error">
+        <div class="error-icon">⚠️</div>
+        <div class="error-title">Aucun créneau horaire configuré</div>
+        <div class="error-desc">Veuillez configurer les créneaux horaires afin d'afficher la grille.</div>
+      </div>
 
       <!-- Overlay de chargement -->
       <slot name="overlay"></slot>
@@ -78,24 +87,26 @@ const props = withDefaults(defineProps<{
   dragOverCells?: Record<string, boolean>;
   layoutMode?: string;
   activeResources?: { type: string, id: number, name: string }[];
+  timeslots?: any[];
 }>(), {
   dragOverCells: () => ({}),
-  layoutMode: 'merged'
+  layoutMode: 'merged',
+  timeslots: () => []
 });
 
-const { days, hours, currentStandardDuration, subCellCount, getCellKey } = useTimeslotGrid();
+const { days, hours, currentStandardDuration, subCellCount, getCellKey, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
 
 const gridColumns = computed(() => {
   if (props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0) {
     const cols: any[] = [];
-    days.forEach(day => {
+    days.value.forEach(day => {
       props.activeResources!.forEach(res => {
         cols.push({ id: `${day.value}-${res.type}-${res.id}`, dayValue: day.value, resource: res });
       });
     });
     return cols;
   }
-  return days.map(day => ({ id: `${day.value}`, dayValue: day.value, resource: null }));
+  return days.value.map(day => ({ id: `${day.value}`, dayValue: day.value, resource: null }));
 });
 
 // === Redimensionnement des colonnes (jours) ===
@@ -241,5 +252,26 @@ onUnmounted(() => {
 
 .resize-handle:hover {
   background-color: rgba(99, 102, 241, 0.5);
+}
+
+.no-timeslots-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 32px;
+}
+.no-timeslots-error .error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.no-timeslots-error .error-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
 }
 </style>

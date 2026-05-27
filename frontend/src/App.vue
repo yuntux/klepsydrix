@@ -911,9 +911,7 @@ function getFormFieldsConfig(resourceKey?: string) {
         if (fieldType === 'color' || key === 'color') fieldType = 'color';
         
         let options = prop.options || undefined;
-        if (key === 'school_id') { fieldType = 'select'; options = schoolOptions; }
-        else if (key === 'period_type_id') { fieldType = 'select'; options = periodTypeOptions; }
-        else if (key === 'late_start_time' || key === 'early_end_time') { fieldType = 'select'; options = timeOptions; }
+        if (fieldType === 'time') { fieldType = 'select'; options = timeOptions; }
         else if (fieldType === 'array' && resourceName) {
           fieldType = 'multiselect';
           options = fkOptions(resourceName);

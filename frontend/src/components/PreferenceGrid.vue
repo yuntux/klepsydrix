@@ -167,6 +167,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Teacher, NonTeachingStaff, Classroom, Division, Timeslot } from '../types';
 import GridContainer from './GridContainer.vue';
 import BrushPalette from './BrushPalette.vue';
+import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
 const props = withDefaults(defineProps<{
   teachers: Teacher[];
@@ -197,39 +198,7 @@ const props = withDefaults(defineProps<{
 
 const resourceType = ref<'Teacher' | 'NonTeachingStaff' | 'Classroom' | 'Division' | 'Course'>('Teacher');
 
-const currentStandardDuration = ref(30);
-
-const subCellCount = computed(() => {
-  return Math.round(60 / currentStandardDuration.value);
-});
-const resourceIds = ref<number[]>([]);
-const activeBrush = ref<'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'>('Unsuited');
-const showLegendModal = ref(false);
-
-// Dictionnaire local complet des préférences brutes par resource_id
-const rawPreferences = ref<Record<number, any[]>>({});
-
-// Dictionnaire local des préférences consolidées pour affichage réactif
-const preferencesMap = ref<Record<string, string>>({});
-
-// États additionnels pour les semaines et périodes
-const selectedWeekType = ref<'W' | 'A' | 'B'>('W');
-const selectedPeriodTypeId = ref<number | null>(null);
-const selectedPeriodIds = ref<number[]>([]);
-
-const allPeriodTypes = ref<any[]>([]);
-const allPeriods = ref<any[]>([]);
-
-const days = [
-  { value: 1, label: 'Lundi' },
-  { value: 2, label: 'Mardi' },
-  { value: 3, label: 'Mercredi' },
-  { value: 4, label: 'Jeudi' },
-  { value: 5, label: 'Vendredi' },
-  { value: 6, label: 'Samedi' },
-];
-
-const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const { currentStandardDuration, subCellCount, getCellKey, days, hours, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
 
 const resourceOptions = computed(() => {
   if (resourceType.value === 'Teacher') {
@@ -433,14 +402,14 @@ function updateCombinedPreferences() {
   const combined: Record<string, string> = {};
   const subcellStep = currentStandardDuration.value / 60;
   const targetHours: number[] = [];
-  hours.forEach(h => {
+  hours.value.forEach(h => {
     const count = Math.round(60 / currentStandardDuration.value);
     for (let idx = 0; idx < count; idx++) {
       targetHours.push(h + idx * subcellStep);
     }
   });
   
-  days.forEach(d => {
+  days.value.forEach(d => {
     targetHours.forEach(h => {
       const key = `${d.value}-${h}`;
       
