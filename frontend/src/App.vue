@@ -711,15 +711,9 @@ async function onSubmitGeneric(value: Record<string, any>) {
       formModel.value = {};
       isEditing.value = false;
     }
-    if (activeAdminModel.value === 'schools') {
-      loadSchools();
-    } else if (activeAdminModel.value === 'period_types') {
-      loadPeriodTypes();
-    } else if (activeAdminModel.value === 'periods') {
-      loadPeriods();
-    } else if (activeAdminModel.value === 'system_settings') {
-      loadTimeslotConfig();
-    }
+    window.dispatchEvent(new CustomEvent('resource:mutated', { 
+      detail: { resource_name: targetResource || activeAdminModel.value } 
+    }));
   } catch (err: any) {
     showNotification('error', err.message || 'Impossible d\'enregistrer la ressource.');
   }
@@ -750,18 +744,9 @@ async function onUpdateGenericInline(item: any) {
       showNotification('success', 'Élément mis à jour directement !');
     }
     
-    // Si besoin on met à jour les contextes globaux de l'application
-    if (activeAdminModel.value === 'schools') {
-      loadSchools();
-    } else if (activeAdminModel.value === 'period_types') {
-      loadPeriodTypes();
-    } else if (activeAdminModel.value === 'periods') {
-      loadPeriods();
-    } else if (activeAdminModel.value === 'system_settings') {
-      loadTimeslotConfig();
-    } else if (['teachers', 'classrooms', 'divisions', 'courses'].includes(activeAdminModel.value)) {
-      loadData();
-    }
+    window.dispatchEvent(new CustomEvent('resource:mutated', { 
+      detail: { resource_name: activeAdminModel.value } 
+    }));
   } catch (err: any) {
     showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
     // En cas d'erreur, on restaure l'ancienne valeur, sauf si c'est une nouvelle ligne (pour ne pas perdre la saisie)
@@ -807,15 +792,9 @@ async function onDeleteGeneric(item: any) {
       showFormModal.value = false;
       formModel.value = {};
       loadGenericItems();
-      if (activeAdminModel.value === 'schools') {
-        loadSchools();
-      } else if (activeAdminModel.value === 'period_types') {
-        loadPeriodTypes();
-      } else if (activeAdminModel.value === 'periods') {
-        loadPeriods();
-      } else if (activeAdminModel.value === 'system_settings') {
-        loadTimeslotConfig();
-      }
+      window.dispatchEvent(new CustomEvent('resource:mutated', { 
+        detail: { resource_name: activeAdminModel.value } 
+      }));
     } catch (err: any) {
       showNotification('error', err.message || 'Échec de la suppression de la ressource.');
     }
@@ -1212,6 +1191,16 @@ onMounted(async () => {
   loadPeriodTypes();
   loadPeriods();
   checkStatus();
+
+  // Écoute des événements de mutation pour rafraîchir les données globales d'App.vue
+  window.addEventListener('resource:mutated', (e: any) => {
+    const resource = e.detail?.resource_name;
+    if (resource === 'schools') loadSchools();
+    if (resource === 'period_types') loadPeriodTypes();
+    if (resource === 'periods') loadPeriods();
+    if (resource === 'system_settings') loadTimeslotConfig();
+    if (['teachers', 'classrooms', 'divisions', 'courses', 'groups'].includes(resource)) loadData();
+  });
 });
 </script>
 
