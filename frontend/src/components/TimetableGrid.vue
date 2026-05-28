@@ -2,6 +2,7 @@
   <div class="timetable-grid-wrapper" style="height: 100%; display: flex; flex-direction: column;">
     <GridContainer
       preferenceMode="readonly"
+      :timeslots="timeslots"
       :showSidebar="true"
       :schools="schools"
       :teachers="teachers"
@@ -34,6 +35,11 @@
       :hideResourceSelectors="false"
       :hideSchoolSelector="false"
       v-model:isDetailedView="isDetailedView"
+      :activeResources="activeResources"
+      :dragOverCells="activeDragCells"
+      @cell-dragover="onDragOver"
+      @cell-dragleave="onDragLeave"
+      @cell-drop="onDrop"
     >
       <template #actions>
         <div class="controls-group" style="display: flex; gap: 12px; align-items: center;">
@@ -74,114 +80,45 @@
         />
       </template>
 
-      <template #grid-content>
-        <!-- Mode: Une grille par ressource (jusqu'à 4) -->
-        <div v-if="layoutMode === 'resource_grids'" class="resource-grids-container" :class="`grid-count-${Math.min(4, activeResources.length)}`">
-          <div v-for="res in activeResources.slice(0, 4)" :key="res.id" class="resource-grid-wrapper">
-            <h3 class="resource-grid-title">{{ res.name }}</h3>
-            <BaseGrid
-              :timeslots="timeslots"
-              :dragOverCells="activeDragCells"
-              layoutMode="merged"
-              @cell-dragover="onDragOver"
-              @cell-dragleave="onDragLeave"
-              @cell-drop="onDrop"
-              style="height: calc(100% - 32px); border-top: 1px solid var(--border-color); border-radius: 0; overflow: hidden;"
-            >
-              <template #cell-content="{ day, time }">
-                <CourseCard
-                  v-for="course in getCoursesAt(day, time, res)"
-                  :key="course.id"
-                  :course="course"
-                  :isPlaced="true"
-                  :overlapIndex="getOverlapInfo(course.id).index"
-                  :overlapCount="getOverlapInfo(course.id).count"
-                  :isSelected="(selectedCourseIds || []).includes(course.id)"
-                  :backgroundColor="course.color || '#cbd5e1'"
-                  :height="getCourseHeight(course)"
-                  :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
-                  :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
-                  :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
-                  @dragstart="onDragStart"
-                  @click="(id, ev) => $emit('selectCourse', id, ev)"
-                  @togglePin="$emit('togglePin', $event)"
-                  @unassign="$emit('unassign', $event)"
-                />
-              </template>
-              <template #overlay>
-                <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
-                  <div class="spinner"></div>
-                  <div style="color: #fff; font-weight: 500; font-size: 14px;">
-                    {{ isLoadingHeatmap ? 'Évaluation Heatmap...' : 'Calcul...' }}
-                  </div>
-                </div>
-              </template>
-              <template #cell-background="{ day, time }">
-                <div v-if="heatmapData[getCellKey(day, time)]" 
-                     class="heatmap-overlay" 
-                     :style="getHeatmapStyle(heatmapData[getCellKey(day, time)])"
-                     :title="getHeatmapTooltip(heatmapData[getCellKey(day, time)])">
-                </div>
-              </template>
-            </BaseGrid>
-          </div>
-          
-          <div v-if="activeResources.length === 0" style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted);">
-            Veuillez sélectionner au moins une ressource pour afficher les grilles.
+      <!-- Slot de contenu (Foreground) -->
+      <template #cell-content="{ day, time, resource }">
+        <CourseCard
+          v-for="course in getCoursesAt(day, time, resource)"
+          :key="course.id"
+          :course="course"
+          :isPlaced="true"
+          :overlapIndex="getOverlapInfo(course.id).index"
+          :overlapCount="getOverlapInfo(course.id).count"
+          :isSelected="(selectedCourseIds || []).includes(course.id)"
+          :backgroundColor="course.color || '#cbd5e1'"
+          :height="getCourseHeight(course)"
+          :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
+          :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
+          :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
+          @dragstart="onDragStart"
+          @click="(id, ev) => $emit('selectCourse', id, ev)"
+          @togglePin="$emit('togglePin', $event)"
+          @unassign="$emit('unassign', $event)"
+        />
+      </template>
+
+      <!-- Overlay de chargement -->
+      <template #overlay>
+        <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
+          <div class="spinner"></div>
+          <div style="color: #black; font-weight: 500; font-size: 16px;">
+            {{ isLoadingHeatmap ? 'Évaluation de la Heatmap...' : 'Calcul de l\'emploi du temps optimal...' }}
           </div>
         </div>
-        
-        <!-- Mode: Défaut ou Une colonne par ressource -->
-        <BaseGrid v-else
-          :timeslots="timeslots"
-          :dragOverCells="activeDragCells"
-          :layoutMode="layoutMode"
-          :activeResources="activeResources"
-          @cell-dragover="onDragOver"
-          @cell-dragleave="onDragLeave"
-          @cell-drop="onDrop"
-          style="height: 100%; border: none; border-radius: 0;"
-        >
-          <!-- Slot de contenu (Foreground) -->
-          <template #cell-content="{ day, time, resource }">
-            <CourseCard
-              v-for="course in getCoursesAt(day, time, resource)"
-              :key="course.id"
-              :course="course"
-              :isPlaced="true"
-              :overlapIndex="getOverlapInfo(course.id).index"
-              :overlapCount="getOverlapInfo(course.id).count"
-              :isSelected="(selectedCourseIds || []).includes(course.id)"
-              :backgroundColor="course.color || '#cbd5e1'"
-              :height="getCourseHeight(course)"
-              :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
-              :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
-              :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
-              @dragstart="onDragStart"
-              @click="(id, ev) => $emit('selectCourse', id, ev)"
-              @togglePin="$emit('togglePin', $event)"
-              @unassign="$emit('unassign', $event)"
-            />
-          </template>
+      </template>
 
-          <!-- Overlay de chargement -->
-          <template #overlay>
-            <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
-              <div class="spinner"></div>
-              <div style="color: #black; font-weight: 500; font-size: 16px;">
-                {{ isLoadingHeatmap ? 'Évaluation de la Heatmap...' : 'Calcul de l\'emploi du temps optimal...' }}
-              </div>
-            </div>
-          </template>
-
-          <template #cell-background="{ day, time }">
-            <div v-if="heatmapData[getCellKey(day, time)]" 
-                 class="heatmap-overlay" 
-                 :style="getHeatmapStyle(heatmapData[getCellKey(day, time)])"
-                 :title="getHeatmapTooltip(heatmapData[getCellKey(day, time)])">
-            </div>
-          </template>
-        </BaseGrid>
+      <!-- Slot de fond (Background) -->
+      <template #cell-background="{ day, time }">
+        <div v-if="heatmapData[getCellKey(day, time)]" 
+             class="heatmap-overlay" 
+             :style="getHeatmapStyle(heatmapData[getCellKey(day, time)])"
+             :title="getHeatmapTooltip(heatmapData[getCellKey(day, time)])">
+        </div>
       </template>
     </GridContainer>
   </div>
@@ -388,78 +325,91 @@ const timeslotMap = computed(() => {
 });
 
 const overlapInfoMap = computed(() => {
-  const info = new Map<number, { index: number, count: number }>();
+  const info = new Map<string, { index: number, count: number }>();
   
-  // Grouper par jour
-  const coursesByDay = new Map<number, any[]>();
-  displayedCourses.value.forEach(c => {
-    const ts = timeslotMap.value.get(c.timeslot_id!);
-    if (!ts) return;
-    if (!coursesByDay.has(ts.day_of_week)) coursesByDay.set(ts.day_of_week, []);
-    coursesByDay.get(ts.day_of_week)!.push({
-      course: c,
-      start: ts.hour,
-      end: ts.hour + (c.duration_minutes || 0) / 60
+  const computeClusterInfo = (coursesSubset: any[], prefixKey: string) => {
+    const coursesByDay = new Map<number, any[]>();
+    coursesSubset.forEach(c => {
+      const ts = timeslotMap.value.get(c.timeslot_id!);
+      if (!ts) return;
+      if (!coursesByDay.has(ts.day_of_week)) coursesByDay.set(ts.day_of_week, []);
+      coursesByDay.get(ts.day_of_week)!.push({
+        course: c,
+        start: ts.hour,
+        end: ts.hour + (c.duration_minutes || 0) / 60
+      });
     });
-  });
 
-  // Algorithme de clustering et coloration
-  for (const dayCourses of coursesByDay.values()) {
-    dayCourses.sort((a, b) => a.start - b.start || b.end - a.end);
-    
-    let currentCluster: any[] = [];
-    let clusterEnd = 0;
-    
-    const processCluster = (cluster: any[]) => {
-      if (cluster.length === 0) return;
-      const columns: any[][] = [];
-      for (const item of cluster) {
-        let placed = false;
+    for (const dayCourses of coursesByDay.values()) {
+      dayCourses.sort((a, b) => a.start - b.start || b.end - a.end);
+      let currentCluster: any[] = [];
+      let clusterEnd = 0;
+      
+      const processCluster = (cluster: any[]) => {
+        if (cluster.length === 0) return;
+        const columns: any[][] = [];
+        for (const item of cluster) {
+          let placed = false;
+          for (let i = 0; i < columns.length; i++) {
+            const col = columns[i];
+            const lastItemInCol = col[col.length - 1];
+            if (lastItemInCol.end <= item.start + 0.001) {
+              col.push(item);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) columns.push([item]);
+        }
+        const count = columns.length;
         for (let i = 0; i < columns.length; i++) {
-          const col = columns[i];
-          const lastItemInCol = col[col.length - 1];
-          // Epsilon pour éviter les arrondis flottants
-          if (lastItemInCol.end <= item.start + 0.001) {
-            col.push(item);
-            placed = true;
-            break;
+          for (const item of columns[i]) {
+            info.set(`${prefixKey}_${item.course.id}`, { index: i, count: count });
           }
         }
-        if (!placed) {
-          columns.push([item]);
-        }
-      }
-      const count = columns.length;
-      for (let i = 0; i < columns.length; i++) {
-        for (const item of columns[i]) {
-          info.set(item.course.id, { index: i, count: count });
-        }
-      }
-    };
-    
-    for (const item of dayCourses) {
-      if (currentCluster.length === 0) {
-        currentCluster.push(item);
-        clusterEnd = item.end;
-      } else {
-        if (item.start < clusterEnd - 0.001) {
+      };
+      
+      for (const item of dayCourses) {
+        if (currentCluster.length === 0) {
           currentCluster.push(item);
-          clusterEnd = Math.max(clusterEnd, item.end);
-        } else {
-          processCluster(currentCluster);
-          currentCluster = [item];
           clusterEnd = item.end;
+        } else {
+          if (item.start < clusterEnd - 0.001) {
+            currentCluster.push(item);
+            clusterEnd = Math.max(clusterEnd, item.end);
+          } else {
+            processCluster(currentCluster);
+            currentCluster = [item];
+            clusterEnd = item.end;
+          }
         }
       }
+      processCluster(currentCluster);
     }
-    processCluster(currentCluster);
+  };
+
+  if (props.layoutMode === 'merged' || activeResources.value.length === 0) {
+    computeClusterInfo(displayedCourses.value, 'merged');
+  } else {
+    // Mode dégroupé (ressource_grids ou ressource_columns) : on calcule les chevauchements colonne par colonne
+    for (const res of activeResources.value) {
+      const subset = displayedCourses.value.filter(c => {
+        if (res.type === 'teacher') return c.teacher_ids && c.teacher_ids.includes(res.id);
+        if (res.type === 'division') return c.division_ids && c.division_ids.includes(res.id);
+        if (res.type === 'classroom') return c.classroom_ids && c.classroom_ids.includes(res.id);
+        if (res.type === 'non_teaching_staff') return c.non_teaching_staff_ids && c.non_teaching_staff_ids.includes(res.id);
+        return false;
+      });
+      computeClusterInfo(subset, `${res.type}_${res.id}`);
+    }
   }
   
   return info;
 });
 
-function getOverlapInfo(courseId: number) {
-  return overlapInfoMap.value.get(courseId) || { index: 0, count: 1 };
+function getOverlapInfo(courseId: number, resource?: { type: string, id: number }) {
+  const prefix = (props.layoutMode === 'merged' || !resource) ? 'merged' : `${resource.type}_${resource.id}`;
+  return overlapInfoMap.value.get(`${prefix}_${courseId}`) || { index: 0, count: 1 };
 }
 
 function getCoursesAt(day: number, hour: number, resource?: { type: string, id: number }): Course[] {
@@ -563,52 +513,6 @@ function onDrop(day: number, hour: number, event: DragEvent) {
 }
 .placed-course.is-pinned-card {
   border-left: 3px solid var(--accent-warning, #f59e0b) !important;
-}
-</style>
-
-<style scoped>
-.resource-grids-container {
-  display: grid;
-  gap: 1px;
-  height: 100%;
-  background-color: var(--bg-body);
-  overflow: auto;
-}
-
-.resource-grids-container.grid-count-1 {
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
-}
-
-.resource-grids-container.grid-count-2 {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr;
-}
-
-.resource-grids-container.grid-count-3,
-.resource-grids-container.grid-count-4 {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-}
-
-.resource-grid-wrapper {
-  display: flex;
-  flex-direction: column;
-  min-height: 400px;
-  background-color: var(--bg-surface);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  overflow: hidden;
-}
-
-.resource-grid-title {
-  margin: 0;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  background-color: var(--bg-surface-hover);
-  border-bottom: 1px solid var(--border-color);
-  text-align: center;
 }
 
 .heatmap-overlay {

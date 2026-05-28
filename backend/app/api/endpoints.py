@@ -35,14 +35,15 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
     non_teaching_staffs = db.execute(select(NonTeachingStaff)).scalars().unique().all()
 
     return {
-        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "name": t.display_name, "school_id": t.school_id} for t in teachers],
-        "non_teaching_staffs": [{"id": s.id, "first_name": s.first_name, "last_name": s.last_name, "role": s.role, "school_id": s.school_id} for s in non_teaching_staffs],
-        "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "name": c.name, "capacity": c.capacity, "school_id": c.school_id} for c in classrooms],
-        "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "name": d.name, "school_id": d.school_id} for d in divisions],
-        "timeslots": [ts.to_dict() if hasattr(ts, "to_dict") else {"id": ts.id, "day_of_week": ts.day_of_week, "hour": ts.hour} for ts in timeslots],
+        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "display_name": t.display_name, "first_name": getattr(t, "first_name", ""), "last_name": getattr(t, "last_name", ""), "school_id": t.school_id} for t in teachers],
+        "non_teaching_staffs": [{"id": s.id, "display_name": s.display_name, "first_name": s.first_name, "last_name": s.last_name, "role": s.role, "school_id": s.school_id} for s in non_teaching_staffs],
+        "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "display_name": c.display_name, "capacity": c.capacity, "school_id": c.school_id} for c in classrooms],
+        "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "display_name": d.display_name, "school_id": d.school_id} for d in divisions],
+        "timeslots": [ts.to_dict() if hasattr(ts, "to_dict") else {"id": ts.id, "day_of_week": ts.day_of_week, "hour": ts.hour, "day_of_week_str": getattr(ts, "day_of_week_str", ""), "display_name": getattr(ts, "display_name", "")} for ts in timeslots],
         "courses": [
             {
                 "id": c.id,
+                "display_name": c.display_name,
                 "subject": c.subject_relation.short_name if c.subject_relation else "Cours",
                 "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
                 "teacher_ids": [t.id for t in c.teachers],

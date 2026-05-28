@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
-from backend.app.models.base import Base, constrains
+from backend.app.models.base import Base, constrains, exposed
 
 class Timeslot(Base):
     __tablename__ = "timeslots"
@@ -11,6 +11,8 @@ class Timeslot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     day_of_week: Mapped[int] = mapped_column(Integer, nullable=False, info={"label": "Jour de la semaine", "min": 1, "max": 7}) # 1 = Lundi, 6 = Samedi
     hour: Mapped[float] = mapped_column(Float, nullable=False, info={"label": "Heure de début", "min": 0.0, "max": 24.0, "step": "0.5"})          # ex: 8.0 = 8h00, 8.5 = 8h30
+
+
 
     # Relation avec les séances planifiées sur ce créneau
 
@@ -72,6 +74,7 @@ class Timeslot(Base):
             
         return timeslots[-1].id
 
+    @exposed
     @property
     def day_of_week_str(self) -> str:
         days = {1: "Lundi", 2: "Mardi", 3: "Mercredi", 4: "Jeudi", 5: "Vendredi", 6: "Samedi", 7: "Dimanche"}

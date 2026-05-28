@@ -3,6 +3,7 @@
     <GridContainer
       v-model:brush="activeBrush"
       preferenceMode="edit"
+      :timeslots="timeslots"
       :schools="schools"
       :teachers="teachers"
       :divisions="divisions"
@@ -174,6 +175,7 @@ const props = withDefaults(defineProps<{
   nonTeachingStaffs?: NonTeachingStaff[];
   classrooms: Classroom[];
   divisions: Division[];
+  courses?: any[];
   timeslots: Timeslot[];
   resourceTypeProp?: 'Teacher' | 'NonTeachingStaff' | 'Classroom' | 'Division' | 'Course';
   resourceIdProp?: number | null;
@@ -198,32 +200,39 @@ const props = withDefaults(defineProps<{
 
 const resourceType = ref<'Teacher' | 'NonTeachingStaff' | 'Classroom' | 'Division' | 'Course'>('Teacher');
 
+const resourceIds = ref<number[]>([]);
+const activeBrush = ref<'Preferred' | 'Undesirable' | 'Unsuited' | 'Neutral'>('Unsuited');
+const showLegendModal = ref(false);
+
+const rawPreferences = ref<Record<number, any[]>>({});
+const preferencesMap = ref<Record<string, string>>({});
+
+const selectedWeekType = ref<'W' | 'A' | 'B'>('W');
+const selectedPeriodTypeId = ref<number | null>(null);
+const selectedPeriodIds = ref<number[]>([]);
+
+const allPeriodTypes = ref<any[]>([]);
+const allPeriods = ref<any[]>([]);
+
 const { currentStandardDuration, subCellCount, getCellKey, days, hours, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
 
+const resourceListMap = computed(() => ({
+  Teacher: props.teachers || [],
+  NonTeachingStaff: props.nonTeachingStaffs || [],
+  Classroom: props.classrooms || [],
+  Division: props.divisions || [],
+  Course: props.courses || []
+}));
+
 const resourceOptions = computed(() => {
-  if (resourceType.value === 'Teacher') {
-    return props.teachers.map(t => ({ id: t.id, name: t.name, school_id: t.school_id }));
-  } else if (resourceType.value === 'NonTeachingStaff') {
-    return (props.nonTeachingStaffs || []).map(s => ({ id: s.id, name: s.first_name + ' ' + s.last_name, school_id: s.school_id }));
-  } else if (resourceType.value === 'Classroom') {
-    return props.classrooms.map(c => ({ id: c.id, name: c.name, school_id: c.school_id }));
-  } else {
-    return props.divisions.map(d => ({ id: d.id, name: d.name, school_id: d.school_id }));
-  }
+  return resourceListMap.value[resourceType.value as keyof typeof resourceListMap.value] || [];
 });
 
 const activeResource = computed(() => {
   if (resourceIds.value.length === 0) return null;
   const id = resourceIds.value[0];
-  if (resourceType.value === 'Teacher') {
-    return props.teachers.find(t => t.id === id);
-  } else if (resourceType.value === 'NonTeachingStaff') {
-    return (props.nonTeachingStaffs || []).find(s => s.id === id);
-  } else if (resourceType.value === 'Classroom') {
-    return props.classrooms.find(c => c.id === id);
-  } else {
-    return props.divisions.find(d => d.id === id);
-  }
+  const options = resourceListMap.value[resourceType.value as keyof typeof resourceListMap.value] || [];
+  return options.find((r: any) => r.id === id) || null;
 });
 
 const schoolId = computed(() => activeResource.value?.school_id || null);
@@ -809,7 +818,7 @@ function updateTooltip(day: number, hour: number, event: MouseEvent) {
   
   const content = resourceIds.value.map(id => {
     const resOpt = resourceOptions.value.find(o => o.id === id);
-    const resourceName = resOpt ? resOpt.name : `Ressource ${id}`;
+    const resourceName = resOpt ? resOpt.display_name : `Ressource ${id}`;
     const prefs = (rawPreferences.value[id] || []).filter(p => p.timeslot_id === ts.id);
     
     const details = prefs.map(pref => {

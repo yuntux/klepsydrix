@@ -48,6 +48,7 @@
             :classrooms="classrooms"
             :divisions="divisions"
             :timeslots="timeslots"
+            :courses="courses"
             :schools="schoolsList"
             :resourceTypeProp="activeAdminModel === 'teachers' ? 'Teacher' : (activeAdminModel === 'non_teaching_staffs' ? 'NonTeachingStaff' : (activeAdminModel === 'classrooms' ? 'Classroom' : (activeAdminModel === 'divisions' ? 'Division' : (activeAdminModel === 'courses' ? 'Course' : 'Teacher'))))"
             :resourceIdProp="selectedParentIds && selectedParentIds.length === 1 ? selectedParentIds[0] : (formModel && formModel.id ? formModel.id : null)"

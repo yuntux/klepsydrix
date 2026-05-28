@@ -3,7 +3,7 @@
     <div class="grid-wrapper">
       <div v-if="days.length > 0" class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns }">
         <!-- Coin supérieur gauche -->
-        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 4;" :style="{ gridRow: layoutMode === 'resource_columns' && activeResources && activeResources.length > 0 ? '1 / span 2' : '1' }">Horaire</div>
+        <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 12;" :style="{ gridRow: layoutMode === 'resource_columns' && activeResources && activeResources.length > 0 ? '1 / span 2' : '1' }">Horaire</div>
 
         <!-- En-têtes des jours -->
         <div v-for="day in days" :key="'day-'+day.value" class="grid-header-cell" :style="{ gridColumn: `span ${(layoutMode === 'resource_columns' && activeResources && activeResources.length > 0) ? activeResources.length : 1}` }">
@@ -17,8 +17,8 @@
         <!-- En-têtes des ressources (si activé) -->
         <template v-if="layoutMode === 'resource_columns' && activeResources && activeResources.length > 0">
           <template v-for="day in days" :key="'res-row-'+day.value">
-            <div v-for="res in activeResources" :key="res.id" class="grid-header-cell resource-header-cell" style="top: 50px; z-index: 3; font-size: 0.85em; font-weight: normal; border-top: none; background-color: var(--bg-surface);">
-              {{ res.name }}
+            <div v-for="res in activeResources" :key="res.id" class="grid-header-cell resource-header-cell" style="top: 50px; z-index: 11; font-size: 0.85em; font-weight: normal; border-top: none; background-color: var(--bg-surface);">
+              {{ res.display_name }}
             </div>
           </template>
         </template>
