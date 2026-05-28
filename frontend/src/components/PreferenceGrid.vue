@@ -725,6 +725,9 @@ async function paintCell(day: number, hour: number) {
 }
 
 function getCellClass(day: number, hour: number): string {
+  if (!isTimeslotActive(day, hour)) {
+    return ''; // Laisse le fond transparent pour voir les hachures du BaseGrid
+  }
   const key = `${day}-${hour}`;
   const level = preferencesMap.value[key];
   if (!level) return 'pref-level-neutral';
@@ -1269,12 +1272,6 @@ watch(resourceOptions, () => {
   background: repeating-linear-gradient(45deg, rgba(59, 130, 246, 0.05) 0px, rgba(59, 130, 246, 0.05) 6px, rgba(59, 130, 246, 0.25) 6px, rgba(59, 130, 246, 0.25) 12px) !important;
   border: 1.5px dashed rgba(59, 130, 246, 0.5) !important;
   color: #3b82f6;
-}
-
-.pref-level-off-hashed {
-  background: repeating-linear-gradient(45deg, rgba(156, 163, 175, 0.05) 0px, rgba(156, 163, 175, 0.05) 6px, rgba(156, 163, 175, 0.2) 6px, rgba(156, 163, 175, 0.2) 12px) !important;
-  border: 1px solid rgba(156, 163, 175, 0.3) !important;
-  color: #9ca3af;
 }
 
 .cell-label {

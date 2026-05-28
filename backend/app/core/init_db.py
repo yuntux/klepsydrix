@@ -108,6 +108,9 @@ def seed_v2_data():
         for day in range(1, 7):
             h_val = 8.0
             while h_val < 18.0:
+                if day == 3 and h_val >= 12.0:
+                    h_val += 0.25
+                    continue
                 db.execute(text("INSERT INTO timeslots (day_of_week, hour) VALUES (:day, :hour)"), {"day": day, "hour": h_val})
                 db.commit()
                 ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND hour = :hour"), {"day": day, "hour": h_val}).scalar()
