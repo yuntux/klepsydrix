@@ -5,12 +5,25 @@ from sqlalchemy import Column, Integer, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base, constrains, exposed
 
+def get_dynamic_step():
+    from backend.app.core.database import SessionLocal
+    from backend.app.models.system_setting import SystemSetting
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
+        if not setting or not setting.value.isdigit():
+            raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
+        duration = int(setting.value)
+        return duration / 60.0
+    finally:
+        db.close()
+
 class Timeslot(Base):
     __tablename__ = "timeslots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     day_of_week: Mapped[int] = mapped_column(Integer, nullable=False, info={"label": "Jour de la semaine", "min": 1, "max": 7}) # 1 = Lundi, 6 = Samedi
-    hour: Mapped[float] = mapped_column(Float, nullable=False, info={"label": "Heure de début", "min": 0.0, "max": 24.0, "step": "0.5"})          # ex: 8.0 = 8h00, 8.5 = 8h30
+    hour: Mapped[float] = mapped_column(Float, nullable=False, info={"label": "Heure de début", "min": 0.0, "max": 24.0, "step": get_dynamic_step})          # ex: 8.0 = 8h00, 8.5 = 8h30
 
 
 
@@ -29,6 +42,10 @@ class Timeslot(Base):
         
         if (self.hour * 60) + duration > 24 * 60:
             raise ValueError(f"Le créneau de {self.hour}h (avec une durée de {duration}min) déborde sur la journée suivante (> 24h).")
+            
+        step = duration / 60.0
+        if abs((self.hour / step) - round(self.hour / step)) >= 0.001:
+            raise ValueError(f"L'heure du créneau ({self.hour}h) n'est pas un multiple de la durée standard ({duration} minutes).")
 
 
     @classmethod

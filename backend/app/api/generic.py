@@ -116,7 +116,7 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
         if hasattr(column, "info") and column.info:
             if "label" in column.info:
                 field_kwargs["title"] = column.info["label"]
-            json_schema_extra = {k: v for k, v in column.info.items() if k not in ("label", "type")}
+            json_schema_extra = {k: (v() if callable(v) else v) for k, v in column.info.items() if k not in ("label", "type")}
             if "type" in column.info:
                 json_schema_extra["ui_type"] = column.info["type"]
         
