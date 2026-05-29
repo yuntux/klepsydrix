@@ -12,6 +12,14 @@ export async function fetchTimetable(): Promise<TimetableData> {
   return response.json();
 }
 
+export async function fetchMenus(): Promise<any> {
+  const response = await fetch('/api/ui/menus');
+  if (!response.ok) {
+    throw new Error('Erreur lors de la récupération des menus');
+  }
+  return response.json();
+}
+
 export async function fetchTimetableStatus(): Promise<{ status: string }> {
   const response = await fetch('/api/timetable/status');
   if (!response.ok) {

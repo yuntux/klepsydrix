@@ -30,8 +30,11 @@ def read_root():
 
 from backend.app.api.endpoints import router as api_router
 from backend.app.api.generic import router as generic_router
+from backend.app.api.ui_endpoints import router as ui_router
+
 app.include_router(api_router)
 app.include_router(generic_router)
+app.include_router(ui_router)
 
 @app.get("/test-openapi")
 def test_openapi():

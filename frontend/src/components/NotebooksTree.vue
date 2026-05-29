@@ -74,7 +74,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import SplitPanel from './SplitPanel.vue';
-import notebooksConfig from '../config/notebooks.json';
+import { fetchMenus } from '../services/api';
 
 interface Panel {
   id: string;
@@ -93,7 +93,7 @@ interface NotebookNode {
   panels?: Panel[];
 }
 
-const config = ref<NotebookNode[]>(notebooksConfig as NotebookNode[]);
+const config = ref<NotebookNode[]>([]);
 
 const activeLevel1Id = ref<string>('');
 const activeLevel2Id = ref<string>('');
@@ -106,6 +106,19 @@ const emit = defineEmits<{
 // Obtenir le nœud actif de niveau 1
 const activeLevel1Node = computed(() => {
   return config.value.find(tab => tab.id === activeLevel1Id.value) || null;
+});
+
+onMounted(async () => {
+  try {
+    const data = await fetchMenus();
+    config.value = data as NotebookNode[];
+    // Initialiser la sélection au premier chargement si config est non vide
+    if (config.value.length > 0 && !activeLevel1Id.value) {
+      selectLevel1(config.value[0].id);
+    }
+  } catch (e) {
+    console.error("Failed to load menus from backend:", e);
+  }
 });
 
 // Obtenir le nœud actif de niveau 2
@@ -193,12 +206,6 @@ function getTabStyle(tab: NotebookNode, isActive: boolean) {
   return styles;
 }
 
-// Initialisation par défaut
-onMounted(() => {
-  if (config.value.length > 0) {
-    selectLevel1(config.value[0].id);
-  }
-});
 </script>
 
 <style scoped>
