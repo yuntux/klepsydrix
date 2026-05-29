@@ -282,7 +282,7 @@ function onDragLeave(day: number, hour: number, event: DragEvent) {
 }
 
 function getTimeslot(day: number, hour: number): Timeslot | undefined {
-  return props.timeslots.find(ts => ts.day_of_week === day && Math.abs(ts.hour - hour) < 0.001);
+  return props.timeslots.find(ts => ts.day_of_week === day && Math.abs((ts.minutes_from_midnight / 60) - hour) < 0.001);
 }
 
 const parentIdsSet = computed(() => {
@@ -428,24 +428,22 @@ function getCoursesAt(day: number, hour: number, resource?: { type: string, id: 
   return result;
 }
 
+import { getTeacherName as _getTeacherName, getDivisionName as _getDivisionName, getClassroomName as _getClassroomName, onCourseDragStart } from '../utils/resourceFormatters';
+
 function getTeacherName(id: number) {
-  return props.teachers.find(t => t.id === id)?.name || 'Prof';
+  return _getTeacherName(props.teachers, id);
 }
 
 function getDivisionName(id: number) {
-  return props.divisions.find(d => d.id === id)?.name || 'Classe';
+  return _getDivisionName(props.divisions, id);
 }
 
 function getClassroomName(id: number | null) {
-  if (id === null) return 'Non affectée';
-  return props.classrooms.find(c => c.id === id)?.name || 'Salle';
+  return _getClassroomName(props.classrooms, id);
 }
 
 function onDragStart(event: DragEvent, courseId: number) {
-  if (event.dataTransfer) {
-    event.dataTransfer.setData('text/plain', courseId.toString());
-    event.dataTransfer.effectAllowed = 'move';
-  }
+  onCourseDragStart(event, courseId);
 }
 
 function onDrop(day: number, hour: number, event: DragEvent) {

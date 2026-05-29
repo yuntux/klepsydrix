@@ -68,23 +68,21 @@ function formatDuration(minutes: number) {
   return `${h}h${mStr}`;
 }
 
+import { getTeacherName as _getTeacherName, getDivisionName as _getDivisionName, getClassroomName as _getClassroomName, onCourseDragStart } from '../utils/resourceFormatters';
+
 function getTeacherName(id: number) {
-  return props.teachers.find(t => t.id === id)?.name || 'Enseignant inconnu';
+  return _getTeacherName(props.teachers, id);
 }
 
 function getDivisionName(id: number) {
-  return props.divisions.find(d => d.id === id)?.name || 'Classe inconnue';
+  return _getDivisionName(props.divisions, id);
 }
 
-function getClassroomName(id: number) {
-  if (!props.classrooms) return 'Salle inconnue';
-  return props.classrooms.find(c => c.id === id)?.name || 'Salle inconnue';
+function getClassroomName(id: number | null) {
+  return _getClassroomName(props.classrooms, id);
 }
 
 function onDragStart(event: DragEvent, courseId: number) {
-  if (event.dataTransfer) {
-    event.dataTransfer.setData('text/plain', courseId.toString());
-    event.dataTransfer.effectAllowed = 'move';
-  }
+  onCourseDragStart(event, courseId);
 }
 </script>

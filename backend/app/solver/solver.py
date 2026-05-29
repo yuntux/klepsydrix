@@ -98,14 +98,13 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     if not setting or not setting.value:
         raise ValueError("Le paramètre système obligatoire 'STANDARD_TIMESLOT_DURATION' est manquant ou non défini.")
     std_duration_min = int(setting.value)
-    std_duration_hours = std_duration_min / 60.0
-
-    max_hours_by_day = {}
+    
+    max_minutes_by_day = {}
     for ts in db_timeslots:
-        if ts.day_of_week not in max_hours_by_day or ts.hour > max_hours_by_day[ts.day_of_week]:
-            max_hours_by_day[ts.day_of_week] = ts.hour
+        if ts.day_of_week not in max_minutes_by_day or ts.minutes_from_midnight > max_minutes_by_day[ts.day_of_week]:
+            max_minutes_by_day[ts.day_of_week] = ts.minutes_from_midnight
 
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.hour, max_hours_by_day[ts.day_of_week] + std_duration_hours) for ts in db_timeslots}
+    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, max_minutes_by_day[ts.day_of_week] + std_duration_min) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())
@@ -222,7 +221,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
                     else [p.id for p in db_periods]
                 )
             ),
-            step=c.duration_minutes / 60.0
+            duration_minutes=c.duration_minutes
         )
         courses_list.append(pc)
 

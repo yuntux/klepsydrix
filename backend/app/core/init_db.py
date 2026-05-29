@@ -103,19 +103,19 @@ def seed_v2_data():
         mef_6_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '10010012110'")).scalar()
         mef_2_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '20010012110'")).scalar()
 
-        # 7. Création des Créneaux Temporels (Lundi index 1 au Samedi index 6, de 8h à 18h, pas de 15 minutes = 0.25h)
+        # 7. Création des Créneaux Temporels (Lundi index 1 au Samedi index 6, de 8h à 18h, pas de 15 minutes)
         timeslots = []
         for day in range(1, 7):
-            h_val = 8.0
-            while h_val < 18.0:
-                if day == 3 and h_val >= 12.0:
-                    h_val += 0.25
+            m_val = 480
+            while m_val < 1080:
+                if day == 3 and m_val >= 720:
+                    m_val += 15
                     continue
-                db.execute(text("INSERT INTO timeslots (day_of_week, hour) VALUES (:day, :hour)"), {"day": day, "hour": h_val})
+                db.execute(text("INSERT INTO timeslots (day_of_week, minutes_from_midnight) VALUES (:day, :minutes_from_midnight)"), {"day": day, "minutes_from_midnight": m_val})
                 db.commit()
-                ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND hour = :hour"), {"day": day, "hour": h_val}).scalar()
+                ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND minutes_from_midnight = :minutes_from_midnight"), {"day": day, "minutes_from_midnight": m_val}).scalar()
                 timeslots.append(ts_id)
-                h_val += 0.25
+                m_val += 15
 
         # 8. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
         db.execute(text("INSERT INTO period_types (name) VALUES ('Trimestre')"))
@@ -165,8 +165,8 @@ def seed_v2_data():
             non_teaching_staffs.append((s_id, school_idx))
 
         # 10. Insérer des préférences (ResourcePreference) de test pour quelques professeurs (vœux)
-        # Prof 1 et 21 n'aiment pas travailler le mercredi matin (timeslot du mercredi 8h, day_of_week = 3, hour = 8)
-        mercredi_8h_ts = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = 3 AND hour = 8")).scalar()
+        # Prof 1 et 21 n'aiment pas travailler le mercredi matin (timeslot du mercredi 8h, day_of_week = 3, minutes_from_midnight = 480)
+        mercredi_8h_ts = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = 3 AND minutes_from_midnight = 480")).scalar()
         if mercredi_8h_ts:
             for t_id, s_id in [teachers[0], teachers[20]]:
                 db.execute(text(

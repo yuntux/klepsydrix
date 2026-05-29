@@ -61,7 +61,7 @@
               :checked="isResourceSelected(openDropdownType, r.id)"
               @change="onResourceCheckboxToggle(openDropdownType, r.id, $event)"
             />
-            <span style="flex: 1; font-size: 13px;">{{ r.name || (r.first_name + ' ' + r.last_name) }}</span>
+            <span style="flex: 1; font-size: 13px;">{{ r.display_name }}</span>
           </label>
           <div v-if="getActiveList(openDropdownType).length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
         </div>
@@ -293,7 +293,7 @@ function getSelectionLabel(rt: any) {
   if (rt.selected.length === 0) return 'Tous';
   if (rt.selected.length === 1) {
     const item = rt.list.find((r: any) => r.id === rt.selected[0]);
-    return item ? (item.name || (item.first_name + ' ' + item.last_name)) : '1 sélectionné';
+    return item ? item.display_name : '1 sélectionné';
   }
   return rt.selected.length + ' sélectionnés';
 }

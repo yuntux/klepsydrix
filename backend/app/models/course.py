@@ -290,12 +290,12 @@ class Course(Base):
                 raise ValueError("Le cours enfant doit être le même jour que son parent.")
             
             # Heure de début
-            if effective_ts.hour < self.parent.timeslot.hour:
+            if effective_ts.minutes_from_midnight < self.parent.timeslot.minutes_from_midnight:
                 raise ValueError("Le début d'un cours enfant ne peut pas être antérieur au début du cours parent.")
             
             # Heure de fin
-            child_end = effective_ts.hour + (self.duration_minutes / 60.0)
-            parent_end = self.parent.timeslot.hour + (self.parent.duration_minutes / 60.0)
+            child_end = effective_ts.minutes_from_midnight + self.duration_minutes
+            parent_end = self.parent.timeslot.minutes_from_midnight + self.parent.duration_minutes
             if child_end > parent_end:
                 raise ValueError("La fin d'un cours enfant ne peut pas être ultérieure à la fin du cours parent.")
 
@@ -390,19 +390,19 @@ class Course(Base):
         if not target_ts:
             raise ValueError("Créneau invalide")
 
-        target_start = target_ts.hour * 60
+        target_start = target_ts.minutes_from_midnight
         target_end = target_start + self.duration_minutes
 
         # Vérification du débordement en fin de journée
         from sqlalchemy import func
         from backend.app.models.system_setting import SystemSetting, SystemSettingKey
-        max_hour = db.query(func.max(Timeslot.hour)).filter(Timeslot.day_of_week == target_ts.day_of_week).scalar()
-        if max_hour is not None:
+        max_minutes = db.query(func.max(Timeslot.minutes_from_midnight)).filter(Timeslot.day_of_week == target_ts.day_of_week).scalar()
+        if max_minutes is not None:
             setting = db.query(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION).first()
             if not setting or not setting.value:
                 raise ValueError("Le paramètre système obligatoire 'STANDARD_TIMESLOT_DURATION' est manquant ou non défini.")
             std_duration_min = int(setting.value)
-            absolute_end_minutes = (max_hour * 60) + std_duration_min
+            absolute_end_minutes = max_minutes + std_duration_min
             if target_end > absolute_end_minutes:
                 raise ValueError("Le cours déborde de la grille horaire de la journée.")
 
@@ -414,8 +414,8 @@ class Course(Base):
                 Course.id != self.id,
                 resource_filter,
                 Timeslot.day_of_week == target_ts.day_of_week,
-                (Timeslot.hour * 60) < target_end,
-                target_start < (Timeslot.hour * 60 + Course.duration_minutes)
+                Timeslot.minutes_from_midnight < target_end,
+                target_start < (Timeslot.minutes_from_midnight + Course.duration_minutes)
             )
             
             # BR-001: Règle Globale d'Exclusivité des Ressources

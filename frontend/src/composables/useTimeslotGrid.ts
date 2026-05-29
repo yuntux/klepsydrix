@@ -37,7 +37,7 @@ export function useTimeslotGrid(timeslotsRef?: Ref<any[]>) {
     if (!timeslotsRef || !timeslotsRef.value || timeslotsRef.value.length === 0) {
       return [];
     }
-    const uniqueHours = Array.from(new Set(timeslotsRef.value.map(t => Math.floor(t.hour)))).sort((a, b) => a - b);
+    const uniqueHours = Array.from(new Set(timeslotsRef.value.map(t => Math.floor(t.minutes_from_midnight / 60)))).sort((a, b) => a - b);
     if (uniqueHours.length === 0) return [];
     
     const minH = uniqueHours[0];
@@ -52,7 +52,7 @@ export function useTimeslotGrid(timeslotsRef?: Ref<any[]>) {
   function isTimeslotActive(day: number, hour: number, subIdx: number = 0): boolean {
     if (!timeslotsRef || !timeslotsRef.value || timeslotsRef.value.length === 0) return true;
     const exactHour = hour + subIdx * (currentStandardDuration.value / 60);
-    return timeslotsRef.value.some(t => t.day_of_week === day && Math.abs(t.hour - exactHour) < 0.001);
+    return timeslotsRef.value.some(t => t.day_of_week === day && t.minutes_from_midnight === Math.round(exactHour * 60));
   }
 
   function getCellKey(day: number, hour: number, subIdx?: number): string {

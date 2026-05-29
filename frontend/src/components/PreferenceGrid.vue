@@ -364,7 +364,7 @@ watch(resourceIds, () => {
 }, { deep: true });
 
 function findMatchingPreferences(resourceId: number, day: number, hour: number): any[] {
-  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);
+  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs((t.minutes_from_midnight / 60) - hour) < 0.001);
   if (!ts) return [];
   
   const prefs = rawPreferences.value[resourceId] || [];
@@ -500,7 +500,7 @@ async function paintCell(day: number, hour: number) {
   const ids = resourceIds.value;
   if (ids.length === 0) return;
 
-  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);
+  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs((t.minutes_from_midnight / 60) - hour) < 0.001);
   if (!ts) return;
 
   const key = `${day}-${hour}`;
@@ -813,7 +813,7 @@ function updateTooltip(day: number, hour: number, event: MouseEvent) {
     return;
   }
   
-  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs(t.hour - hour) < 0.001);
+  const ts = props.timeslots.find(t => t.day_of_week === day && Math.abs((t.minutes_from_midnight / 60) - hour) < 0.001);
   if (!ts) {
     tooltipData.value = null;
     return;

@@ -23,15 +23,18 @@ class Timeslot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     day_of_week: Mapped[int] = mapped_column(Integer, nullable=False, info={"label": "Jour de la semaine", "min": 1, "max": 7}) # 1 = Lundi, 6 = Samedi
-    hour: Mapped[float] = mapped_column(Float, nullable=False, info={"label": "Heure de début", "min": 0.0, "max": 24.0, "step": get_dynamic_step})          # ex: 8.0 = 8h00, 8.5 = 8h30
+    minutes_from_midnight: Mapped[int] = mapped_column(Integer, nullable=False, info={"label": "Heure de début (minutes)", "min": 0, "max": 1440, "step": get_dynamic_step})          # ex: 480 = 8h00, 510 = 8h30
 
-
+    @classmethod
+    def get_noon_boundary_minutes(cls):
+        """Retourne la césure (en minutes) entre le matin et l'après-midi (12h00)."""
+        return 12 * 60
 
     # Relation avec les séances planifiées sur ce créneau
 
-    @constrains('hour')
+    @constrains('minutes_from_midnight')
     def _validate_hour_overflow(self, db):
-        if self.hour < 0:
+        if self.minutes_from_midnight < 0:
             raise ValueError("L'heure d'un créneau ne peut pas être négative.")
             
         from backend.app.models.system_setting import SystemSetting
@@ -40,13 +43,11 @@ class Timeslot(Base):
             raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
         duration = int(setting.value)
         
-        if (self.hour * 60) + duration > 24 * 60:
-            raise ValueError(f"Le créneau de {self.hour}h (avec une durée de {duration}min) déborde sur la journée suivante (> 24h).")
+        if self.minutes_from_midnight + duration > 24 * 60:
+            raise ValueError(f"Le créneau (avec une durée de {duration}min) déborde sur la journée suivante (> 24h).")
             
-        step = duration / 60.0
-        if abs((self.hour / step) - round(self.hour / step)) >= 0.001:
-            raise ValueError(f"L'heure du créneau ({self.hour}h) n'est pas un multiple de la durée standard ({duration} minutes).")
-
+        if self.minutes_from_midnight % duration != 0:
+            raise ValueError(f"L'heure du créneau (minute {self.minutes_from_midnight}) n'est pas un multiple exact de la durée standard ({duration} minutes).")
 
     @classmethod
     def get_active_timeslots(cls, db):
@@ -55,20 +56,18 @@ class Timeslot(Base):
         if not setting or not setting.value.isdigit():
             raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
         duration = int(setting.value)
-        step = duration / 60.0
         
         all_ts = db.query(cls).all()
         active_ts = []
         for ts in all_ts:
-            # On considère le créneau actif s'il tombe sur un multiple exact du step
-            is_active = abs((ts.hour / step) - round(ts.hour / step)) < 0.001
-            if is_active:
+            if ts.minutes_from_midnight % duration == 0:
                 active_ts.append(ts)
         return active_ts
 
+
     # Index unique composé pour empêcher les doublons de créneaux
     __table_args__ = (
-        UniqueConstraint("day_of_week", "hour", name="uq_timeslot_day_hour"),
+        UniqueConstraint("day_of_week", "minutes_from_midnight", name="uq_timeslot_day_minutes"),
     )
 
     def get_offset_timeslot(self, db, offset: int):
@@ -83,8 +82,8 @@ class Timeslot(Base):
 
         timeslots = db.query(Timeslot).filter(
             Timeslot.day_of_week == self.day_of_week,
-            Timeslot.hour > self.hour
-        ).order_by(Timeslot.hour).limit(offset).all()
+            Timeslot.minutes_from_midnight > self.minutes_from_midnight
+        ).order_by(Timeslot.minutes_from_midnight).limit(offset).all()
 
         if len(timeslots) < offset:
             raise ValueError(f"Le créneau de destination (offset +{offset}) n'existe pas ou déborde de la journée.")
@@ -99,6 +98,6 @@ class Timeslot(Base):
 
     @property
     def display_name(self) -> str:
-        h = int(self.hour)
-        m = int((self.hour - h) * 60)
+        h = self.minutes_from_midnight // 60
+        m = self.minutes_from_midnight % 60
         return f"{self.day_of_week_str} {h:02d}h{m:02d}"

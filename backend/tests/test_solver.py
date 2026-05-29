@@ -62,8 +62,8 @@ def test_solver_resolves_timetable(db_session: Session):
     d1 = Division.create(db_session, {"code": "DIV_6E", "name": "6ème", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
     d2 = Division.create(db_session, {"code": "DIV_5E", "name": "5ème", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
     course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
     course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
@@ -90,7 +90,7 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
 
     d1 = Division.create(db_session, {"code": "DIV_A", "name": "Div A", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
 
     # CORRECTION DU TEST : Création de DEUX partitions distinctes
     partition1 = Partition.create(db_session, {"code": "PART_LANG", "name": "Partition Langues", "division_id": d1.id})
@@ -132,8 +132,8 @@ def test_solver_respects_preferences(db_session: Session):
     c1 = Classroom.create(db_session, {"code": "ROOM_PREF", "name": "Room Pref", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_PREF", "name": "Div Pref", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts1.id, "preference_level": "Unsuited"})
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts2.id, "preference_level": "Preferred"})
@@ -155,8 +155,8 @@ def test_solver_preference_overrides_stability(db_session: Session):
     c1 = Classroom.create(db_session, {"code": "ROOM_STAB", "name": "Room Stab", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_STAB", "name": "Div Stab", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts2.id, "preference_level": "Preferred"})
 
@@ -185,8 +185,8 @@ def test_solver_respects_week_specific_preferences(db_session: Session):
     c1 = Classroom.create(db_session, {"code": "ROOM_WEEK", "name": "Room Week", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_WEEK", "name": "Div Week", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
     ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": t1.id, "timeslot_id": ts1.id, "preference_level": "Unsuited", "week_type": "A"})
 
@@ -211,8 +211,8 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
     c1 = Classroom.create(db_session, {"code": "ROOM_PERIOD", "name": "Room Period", "capacity": 30, "quantity": 1, "school_id": school.id})
     d1 = Division.create(db_session, {"code": "DIV_PERIOD", "name": "Div Period", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
     import datetime
     from backend.app.models.period_type import PeriodType
@@ -276,8 +276,8 @@ def test_solver_prevents_day_overflow(db_session: Session):
     teacher = Teacher.create(db_session, {"code": "T_OVERFLOW2", "first_name": "Prof", "last_name": "Overflow2", "school_id": school.id})
     
     # On crée deux créneaux : 17h00 et 17h30 (le dernier) sur le jour 1.
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 17.0})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 17.5})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 1020.0})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 1020.5})
     
     # On crée un cours de 60 minutes
     course = Course.create(db_session, {
@@ -308,7 +308,7 @@ def test_solver_prevents_day_overflow(db_session: Session):
     # Puisque ConstraintVerifier n'est pas encore nativement exposé facilement, 
     # on vérifie la logique interne de notre filtre python.
     
-    assert (target_p_course.timeslot.hour + target_p_course.step) > target_p_course.timeslot.absolute_end_of_day
+    assert (target_p_course.timeslot.minutes_from_midnight + target_p_course.duration_minutes) > target_p_course.timeslot.absolute_end_of_day
 
 
 
@@ -351,7 +351,7 @@ def test_course_preference_propagation(db_session: Session):
     course.update(db_session, {"periods": [per1], "period_type_id": pt.id})
     db_session.commit()
     
-    ts = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
     db_session.commit()
     
     # 3. Créer une préférence pour ce cours
@@ -402,7 +402,7 @@ def test_solver_respects_course_preferences(db_session: Session):
     })
     db_session.commit()
     
-    ts = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
     db_session.commit()
     
     pref = ResourcePreference.create(db_session, {
@@ -418,7 +418,7 @@ def test_solver_respects_course_preferences(db_session: Session):
     
     p_course = PlanningCourse(
         id=course.id,
-        step=2.0,
+        duration_minutes=120,
         week_type="W",
         period_ids=[],
         teachers=[],
@@ -442,7 +442,7 @@ def test_solver_respects_course_preferences(db_session: Session):
     # Vérifier que _is_preference_violated retourne False pour un autre cours
     other_course = PlanningCourse(
         id=999,
-        step=2.0,
+        duration_minutes=120,
         week_type="W",
         period_ids=[],
         teachers=[],
@@ -475,8 +475,8 @@ def test_course_heatmap_with_indisponibility(db_session: Session):
     })
 
     # Création de deux créneaux : ts1 (disponible) et ts2 (indisponible)
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 9})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
     # Ajouter le vœu INDISPONIBLE (Unsuited) pour ts2 pour ce professeur
     pref = ResourcePreference.create(db_session, {
@@ -523,7 +523,7 @@ def test_solver_leaves_unplaceable_course_unassigned(db_session: Session):
     d1 = Division.create(db_session, {"code": "DIV_UNPLACEABLE", "name": "Div Unplaceable", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
     # Création d'un seul créneau
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "hour": 8})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
 
     # Création de deux cours pour le même enseignant (qui entrent en conflit si placés sur le même créneau unique)
     course1 = Course.create(db_session, {
@@ -733,7 +733,7 @@ def test_course_to_course_constraints(db_session: Session):
     # Création de créneaux horaires distincts pour s'assurer que le solveur peut planifier à différents moments
     for day in range(1, 6):
         for hour in [8, 9, 10, 11, 14, 15, 16]:
-            Timeslot.create(db_session, {"day_of_week": day, "hour": hour})
+            Timeslot.create(db_session, {"day_of_week": day, "minutes_from_midnight": hour * 60})
     
     # 2. Test FORCE_SAME_SCOPE : course_sim_1 et course_sim_2 doivent être planifiés sur la même période (créneau par défaut)
     course_sim_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
@@ -821,7 +821,7 @@ def test_course_to_course_constraints(db_session: Session):
     ts_a = db_session.get(Timeslot, course_ord_a.timeslot_id)
     ts_b = db_session.get(Timeslot, course_ord_b.timeslot_id)
     if ts_a.day_of_week == ts_b.day_of_week:
-        assert ts_a.hour < ts_b.hour
+        assert ts_a.minutes_from_midnight < ts_b.minutes_from_midnight
     else:
         assert ts_a.day_of_week < ts_b.day_of_week
         
@@ -839,7 +839,7 @@ def test_course_to_course_constraints(db_session: Session):
     ts_c2 = db_session.get(Timeslot, course_cons_2.timeslot_id)
     if ts_c1.day_of_week == ts_c2.day_of_week:
         # La différence entre les heures de début doit être strictement supérieure à la durée d'un cours (1.0h)
-        assert abs(ts_c1.hour - ts_c2.hour) > 1.01
+        assert abs(ts_c1.minutes_from_midnight - ts_c2.minutes_from_midnight) > 1.01
 
     # FORBID_SAME_SCOPE (HALF_DAY) : demi-journées différentes (si même jour)
     assert course_hd_1.timeslot_id is not None
@@ -847,8 +847,8 @@ def test_course_to_course_constraints(db_session: Session):
     ts_hd1 = db_session.get(Timeslot, course_hd_1.timeslot_id)
     ts_hd2 = db_session.get(Timeslot, course_hd_2.timeslot_id)
     if ts_hd1.day_of_week == ts_hd2.day_of_week:
-        hd1_am = ts_hd1.hour < 12.0
-        hd2_am = ts_hd2.hour < 12.0
+        hd1_am = ts_hd1.minutes_from_midnight < 12.0
+        hd2_am = ts_hd2.minutes_from_midnight < 12.0
         assert hd1_am != hd2_am
 
     # FORCE_SAME_SCOPE (CUSTOM_HALF_DAYS) : même bloc de 4 demi-journées (2 jours)
@@ -856,8 +856,8 @@ def test_course_to_course_constraints(db_session: Session):
     assert course_cust_2.timeslot_id is not None
     ts_cust1 = db_session.get(Timeslot, course_cust_1.timeslot_id)
     ts_cust2 = db_session.get(Timeslot, course_cust_2.timeslot_id)
-    cust1_hd = (ts_cust1.day_of_week - 1) * 2 + (0 if ts_cust1.hour < 12.0 else 1)
-    cust2_hd = (ts_cust2.day_of_week - 1) * 2 + (0 if ts_cust2.hour < 12.0 else 1)
+    cust1_hd = (ts_cust1.day_of_week - 1) * 2 + (0 if ts_cust1.minutes_from_midnight < 12.0 else 1)
+    cust2_hd = (ts_cust2.day_of_week - 1) * 2 + (0 if ts_cust2.minutes_from_midnight < 12.0 else 1)
     assert (cust1_hd // 4) == (cust2_hd // 4)
 
 
@@ -865,17 +865,17 @@ def test_share_reference_period():
     from backend.app.solver.constraints import _share_reference_period, PlanningCourse, PlanningTimeslot
     
     # Création des timeslots de test
-    ts1 = PlanningTimeslot(id=1, day_of_week=1, hour=9.0, absolute_end_of_day=18.0)
-    ts2 = PlanningTimeslot(id=2, day_of_week=1, hour=10.0, absolute_end_of_day=18.0) # même jour, même demi-journée (matin)
-    ts3 = PlanningTimeslot(id=3, day_of_week=1, hour=14.0, absolute_end_of_day=18.0) # même jour, après-midi
-    ts4 = PlanningTimeslot(id=4, day_of_week=2, hour=9.0, absolute_end_of_day=18.0)  # jour différent
+    ts1 = PlanningTimeslot(id=1, day_of_week=1, minutes_from_midnight=540, absolute_end_of_day=18.0)
+    ts2 = PlanningTimeslot(id=2, day_of_week=1, minutes_from_midnight=600, absolute_end_of_day=18.0) # même jour, même demi-journée (matin)
+    ts3 = PlanningTimeslot(id=3, day_of_week=1, minutes_from_midnight=840, absolute_end_of_day=18.0) # même jour, après-midi
+    ts4 = PlanningTimeslot(id=4, day_of_week=2, minutes_from_midnight=540, absolute_end_of_day=18.0)  # jour différent
     
-    c1 = PlanningCourse(id=1, step=1.0, timeslot=ts1, week_type="A")
-    c2 = PlanningCourse(id=2, step=1.0, timeslot=ts2, week_type="A")
-    c3 = PlanningCourse(id=3, step=1.0, timeslot=ts3, week_type="A")
-    c4 = PlanningCourse(id=4, step=1.0, timeslot=ts4, week_type="A")
-    c5 = PlanningCourse(id=5, step=1.0, timeslot=ts1, week_type="B")
-    c6 = PlanningCourse(id=6, step=1.0, timeslot=ts1, week_type="T")
+    c1 = PlanningCourse(id=1, duration_minutes=60, timeslot=ts1, week_type="A")
+    c2 = PlanningCourse(id=2, duration_minutes=60, timeslot=ts2, week_type="A")
+    c3 = PlanningCourse(id=3, duration_minutes=60, timeslot=ts3, week_type="A")
+    c4 = PlanningCourse(id=4, duration_minutes=60, timeslot=ts4, week_type="A")
+    c5 = PlanningCourse(id=5, duration_minutes=60, timeslot=ts1, week_type="B")
+    c6 = PlanningCourse(id=6, duration_minutes=60, timeslot=ts1, week_type="T")
     
     # 1. SLOT
     assert _share_reference_period(c1, c1, "SLOT")
@@ -898,6 +898,6 @@ def test_share_reference_period():
     
     # 5. CUSTOM_HALF_DAYS (ex: n=4 demi-journées, soit tranches de 2 jours)
     assert _share_reference_period(c1, c4, "CUSTOM_HALF_DAYS", 4)
-    ts_wed = PlanningTimeslot(id=5, day_of_week=3, hour=9.0, absolute_end_of_day=18.0)
-    c_wed = PlanningCourse(id=7, step=1.0, timeslot=ts_wed, week_type="A")
+    ts_wed = PlanningTimeslot(id=5, day_of_week=3, minutes_from_midnight=540, absolute_end_of_day=18.0)
+    c_wed = PlanningCourse(id=7, duration_minutes=60, timeslot=ts_wed, week_type="A")
     assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)

@@ -29,7 +29,7 @@ export interface Timeslot {
   id: number;
   day_of_week: number;
   day_of_week_str?: string;
-  hour: number;
+  minutes_from_midnight: number;
 }
 
 export interface Course {
