@@ -96,12 +96,20 @@ export async function updateCourse(
 export async function fetchGenericList(
   resourceName: string,
   skip: number = 0,
-  limit: number = 100,
-  schoolId?: number
+  limit: number = 1000,
+  schoolId?: number,
+  filters?: Record<string, any>
 ): Promise<{ total: number; items: any[] }> {
   let url = `/api/generic/${resourceName}?skip=${skip}&limit=${limit}`;
   if (schoolId !== undefined && schoolId !== null) {
     url += `&school_id=${schoolId}`;
+  }
+  if (filters) {
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== null) {
+        url += `&${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
+      }
+    }
   }
   const response = await fetch(url);
   if (!response.ok) {

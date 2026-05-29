@@ -438,7 +438,9 @@ async function loadPeriods() {
 async function loadGenericItems() {
   genericLoading.value = true;
   try {
-    const res = await api.fetchGenericList(activeAdminModel.value, 0, 1000);
+    const listPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList');
+    const filters = listPanel?.listConfig?.filters || {};
+    const res = await api.fetchGenericList(activeAdminModel.value, 0, 1000, undefined, filters);
     genericItems.value = res.items;
   } catch (err: any) {
     showNotification('error', err.message || 'Erreur lors du chargement des ressources');
@@ -541,6 +543,11 @@ function onAddGeneric() {
       defaults[field.key] = field.default;
     }
   });
+  // Appliquer les champs fixes
+  const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
+  if (formPanel?.formConfig?.fixedFields) {
+    Object.assign(defaults, formPanel.formConfig.fixedFields);
+  }
   formModel.value = defaults;
   selectedRelatedRecords.value = [];
   selectedParentIds.value = [];
@@ -555,6 +562,11 @@ function onAddGeneric() {
         newItem[field.key] = field.default;
       }
     });
+    // Appliquer les champs fixes (ex: resource_type="Subject")
+    const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
+    if (formPanel?.formConfig?.fixedFields) {
+      Object.assign(newItem, formPanel.formConfig.fixedFields);
+    }
     genericItems.value.unshift(newItem);
     return;
   }
