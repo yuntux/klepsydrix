@@ -276,8 +276,8 @@ def test_solver_prevents_day_overflow(db_session: Session):
     teacher = Teacher.create(db_session, {"code": "T_OVERFLOW2", "first_name": "Prof", "last_name": "Overflow2", "school_id": school.id})
     
     # On crée deux créneaux : 17h00 et 17h30 (le dernier) sur le jour 1.
-    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 1020.0})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 1020.5})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 1020})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 1050})
     
     # On crée un cours de 60 minutes
     course = Course.create(db_session, {
@@ -847,8 +847,8 @@ def test_course_to_course_constraints(db_session: Session):
     ts_hd1 = db_session.get(Timeslot, course_hd_1.timeslot_id)
     ts_hd2 = db_session.get(Timeslot, course_hd_2.timeslot_id)
     if ts_hd1.day_of_week == ts_hd2.day_of_week:
-        hd1_am = ts_hd1.minutes_from_midnight < 12.0
-        hd2_am = ts_hd2.minutes_from_midnight < 12.0
+        hd1_am = ts_hd1.minutes_from_midnight < 720
+        hd2_am = ts_hd2.minutes_from_midnight < 720
         assert hd1_am != hd2_am
 
     # FORCE_SAME_SCOPE (CUSTOM_HALF_DAYS) : même bloc de 4 demi-journées (2 jours)
@@ -901,3 +901,214 @@ def test_share_reference_period():
     ts_wed = PlanningTimeslot(id=5, day_of_week=3, minutes_from_midnight=540, absolute_end_of_day=18.0)
     c_wed = PlanningCourse(id=7, duration_minutes=60, timeslot=ts_wed, week_type="A")
     assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)
+
+def test_subject_constraint_rules_orm(db_session: Session):
+    import pytest
+    from backend.app.models.constraint import ResourceConstraint
+    school = db_session.query(School).first()
+    subjects = db_session.query(Subject).all()
+    if len(subjects) < 2:
+        sub2 = Subject(code="PHYS", code_nomenclature="NOM_PHYS", short_name="Phys", name="Physique", discipline_id=subjects[0].discipline_id)
+        sub2._via_crud_mixin_create = True
+        db_session.add(sub2)
+        db_session.commit()
+        db_session.refresh(sub2)
+        subjects.append(sub2)
+
+    sub1 = subjects[0]
+    sub2 = subjects[1]
+
+    # Rule 1: target_subject_b_id is mandatory for Subject
+    payload = {
+        "resource_type": "Subject",
+        "resource_id": sub1.id,
+        "is_optional": False,
+    }
+    with pytest.raises(ValueError, match="est obligatoire"):
+        ResourceConstraint.create(db_session, payload)
+
+    # Successful creation
+    payload["target_subject_b_id"] = sub2.id
+    constraint = ResourceConstraint.create(db_session, payload)
+    db_session.commit()
+
+    # Rule 3: Exclusivity of separation
+    update_payload = {"incompatible_same_half_day": True, "min_free_half_days_between": 2}
+    constraint.update(db_session, update_payload)
+    db_session.commit()
+    assert constraint.incompatible_same_half_day is True
+    assert constraint.min_free_half_days_between is None  # other should be cleared
+    assert constraint.incompatible_same_day is False
+
+    # Rule 4 & 5: Sync A/B if same subject and weekly_order is NONE
+    payload_same = {
+        "resource_type": "Subject",
+        "resource_id": sub1.id,
+        "target_subject_b_id": sub1.id,
+        "prevent_consecutive_a_then_b": True,
+        "weekly_order": "A_BEFORE_B",
+        "is_optional": True,  # Test explicit optional=True
+    }
+    constraint_same = ResourceConstraint.create(db_session, payload_same)
+    db_session.commit()
+    assert constraint_same.prevent_consecutive_b_then_a is True  # Synced
+    assert constraint_same.weekly_order.value == "NONE"  # Rule 5
+    assert constraint_same.is_optional is True
+
+    update_payload_rule7 = {
+        "group_course_order": "GROUP_BEFORE",
+        "max_separation": "SUCCESSIVE_DAYS"
+    }
+    constraint.update(db_session, update_payload_rule7)
+    db_session.commit()
+    assert constraint.group_course_order.value == "NONE"
+    assert constraint.max_separation.value == "NONE"
+
+    # Rule 8: is_optional is only for Subject
+    payload_teacher = {
+        "resource_type": "Teacher",
+        "resource_id": 1,
+        "is_optional": True
+    }
+    with pytest.raises(ValueError, match="ne peut être vrai que pour les contraintes de type Subject"):
+        ResourceConstraint.create(db_session, payload_teacher)
+
+    payload_teacher_default = {
+        "resource_type": "Teacher",
+        "resource_id": 1,
+    }
+    constraint_teacher = ResourceConstraint.create(db_session, payload_teacher_default)
+    db_session.commit()
+    assert constraint_teacher.is_optional is False
+
+    # Rule 9: division_ids is only for Subject
+    payload_teacher_with_divisions = {
+        "resource_type": "Teacher",
+        "resource_id": 1,
+        "division_ids": [1]
+    }
+    with pytest.raises(ValueError, match="n'est applicable qu'aux contraintes de type Subject"):
+        ResourceConstraint.create(db_session, payload_teacher_with_divisions)
+    db_session.commit()
+    assert constraint_teacher.is_optional is False
+
+def test_solver_subject_constraint_optionality(db_session: Session):
+    from backend.app.models.constraint import ResourceConstraint
+    from backend.app.solver.solver import _solve_timetable_job
+    school = db_session.query(School).first()
+    subjects = db_session.query(Subject).all()
+    if len(subjects) < 2:
+        sub2 = Subject(code="TEST_OPT", code_nomenclature="TEST_OPT", short_name="T_OPT", name="Test Opt", discipline_id=subjects[0].discipline_id)
+        sub2._via_crud_mixin_create = True
+        db_session.add(sub2)
+        db_session.commit()
+        db_session.refresh(sub2)
+        subjects.append(sub2)
+
+    sub_a = subjects[0]
+    sub_b = subjects[1]
+
+    t1 = Teacher.create(db_session, {"code": "T_OPT_S", "first_name": "T", "last_name": "OPT", "school_id": school.id})
+    d1 = Division.create(db_session, {"code": "DIV_OPT_S", "name": "Div Opt", "student_count": 25, "color": "#000", "school_id": school.id})
+    Classroom.create(db_session, {"code": "CR_OPT", "name": "Classroom Opt", "capacity": 30, "school_id": school.id})
+    
+    # Create 2 timeslots on the SAME day
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+    
+    # 2 courses: one of A, one of B, for the same division. 
+    c_a = Course.create(db_session, {"subject_id": sub_a.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
+    c_b = Course.create(db_session, {"subject_id": sub_b.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
+    db_session.commit()
+
+    # 1. Test with Mandatory constraint (is_optional=False)
+    rc = ResourceConstraint.create(db_session, {
+        "resource_type": "Subject",
+        "resource_id": sub_a.id,
+        "target_subject_b_id": sub_b.id,
+        "incompatible_same_day": True,
+        "is_optional": False
+    })
+    db_session.commit()
+    
+    _solve_timetable_job(db_session)
+    db_session.refresh(c_a)
+    db_session.refresh(c_b)
+    
+    # Mandatory constraint: they cannot be on the same day. Since we only have Monday timeslots, 
+    # one must remain unplaced!
+    assert None in [c_a.timeslot_id, c_b.timeslot_id]
+
+    # Clean up placements
+    c_a.update(db_session, {"timeslot_id": None})
+    c_b.update(db_session, {"timeslot_id": None})
+    
+    # 2. Test with Optional constraint (is_optional=True)
+    rc.update(db_session, {"is_optional": True})
+    db_session.commit()
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(c_a)
+    db_session.refresh(c_b)
+
+    # Optional constraint: the solver can violate it, so both should be placed.
+    assert c_a.timeslot_id is not None
+    assert c_b.timeslot_id is not None
+
+def test_solver_subject_constraint_division_scope(db_session: Session):
+    from backend.app.models.constraint import ResourceConstraint
+    from backend.app.solver.solver import _solve_timetable_job
+    school = db_session.query(School).first()
+    subjects = db_session.query(Subject).all()
+    if len(subjects) < 2:
+        sub2 = Subject(code="TEST_SCP", code_nomenclature="TEST_SCP", short_name="T_SCP", name="Test Scp", discipline_id=subjects[0].discipline_id)
+        sub2._via_crud_mixin_create = True
+        db_session.add(sub2)
+        db_session.commit()
+        db_session.refresh(sub2)
+        subjects.append(sub2)
+
+    sub_a = subjects[0]
+    sub_b = subjects[1]
+
+    t1 = Teacher.create(db_session, {"code": "T_SCP_1", "first_name": "T1", "last_name": "SCP", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_SCP_2", "first_name": "T2", "last_name": "SCP", "school_id": school.id})
+    d1 = Division.create(db_session, {"code": "DIV_SCP_1", "name": "Div Scp 1", "student_count": 25, "color": "#000", "school_id": school.id})
+    d2 = Division.create(db_session, {"code": "DIV_SCP_2", "name": "Div Scp 2", "student_count": 25, "color": "#000", "school_id": school.id})
+    Classroom.create(db_session, {"code": "CR_SCP", "name": "Classroom Scp", "capacity": 30, "school_id": school.id})
+
+    # Create 2 timeslots on the SAME day
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+
+    # 4 courses: 2 for D1, 2 for D2
+    c1_a = Course.create(db_session, {"subject_id": sub_a.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
+    c1_b = Course.create(db_session, {"subject_id": sub_b.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
+    c2_a = Course.create(db_session, {"subject_id": sub_a.id, "teacher_ids": [t2.id], "division_ids": [d2.id], "school_id": school.id, "duration_minutes": 60})
+    c2_b = Course.create(db_session, {"subject_id": sub_b.id, "teacher_ids": [t2.id], "division_ids": [d2.id], "school_id": school.id, "duration_minutes": 60})
+    db_session.commit()
+
+    # Constraint applies only to D1
+    rc = ResourceConstraint.create(db_session, {
+        "resource_type": "Subject",
+        "resource_id": sub_a.id,
+        "target_subject_b_id": sub_b.id,
+        "incompatible_same_day": True,
+        "is_optional": False,
+        "division_ids": [d1.id]
+    })
+    db_session.commit()
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(c1_a)
+    db_session.refresh(c1_b)
+    db_session.refresh(c2_a)
+    db_session.refresh(c2_b)
+
+    # For D1, the constraint is active. One of them must be unplaced because there are only timeslots on day 1.
+    assert None in [c1_a.timeslot_id, c1_b.timeslot_id]
+
+    # For D2, the constraint is inactive. Both should be placed because there are no other constraints preventing it.
+    assert c2_a.timeslot_id is not None
+    assert c2_b.timeslot_id is not None
+    assert c2_a.timeslot_id != c2_b.timeslot_id

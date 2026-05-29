@@ -130,10 +130,16 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
         if json_schema_extra:
             field_kwargs["json_schema_extra"] = json_schema_extra
         
-        if all_optional or column.nullable or column.default is not None or column.server_default is not None:
-            fields[column.name] = (Optional[py_type], Field(None, **field_kwargs))
-        else:
+        pydantic_default = None
+        if column.default is not None and hasattr(column.default, "arg") and not callable(column.default.arg):
+            pydantic_default = column.default.arg
+        elif all_optional or column.nullable or column.server_default is not None:
+            pydantic_default = None
+
+        if pydantic_default is None and not all_optional and not column.nullable and column.default is None and column.server_default is None:
             fields[column.name] = (py_type, Field(..., **field_kwargs))
+        else:
+            fields[column.name] = (Optional[py_type], Field(pydantic_default, **field_kwargs))
             
     # Inclure également les champs virtuels et extra dans le schéma Pydantic
     extra_fields = list(getattr(model, "_fields", [])) + list(getattr(model, "_extra_fields", []))
@@ -154,7 +160,11 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
                 
                 target_table = rel.mapper.class_.__tablename__
                 title = rel.info.get("label", field_name.replace("_", " ").title())
-                fields[field_name] = (Optional[List[int]], Field(None, title=title, json_schema_extra={"resource": target_table}))
+                rel_schema_extra = {"resource": target_table, "ui_type": "multiselect"}
+                for k, v in rel.info.items():
+                    if k not in ("label", "type"):
+                        rel_schema_extra[k] = v() if callable(v) else v
+                fields[field_name] = (Optional[List[int]], Field(None, title=title, json_schema_extra=rel_schema_extra))
             
     suffix = "_ReadPayload" if include_id else ("_UpdatePayload" if all_optional else "_CreatePayload")
     base_name = getattr(model, "__tablename__", model.__name__)

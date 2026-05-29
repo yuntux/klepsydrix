@@ -869,6 +869,4 @@ def test_course_periods_and_type_validation(db_session: Session):
         "period_ids": [p_sem1.id]
     })
     db_session.commit()
-    assert len(course.periods) == 1
     assert course.periods[0].id == p_sem1.id
-

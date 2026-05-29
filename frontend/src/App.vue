@@ -534,14 +534,28 @@ const isAddingInline = ref(false);
 
 function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
-  formModel.value = {};
+  // Initialiser le modèle avec les valeurs par défaut issues de l'OpenAPI
+  const defaults: Record<string, any> = {};
+  formFieldsConfig.value.forEach((field: any) => {
+    if (field.default !== undefined) {
+      defaults[field.key] = field.default;
+    }
+  });
+  formModel.value = defaults;
   selectedRelatedRecords.value = [];
   selectedParentIds.value = [];
   isEditing.value = false;
   
   if (isListEditableInline.value) {
     const newId = 'new_' + Date.now();
-    genericItems.value.unshift({ id: newId });
+    const newItem: Record<string, any> = { id: newId };
+    // Appliquer les valeurs par défaut issues de l'OpenAPI
+    formFieldsConfig.value.forEach((field: any) => {
+      if (field.default !== undefined) {
+        newItem[field.key] = field.default;
+      }
+    });
+    genericItems.value.unshift(newItem);
     return;
   }
 
@@ -933,7 +947,9 @@ function getFormFieldsConfig(resourceKey?: string) {
           max: prop.max,
           step: prop.step,
           options: options,
-          resource: resourceName
+          resource: resourceName,
+          default: prop.default,
+          help: prop.help
         });
       }
       return dynamicFields;

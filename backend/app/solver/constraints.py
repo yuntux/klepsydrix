@@ -99,6 +99,7 @@ class PlanningResourceConstraint:
     id: int
     resource_type: str
     resource_id: typing.Optional[int]
+    is_optional: bool = True
     
     # Subject constraints
     target_subject_b_id: typing.Optional[int] = None
@@ -110,9 +111,10 @@ class PlanningResourceConstraint:
     prevent_consecutive_b_then_a: bool = False
     max_hours_per_day: typing.Optional[float] = None
     max_hours_per_half_day: typing.Optional[float] = None
-    weekly_order_a_before_b: bool = False
-    weekly_order_b_before_a: bool = False
+    weekly_order: str = "NONE"
     group_course_order: str = "NONE"
+    max_separation: str = "NONE"
+    division_ids: typing.List[int] = field(default_factory=list)  # Périmètre de classes (vide = toutes)
 
     # Teacher / Division constraints
     max_hours_per_am: typing.Optional[float] = None
@@ -236,6 +238,16 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         course_to_course_order_optional(constraint_factory),
         course_to_course_forbid_consecutive_mandatory(constraint_factory),
         course_to_course_forbid_consecutive_optional(constraint_factory),
+        subject_incompatible_same_half_day_mandatory(constraint_factory),
+        subject_incompatible_same_half_day_optional(constraint_factory),
+        subject_incompatible_same_day_mandatory(constraint_factory),
+        subject_incompatible_same_day_optional(constraint_factory),
+        subject_incompatible_two_consecutive_days_mandatory(constraint_factory),
+        subject_incompatible_two_consecutive_days_optional(constraint_factory),
+        subject_prevent_consecutive_mandatory(constraint_factory),
+        subject_prevent_consecutive_optional(constraint_factory),
+        subject_weekly_order_mandatory(constraint_factory),
+        subject_weekly_order_optional(constraint_factory),
     ]
 
 def _courses_overlap_in_time(c1, c2):
@@ -503,6 +515,19 @@ def _courses_share_division(c1, c2):
         for d2 in c2.divisions:
             if d1.id == d2.id:
                 return True
+    return False
+
+def _courses_match_rc_divisions(c1, c2, rc):
+    """Vérifie si les deux cours partagent une division dans le périmètre de la contrainte.
+    Si rc.division_ids est vide, on vérifie juste qu'ils partagent au moins une division (toutes classes).
+    Sinon, on vérifie qu'ils partagent une division qui est dans la liste."""
+    if len(rc.division_ids) == 0:
+        return _courses_share_division(c1, c2)
+    for d1 in c1.divisions:
+        if d1.id in rc.division_ids:
+            for d2 in c2.divisions:
+                if d1.id == d2.id:
+                    return True
     return False
 
 def _is_preference_violated(pref, course):
@@ -1003,3 +1028,194 @@ def course_to_course_forbid_consecutive_optional(constraint_factory: ConstraintF
 
 
 
+# ==========================================
+# 9. SUBJECT SPECIFIC CONSTRAINTS
+# ==========================================
+
+def subject_incompatible_same_half_day_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id < c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: _share_reference_period(c1, c2, "HALF_DAY"))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.incompatible_same_half_day is True and not rc.is_optional)
+        .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Subject Incompatible Same Half Day Mandatory")
+    )
+
+def subject_incompatible_same_half_day_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id < c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: _share_reference_period(c1, c2, "HALF_DAY"))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.incompatible_same_half_day is True and rc.is_optional)
+        .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Subject Incompatible Same Half Day Optional")
+    )
+
+def subject_incompatible_same_day_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id < c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: _share_reference_period(c1, c2, "DAY"))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.incompatible_same_day is True and not rc.is_optional)
+        .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Subject Incompatible Same Day Mandatory")
+    )
+
+def subject_incompatible_same_day_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id < c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: _share_reference_period(c1, c2, "DAY"))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.incompatible_same_day is True and rc.is_optional)
+        .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Subject Incompatible Same Day Optional")
+    )
+
+def subject_incompatible_two_consecutive_days_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id < c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: abs(c1.timeslot.day_of_week - c2.timeslot.day_of_week) <= 1)
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.incompatible_two_consecutive_days is True and not rc.is_optional)
+        .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Subject Incompatible Two Consecutive Days Mandatory")
+    )
+
+def subject_incompatible_two_consecutive_days_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id < c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: abs(c1.timeslot.day_of_week - c2.timeslot.day_of_week) <= 1)
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.incompatible_two_consecutive_days is True and rc.is_optional)
+        .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Subject Incompatible Two Consecutive Days Optional")
+    )
+
+def subject_prevent_consecutive_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id != c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: _are_consecutive(c1, c2))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: not rc.is_optional and (
+            (rc.prevent_consecutive_a_then_b is True and c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or
+            (rc.prevent_consecutive_b_then_a is True and c1.subject_id == rc.target_subject_b_id and c2.subject_id == rc.resource_id)
+        ))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Subject Prevent Consecutive A then B or B then A Mandatory")
+    )
+
+def subject_prevent_consecutive_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id != c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: _are_consecutive(c1, c2))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.is_optional and (
+            (rc.prevent_consecutive_a_then_b is True and c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or
+            (rc.prevent_consecutive_b_then_a is True and c1.subject_id == rc.target_subject_b_id and c2.subject_id == rc.resource_id)
+        ))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Subject Prevent Consecutive A then B or B then A Optional")
+    )
+
+def subject_weekly_order_mandatory(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id != c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: not _is_not_chronologically_before(c1, c2))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: not rc.is_optional and (
+            (rc.weekly_order == "B_BEFORE_A" and c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or
+            (rc.weekly_order == "A_BEFORE_B" and c1.subject_id == rc.target_subject_b_id and c2.subject_id == rc.resource_id)
+        ))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Subject Weekly Order Mandatory")
+    )
+
+def subject_weekly_order_optional(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(lambda c: c.timeslot is not None)
+        .join(PlanningCourse,
+              Joiners.equal(lambda c: c.week_type))
+        .filter(lambda c1, c2: c1.id != c2.id and c2.timeslot is not None)
+        
+        .filter(lambda c1, c2: not _is_not_chronologically_before(c1, c2))
+        .join(PlanningResourceConstraint,
+              Joiners.equal(lambda c1, c2: "Subject", lambda rc: rc.resource_type))
+        .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
+        .filter(lambda c1, c2, rc: rc.is_optional and (
+            (rc.weekly_order == "B_BEFORE_A" and c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or
+            (rc.weekly_order == "A_BEFORE_B" and c1.subject_id == rc.target_subject_b_id and c2.subject_id == rc.resource_id)
+        ))
+        .penalize(HardSoftScore.ONE_SOFT)
+        .as_constraint("Subject Weekly Order Optional")
+    )

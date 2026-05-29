@@ -657,16 +657,19 @@ function initializeModel() {
     
     props.fields.forEach(field => {
       if (field.type === 'boolean' && localModel.value[field.key] === undefined) {
-        localModel.value[field.key] = false;
-        initialModelValue.value[field.key] = false;
+        const defaultVal = (field as any).default !== undefined ? (field as any).default : false;
+        localModel.value[field.key] = defaultVal;
+        initialModelValue.value[field.key] = defaultVal;
       }
       if (field.type === 'color' && !localModel.value[field.key]) {
-        localModel.value[field.key] = '#3498DB'; // couleur par défaut premium
-        initialModelValue.value[field.key] = '#3498DB';
+        const defaultVal = (field as any).default || '#3498DB';
+        localModel.value[field.key] = defaultVal;
+        initialModelValue.value[field.key] = defaultVal;
       }
       if (field.type === 'select' && localModel.value[field.key] === undefined) {
-        localModel.value[field.key] = null;
-        initialModelValue.value[field.key] = null;
+        const defaultVal = (field as any).default !== undefined ? (field as any).default : null;
+        localModel.value[field.key] = defaultVal;
+        initialModelValue.value[field.key] = defaultVal;
       }
     });
   }
