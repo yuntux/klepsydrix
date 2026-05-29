@@ -223,10 +223,8 @@ body {
 /* Timetable Grid CSS Table Layout */
 .timetable-grid {
   display: grid;
-  grid-template-columns: 80px repeat(6, minmax(160px, 1fr));
-  grid-template-rows: 50px repeat(10, minmax(75px, 1fr));
-  min-width: 1000px;
   height: 100%;
+  width: 100%;
 }
 
 .grid-header-cell {

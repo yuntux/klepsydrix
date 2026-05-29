@@ -1,7 +1,7 @@
 <template>
   <div class="grid-container">
-    <div class="grid-wrapper">
-      <div v-if="days.length > 0" class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns }">
+    <div class="grid-wrapper" :class="{ 'mini-grid': isMini }">
+      <div v-if="days.length > 0" class="timetable-grid" :style="{ gridTemplateColumns: computedGridTemplateColumns, gridTemplateRows: computedGridTemplateRows, minWidth: isMini ? '0' : undefined }">
         <!-- Coin supérieur gauche -->
         <div class="grid-header-cell" style="position: sticky; left: 0; z-index: 12;" :style="{ gridRow: layoutMode === 'resource_columns' && activeResources && activeResources.length > 0 ? '1 / span 2' : '1' }">Horaire</div>
 
@@ -84,14 +84,16 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useTimeslotGrid } from '../composables/useTimeslotGrid';
 
 const props = withDefaults(defineProps<{
+  timeslots: any[];
   dragOverCells?: Record<string, boolean>;
   layoutMode?: string;
-  activeResources?: { type: string, id: number, name: string }[];
-  timeslots?: any[];
+  activeResources?: any[];
+  isMini?: boolean;
 }>(), {
   dragOverCells: () => ({}),
   layoutMode: 'merged',
-  timeslots: () => []
+  activeResources: () => [],
+  isMini: false
 });
 
 const { days, hours, currentStandardDuration, subCellCount, getCellKey, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
@@ -111,28 +113,29 @@ const gridColumns = computed(() => {
 
 // === Redimensionnement des colonnes (jours) ===
 const columnWidths = ref<Record<number, number>>({});
-const defaultColWidth = 160;
 
 function getColWidth(dayVal: number) {
-  return columnWidths.value[dayVal] || defaultColWidth;
+  return columnWidths.value[dayVal] || 0;
 }
 
 const computedGridTemplateColumns = computed(() => {
-  const timeCol = '80px';
-  // Si la colonne a été redimensionnée manuellement, on fixe sa taille exacte.
-  // Sinon, on la laisse fluide avec un minmax pour occuper l'espace.
+  const timeCol = '60px'; // Slightly smaller time col to fit more content
   const dayCols = gridColumns.value.map(col => {
     if (columnWidths.value[col.dayValue]) {
-      // Dans le mode multi-colonnes, la largeur redimensionnée s'applique à la largeur totale du jour, 
-      // donc on la divise par le nombre de ressources.
       if (props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0) {
         return `${columnWidths.value[col.dayValue] / props.activeResources.length}px`;
       }
       return `${columnWidths.value[col.dayValue]}px`;
     }
-    return `minmax(${defaultColWidth}px, 1fr)`;
+    return `minmax(0, 1fr)`;
   }).join(' ');
   return `${timeCol} ${dayCols}`;
+});
+
+const computedGridTemplateRows = computed(() => {
+  const hasResourceHeader = props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0;
+  // Always adapt to container size using minmax(0, 1fr)
+  return hasResourceHeader ? '40px 30px repeat(10, minmax(0, 1fr))' : '40px repeat(10, minmax(0, 1fr))';
 });
 
 let startX = 0;
@@ -279,5 +282,10 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 8px;
+}
+.mini-grid .grid-header-cell,
+.mini-grid .grid-time-cell {
+  font-size: 0.7em;
+  padding: 4px;
 }
 </style>

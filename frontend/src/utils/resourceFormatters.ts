@@ -22,3 +22,8 @@ export function onCourseDragStart(event: DragEvent, courseId: number) {
     event.dataTransfer.effectAllowed = 'move';
   }
 }
+
+export function getNonTeachingStaffName(staffs: any[] | undefined, id: number): string {
+  if (!staffs) return 'Personnel inconnu';
+  return staffs.find(s => s.id === id)?.display_name || 'Personnel inconnu';
+}

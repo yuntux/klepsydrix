@@ -1145,10 +1145,8 @@ watch(resourceOptions, () => {
 
 .timetable-grid {
   display: grid;
-  grid-template-columns: 80px repeat(6, minmax(130px, 1fr));
-  grid-template-rows: 50px repeat(10, minmax(65px, 1fr));
-  min-width: 900px;
   height: 100%;
+  width: 100%;
 }
 
 .grid-header-cell {

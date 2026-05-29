@@ -70,6 +70,7 @@
                 :timeslots="timeslots"
                 :dragOverCells="dragOverCells"
                 layoutMode="merged"
+                :isMini="true"
                 @cell-dragover="(day, time, ev) => $emit('cell-dragover', day, time, ev)"
                 @cell-dragleave="(day, time, ev) => $emit('cell-dragleave', day, time, ev)"
                 @cell-drop="(day, time, ev) => $emit('cell-drop', day, time, ev)"
@@ -340,7 +341,7 @@ defineEmits<{
 .resource-grid-wrapper {
   display: flex;
   flex-direction: column;
-  min-height: 400px;
+  min-height: 0;
   background-color: var(--bg-surface);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   overflow: hidden;

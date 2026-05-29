@@ -189,22 +189,18 @@ const { currentStandardDuration, getCellKey } = useTimeslotGrid();
 const activeResources = computed(() => {
   if (props.layoutMode !== 'resource_columns' && props.layoutMode !== 'resource_grids') return [];
   
-  const res: { type: string, id: number, name: string }[] = [];
+  const res: { type: string, id: number, display_name: string }[] = [];
   props.selectedTeacherIds.forEach(id => {
-    const t = props.teachers.find(x => x.id === id);
-    if (t) res.push({ type: 'teacher', id, name: t.name || 'Prof' });
+    res.push({ type: 'teacher', id, display_name: _getTeacherName(props.teachers, id) });
   });
   props.selectedDivisionIds.forEach(id => {
-    const d = props.divisions.find(x => x.id === id);
-    if (d) res.push({ type: 'division', id, name: d.name || 'Classe' });
+    res.push({ type: 'division', id, display_name: _getDivisionName(props.divisions, id) });
   });
   props.selectedClassroomIds.forEach(id => {
-    const c = props.classrooms?.find(x => x.id === id);
-    if (c) res.push({ type: 'classroom', id, name: c.name || 'Salle' });
+    res.push({ type: 'classroom', id, display_name: _getClassroomName(props.classrooms, id) });
   });
   props.selectedNonTeachingStaffIds.forEach(id => {
-    const s = props.nonTeachingStaffs?.find(x => x.id === id);
-    if (s) res.push({ type: 'non_teaching_staff', id, name: (s.first_name + ' ' + s.last_name).trim() || 'Personnel' });
+    res.push({ type: 'non_teaching_staff', id, display_name: _getNonTeachingStaffName(props.nonTeachingStaffs, id) });
   });
   return res;
 });
@@ -428,7 +424,7 @@ function getCoursesAt(day: number, hour: number, resource?: { type: string, id: 
   return result;
 }
 
-import { getTeacherName as _getTeacherName, getDivisionName as _getDivisionName, getClassroomName as _getClassroomName, onCourseDragStart } from '../utils/resourceFormatters';
+import { getTeacherName as _getTeacherName, getDivisionName as _getDivisionName, getClassroomName as _getClassroomName, getNonTeachingStaffName as _getNonTeachingStaffName, onCourseDragStart } from '../utils/resourceFormatters';
 
 function getTeacherName(id: number) {
   return _getTeacherName(props.teachers, id);
