@@ -652,7 +652,7 @@ Sert à définir l'espacement, la succession, la charge horaire maximale et l'or
 *   `divisions` : Relation Many2Many vers **Division**. Si vide (null), la contrainte s'applique à **toutes** les classes. Sinon, uniquement aux classes listées.
 *   **Incompatibilités** (Espacement temporel requis entre les cours de A et B). **Règle d'exclusivité** : Un seul de ces 4 attributs peut être actif à la fois :
     *   `incompatible_same_half_day` : Si vrai, interdit d'avoir des cours de A et B sur la même demi-journée
-    *   `incompatible_same_day` : Si vrai, interdit d'avoir des cours de A et B le même jour
+    *   `incompatible_same_day` : Si vrai, interdit d'avoir des cours de A et B le même jour. **Comportement par défaut :** S'il n'existe *aucune* contrainte spécifiée pour une même matière (`target_subject_a_id == target_subject_b_id`), alors le solveur automatique interdit par défaut de placer deux cours de cette matière le même jour pour les mêmes élèves (limite "Hard"). Cela peut bien sûr être forcé en placement manuel ou désactivé en créant explicitement une contrainte avec cette case décochée.
     *   `incompatible_two_consecutive_days` : Si vrai, interdit d'avoir des cours de A et B sur deux jours consécutifs
     *   `min_free_half_days_between` : Nombre minimum de demi-journées libres d'espacement forcé entre un cours de A et de B
 *   **Succession Interdite** :
@@ -663,8 +663,12 @@ Sert à définir l'espacement, la succession, la charge horaire maximale et l'or
     *   `max_hours_per_half_day` : Limite horaire maximale autorisée par demi-journée
 *   **Ordre Hebdomadaire** :
     *   `weekly_order` : Force un ordre spécifique (`NONE`, `A_BEFORE_B`, `B_BEFORE_A`).
-*   **Cours en Groupe vs Classe Entière** :
-    *   `group_course_order` : Force un ordre spécifique pour les séances en groupe.
+    *   `group_course_order` : Force un ordre spécifique entre les séances en groupe (ex: TP/TD) et les séances en classe entière d'une même matière. Valeurs possibles :
+        *   `NONE` : Aucun ordre imposé.
+        *   `GROUP_BEFORE` : Tous les cours en groupe doivent avoir lieu **avant** le(s) cours en classe entière.
+        *   `GROUP_AFTER` : Tous les cours en groupe doivent avoir lieu **après** le(s) cours en classe entière.
+        *   `GROUP_BEFORE_OR_AFTER` : Les cours en groupe doivent être placés de manière cohérente : soit **tous avant**, soit **tous après** le cours en classe entière, sans être mélangés.
+        *   `GROUP_BEFORE_OR_AFTER_FORTNIGHT` : Pour les cours en groupe alternés sur quinzaine (ex: Semaine A / Semaine B). Impose une répartition "en miroir" autour du cours en classe entière. Si le groupe A est avant, le groupe B doit être après (ou inversement).
 *   **Séparation Max** :
     *   `max_separation` : Empêcher l'espacement excessif de deux cours d'une même matière.
 

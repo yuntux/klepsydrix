@@ -63,7 +63,7 @@ def test_solver_resolves_timetable(db_session: Session):
     d2 = Division.create(db_session, {"code": "DIV_5E", "name": "5ème", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
     ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
-    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 2, "minutes_from_midnight": 480})
 
     course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
     course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
@@ -1117,44 +1117,103 @@ def test_max_separation_successive_days_orm(db_session: Session):
     # Just asserting it runs without error and score is calculated
     assert solution.score is not None
 
-def test_group_course_order_orm(db_session: Session):
+def setup_group_course_order_scenario(db_session, enum_value, pin_c1_day, pin_c2_day, pin_c3_day=None):
     from backend.app.models.group import Partition, ClassPart
     from datetime import date
-    sch = School.create(db_session, {"uai": "998", "name": "Sch", "student_start_date": date(2026, 9, 1), "student_end_date": date(2027, 6, 30)})
-    disc = Discipline.create(db_session, {"code": "D2", "name": "D2"})
-    sub = Subject.create(db_session, {"code": "S2", "code_nomenclature": "S2", "discipline_id": disc.id, "short_name": "S2", "name": "S2", "color": "#000"})
+    import uuid
+    uai_val = str(uuid.uuid4())[:8]
+    sch = School.create(db_session, {"uai": uai_val, "name": "Sch", "student_start_date": date(2026, 9, 1), "student_end_date": date(2027, 6, 30)})
+    disc = Discipline.create(db_session, {"code": f"D_{uai_val}", "name": "D3"})
+    sub = Subject.create(db_session, {"code": f"S_{uai_val}", "code_nomenclature": f"S_{uai_val}", "discipline_id": disc.id, "short_name": "S3", "name": "S3", "color": "#000"})
     
     from backend.app.models.mef import Mef
-    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": "M2", "name": "M2", "max_students_per_class": 30, "forecast_student_count": 30})
-    div = Division.create(db_session, {"school_id": sch.id, "code": "DIV2", "name": "DIV2", "mef_id": mef.id})
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"M_{uai_val}", "name": "M3", "max_students_per_class": 30, "forecast_student_count": 30})
+    div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV3", "mef_id": mef.id})
     
-    # We need a partition and a class part
-    part = Partition.create(db_session, {"division_id": div.id, "code": "PART", "name": "PART"})
-    cp = ClassPart.create(db_session, {"partition_id": part.id, "code": "CP", "name": "CP"})
+    part = Partition.create(db_session, {"division_id": div.id, "code": f"P_{uai_val}", "name": "PART"})
+    cp = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP_{uai_val}", "name": "CP"})
     
-    ts_lun = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
-    ts_mar = Timeslot.create(db_session, {"day_of_week": 2, "minutes_from_midnight": 480})
+    # Create grid to avoid overflow and unique constraints
+    timeslots = {}
+    for day in [1, 2, 3]:
+        for minutes in [480, 510, 540]:
+            ts = db_session.query(Timeslot).filter(Timeslot.day_of_week == day, Timeslot.minutes_from_midnight == minutes).first()
+            if not ts:
+                ts = Timeslot.create(db_session, {"day_of_week": day, "minutes_from_midnight": minutes})
+            if minutes == 480:
+                timeslots[day] = ts.id
+
+    cr = Classroom.create(db_session, {"school_id": sch.id, "code": f"R3_{uai_val}", "name": "Room 3", "capacity": 30})
 
     # c1 = FULL CLASS
-    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id]})
+    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id], "timeslot_id": timeslots[pin_c1_day], "classroom_ids": [cr.id], "is_pinned": True})
     
-    # c2 = GROUP CLASS (has class part)
-    c2 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp.id]})
+    # c2 = GROUP CLASS 1
+    c2 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp.id], "timeslot_id": timeslots[pin_c2_day], "classroom_ids": [cr.id], "is_pinned": True})
 
-    # Set timeslots: c1 (FULL) on Lundi, c2 (GROUP) on Mardi
-    # So Full is before Group.
-    c1.update(db_session, {"original_timeslot_id": ts_lun.id})
-    c2.update(db_session, {"original_timeslot_id": ts_mar.id})
+    if pin_c3_day:
+        # c3 = GROUP CLASS 2
+        c3 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp.id], "timeslot_id": timeslots[pin_c3_day], "classroom_ids": [cr.id], "is_pinned": True})
 
     SubjectToSubjectConstraint.create(db_session, {
         "target_subject_a_id": sub.id,
         "target_subject_b_id": sub.id,
-        "group_course_order": "GROUP_BEFORE",
+        "group_course_order": enum_value,
         "is_optional": False
     })
     
-    Classroom.create(db_session, {"school_id": sch.id, "code": "R2", "name": "Room 2", "capacity": 30})
+    db_session.commit()
+    return sch
 
+def test_group_course_order_group_before(db_session: Session):
+    # FULL on Tue (2), GROUP on Mon (1) -> Valid
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE", pin_c1_day=2, pin_c2_day=1)
     from backend.app.solver.solver import _solve_timetable_job
     solution = _solve_timetable_job(db_session, sch.id)
-    assert solution.score is not None
+    assert solution.score.hard_score == 0
+
+    # FULL on Mon (1), GROUP on Tue (2) -> Invalid
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE", pin_c1_day=1, pin_c2_day=2)
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score < 0
+
+def test_group_course_order_group_after(db_session: Session):
+    # FULL on Mon (1), GROUP on Tue (2) -> Valid
+    sch = setup_group_course_order_scenario(db_session, "GROUP_AFTER", pin_c1_day=1, pin_c2_day=2)
+    from backend.app.solver.solver import _solve_timetable_job
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score == 0
+
+    # FULL on Tue (2), GROUP on Mon (1) -> Invalid
+    sch = setup_group_course_order_scenario(db_session, "GROUP_AFTER", pin_c1_day=2, pin_c2_day=1)
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score < 0
+
+def test_group_course_order_before_or_after(db_session: Session):
+    # FULL on Tue (2), GROUP1 on Mon (1), GROUP2 on Mon (1) -> Valid (both before)
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE_OR_AFTER", pin_c1_day=2, pin_c2_day=1, pin_c3_day=1)
+    from backend.app.solver.solver import _solve_timetable_job
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score == 0
+
+    # FULL on Tue (2), GROUP1 on Mon (1), GROUP2 on Wed (3) -> Invalid (mixed)
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE_OR_AFTER", pin_c1_day=2, pin_c2_day=1, pin_c3_day=3)
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score < 0
+
+def test_group_course_order_before_or_after_fortnight(db_session: Session):
+    # FULL on Tue (2), GROUP1 on Mon (1), GROUP2 on Wed (3) -> Valid (mirrored)
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE_OR_AFTER_FORTNIGHT", pin_c1_day=2, pin_c2_day=1, pin_c3_day=3)
+    from backend.app.solver.solver import _solve_timetable_job
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score == 0
+
+    # FULL on Tue (2), GROUP1 on Wed (3), GROUP2 on Mon (1) -> Valid (mirrored)
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE_OR_AFTER_FORTNIGHT", pin_c1_day=2, pin_c2_day=3, pin_c3_day=1)
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score == 0
+
+    # FULL on Tue (2), GROUP1 on Wed (3), GROUP2 on Wed (3) -> Invalid (both after)
+    sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE_OR_AFTER_FORTNIGHT", pin_c1_day=2, pin_c2_day=3, pin_c3_day=3)
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score.hard_score < 0

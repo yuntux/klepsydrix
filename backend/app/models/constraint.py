@@ -132,6 +132,10 @@ class SubjectToSubjectConstraint(Base):
         subject_a = vals.get('target_subject_a_id', current_obj.target_subject_a_id if current_obj else None)
         subject_b = vals.get('target_subject_b_id', current_obj.target_subject_b_id if current_obj else None)
 
+        if subject_b is None:
+            raise ValueError("target_subject_b_id est obligatoire.")
+
+
         sep_fields = ['incompatible_same_half_day', 'incompatible_same_day', 'incompatible_two_consecutive_days', 'min_free_half_days_between']
         new_sep = None
         for f in sep_fields:
