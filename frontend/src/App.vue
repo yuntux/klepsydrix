@@ -472,6 +472,8 @@ async function loadFkOptionsForModel(model: string) {
   if (!schema || !schema.properties) return;
 
   const now = Date.now();
+  const resourcesToFetch = new Set<string>();
+
   for (const [key, prop] of Object.entries<any>(schema.properties)) {
     let resourceName = prop.resource;
     if (!resourceName && prop.anyOf) {
@@ -483,6 +485,14 @@ async function loadFkOptionsForModel(model: string) {
       const cached = fkOptionsCache.value[resourceName];
       const isStale = !cached || (now - cached.loadedAt > FK_CACHE_TTL_MS);
       if (isStale) {
+        resourcesToFetch.add(resourceName);
+      }
+    }
+  }
+
+  if (resourcesToFetch.size > 0) {
+    await Promise.all(
+      Array.from(resourcesToFetch).map(async (resourceName) => {
         try {
           const res = await api.fetchGenericList(resourceName, 0, 1000);
           fkOptionsCache.value[resourceName] = {
@@ -497,8 +507,8 @@ async function loadFkOptionsForModel(model: string) {
           console.error(`Failed to fetch options for resource ${resourceName}`, e);
           fkOptionsCache.value[resourceName] = { items: [], loadedAt: now };
         }
-      }
-    }
+      })
+    );
   }
 }
 
