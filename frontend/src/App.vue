@@ -317,7 +317,6 @@ function onLeafChange(leaf: any) {
     const listPanel = leaf.panels.find((p: any) => p.component === 'GenericList');
     if (listPanel && listPanel.resourceKey) {
       activeAdminModel.value = listPanel.resourceKey;
-      loadGenericItems();
       
       // Réinitialiser le formulaire inline et la sélection
       formModel.value = {};
@@ -518,16 +517,12 @@ function updateDefaultSelection() {
 // Watchers
 // Removed viewMode watch
 
-watch(activeAdminModel, () => {
-  if (activeTab.value === 'admin') {
-    loadGenericItems();
-  }
-});
-
-watch(activeTab, (newVal) => {
-  if (newVal === 'admin') {
-    loadGenericItems();
-  } else {
+watch([activeTab, activeAdminModel], ([newTab, newModel], [oldTab, oldModel]) => {
+  if (newTab === 'admin') {
+    if (newTab !== oldTab || newModel !== oldModel) {
+      loadGenericItems();
+    }
+  } else if (newTab !== oldTab) {
     loadData();
   }
 });
