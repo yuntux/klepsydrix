@@ -2,6 +2,7 @@
   <div class="searchable-select-container" :class="{ 'is-inline': inline }" ref="containerRef">
     <div class="input-wrapper">
       <input
+        v-if="!disabled"
         type="text"
         class="form-input searchable-select-input"
         :class="{ 'has-value': modelValue !== null && modelValue !== '' }"
@@ -15,10 +16,14 @@
         @keydown.enter.prevent="selectHighlighted"
         @keydown.escape.prevent="closeDropdown"
       />
+      <span v-else class="disabled-text">
+        {{ searchQuery || 'Aucun' }}
+      </span>
+
       <span v-if="modelValue !== null && modelValue !== '' && !disabled" class="clear-btn" @click.stop="clearSelection">
         ×
       </span>
-      <span class="chevron-icon" @click.stop="toggleDropdown">
+      <span v-if="!disabled" class="chevron-icon" @click.stop="toggleDropdown">
         ▼
       </span>
     </div>
@@ -244,6 +249,18 @@ onUnmounted(() => {
   font-size: 9px;
   user-select: none;
   pointer-events: none;
+}
+
+.disabled-text {
+  padding: 4px 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.disabled-text:empty::after,
+.disabled-text:contains('Aucun') {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .options-dropdown {

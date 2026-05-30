@@ -155,7 +155,7 @@ class CRUDMixin:
                             if pk in vals:
                                 ids = vals.pop(pk)
                                 if ids is not None:
-                                    collection_updates[rel.key] = (rel.mapper.class_, ids)
+                                    collection_updates[rel.key] = (rel, ids)
                                 break
 
             # 2. Séparer les champs related des champs locaux
@@ -188,9 +188,24 @@ class CRUDMixin:
                         setattr(related_obj, prop.target_field, v)
 
             # 5. Mettre à jour les relations collection
-            for rel_key, (target_cls, ids) in collection_updates.items():
-                items = db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()
-                setattr(instance, rel_key, items)
+            for rel_key, (rel, ids) in collection_updates.items():
+                target_cls = rel.mapper.class_
+                items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()}
+                ordered_items = [items_by_id[i] for i in ids if i in items_by_id]
+                setattr(instance, rel_key, ordered_items)
+
+                # Gestion d'un champ d'ordre sur la table d'association
+                order_col_name = rel.info.get("ordered_by") if rel.info else None
+                if order_col_name and rel.secondary is not None:
+                    db.flush()
+                    local_col = next((fk.parent for fk in rel.secondary.foreign_keys if fk.column.table == cls.__table__), None)
+                    target_col = next((fk.parent for fk in rel.secondary.foreign_keys if fk.column.table == target_cls.__table__), None)
+                    if local_col is not None and target_col is not None and order_col_name in rel.secondary.c:
+                        for i, item in enumerate(ordered_items):
+                            db.execute(rel.secondary.update().where(
+                                (local_col == instance.id) &
+                                (target_col == item.id)
+                            ).values(**{order_col_name: i}))
 
             db.flush()
 
@@ -248,7 +263,7 @@ class CRUDMixin:
                             if pk in vals:
                                 ids = vals.pop(pk)
                                 if ids is not None:
-                                    collection_updates[rel.key] = (rel.mapper.class_, ids)
+                                    collection_updates[rel.key] = (rel, ids)
                                 break
 
             # 2. Séparer les champs related des champs locaux
@@ -281,9 +296,24 @@ class CRUDMixin:
                         setattr(related_obj, prop.target_field, v)
 
             # 5. Mettre à jour les relations collection
-            for rel_key, (target_cls, ids) in collection_updates.items():
-                items = db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()
-                setattr(self, rel_key, items)
+            for rel_key, (rel, ids) in collection_updates.items():
+                target_cls = rel.mapper.class_
+                items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()}
+                ordered_items = [items_by_id[i] for i in ids if i in items_by_id]
+                setattr(self, rel_key, ordered_items)
+
+                # Gestion d'un champ d'ordre sur la table d'association
+                order_col_name = rel.info.get("ordered_by") if rel.info else None
+                if order_col_name and rel.secondary is not None:
+                    db.flush()
+                    local_col = next((fk.parent for fk in rel.secondary.foreign_keys if fk.column.table == self.__class__.__table__), None)
+                    target_col = next((fk.parent for fk in rel.secondary.foreign_keys if fk.column.table == target_cls.__table__), None)
+                    if local_col is not None and target_col is not None and order_col_name in rel.secondary.c:
+                        for i, item in enumerate(ordered_items):
+                            db.execute(rel.secondary.update().where(
+                                (local_col == self.id) &
+                                (target_col == item.id)
+                            ).values(**{order_col_name: i}))
 
             db.flush()  # Flush sans commit : le commit est géré par l'endpoint
 

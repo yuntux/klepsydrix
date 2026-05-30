@@ -176,7 +176,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, watch, computed, provide } from 'vue';
+import type { Component } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import TimetableGrid from './components/TimetableGrid.vue';
 import GridContainer from './components/GridContainer.vue';
@@ -333,6 +334,7 @@ const schoolsList = ref<any[]>([]);
 const periodTypesList = ref<any[]>([]);
 const globalTimeslotDuration = ref(30);
 const openApiSpec = ref<any>(null);
+provide('openApiSpec', openApiSpec);
 
 // États pour la boîte de dialogue de confirmation d'impact
 const showImpactModal = ref(false);
@@ -452,7 +454,9 @@ async function loadGenericItems() {
 }
 
 const FK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: string }>; loadedAt: number }>>({});
+const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: string; rawData?: any }>; loadedAt: number }>>({});
+
+provide('fkOptionsCache', fkOptionsCache);
 
 function invalidateFkCache(resourceName: string) {
   delete fkOptionsCache.value[resourceName];
@@ -485,7 +489,8 @@ async function loadFkOptionsForModel(model: string) {
           fkOptionsCache.value[resourceName] = {
             items: (res.items || []).map((item: any) => ({
               value: item.id,
-              label: item.display_name || item.name || item.code || String(item.id)
+              label: item.display_name || item.name || item.code || String(item.id),
+              rawData: item
             })),
             loadedAt: now
           };
@@ -965,7 +970,9 @@ function getFormFieldsConfig(resourceKey?: string) {
           options: options,
           resource: resourceName,
           default: prop.default,
-          help: prop.help
+          help: prop.help,
+          widget: prop.widget,
+          widgetParams: prop.widgetParams
         });
       }
       return dynamicFields;

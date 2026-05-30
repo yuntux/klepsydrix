@@ -109,7 +109,7 @@ def test_get_timetable(db_session: Session):
     data = response.json()
     assert "teachers" in data
     assert "courses" in data
-    assert any(teacher["name"] == "Prof Martin" for teacher in data["teachers"])
+    assert any(teacher["display_name"] == "Prof Martin" for teacher in data["teachers"])
 
 def test_solve_timetable(db_session: Session):
     school = db_session.query(School).first()
@@ -118,7 +118,7 @@ def test_solve_timetable(db_session: Session):
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     
     t._via_crud_mixin_create = True
     c._via_crud_mixin_create = True
@@ -155,7 +155,7 @@ def test_reset_timetable(db_session: Session):
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     
     t._via_crud_mixin_create = True
     c._via_crud_mixin_create = True
@@ -187,8 +187,8 @@ def test_update_course_success(db_session: Session):
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
-    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=9)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
     
     t._via_crud_mixin_create = True
     c._via_crud_mixin_create = True
@@ -218,8 +218,8 @@ def test_update_course_conflict(db_session: Session):
     c2 = Classroom(code="SALLE_B", name="Salle B", capacity=25, quantity=1, school_id=school.id)
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
-    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=9)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
     
     t._via_crud_mixin_create = True
     c1._via_crud_mixin_create = True
@@ -255,8 +255,8 @@ def test_solve_pinned_course(db_session: Session):
     c2 = Classroom(code="SALLE_2", name="Salle 2", capacity=30, quantity=1, school_id=school.id)
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
-    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=8)
-    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=9)
+    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
     
     t._via_crud_mixin_create = True
     c1._via_crud_mixin_create = True
@@ -308,7 +308,7 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
     c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     
     t._via_crud_mixin_create = True
     c._via_crud_mixin_create = True
@@ -356,7 +356,7 @@ def test_structures_simulate_and_apply_change(db_session: Session):
 
 
 def test_preferences_crud(db_session: Session):
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     ts._via_crud_mixin_create = True
     db_session.add(ts)
     db_session.commit()
@@ -397,7 +397,7 @@ def test_preferences_crud(db_session: Session):
 
 
 def test_preferences_split_logic(db_session: Session):
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     ts._via_crud_mixin_create = True
     db_session.add(ts)
     db_session.commit()
@@ -463,7 +463,7 @@ def test_preferences_period_split_logic(db_session: Session):
     teacher._via_crud_mixin_create = True
     db_session.add(teacher)
     
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     ts._via_crud_mixin_create = True
     db_session.add(ts)
     db_session.commit()
@@ -550,9 +550,9 @@ def test_course_week_alternation_conflicts(db_session: Session):
     db_session.add(teacher)
     db_session.commit()
     
-    ts = Timeslot(day_of_week=1, minutes_from_midnight=8)
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     ts._via_crud_mixin_create = True
-    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=9)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
     ts2._via_crud_mixin_create = True
     db_session.add_all([ts, ts2])
     db_session.commit()
@@ -600,9 +600,9 @@ def test_course_complex_offset_propagation(db_session: Session):
 
     # Création de 5 créneaux successifs (Lundi 8h, 8h30, 9h, 9h30, 10h)
     ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
-    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=8.5)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=510)
     ts3 = Timeslot(day_of_week=1, minutes_from_midnight=540)
-    ts4 = Timeslot(day_of_week=1, minutes_from_midnight=9.5)
+    ts4 = Timeslot(day_of_week=1, minutes_from_midnight=570)
     ts5 = Timeslot(day_of_week=1, minutes_from_midnight=600)
     for ts in [ts1, ts2, ts3, ts4, ts5]:
         ts._via_crud_mixin_create = True
@@ -780,8 +780,8 @@ def test_course_day_overflow_conflict(db_session: Session):
     
     # On crée deux créneaux : l'avant-dernier et le dernier de la journée
     # Ex: 17h00 et 17h30.
-    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=17.0)
-    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=17.5) # Le tout dernier créneau
+    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=1020)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=1050) # Le tout dernier créneau
     ts1._via_crud_mixin_create = True
     ts2._via_crud_mixin_create = True
     db_session.add_all([ts1, ts2])

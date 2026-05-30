@@ -7,6 +7,7 @@
       </div>
       
       <input
+        v-if="!disabled"
         ref="inputRef"
         type="text"
         class="search-input"
@@ -21,7 +22,11 @@
         @keydown.escape.prevent="closeDropdown"
       />
       
-      <span class="chevron-icon" @click.stop="toggleDropdown">
+      <span v-if="selectedOptions.length === 0 && disabled" class="empty-placeholder">
+        Aucun
+      </span>
+
+      <span v-if="!disabled" class="chevron-icon" @click.stop="toggleDropdown">
         ▼
       </span>
     </div>
@@ -338,15 +343,23 @@ onUnmounted(() => {
 }
 
 .searchable-multiselect-container.is-disabled .input-tags-wrapper {
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-  cursor: not-allowed;
+  background-color: transparent;
+  border-color: transparent;
+  cursor: default;
+  padding: 0;
+  min-height: auto;
 }
 
 .searchable-multiselect-container.is-disabled .tag-badge {
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-  color: var(--text-secondary);
+  background-color: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.2);
+  color: var(--text-primary);
+}
+
+.empty-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
 }
 
 @keyframes slideDown {

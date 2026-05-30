@@ -723,7 +723,7 @@ def test_course_to_course_constraints(db_session: Session):
     course_sim_1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
     course_sim_2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})
     
-    ctc_sim = CourseToCourseConstraint.create(db_session, {"type": "FORCE_SAME_SCOPE", "is_optional": False, "label": "Force Same Scope Test", "course_ids": [course_sim_1.id, course_sim_2.id]})
+    ctc_sim = CourseToCourseConstraint.create(db_session, {"type": "FORCE_SAME_SCOPE", "scope": "SLOT", "is_optional": False, "label": "Force Same Scope Test", "course_ids": [course_sim_1.id, course_sim_2.id]})
     
     # 3. Test ORDER : course_ord_a doit passer avant course_ord_b
     course_ord_a = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 60})

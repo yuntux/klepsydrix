@@ -47,6 +47,7 @@ import { ref, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
+import Many2ManyOrderedList from './widgets/Many2ManyOrderedList.vue';
 
 
 interface FormField {
@@ -55,8 +56,9 @@ interface FormField {
   type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
   required?: boolean;
   requiredExpr?: string;
-  readOnlyExpr?: string;
   invisibleExpr?: string;
+  widget?: string;
+  widgetParams?: any;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -75,9 +77,10 @@ interface LayoutElement {
   children?: LayoutElement[];
   readOnly?: boolean;
   readOnlyExpr?: string;
-  required?: boolean;
   requiredExpr?: string;
   invisibleExpr?: string;
+  widget?: string;
+  widgetParams?: any;
   overrideLabel?: string;
   label?: string;
   disabled?: boolean;
@@ -174,6 +177,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         disabled: false,
         readOnlyExpr: original.readOnlyExpr,
         invisibleExpr: original.invisibleExpr,
+        widget: original.widget,
+        widgetParams: original.widgetParams,
         originalField: original,
         help: original.help
       };
@@ -194,6 +199,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         disabled: elem.readOnly === true,
         readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : (typeof elem.readOnlyExpr === 'string' ? elem.readOnlyExpr : original.readOnlyExpr),
         invisibleExpr: typeof elem.invisibleExpr === 'string' ? elem.invisibleExpr : original.invisibleExpr,
+        widget: elem.widget || original.widget,
+        widgetParams: elem.widgetParams || original.widgetParams,
         originalField: original,
         help: elem.help || original.help
       };
@@ -212,6 +219,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         disabled: elem.readOnly === true,
         readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : (typeof elem.readOnlyExpr === 'string' ? elem.readOnlyExpr : original.readOnlyExpr),
         invisibleExpr: typeof elem.invisibleExpr === 'string' ? elem.invisibleExpr : original.invisibleExpr,
+        widget: elem.widget || original.widget,
+        widgetParams: elem.widgetParams || original.widgetParams,
         originalField: original,
         help: elem.help || original.help
       };
@@ -473,7 +482,18 @@ const FormLayoutGrid: any = defineComponent({
 
             const isFk = !!field.resource;
 
-            if (field.type === 'multiselect') {
+            if (elem.widget === 'many2many_ordered_list') {
+              inputElement = h(Many2ManyOrderedList, {
+                modelValue: Array.isArray(gridProps.localModel[key]) ? gridProps.localModel[key] : (gridProps.localModel[key] ? [gridProps.localModel[key]] : []),
+                field: field,
+                widgetParams: elem.widgetParams,
+                disabled: disabled,
+                style: inputStyle,
+                'onUpdate:modelValue': (val: any) => {
+                  gridProps.localModel[key] = val;
+                }
+              });
+            } else if (field.type === 'multiselect') {
               const options = field.options || [];
               inputElement = h(SearchableMultiSelect, {
                 modelValue: Array.isArray(gridProps.localModel[key]) ? gridProps.localModel[key] : (gridProps.localModel[key] ? [gridProps.localModel[key]] : []),

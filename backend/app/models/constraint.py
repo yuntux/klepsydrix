@@ -43,6 +43,7 @@ class ResourceConstraint(Base):
     resource_id: Mapped[int] = mapped_column(Integer, nullable=False, info={"label": "ID ressource"})
 
     # Attributs Profs et Classes (Teacher / Division)
+    max_hours_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0, "label": "Heures max par jour", "help": "Nombre maximum d'heures travaillées par jour."})
     max_hours_per_am: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0, "label": "Heures max matin", "help": "Nombre maximum d'heures travaillées en matinée (avant 12h)."})
     max_hours_per_pm: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0, "label": "Heures max après-midi", "help": "Nombre maximum d'heures travaillées l'après-midi (après 12h)."})
     max_presence_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"min": 0, "label": "Jours de présence max", "help": "Nombre maximum de jours de présence par semaine."})
@@ -238,7 +239,7 @@ class CourseToCourseConstraint(Base):
         "Course",
         secondary=course_constraint_associations,
         order_by="course_constraint_associations.c.sequence_order",
-        info={"label": "Cours concernés"}
+        info={"label": "Cours concernés", "ordered_by": "sequence_order"}
     )
 
     @classmethod
@@ -259,6 +260,8 @@ class CourseToCourseConstraint(Base):
             if not chalf_days:
                 raise ValueError("Le nombre de demi-journées personnalisées est obligatoire lorsque le périmètre est CUSTOM_HALF_DAYS.")
         else:
+            if chalf_days is not None:
+                raise ValueError("Le nombre de demi-journées personnalisées est interdit pour ce périmètre.")
             vals['custom_half_days'] = None
 
     @classmethod

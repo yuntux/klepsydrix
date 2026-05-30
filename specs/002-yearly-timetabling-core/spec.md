@@ -701,7 +701,7 @@ Représente une contrainte spécifique reliant directement plusieurs instances d
 *   `is_optional` : Vrai si la contrainte est optionnelle (peut être levée par le solveur en cas d'échec), Faux si elle est impérative (Booléen, par défaut `True`)
 
 *Relations (N-à-N)* :
-*   `courses` : Liste ordonnée des cours associés à cette contrainte. Pour le type `ORDER`, l'ordre de la liste définit l'ordre chronologique attendu des cours dans la semaine.
+*   `courses` : Liste ordonnée des cours associés à cette contrainte. Pour le type `ORDER`, l'ordre de la liste définit l'ordre chronologique attendu des cours dans la semaine. Le widget `many2many_ordered_list` est utilisé dans l'interface pour permettre l'ordonnancement manuel des cours impliqués, tout en affichant les colonnes (Classe, Prof, Matière) via les données brutes (`rawData`).
 
 ### 16. Configuration JSON de l'Arbre des Notebooks
 La structure générale de l'interface de l'application est définie par un arbre JSON de configuration dynamique. Cet arbre est composé de nœuds (Notebooks) de niveau 1 à N, où les feuilles décrivent la disposition des panneaux de travail.

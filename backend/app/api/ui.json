@@ -922,7 +922,16 @@
                       "children": [
                         {
                           "key": "course_ids",
-                          "fullWidth": true
+                          "fullWidth": true,
+                          "widget": "many2many_ordered_list",
+                          "widgetParams": {
+                            "orderColumn": "sequence_order",
+                            "columns": [
+                              {"key": "subject_id", "label": "Matière"},
+                              {"key": "division_ids", "label": "Classe"},
+                              {"key": "teacher_ids", "label": "Prof"}
+                            ]
+                          }
                         }
                       ]
                     }

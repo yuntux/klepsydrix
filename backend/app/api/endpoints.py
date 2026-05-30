@@ -177,7 +177,7 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
         for c in courses:
             if c.timeslot_id is not None:
                 ts = db.get(Timeslot, c.timeslot_id)
-                ts_str = f"Jour {ts.day_of_week} à {ts.hour}h00" if ts else "Créneau Inconnu"
+                ts_str = f"Jour {ts.day_of_week} à {ts.minutes_from_midnight // 60}h{ts.minutes_from_midnight % 60:02d}" if ts else "Créneau Inconnu"
                 
                 t_name = c.teachers[0].display_name if c.teachers else "Sans Prof"
                 d_name = c.divisions[0].name if c.divisions else "Sans Division"
