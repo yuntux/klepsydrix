@@ -308,10 +308,28 @@ def make_update_endpoint(model, payload_schema):
             db.refresh(updated_item)
             return sqla_to_dict(updated_item)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Erreur de mise à jour : {e}")
+            raise HTTPException(status_code=400, detail=str(e))
     return update_endpoint
 
-def make_delete_endpoint(model, resource_name):
+def make_onchange_endpoint(model):
+    from pydantic import BaseModel
+    
+    class OnchangePayload(BaseModel):
+        values: dict
+        field_changed: str
+        
+    def onchange_endpoint(payload: OnchangePayload):
+        try:
+            # We don't need a DB session for onchange draft evaluation
+            # Process onchange logic
+            diff = model.process_onchange(payload.values, payload.field_changed)
+            return {"status": "success", "diff": diff}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "diff": {}}
+    
+    return onchange_endpoint
+
+def make_delete_endpoint(model, resource_name: str):
     def delete_endpoint(item_id: int, db: Session = Depends(get_db)):
         if issubclass(model, TransientModel):
             raise HTTPException(status_code=405, detail="La suppression n'est pas supportée pour cette ressource transitoire.")
@@ -475,6 +493,16 @@ for resource_name, model in MODEL_MAP.items():
         methods=["DELETE"],
         response_model=Dict[str, Any],
         summary=f"Supprimer un(e) {resource_name} par ID",
+        tags=[resource_name]
+    )
+
+    # 6. Onchange de formulaire (POST /api/generic/{resource_name}/onchange)
+    router.add_api_route(
+        path=f"/{resource_name}/onchange",
+        endpoint=make_onchange_endpoint(model),
+        methods=["POST"],
+        response_model=Dict[str, Any],
+        summary=f"Obtenir les modifications automatiques pour {resource_name}",
         tags=[resource_name]
     )
 

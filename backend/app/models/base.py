@@ -12,6 +12,16 @@ def constrains(*args):
         return func
     return decorator
 
+def onchange(*args):
+    """
+    Décorateur pour assister la saisie dynamique dans le frontend.
+    S'exécute lorsque l'un des champs spécifiés est modifié dans le formulaire.
+    """
+    def decorator(func):
+        func._onchange = set(args)
+        return func
+    return decorator
+
 class CRUDMixin:
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -65,6 +75,61 @@ class CRUDMixin:
                             vals[key] = col.type.enum_class(value)
                         except ValueError:
                             pass
+
+    @classmethod
+    def process_onchange(cls, vals: dict, field_name: str) -> dict:
+        """
+        Traite un événement onchange sur un brouillon (Draft).
+        Instancie le modèle en mémoire, applique les valeurs, 
+        exécute les méthodes @onchange concernées et renvoie les différences.
+        """
+        from sqlalchemy import inspect
+        import enum
+
+        local_vals = vals.copy()
+        cls._coerce_values(local_vals)
+        
+        # Instanciation en mémoire sans base de données
+        instance = cls()
+        
+        if not hasattr(cls, "__mapper__"):
+            return {}
+            
+        mapper = inspect(cls)
+        
+        # Peuplement de l'instance
+        for key, value in local_vals.items():
+            if key in mapper.columns:
+                setattr(instance, key, value)
+                
+        # Exécuter les méthodes @onchange qui écoutent ce field_name
+        for attr_name in dir(instance):
+            method = getattr(instance, attr_name)
+            if callable(method) and hasattr(method, "_onchange"):
+                trigger_fields = getattr(method, "_onchange")
+                if field_name in trigger_fields:
+                    import inspect as py_inspect
+                    sig = py_inspect.signature(method)
+                    if len(sig.parameters) > 0:
+                        method(field_name)
+                    else:
+                        method()
+                    
+        # Extraire les différences
+        result = {}
+        for key in mapper.columns.keys():
+            new_val = getattr(instance, key, None)
+            if isinstance(new_val, enum.Enum):
+                new_val = new_val.value
+                
+            # Si le champ n'était pas dans vals, ou si sa valeur a changé
+            old_val = vals.get(key)
+            if key not in vals and new_val is not None:
+                result[key] = new_val
+            elif key in vals and new_val != old_val:
+                result[key] = new_val
+
+        return result
 
 
     @classmethod

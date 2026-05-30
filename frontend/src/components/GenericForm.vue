@@ -645,6 +645,9 @@ const isMultiEdit = computed(() => {
   return props.selectedRecords && props.selectedRecords.length > 1;
 });
 
+let oldLocalModelStr = '';
+let onchangeTimeout: ReturnType<typeof setTimeout> | null = null;
+
 function initializeModel() {
   if (isMultiEdit.value) {
     const model: Record<string, any> = {};
@@ -684,6 +687,7 @@ function initializeModel() {
         initialModelValue.value[field.key] = defaultVal;
       }
     });
+    oldLocalModelStr = JSON.stringify(localModel.value);
   }
 }
 
@@ -695,8 +699,54 @@ watch([() => props.modelValue, () => props.selectedRecords], () => {
 // Synchroniser les saisies locales en temps réel avec le parent pour forcer la réactivité du bouton d'ajout (uniquement hors modification groupée)
 watch(localModel, (newVal) => {
   if (isMultiEdit.value) return;
-  if (JSON.stringify(newVal) === JSON.stringify(props.modelValue)) return;
+  const newStr = JSON.stringify(newVal);
+  if (newStr === JSON.stringify(props.modelValue)) return;
+  
+  // Identifier le champ qui a changé
+  let changedKey: string | null = null;
+  const oldObj = oldLocalModelStr ? JSON.parse(oldLocalModelStr) : {};
+  for (const k in newVal) {
+    if (JSON.stringify(newVal[k]) !== JSON.stringify(oldObj[k])) {
+      changedKey = k;
+      break;
+    }
+  }
+  
+  oldLocalModelStr = newStr;
   emit('update:modelValue', { ...newVal });
+  
+  // Appel onchange serveur si on connaît le champ modifié
+  if (changedKey && props.resourceKey) {
+    if (onchangeTimeout) clearTimeout(onchangeTimeout);
+    onchangeTimeout = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/generic/${props.resourceKey}/onchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            values: localModel.value,
+            field_changed: changedKey
+          })
+        });
+        const data = await response.json();
+        if (data.status === 'success' && data.diff) {
+          let hasChanges = false;
+          for (const k in data.diff) {
+            if (localModel.value[k] !== data.diff[k]) {
+              localModel.value[k] = data.diff[k];
+              hasChanges = true;
+            }
+          }
+          if (hasChanges) {
+             oldLocalModelStr = JSON.stringify(localModel.value);
+             emit('update:modelValue', { ...localModel.value });
+          }
+        }
+      } catch (e) {
+        console.error("Erreur lors de l'appel onchange:", e);
+      }
+    }, 250);
+  }
 }, { deep: true });
 
 function handleSubmit() {

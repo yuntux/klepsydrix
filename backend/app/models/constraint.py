@@ -1,10 +1,9 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Enum, UniqueConstraint
-from sqlalchemy.orm import relationship
 import enum
-from backend.app.models.base import Base, constrains, CRUDMixin
+from backend.app.models.base import Base, constrains, onchange, CRUDMixin
 
 class WeeklyOrderEnum(str, enum.Enum):
     NONE = "NONE"
@@ -79,9 +78,9 @@ class SubjectToSubjectConstraint(Base):
     max_hours_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0, "label": "Max heures par jour", "help": "Nombre maximum d'heures par jour pour cette ressource."})
     max_hours_per_half_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"min": 0, "label": "Max heures par demi-journée", "help": "Nombre maximum d'heures par demi-journée pour cette ressource."})
 
-    weekly_order: Mapped[Optional[WeeklyOrderEnum]] = mapped_column(Enum(WeeklyOrderEnum), default=WeeklyOrderEnum.NONE, info={"label": "Ordre hebdomadaire (A/B)", "help": "Séquencement imposé de A et B dans la même semaine."})
-    group_course_order: Mapped[Optional[GroupCourseOrderEnum]] = mapped_column(Enum(GroupCourseOrderEnum), default=GroupCourseOrderEnum.NONE, info={"label": "Ordre cours de groupe", "help": "Exigences de placement par rapport aux cours d'un groupe."})
-    max_separation: Mapped[Optional[MaxSeparationEnum]] = mapped_column(Enum(MaxSeparationEnum), default=MaxSeparationEnum.NONE, info={"label": "Espacement maximum (Même matière)", "help": "Empêche d'espacer deux cours d'une même matière de plus d'un certain seuil (ex: une demi-journée)."})
+    weekly_order: Mapped[Optional[WeeklyOrderEnum]] = mapped_column(Enum(WeeklyOrderEnum), default=WeeklyOrderEnum.NONE, info={"label": "Ordre hebdomadaire (A/B)", "help": "Séquencement imposé de A et B dans la même semaine.", "type": "select", "options": [{"label": "Aucun", "value": "NONE"}, {"label": "A avant B", "value": "a_before_b"}, {"label": "B avant A", "value": "b_before_a"}]})
+    group_course_order: Mapped[Optional[GroupCourseOrderEnum]] = mapped_column(Enum(GroupCourseOrderEnum), default=GroupCourseOrderEnum.NONE, info={"label": "Ordre cours de groupe", "help": "Exigences de placement par rapport aux cours d'un groupe.", "type": "select", "options": [{"label": "Aucun", "value": "NONE"}, {"label": "Groupe avant", "value": "GROUP_BEFORE"}, {"label": "Groupe après", "value": "GROUP_AFTER"}, {"label": "Groupe aux extrémités", "value": "GROUP_BEFORE_OR_AFTER"}, {"label": "Extrémités (Quinzaine)", "value": "GROUP_BEFORE_OR_AFTER_FORTNIGHT"}]})
+    max_separation: Mapped[Optional[MaxSeparationEnum]] = mapped_column(Enum(MaxSeparationEnum), default=MaxSeparationEnum.NONE, info={"label": "Espacement maximum (Même matière)", "help": "Empêche d'espacer deux cours d'une même matière de plus d'un certain seuil (ex: une demi-journée).", "type": "select", "options": [{"label": "Aucun", "value": "NONE"}, {"label": "Jours successifs", "value": "successive_days"}, {"label": "Demi-journées successives", "value": "successive_half_days"}]})
 
     target_subject_a: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[target_subject_a_id])
     target_subject_b: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[target_subject_b_id])
@@ -90,6 +89,43 @@ class SubjectToSubjectConstraint(Base):
         secondary=subject_constraint_division_associations,
         info={"label": "Classes concernées", "help": "Si vide, la contrainte s'applique à toutes les classes. Sinon, uniquement aux classes sélectionnées."}
     )
+
+    @onchange('incompatible_same_half_day', 'incompatible_same_day', 'incompatible_two_consecutive_days', 'min_free_half_days_between')
+    def _onchange_incompatibilities(self, changed_field=None):
+        sep_fields = ['incompatible_same_half_day', 'incompatible_same_day', 'incompatible_two_consecutive_days', 'min_free_half_days_between']
+        new_sep = changed_field if changed_field and getattr(self, changed_field) else None
+        
+        if not new_sep:
+            for f in sep_fields:
+                if getattr(self, f):
+                    new_sep = f
+                    break
+                    
+        if new_sep:
+            for f in sep_fields:
+                if f != new_sep:
+                    setattr(self, f, False if f != 'min_free_half_days_between' else None)
+
+    @onchange('prevent_consecutive_a_then_b', 'prevent_consecutive_b_then_a')
+    def _onchange_consecutive(self):
+        if self.target_subject_a_id is not None and self.target_subject_b_id is not None and self.target_subject_a_id == self.target_subject_b_id:
+            # Sync the two
+            if getattr(self, 'prevent_consecutive_a_then_b'):
+                self.prevent_consecutive_b_then_a = True
+            elif getattr(self, 'prevent_consecutive_b_then_a'):
+                self.prevent_consecutive_a_then_b = True
+            else:
+                self.prevent_consecutive_a_then_b = False
+                self.prevent_consecutive_b_then_a = False
+
+    @onchange('target_subject_a_id', 'target_subject_b_id')
+    def _onchange_targets(self):
+        if self.target_subject_a_id is not None and self.target_subject_b_id is not None:
+            if self.target_subject_a_id == self.target_subject_b_id:
+                self.weekly_order = WeeklyOrderEnum.NONE
+            else:
+                self.group_course_order = GroupCourseOrderEnum.NONE
+                self.max_separation = MaxSeparationEnum.NONE
 
     @classmethod
     def _apply_business_rules(cls, vals, is_update=False, current_obj=None):
