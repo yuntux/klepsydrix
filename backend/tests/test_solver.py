@@ -877,6 +877,13 @@ def test_share_reference_period():
     c4 = PlanningCourse(id=4, duration_minutes=60, timeslot=ts4, week_type="A")
     c5 = PlanningCourse(id=5, duration_minutes=60, timeslot=ts1, week_type="B")
     c6 = PlanningCourse(id=6, duration_minutes=60, timeslot=ts1, week_type="T")
+    c7 = PlanningCourse(id=7, duration_minutes=60, timeslot=ts1, week_type="A", period_ids=[1])
+    c8 = PlanningCourse(id=8, duration_minutes=60, timeslot=ts2, week_type="A", period_ids=[2])
+    c9 = PlanningCourse(id=9, duration_minutes=60, timeslot=ts3, week_type="A", period_ids=[1, 3])
+    
+    # 0. PERIODS
+    assert _share_reference_period(c7, c9, "DAY") # Partagent la période 1, partagent le même jour
+    assert not _share_reference_period(c7, c8, "DAY") # Périodes disjointes, bien qu'ils soient sur le même jour
     
     # 1. SLOT
     assert _share_reference_period(c1, c1, "SLOT")
