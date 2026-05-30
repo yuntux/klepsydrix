@@ -857,10 +857,59 @@ const columnsConfig = computed(() => {
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
         if (key === 'id' || key === 'display_name') continue; // On masque l'ID technique et display_name
         
+        let colWidth = prop.list_width;
+        if (!colWidth) {
+          let baseType = prop.type;
+          if (!baseType && prop.anyOf) {
+            const validOption = prop.anyOf.find((o: any) => o.type && o.type !== 'null');
+            if (validOption) baseType = validOption.type;
+          }
+
+          if (baseType === 'boolean') colWidth = 100;
+          else if (key === 'color') colWidth = 80;
+          else if (baseType === 'integer' || baseType === 'number') colWidth = 130;
+          else if (prop.format === 'date-time' || prop.format === 'date') colWidth = 160;
+          else {
+            // Calcul dynamique basé sur le contenu réel des données
+            const items = genericItems.value || [];
+            let maxLength = (prop.title || key).length;
+            
+            for (const item of items.slice(0, 100)) {
+              const val = item[key];
+              if (val !== undefined && val !== null) {
+                let strVal = '';
+                
+                // Si c'est une clé étrangère, tenter de trouver le label
+                const resourceName = prop.resource || (prop.anyOf && prop.anyOf.find((o: any) => o.resource)?.resource);
+                if (resourceName && fkOptionsCache.value[resourceName]) {
+                  const options = fkOptionsCache.value[resourceName].items;
+                  if (Array.isArray(val)) {
+                    strVal = val.map(v => {
+                      const opt = options.find((o: any) => String(o.value) === String(v));
+                      return opt ? opt.label : String(v);
+                    }).join(', ');
+                  } else {
+                    const opt = options.find((o: any) => String(o.value) === String(val));
+                    strVal = opt ? opt.label : String(val);
+                  }
+                } else {
+                  strVal = Array.isArray(val) ? val.join(', ') : String(val);
+                }
+                
+                if (strVal.length > maxLength) {
+                  maxLength = strVal.length;
+                }
+              }
+            }
+            // Approx 8.5px par caractère + 60px pour marges/icones (min 150px, max 500px)
+            colWidth = Math.min(Math.max(Math.ceil(maxLength * 8.5) + 60, 150), 500);
+          }
+        }
+
         dynamicColumns.push({
           key: key,
           label: prop.title || key,
-          width: prop.list_width || undefined // Si manquant, GenericList fera un width: auto
+          width: colWidth || undefined // Si manquant, GenericList fera un width: auto
         });
       }
       return dynamicColumns;
@@ -940,12 +989,15 @@ function getFormFieldsConfig(resourceKey?: string) {
         
         let options = prop.options || undefined;
         if (fieldType === 'time') { fieldType = 'select'; options = timeOptions; }
-        else if (fieldType === 'array' && resourceName) {
+        else if ((fieldType === 'array' || fieldType === 'multiselect') && resourceName) {
           fieldType = 'multiselect';
           options = fkOptions(resourceName);
         }
         else if (resourceName) {
-          fieldType = 'select';
+          // Si on a explicitement forcé ui_type = 'multiselect', on ne l'écrase pas en 'select'
+          if (fieldType !== 'multiselect') {
+            fieldType = 'select';
+          }
           options = fkOptions(resourceName);
         }
         else if (options) { fieldType = 'select'; }
