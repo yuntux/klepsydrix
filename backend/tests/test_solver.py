@@ -203,7 +203,7 @@ def test_solver_respects_week_specific_preferences(db_session: Session):
     assert course_a.timeslot_id == ts2.id
     assert course_b.timeslot_id == ts1.id
 
-def test_solver_respects_period_specific_preferences(db_session: Session, monkeypatch):
+def test_solver_respects_period_specific_preferences(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
 
@@ -232,33 +232,16 @@ def test_solver_respects_period_specific_preferences(db_session: Session, monkey
     course = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 30})
     db_session.commit()
 
-    from backend.app.solver import solver
-    original_build = solver._build_planning_problem
+    course.update(db_session, {"periods": [per2], "period_type_id": pt.id})
+    db_session.commit()
 
-    def patched_build(db, school_id=None):
-        problem = original_build(db, school_id)
-        for pc in problem.courses:
-            if pc.id == course.id:
-                pc.period_ids = [per2.id]
-        return problem
-
-    monkeypatch.setattr(solver, "_build_planning_problem", patched_build)
     
     _solve_timetable_job(db_session)
     db_session.refresh(course)
     
     assert course.timeslot_id == ts1.id
 
-    def patched_build_overlap(db, school_id=None):
-        problem = original_build(db, school_id)
-        for pc in problem.courses:
-            if pc.id == course.id:
-                pc.period_ids = [per1.id]
-        return problem
-
-    monkeypatch.setattr(solver, "_build_planning_problem", patched_build_overlap)
-
-    course.update(db_session, {"timeslot_id": None})
+    course.update(db_session, {"timeslot_id": None, "periods": [per1]})
     db_session.commit()
 
     _solve_timetable_job(db_session)
@@ -876,10 +859,10 @@ def test_share_reference_period():
     c3 = PlanningCourse(id=3, duration_minutes=60, timeslot=ts3, week_type="A")
     c4 = PlanningCourse(id=4, duration_minutes=60, timeslot=ts4, week_type="A")
     c5 = PlanningCourse(id=5, duration_minutes=60, timeslot=ts1, week_type="B")
-    c6 = PlanningCourse(id=6, duration_minutes=60, timeslot=ts1, week_type="T")
-    c7 = PlanningCourse(id=7, duration_minutes=60, timeslot=ts1, week_type="A", period_ids=[1])
-    c8 = PlanningCourse(id=8, duration_minutes=60, timeslot=ts2, week_type="A", period_ids=[2])
-    c9 = PlanningCourse(id=9, duration_minutes=60, timeslot=ts3, week_type="A", period_ids=[1, 3])
+    c6 = PlanningCourse(id=6, duration_minutes=60, timeslot=ts1, week_type="W")
+    c7 = PlanningCourse(id=7, duration_minutes=60, timeslot=ts1, week_type="A", period_ids=[1], period_mask=1)
+    c8 = PlanningCourse(id=8, duration_minutes=60, timeslot=ts2, week_type="A", period_ids=[2], period_mask=2)
+    c9 = PlanningCourse(id=9, duration_minutes=60, timeslot=ts3, week_type="A", period_ids=[1, 3], period_mask=5)
     
     # 0. PERIODS
     assert _share_reference_period(c7, c9, "DAY") # Partagent la période 1, partagent le même jour

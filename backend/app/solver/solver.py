@@ -127,6 +127,8 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     divisions_list = list(divisions_map.values())
     timeslots_list = list(timeslots_map.values())
     links_list = [PlanningClassPartLink(link.class_part_a_id, link.class_part_b_id) for link in db_links]
+    period_to_bit = {p.id: (1 << i) for i, p in enumerate(db_periods)}
+
     preferences_list = [
         PlanningPreference(
             id=pref.id,
@@ -135,7 +137,8 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             timeslot_id=pref.timeslot_id,
             preference_level=pref.preference_level,
             week_type=pref.week_type,
-            period_ids=[p.id for p in pref.periods]
+            period_ids=[p.id for p in pref.periods],
+            period_mask=sum(period_to_bit.get(p.id, 0) for p in pref.periods)
         ) for pref in db_preferences
     ]
     constraints_list = [
@@ -264,6 +267,15 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             if subj and subj.pedagogic_weight:
                 pedagogic_weight = subj.pedagogic_weight
 
+        p_ids = (
+            [p.id for p in c.periods]
+            if c.periods
+            else (
+                [p.id for p in db_periods if p.period_type_id == c.period_type_id]
+                if c.period_type_id
+                else [p.id for p in db_periods]
+            )
+        )
         pc = PlanningCourse(
             id=c.id,
             subject_id=c.subject_id,
@@ -281,15 +293,8 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             class_part_ids=class_part_ids,
             all_division_ids=list(division_ids),
             is_full_class=(len(c.divisions) > 0 and len(c.groups) == 0 and len(c.class_parts) == 0),
-            period_ids=(
-                [p.id for p in c.periods]
-                if c.periods
-                else (
-                    [p.id for p in db_periods if p.period_type_id == c.period_type_id]
-                    if c.period_type_id
-                    else [p.id for p in db_periods]
-                )
-            ),
+            period_ids=p_ids,
+            period_mask=sum(period_to_bit.get(pid, 0) for pid in p_ids),
             duration_minutes=c.duration_minutes
         )
         courses_list.append(pc)

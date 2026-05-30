@@ -85,6 +85,7 @@ class PlanningPreference:
     preference_level: str
     week_type: str = "W"
     period_ids: List[int] = field(default_factory=list)
+    period_mask: int = 0
 
 
 @dataclass
@@ -168,6 +169,7 @@ class PlanningCourse:
     week_type: str = "W"
     class_part_ids: List[int] = field(default_factory=list)
     period_ids: List[int] = field(default_factory=list)
+    period_mask: int = 0
     all_division_ids: List[int] = field(default_factory=list)
     is_full_class: bool = False
 
@@ -200,15 +202,10 @@ def time_to_minutes(time_str: str) -> int:
     return int(parts[0]) * 60 + int(parts[1])
 
 
-def periods_overlap(periods_a: List[int], periods_b: List[int]) -> bool:
-    if len(periods_a) == 0 or len(periods_b) == 0:
+def periods_overlap(mask_a: int, mask_b: int) -> bool:
+    if mask_a == 0 or mask_b == 0:
         return True
-    if periods_a == periods_b:
-        return True
-    for pa in periods_a:
-        if pa in periods_b:
-            return True
-    return False
+    return (mask_a & mask_b) != 0
 
 
 @constraint_provider
@@ -335,7 +332,7 @@ def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
-        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_teacher_overlap)
@@ -357,7 +354,7 @@ def non_teaching_staff_conflict(constraint_factory: ConstraintFactory) -> Constr
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
-        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_non_teaching_staff_overlap)
@@ -373,7 +370,7 @@ def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.classroom.id if course.classroom is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
-        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .penalize(HardSoftScore.ONE_HARD)
@@ -403,7 +400,7 @@ def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
-        .filter(lambda course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_division_overlap)
@@ -424,7 +421,7 @@ def group_link_conflict(constraint_factory: ConstraintFactory) -> Constraint:
             Joiners.filtering(lambda link, course1, course2: course1.id < course2.id and (link.class_part_a_id in course2.class_part_ids or link.class_part_b_id in course2.class_part_ids))
         )
         .filter(lambda link, course1, course2: weeks_overlap(course1.week_type, course2.week_type))
-        .filter(lambda link, course1, course2: periods_overlap(course1.period_ids, course2.period_ids))
+        .filter(lambda link, course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda link, course1, course2: hierarchy_overlap(course1, course2))
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Group link conflict")
@@ -493,7 +490,7 @@ def resource_preference_hard(constraint_factory: ConstraintFactory) -> Constrain
             PlanningPreference,
             Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
         )
-        .filter(lambda course, pref: pref.preference_level == "Unsuited" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_ids, pref.period_ids))
+        .filter(lambda course, pref: pref.preference_level == "Unsuited" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_mask, pref.period_mask))
         .filter(lambda course, pref: _is_preference_violated(pref, course))
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Resource unavailability (strict)")
@@ -508,7 +505,7 @@ def resource_preference_soft_penalty(constraint_factory: ConstraintFactory) -> C
             PlanningPreference,
             Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
         )
-        .filter(lambda course, pref: pref.preference_level == "Undesirable" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_ids, pref.period_ids))
+        .filter(lambda course, pref: pref.preference_level == "Undesirable" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_mask, pref.period_mask))
         .filter(lambda course, pref: _is_preference_violated(pref, course))
         .penalize(HardSoftScore.of_soft(10))
         .as_constraint("Resource preference undesirable")
@@ -523,7 +520,7 @@ def resource_preference_soft_reward(constraint_factory: ConstraintFactory) -> Co
             PlanningPreference,
             Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
         )
-        .filter(lambda course, pref: pref.preference_level == "Preferred" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_ids, pref.period_ids))
+        .filter(lambda course, pref: pref.preference_level == "Preferred" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_mask, pref.period_mask))
         .filter(lambda course, pref: _is_preference_violated(pref, course))
         .reward(HardSoftScore.of_soft(10))
         .as_constraint("Resource preference preferred")
@@ -934,12 +931,12 @@ def _share_reference_period(c1: PlanningCourse, c2: PlanningCourse, scope: str, 
     
     if scope == "QUINZAINE":
         # Même quinzaine / même alternance de semaine (A vs B)
-        return c1.week_type == c2.week_type or c1.week_type == "T" or c2.week_type == "T"
+        return c1.week_type == c2.week_type or c1.week_type == "W" or c2.week_type == "W"
         
     if not weeks_overlap(c1.week_type, c2.week_type):
         return False
         
-    if not periods_overlap(c1.period_ids, c2.period_ids):
+    if not periods_overlap(c1.period_mask, c2.period_mask):
         return False
         
     if scope == "SLOT":
