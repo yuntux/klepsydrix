@@ -282,7 +282,7 @@ Représente une entité administrative scolaire autonome (un collège, un lycée
 *   `postal_code` : Code postal (Chaîne)
 *   `student_start_date` : Date de rentrée des élèves (Date, e.g. "2026-09-02")
 *   `student_end_date` : Date de sortie des élèves (Date, e.g. "2027-07-04")
-*   `max_pedagogic_weight_per_day` : Limite du poids pédagogique cumulé (matières lourdes) autorisé par jour (Flottant, optionnel)
+*   `max_pedagogic_weight_per_day` : Limite du poids pédagogique cumulé autorisé par jour (Flottant, optionnel)
 *   `max_pedagogic_weight_per_morning` : Limite du poids pédagogique cumulé autorisé par matinée (Flottant, optionnel)
 *   `max_pedagogic_weight_per_afternoon` : Limite du poids pédagogique cumulé autorisé par après-midi (Flottant, optionnel)
 
@@ -685,18 +685,18 @@ Sert à définir l'espacement, la succession, la charge horaire maximale et l'or
 ### 15ter. CourseToCourseConstraint (Contrainte cours à cours)
 Représente une contrainte spécifique reliant directement plusieurs instances de cours précises entre elles.
 *   `id` : Clé primaire (Entier)
-*   `type` : Type de contrainte temporelle à appliquer (Chaîne, valeurs autorisées) :
+*   `type` : Type de contrainte temporelle à appliquer (Chaîne, valeurs autorisées). Ne peut pas être modifié après la création :
     *   `FORCE_SAME_SCOPE` : **Placement dans la même période** — Impose que les cours associés soient planifiés sur la même période de référence (définie par le paramètre `scope`).
     *   `FORBID_SAME_SCOPE` : **Interdire le placement dans la même période** — Interdit que les cours associés soient planifiés sur la même période de référence (définie par le paramètre `scope`).
     *   `ORDER` : **Ordre chronologique** — Impose un ordre de passage strict au cours de la semaine selon l'ordre défini dans la liste `courses` (le cours $N$ doit se terminer avant le début du cours $N+1$).
     *   `FORBID_CONSECUTIVE` : **Interdire la succession** — Interdit que les cours liés soient planifiés sur des créneaux horaires consécutifs directs. Force une pause ou un autre cours intermédiaire entre eux.
-*   `scope` : Période de référence pour l'évaluation de la simultanéité/exclusion (Chaîne, optionnel, par défaut `SLOT`) :
+*   `scope` : Période de référence pour l'évaluation de la simultanéité/exclusion (Chaîne, optionnel, par défaut `SLOT`). **Obligatoire** si le type est `FORCE_SAME_SCOPE` ou `FORBID_SAME_SCOPE`, et **interdit (null)** sinon. Ne peut pas être modifié après la création :
     *   `SLOT` : Même créneau horaire et même type de semaine.
     *   `DAY` : Même journée de la semaine.
     *   `HALF_DAY` : Même demi-journée (matinée ou après-midi).
     *   `QUINZAINE` : Vérifie que les cours appartiennent au même cycle d'alternance hebdomadaire (semaines compatibles ou identiques A/B/T).
     *   `CUSTOM_HALF_DAYS` : Calcule l'index séquentiel de demi-journée de la semaine pour chaque cours, puis vérifie qu'ils tombent dans le même bloc personnalisé de $N$ demi-journées (ex: $N=4$ pour regrouper par tranches de 2 jours consécutifs).
-*   `custom_half_days` : Nombre personnalisé de demi-journées ($N$) à utiliser si le scope est `CUSTOM_HALF_DAYS` (Entier, optionnel).
+*   `custom_half_days` : Nombre personnalisé de demi-journées ($N$) à utiliser si le scope est `CUSTOM_HALF_DAYS` (Entier, optionnel). **Obligatoire et strictement positif** si le scope est `CUSTOM_HALF_DAYS`, et **interdit (null)** sinon.
 *   `label` : Libellé descriptif optionnel de la contrainte (Chaîne)
 *   `is_optional` : Vrai si la contrainte est optionnelle (peut être levée par le solveur en cas d'échec), Faux si elle est impérative (Booléen, par défaut `True`)
 

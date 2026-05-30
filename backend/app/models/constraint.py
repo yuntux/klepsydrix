@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Enum, UniqueConstraint, CheckConstraint
 import enum
 from backend.app.models.base import Base, constrains, onchange, CRUDMixin
 
@@ -21,6 +21,19 @@ class GroupCourseOrderEnum(str, enum.Enum):
     GROUP_AFTER = "GROUP_AFTER"
     GROUP_BEFORE_OR_AFTER = "GROUP_BEFORE_OR_AFTER"
     GROUP_BEFORE_OR_AFTER_FORTNIGHT = "GROUP_BEFORE_OR_AFTER_FORTNIGHT"
+
+class CourseToCourseConstraintType(str, enum.Enum):
+    FORCE_SAME_SCOPE = 'FORCE_SAME_SCOPE'
+    FORBID_SAME_SCOPE = 'FORBID_SAME_SCOPE'
+    ORDER = 'ORDER'
+    FORBID_CONSECUTIVE = 'FORBID_CONSECUTIVE'
+
+class CourseToCourseConstraintScope(str, enum.Enum):
+    SLOT = 'SLOT'
+    DAY = 'DAY'
+    HALF_DAY = 'HALF_DAY'
+    QUINZAINE = 'QUINZAINE'
+    CUSTOM_HALF_DAYS = 'CUSTOM_HALF_DAYS'
 
 class ResourceConstraint(Base):
     __tablename__ = "resource_constraints"
@@ -184,13 +197,42 @@ course_constraint_associations = Table(
 
 class CourseToCourseConstraint(Base):
     __tablename__ = "course_to_course_constraints"
+    __table_args__ = (
+        CheckConstraint('custom_half_days > 0', name='check_custom_half_days_positive'),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    type: Mapped[str] = mapped_column(String(30), nullable=False) # 'FORCE_SAME_SCOPE', 'FORBID_SAME_SCOPE', 'ORDER', 'FORBID_CONSECUTIVE'
-    scope: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="SLOT") # 'SLOT', 'DAY', 'HALF_DAY', 'QUINZAINE', 'CUSTOM_HALF_DAYS'
-    custom_half_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    is_optional: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    type: Mapped[CourseToCourseConstraintType] = mapped_column(
+        Enum(CourseToCourseConstraintType), nullable=False,
+        info={"label": "Type de contrainte", "type": "select", "options": [
+            {"value": "FORCE_SAME_SCOPE", "label": "Forcer dans le même périmètre"},
+            {"value": "FORBID_SAME_SCOPE", "label": "Interdire dans le même périmètre"},
+            {"value": "ORDER", "label": "Imposer un ordre"},
+            {"value": "FORBID_CONSECUTIVE", "label": "Interdire qu'ils soient consécutifs"}
+        ]}
+    )
+    scope: Mapped[Optional[CourseToCourseConstraintScope]] = mapped_column(
+        Enum(CourseToCourseConstraintScope), nullable=True, default=CourseToCourseConstraintScope.SLOT,
+        info={"label": "Périmètre", "placeholder": "Ex: Journée, Demi-journée", "requiredExpr": "model.type === 'FORCE_SAME_SCOPE' || model.type === 'FORBID_SAME_SCOPE'", "invisibleExpr": "!(model.type === 'FORCE_SAME_SCOPE' || model.type === 'FORBID_SAME_SCOPE')", "type": "select", "options": [
+            {"value": "SLOT", "label": "Même créneau"},
+            {"value": "DAY", "label": "Même journée"},
+            {"value": "HALF_DAY", "label": "Même demi-journée"},
+            {"value": "QUINZAINE", "label": "Même quinzaine (A/B)"},
+            {"value": "CUSTOM_HALF_DAYS", "label": "Fenêtre de N demi-journées"}
+        ]}
+    )
+    custom_half_days: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True,
+        info={"label": "Nombre de demi-journées personnalisées", "placeholder": "Ex: 3", "min": 1, "requiredExpr": "model.scope === 'CUSTOM_HALF_DAYS'", "invisibleExpr": "model.scope !== 'CUSTOM_HALF_DAYS'"}
+    )
+    label: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True,
+        info={"label": "Libellé de la contrainte", "placeholder": "Ex: Pas de math après sport"}
+    )
+    is_optional: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
+        info={"label": "Est optionnel", "description": "Si coché, la contrainte sera pénalisée sans empêcher la résolution."}
+    )
 
     courses: Mapped[list["Course"]] = relationship(
         "Course",
@@ -198,3 +240,37 @@ class CourseToCourseConstraint(Base):
         order_by="course_constraint_associations.c.sequence_order",
         info={"label": "Cours concernés"}
     )
+
+    @classmethod
+    def _apply_business_rules(cls, vals, is_update=False, current_obj=None):
+        ctype = vals.get('type', current_obj.type if current_obj else None)
+        cscope = vals.get('scope', current_obj.scope if current_obj else None)
+        chalf_days = vals.get('custom_half_days', current_obj.custom_half_days if current_obj else None)
+
+        if ctype in [CourseToCourseConstraintType.FORCE_SAME_SCOPE, CourseToCourseConstraintType.FORBID_SAME_SCOPE] or ctype in ['FORCE_SAME_SCOPE', 'FORBID_SAME_SCOPE']:
+            if not cscope:
+                raise ValueError("Le périmètre (scope) est obligatoire pour les types FORCE_SAME_SCOPE et FORBID_SAME_SCOPE.")
+        else:
+            if cscope:
+                raise ValueError("Le périmètre (scope) est interdit pour ce type de contrainte.")
+            vals['scope'] = None
+
+        if cscope == CourseToCourseConstraintScope.CUSTOM_HALF_DAYS or cscope == 'CUSTOM_HALF_DAYS':
+            if not chalf_days:
+                raise ValueError("Le nombre de demi-journées personnalisées est obligatoire lorsque le périmètre est CUSTOM_HALF_DAYS.")
+        else:
+            vals['custom_half_days'] = None
+
+    @classmethod
+    def create(cls, db, vals):
+        cls._apply_business_rules(vals)
+        return super().create(db, vals)
+
+    def update(self, db, vals):
+        if 'type' in vals and vals['type'] != self.type:
+            raise ValueError("Il n'est pas possible de modifier le type après création.")
+        if 'scope' in vals and vals['scope'] != self.scope:
+            raise ValueError("Il n'est pas possible de modifier le périmètre (scope) après création.")
+
+        self._apply_business_rules(vals, is_update=True, current_obj=self)
+        return super().update(db, vals)

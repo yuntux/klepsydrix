@@ -54,6 +54,9 @@ interface FormField {
   label: string;
   type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
   required?: boolean;
+  requiredExpr?: string;
+  readOnlyExpr?: string;
+  invisibleExpr?: string;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -73,6 +76,8 @@ interface LayoutElement {
   readOnly?: boolean;
   readOnlyExpr?: string;
   required?: boolean;
+  requiredExpr?: string;
+  invisibleExpr?: string;
   overrideLabel?: string;
   label?: string;
   disabled?: boolean;
@@ -164,8 +169,11 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         type: 'field',
         key: elem,
         label: original.label,
-        required: original.required,
+        required: original.required === true,
+        requiredExpr: original.requiredExpr,
         disabled: false,
+        readOnlyExpr: original.readOnlyExpr,
+        invisibleExpr: original.invisibleExpr,
         originalField: original,
         help: original.help
       };
@@ -181,9 +189,11 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         type: 'field',
         key: elem.key,
         label: elem.overrideLabel || original.label,
-        required: elem.required === true,
+        required: elem.required === true || original.required === true,
+        requiredExpr: typeof elem.required === 'string' ? elem.required : (typeof elem.requiredExpr === 'string' ? elem.requiredExpr : original.requiredExpr),
         disabled: elem.readOnly === true,
-        readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : undefined,
+        readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : (typeof elem.readOnlyExpr === 'string' ? elem.readOnlyExpr : original.readOnlyExpr),
+        invisibleExpr: typeof elem.invisibleExpr === 'string' ? elem.invisibleExpr : original.invisibleExpr,
         originalField: original,
         help: elem.help || original.help
       };
@@ -197,9 +207,11 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         type: 'field',
         key: elem.key,
         label: elem.overrideLabel || original.label,
-        required: elem.required === true,
+        required: elem.required === true || original.required === true,
+        requiredExpr: typeof elem.required === 'string' ? elem.required : (typeof elem.requiredExpr === 'string' ? elem.requiredExpr : original.requiredExpr),
         disabled: elem.readOnly === true,
-        readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : undefined,
+        readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : (typeof elem.readOnlyExpr === 'string' ? elem.readOnlyExpr : original.readOnlyExpr),
+        invisibleExpr: typeof elem.invisibleExpr === 'string' ? elem.invisibleExpr : original.invisibleExpr,
         originalField: original,
         help: elem.help || original.help
       };
@@ -254,8 +266,11 @@ const layoutTree = computed<LayoutElement[]>(() => {
     type: 'field',
     key: f.key,
     label: f.label,
-    required: f.required,
+    required: f.required === true,
+    requiredExpr: f.requiredExpr,
     disabled: false,
+    readOnlyExpr: f.readOnlyExpr,
+    invisibleExpr: f.invisibleExpr,
     originalField: f,
     help: f.help
   }));
@@ -412,7 +427,31 @@ const FormLayoutGrid: any = defineComponent({
           if (elem.type === 'field' && elem.originalField) {
             const field = elem.originalField;
             const key = elem.key!;
-            const required = elem.required === true;
+
+            let evaluatedInvisible = false;
+            if (elem.invisibleExpr) {
+              try {
+                const fn = new Function('model', `return ${elem.invisibleExpr}`);
+                evaluatedInvisible = !!fn(gridProps.localModel);
+              } catch (e) {
+                console.error("Error evaluating invisible expression", e);
+              }
+            }
+            if (evaluatedInvisible) {
+              return [];
+            }
+
+            let evaluatedRequired = false;
+            if (elem.requiredExpr) {
+              try {
+                const fn = new Function('model', `return ${elem.requiredExpr}`);
+                evaluatedRequired = !!fn(gridProps.localModel);
+              } catch (e) {
+                console.error("Error evaluating required expression", e);
+              }
+            }
+            const required = (elem.required === true) || evaluatedRequired;
+
             let evaluatedDisabled = false;
             if (elem.readOnlyExpr) {
               try {

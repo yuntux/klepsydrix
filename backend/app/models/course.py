@@ -314,6 +314,46 @@ class Course(Base):
         _check_resources(self.materials, self.parent.materials, "Matériel")
         _check_resources(self.class_parts, self.parent.class_parts, "Partie de classe")
 
+    @constrains('subject_id', 'teacher_ids', 'division_ids', 'group_ids', 'class_part_ids', 'is_composed')
+    def compute_name(self, db):
+        """Met à jour dynamiquement le nom du cours en fonction de ses attributs clés."""
+        # 1. Base : La matière
+        parts = []
+        if getattr(self, 'subject_relation', None):
+            parts.append(self.subject_relation.name)
+        elif getattr(self, 'subject_id', None):
+            from backend.app.models.subject import Subject
+            subj = db.get(Subject, self.subject_id)
+            if subj:
+                parts.append(subj.name)
+                
+        if not parts:
+            parts.append("Cours")
+            
+        if self.is_composed:
+            self.name = f"Composé : {' - '.join(parts)}"
+            return
+            
+        # 2. Audience : Divisions et Groupes
+        audiences = []
+        if getattr(self, 'divisions', None):
+            audiences.extend([d.name for d in self.divisions if hasattr(d, 'name')])
+        if getattr(self, 'groups', None):
+            audiences.extend([g.name for g in self.groups if hasattr(g, 'name')])
+            
+        if audiences:
+            parts.append(", ".join(audiences))
+            
+        # 3. Intervenants : Professeurs
+        profs = []
+        if getattr(self, 'teachers', None):
+            profs.extend([t.last_name for t in self.teachers if hasattr(t, 'last_name')])
+            
+        if profs:
+            parts.append(", ".join(profs))
+            
+        self.name = " - ".join(parts)
+
     def transform_to_simple_courses(self, db):
         """Transforme ce cours complexe en N cours simples en libérant ses enfants et en se supprimant."""
         if not self.is_composed:

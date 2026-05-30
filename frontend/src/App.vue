@@ -438,6 +438,7 @@ async function loadPeriods() {
 
 async function loadGenericItems() {
   genericLoading.value = true;
+  genericItems.value = [];
   try {
     const listPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList');
     const filters = listPanel?.listConfig?.filters || {};
@@ -954,6 +955,9 @@ function getFormFieldsConfig(resourceKey?: string) {
           label: prop.title || key,
           type: fieldType,
           required: requiredFields.includes(key),
+          requiredExpr: prop.requiredExpr,
+          readOnlyExpr: prop.readOnlyExpr,
+          invisibleExpr: prop.invisibleExpr,
           placeholder: prop.placeholder || '',
           min: prop.min,
           max: prop.max,

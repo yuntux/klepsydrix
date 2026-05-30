@@ -866,25 +866,25 @@
               {
                 "id": "courses_constraint_list",
                 "component": "GenericList",
-                "resourceKey": "courses",
-                "width": "35%",
+                "resourceKey": "course_to_course_constraints",
+                "width": "40%",
                 "listConfig": {
                   "editableInline": false,
                   "allowMultiSelect": false,
-                  "disableAdd": true,
+                  "disableAdd": false,
                   "disableEditModal": true,
                   "columns": {
                     "label": {
-                      "visibleByDefault": true,
-                      "overrideLabel": "Libellé"
+                      "visibleByDefault": true
                     },
-                    "duration_minutes": {
-                      "visibleByDefault": true,
-                      "overrideLabel": "Durée (min)"
+                    "type": {
+                      "visibleByDefault": true
                     },
-                    "week_type": {
-                      "visibleByDefault": true,
-                      "overrideLabel": "Semaine"
+                    "is_optional": {
+                      "visibleByDefault": true
+                    },
+                    "course_ids": {
+                      "visibleByDefault": true
                     }
                   }
                 }
@@ -892,13 +892,41 @@
               {
                 "id": "courses_constraint_form",
                 "component": "GenericForm",
-                "resourceKey": "resource_constraints",
-                "relationName": "constraint_record",
-                "width": "65%",
-                "placeholderText": "Veuillez choisir un cours dans la liste de gauche pour configurer ses contraintes.",
+                "resourceKey": "course_to_course_constraints",
+                "width": "60%",
+                "placeholderText": "Veuillez choisir une contrainte dans la liste de gauche.",
                 "formConfig": {
                   "editableForm": true,
-                  "fields": []
+                  "fields": [
+                    {
+                      "type": "group",
+                      "string": "Paramètres Généraux",
+                      "children": [
+                        "label",
+                        "is_optional"
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Comportement temporel",
+                      "children": [
+                        "type",
+                        "scope",
+                        "custom_half_days"
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "string": "Cours impliqués",
+                      "col": 1,
+                      "children": [
+                        {
+                          "key": "course_ids",
+                          "fullWidth": true
+                        }
+                      ]
+                    }
+                  ]
                 }
               }
             ]

@@ -845,6 +845,52 @@ def test_course_to_course_constraints(db_session: Session):
     assert (cust1_hd // 4) == (cust2_hd // 4)
 
 
+def test_course_to_course_constraint_validations(db_session: Session):
+    from backend.app.models.constraint import CourseToCourseConstraint, CourseToCourseConstraintType, CourseToCourseConstraintScope
+
+    # 1/ scope est obligatoire si type est FORCE_SAME_SCOPE ou FORBID_SAME_SCOPE
+    with pytest.raises(ValueError, match="Le périmètre.*est obligatoire"):
+        CourseToCourseConstraint.create(db_session, {
+            "type": CourseToCourseConstraintType.FORCE_SAME_SCOPE,
+            "scope": None,
+        })
+    
+    # 1bis/ interdit sinon
+    with pytest.raises(ValueError, match="Le périmètre.*est interdit"):
+        CourseToCourseConstraint.create(db_session, {
+            "type": CourseToCourseConstraintType.ORDER,
+            "scope": CourseToCourseConstraintScope.DAY,
+        })
+
+    # 2/ custom_half_days est obligatoire si scope == CUSTOM_HALF_DAYS
+    with pytest.raises(ValueError, match="Le nombre de demi-journées personnalisées est obligatoire"):
+        CourseToCourseConstraint.create(db_session, {
+            "type": CourseToCourseConstraintType.FORCE_SAME_SCOPE,
+            "scope": CourseToCourseConstraintScope.CUSTOM_HALF_DAYS,
+            "custom_half_days": None,
+        })
+
+    # 2bis/ et nul sinon
+    with pytest.raises(ValueError, match="Le nombre de demi-journées personnalisées est interdit"):
+        CourseToCourseConstraint.create(db_session, {
+            "type": CourseToCourseConstraintType.FORCE_SAME_SCOPE,
+            "scope": CourseToCourseConstraintScope.DAY,
+            "custom_half_days": 3,
+        })
+
+    # Test create success
+    ctc = CourseToCourseConstraint.create(db_session, {
+        "type": CourseToCourseConstraintType.ORDER,
+        "scope": None,
+    })
+    db_session.flush()
+
+    # 3/ type et scope non modifiables après création
+    with pytest.raises(ValueError, match="Il n'est pas possible de modifier le type"):
+        ctc.update(db_session, {"type": CourseToCourseConstraintType.FORBID_CONSECUTIVE})
+
+    with pytest.raises(ValueError, match="Il n'est pas possible de modifier le périmètre"):
+        ctc.update(db_session, {"scope": CourseToCourseConstraintScope.DAY})
 def test_share_reference_period():
     from backend.app.solver.constraints import _share_reference_period, PlanningCourse, PlanningTimeslot
     
