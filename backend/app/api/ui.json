@@ -638,29 +638,33 @@
               {
                 "id": "subjects_constraint_list",
                 "component": "GenericList",
-                "resourceKey": "resource_constraints",
+                "resourceKey": "subject_to_subject_constraints",
                 "width": "30%",
                 "listConfig": {
-                  "filters": {
-                    "resource_type": "Subject"
-                  },
+                  "editableInline": false,
                   "columns": {
-                    "resource_id": { "visibleByDefault": true },
-                    "target_subject_b_id": { "visibleByDefault": true },
-                    "divisions": { "visibleByDefault": true }
+                    "target_subject_a_id": {
+                      "visibleByDefault": true
+                    },
+                    "target_subject_b_id": {
+                      "visibleByDefault": true
+                    },
+                    "divisions": {
+                      "visibleByDefault": true
+                    },
+                    "is_optional": {
+                      "visibleByDefault": true
+                    }
                   }
                 }
               },
               {
                 "id": "subjects_constraint_form",
                 "component": "GenericForm",
-                "resourceKey": "resource_constraints",
+                "resourceKey": "subject_to_subject_constraints",
                 "width": "70%",
                 "placeholderText": "Sélectionnez une contrainte ou créez-en une nouvelle.",
                 "formConfig": {
-                  "fixedFields": {
-                    "resource_type": "Subject"
-                  },
                   "editableForm": true,
                   "fields": [
                     {
@@ -668,10 +672,22 @@
                       "string": "Cible et Périmètre",
                       "col": 2,
                       "children": [
-                        { "key": "resource_id", "readOnly": false },
-                        { "key": "target_subject_b_id", "readOnly": false },
-                        { "key": "divisions", "readOnly": false },
-                        { "key": "is_optional", "readOnly": false }
+                        {
+                          "key": "target_subject_a_id",
+                          "readOnly": "model.id != null"
+                        },
+                        {
+                          "key": "target_subject_b_id",
+                          "readOnly": "model.id != null"
+                        },
+                        {
+                          "key": "divisions",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "is_optional",
+                          "readOnly": false
+                        }
                       ]
                     },
                     {
@@ -679,10 +695,22 @@
                       "string": "Incompatibilités",
                       "col": 2,
                       "children": [
-                        { "key": "incompatible_same_half_day", "readOnly": false },
-                        { "key": "incompatible_same_day", "readOnly": false },
-                        { "key": "incompatible_two_consecutive_days", "readOnly": false },
-                        { "key": "min_free_half_days_between", "readOnly": false }
+                        {
+                          "key": "incompatible_same_half_day",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "incompatible_same_day",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "incompatible_two_consecutive_days",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "min_free_half_days_between",
+                          "readOnly": false
+                        }
                       ]
                     },
                     {
@@ -690,8 +718,14 @@
                       "string": "Empêchement de consécutivité",
                       "col": 2,
                       "children": [
-                        { "key": "prevent_consecutive_a_then_b", "readOnly": false },
-                        { "key": "prevent_consecutive_b_then_a", "readOnly": false }
+                        {
+                          "key": "prevent_consecutive_a_then_b",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "prevent_consecutive_b_then_a",
+                          "readOnly": false
+                        }
                       ]
                     },
                     {
@@ -699,8 +733,14 @@
                       "string": "Horaires maximum",
                       "col": 2,
                       "children": [
-                        { "key": "max_hours_per_day", "readOnly": false },
-                        { "key": "max_hours_per_half_day", "readOnly": false }
+                        {
+                          "key": "max_hours_per_day",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_hours_per_half_day",
+                          "readOnly": false
+                        }
                       ]
                     },
                     {
@@ -708,9 +748,18 @@
                       "string": "Ordre",
                       "col": 2,
                       "children": [
-                        { "key": "weekly_order", "readOnly": false },
-                        { "key": "group_course_order", "readOnly": false },
-                        { "key": "max_separation", "readOnly": false }
+                        {
+                          "key": "weekly_order",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "group_course_order",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "max_separation",
+                          "readOnly": false
+                        }
                       ]
                     }
                   ]

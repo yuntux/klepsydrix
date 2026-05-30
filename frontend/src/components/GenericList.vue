@@ -141,11 +141,11 @@
 
                 <!-- Booléen (Switch / Checkbox en ligne) -->
                 <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
-                  <label class="inline-switch" :class="{ 'disabled-switch': isColumnReadOnly(col.key) }">
+                  <label class="inline-switch" :class="{ 'disabled-switch': isColumnReadOnly(col.key, item) }">
                     <input 
                       type="checkbox" 
                       :checked="!!item[col.key]" 
-                      :disabled="isColumnReadOnly(col.key)"
+                      :disabled="isColumnReadOnly(col.key, item)"
                       @change="updateInline(item, col.key, $event.target.checked)"
                     />
                     <span class="inline-slider inline-round"></span>
@@ -154,7 +154,7 @@
 
                 <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
                 <!-- Couleur : composant standard vue3-swatches -->
-                <div v-else-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': isColumnReadOnly(col.key) }">
+                <div v-else-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': isColumnReadOnly(col.key, item) }">
                   <color-swatch-picker
                     :model-value="item[col.key] || '#3B82F6'"
                     @change="updateInline(item, col.key, $event)"
@@ -165,7 +165,7 @@
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
                   :model-value="item[col.key]" 
                   :options="getFieldDef(col.key)?.options || []"
-                  :disabled="isColumnReadOnly(col.key)"
+                  :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   :inline="true"
                   @update:model-value="updateInline(item, col.key, $event)"
@@ -175,7 +175,7 @@
                   v-else-if="getFieldDef(col.key)?.type === 'multiselect'"
                   :model-value="item[col.key]" 
                   :options="getFieldDef(col.key)?.options || []"
-                  :disabled="isColumnReadOnly(col.key)"
+                  :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   :inline="true"
                   @update:model-value="updateInline(item, col.key, $event)"
@@ -189,7 +189,7 @@
                   :min="getFieldDef(col.key)?.min"
                   :max="getFieldDef(col.key)?.max"
                   :step="getFieldDef(col.key)?.step || '1'"
-                  :disabled="isColumnReadOnly(col.key)"
+                  :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value !== '' ? Number($event.target.value) : null)"
                   class="inline-input inline-number"
@@ -200,7 +200,7 @@
                   v-else
                   type="text" 
                   :value="item[col.key] || ''" 
-                  :disabled="isColumnReadOnly(col.key)"
+                  :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value)"
                   class="inline-input"
@@ -401,10 +401,18 @@ const totalTableWidth = computed(() => {
   return colsWidth + checkboxWidth + actionsWidth;
 });
 
-function isColumnReadOnly(key: string): boolean {
+function isColumnReadOnly(key: string, item?: any): boolean {
   if (!isEditableInline.value) return true;
   const colConf = props.listConfig?.columns?.[key];
   if (colConf?.readOnly === true) return true;
+  if (typeof colConf?.readOnly === 'string' && item) {
+    try {
+      const fn = new Function('model', `return ${colConf.readOnly}`);
+      return !!fn(item);
+    } catch (e) {
+      console.error("Error evaluating readOnly expression in list", e);
+    }
+  }
   return false;
 }
 

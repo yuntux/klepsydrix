@@ -14,7 +14,7 @@ from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
 from backend.app.models.student import Student
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.period import Period
-from backend.app.models.constraint import CourseToCourseConstraint
+from backend.app.models.constraint import CourseToCourseConstraint, SubjectToSubjectConstraint, ResourceConstraint
 from backend.app.solver.solver import _solve_timetable_job
 
 TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -904,7 +904,7 @@ def test_share_reference_period():
 
 def test_subject_constraint_rules_orm(db_session: Session):
     import pytest
-    from backend.app.models.constraint import ResourceConstraint
+    from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
     school = db_session.query(School).first()
     subjects = db_session.query(Subject).all()
     if len(subjects) < 2:
@@ -920,16 +920,15 @@ def test_subject_constraint_rules_orm(db_session: Session):
 
     # Rule 1: target_subject_b_id is mandatory for Subject
     payload = {
-        "resource_type": "Subject",
-        "resource_id": sub1.id,
+        "target_subject_a_id": sub1.id,
         "is_optional": False,
     }
     with pytest.raises(ValueError, match="est obligatoire"):
-        ResourceConstraint.create(db_session, payload)
+        SubjectToSubjectConstraint.create(db_session, payload)
 
     # Successful creation
     payload["target_subject_b_id"] = sub2.id
-    constraint = ResourceConstraint.create(db_session, payload)
+    constraint = SubjectToSubjectConstraint.create(db_session, payload)
     db_session.commit()
 
     # Rule 3: Exclusivity of separation
@@ -942,14 +941,13 @@ def test_subject_constraint_rules_orm(db_session: Session):
 
     # Rule 4 & 5: Sync A/B if same subject and weekly_order is NONE
     payload_same = {
-        "resource_type": "Subject",
-        "resource_id": sub1.id,
+        "target_subject_a_id": sub1.id,
         "target_subject_b_id": sub1.id,
         "prevent_consecutive_a_then_b": True,
         "weekly_order": "A_BEFORE_B",
         "is_optional": True,  # Test explicit optional=True
     }
-    constraint_same = ResourceConstraint.create(db_session, payload_same)
+    constraint_same = SubjectToSubjectConstraint.create(db_session, payload_same)
     db_session.commit()
     assert constraint_same.prevent_consecutive_b_then_a is True  # Synced
     assert constraint_same.weekly_order.value == "NONE"  # Rule 5
@@ -964,36 +962,8 @@ def test_subject_constraint_rules_orm(db_session: Session):
     assert constraint.group_course_order.value == "NONE"
     assert constraint.max_separation.value == "NONE"
 
-    # Rule 8: is_optional is only for Subject
-    payload_teacher = {
-        "resource_type": "Teacher",
-        "resource_id": 1,
-        "is_optional": True
-    }
-    with pytest.raises(ValueError, match="ne peut être vrai que pour les contraintes de type Subject"):
-        ResourceConstraint.create(db_session, payload_teacher)
-
-    payload_teacher_default = {
-        "resource_type": "Teacher",
-        "resource_id": 1,
-    }
-    constraint_teacher = ResourceConstraint.create(db_session, payload_teacher_default)
-    db_session.commit()
-    assert constraint_teacher.is_optional is False
-
-    # Rule 9: division_ids is only for Subject
-    payload_teacher_with_divisions = {
-        "resource_type": "Teacher",
-        "resource_id": 1,
-        "division_ids": [1]
-    }
-    with pytest.raises(ValueError, match="n'est applicable qu'aux contraintes de type Subject"):
-        ResourceConstraint.create(db_session, payload_teacher_with_divisions)
-    db_session.commit()
-    assert constraint_teacher.is_optional is False
-
 def test_solver_subject_constraint_optionality(db_session: Session):
-    from backend.app.models.constraint import ResourceConstraint
+    from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
     from backend.app.solver.solver import _solve_timetable_job
     school = db_session.query(School).first()
     subjects = db_session.query(Subject).all()
@@ -1022,9 +992,8 @@ def test_solver_subject_constraint_optionality(db_session: Session):
     db_session.commit()
 
     # 1. Test with Mandatory constraint (is_optional=False)
-    rc = ResourceConstraint.create(db_session, {
-        "resource_type": "Subject",
-        "resource_id": sub_a.id,
+    rc = SubjectToSubjectConstraint.create(db_session, {
+        "target_subject_a_id": sub_a.id,
         "target_subject_b_id": sub_b.id,
         "incompatible_same_day": True,
         "is_optional": False
@@ -1056,7 +1025,7 @@ def test_solver_subject_constraint_optionality(db_session: Session):
     assert c_b.timeslot_id is not None
 
 def test_solver_subject_constraint_division_scope(db_session: Session):
-    from backend.app.models.constraint import ResourceConstraint
+    from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
     from backend.app.solver.solver import _solve_timetable_job
     school = db_session.query(School).first()
     subjects = db_session.query(Subject).all()
@@ -1089,9 +1058,8 @@ def test_solver_subject_constraint_division_scope(db_session: Session):
     db_session.commit()
 
     # Constraint applies only to D1
-    rc = ResourceConstraint.create(db_session, {
-        "resource_type": "Subject",
-        "resource_id": sub_a.id,
+    rc = SubjectToSubjectConstraint.create(db_session, {
+        "target_subject_a_id": sub_a.id,
         "target_subject_b_id": sub_b.id,
         "incompatible_same_day": True,
         "is_optional": False,
@@ -1112,3 +1080,81 @@ def test_solver_subject_constraint_division_scope(db_session: Session):
     assert c2_a.timeslot_id is not None
     assert c2_b.timeslot_id is not None
     assert c2_a.timeslot_id != c2_b.timeslot_id
+
+def test_max_separation_successive_days_orm(db_session: Session):
+    from datetime import date
+    sch = School.create(db_session, {"uai": "999", "name": "Sch", "student_start_date": date(2026, 9, 1), "student_end_date": date(2027, 6, 30)})
+    disc = Discipline.create(db_session, {"code": "D", "name": "D"})
+    sub = Subject.create(db_session, {"code": "S1", "code_nomenclature": "S1", "discipline_id": disc.id, "short_name": "S1", "name": "S1", "color": "#000"})
+    
+    from backend.app.models.mef import Mef
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": "M", "name": "M", "max_students_per_class": 30, "forecast_student_count": 30})
+    div = Division.create(db_session, {"school_id": sch.id, "code": "DIV", "name": "DIV", "mef_id": mef.id})
+    
+    # Timeslots: Lundi, Mercredi (days 1, 3)
+    ts_lun = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts_mer = Timeslot.create(db_session, {"day_of_week": 3, "minutes_from_midnight": 480})
+
+    # Courses (2 for S1)
+    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id]})
+    c2 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id]})
+
+    # Set timeslots
+    c1.update(db_session, {"original_timeslot_id": ts_lun.id})
+    c2.update(db_session, {"original_timeslot_id": ts_mer.id}) # Diff of 2 days -> Should penalize if SUCCESSIVE_DAYS
+
+    SubjectToSubjectConstraint.create(db_session, {
+        "target_subject_a_id": sub.id,
+        "target_subject_b_id": sub.id,
+        "max_separation": "successive_days",
+        "is_optional": False
+    })
+    
+    Classroom.create(db_session, {"school_id": sch.id, "code": "R1", "name": "Room 1", "capacity": 30})
+
+    from backend.app.solver.solver import _solve_timetable_job
+    solution = _solve_timetable_job(db_session, sch.id)
+    # Just asserting it runs without error and score is calculated
+    assert solution.score is not None
+
+def test_group_course_order_orm(db_session: Session):
+    from backend.app.models.group import Partition, ClassPart
+    from datetime import date
+    sch = School.create(db_session, {"uai": "998", "name": "Sch", "student_start_date": date(2026, 9, 1), "student_end_date": date(2027, 6, 30)})
+    disc = Discipline.create(db_session, {"code": "D2", "name": "D2"})
+    sub = Subject.create(db_session, {"code": "S2", "code_nomenclature": "S2", "discipline_id": disc.id, "short_name": "S2", "name": "S2", "color": "#000"})
+    
+    from backend.app.models.mef import Mef
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": "M2", "name": "M2", "max_students_per_class": 30, "forecast_student_count": 30})
+    div = Division.create(db_session, {"school_id": sch.id, "code": "DIV2", "name": "DIV2", "mef_id": mef.id})
+    
+    # We need a partition and a class part
+    part = Partition.create(db_session, {"division_id": div.id, "code": "PART", "name": "PART"})
+    cp = ClassPart.create(db_session, {"partition_id": part.id, "code": "CP", "name": "CP"})
+    
+    ts_lun = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts_mar = Timeslot.create(db_session, {"day_of_week": 2, "minutes_from_midnight": 480})
+
+    # c1 = FULL CLASS
+    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id]})
+    
+    # c2 = GROUP CLASS (has class part)
+    c2 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp.id]})
+
+    # Set timeslots: c1 (FULL) on Lundi, c2 (GROUP) on Mardi
+    # So Full is before Group.
+    c1.update(db_session, {"original_timeslot_id": ts_lun.id})
+    c2.update(db_session, {"original_timeslot_id": ts_mar.id})
+
+    SubjectToSubjectConstraint.create(db_session, {
+        "target_subject_a_id": sub.id,
+        "target_subject_b_id": sub.id,
+        "group_course_order": "GROUP_BEFORE",
+        "is_optional": False
+    })
+    
+    Classroom.create(db_session, {"school_id": sch.id, "code": "R2", "name": "Room 2", "capacity": 30})
+
+    from backend.app.solver.solver import _solve_timetable_job
+    solution = _solve_timetable_job(db_session, sch.id)
+    assert solution.score is not None

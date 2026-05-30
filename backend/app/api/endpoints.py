@@ -11,6 +11,7 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.group import Group
+from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
 from backend.app.solver.solver import start_solve_timetable_async, SolverState
 
 router = APIRouter(prefix="/api/timetable")

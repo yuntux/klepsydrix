@@ -581,47 +581,12 @@ Représente une catégorie ou un modèle de découpage de l'année scolaire de l
 ### 15. ResourceConstraint (Contrainte de Ressource)
 L'objet générique portant les contraintes spécifiques à une ressource, définies de manière globale pour toute l'année d'enseignement (sans liaison temporelle avec les périodes).
 *   `id` : Clé primaire (Entier)
-*   `resource_type` : Type de ressource concernée (Chaîne : `Subject`, `Teacher`, `Division`, `Classroom`, `Site`)
+*   `resource_type` : Type de ressource concernée (Chaîne : `Teacher`, `Division`, `Classroom`, `Site`)
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
-*   `is_optional` : Si vrai, la contrainte agit comme un voeu (pénalité soft). Si faux, c'est une contrainte stricte (pénalité hard). (Booléen, par défaut `True`). **Note : Ce champ ne peut être vrai que si `resource_type` est `Subject`. Pour les autres types de ressources, les contraintes sont toujours strictes.**
 
 #### Attributs spécifiques dynamiques selon le type de ressource :
 
-##### A. Contraintes sur les Matières (`resource_type == 'Subject'`)
-Sert à définir l'espacement, la succession, la charge horaire maximale et l'ordre hebdomadaire des matières dans l'emploi du temps des élèves. Chaque ligne de contrainte s'applique à un couple de matières (Matière A et Matière B) :
-
-*   `target_subject_b_id` : Clé étrangère **obligatoire** vers un second **Subject** (Entier). Si elle pointe vers la même matière que `resource_id`, la contrainte s'applique de la matière A vers elle-même (ex: deux cours de Français). *Une fois créées, les références `resource_id` et `target_subject_b_id` sont immuables.*
-*   `divisions` : Relation Many2Many vers **Division**. Si vide (null), la contrainte s'applique à **toutes** les classes. Sinon, uniquement aux classes listées. *Ce champ n'est applicable qu'aux contraintes de type `Subject` (forcé à vide pour les autres types).*
-*   **Incompatibilités** (Espacement temporel requis entre les cours de A et B). **Règle d'exclusivité** : Un seul de ces 4 attributs peut être actif à la fois. L'activation de l'un remet à zéro les autres :
-    *   `incompatible_same_half_day` : Si vrai, interdit d'avoir des cours de A et B sur la même demi-journée (Booléen, par défaut `False`)
-    *   `incompatible_same_day` : Si vrai, interdit d'avoir des cours de A et B le même jour (Booléen, par défaut `True` pour une matière vers elle-même)
-    *   `incompatible_two_consecutive_days` : Si vrai, interdit d'avoir des cours de A et B sur deux jours consécutifs (Booléen, par défaut `False`)
-    *   `min_free_half_days_between` : Nombre minimum de demi-journées libres d'espacement forcé entre un cours de A et de B (Entier, optionnel, ex: `2`)
-*   **Succession Interdite** (Interdiction d'enchaînement immédiat sans pause ou sans autre cours intermédiaire) :
-    *   `prevent_consecutive_a_then_b` : Si vrai, interdit qu'un cours de B succède immédiatement à un cours de A (Booléen, par défaut `False`)
-    *   `prevent_consecutive_b_then_a` : Si vrai, interdit qu'un cours de A succède immédiatement à un cours de B (Booléen, par défaut `False`)
-*   **Max Horaire** (Limitation de la charge d'heures de la matière A pour la classe) :
-    *   `max_hours_per_day` : Limite horaire maximale autorisée de cette matière par jour pour la classe (Réel, optionnel, ex: `2h00`)
-    *   `max_hours_per_half_day` : Limite horaire maximale autorisée par demi-journée (Réel, optionnel)
-*   **Ordre Hebdomadaire** (Contraintes de préséance chronologique sur la semaine) :
-    *   `weekly_order` : Force un ordre spécifique (Enum : `NONE` (Aucun), `A_BEFORE_B`, `B_BEFORE_A`).
-*   **Cours en Groupe vs Classe Entière** (Gestion des séances dédoublées par rapport aux cours complets) :
-    *   `group_course_order` : Force un ordre spécifique pour les séances en groupe par rapport aux séances en classe entière de cette matière (Enum : `NONE`, `GROUP_BEFORE`, `GROUP_AFTER`, `GROUP_BEFORE_OR_AFTER`, `GROUP_BEFORE_OR_AFTER_FORTNIGHT`).
-*   **Séparation Max** :
-    *   `max_separation` : (Enum : `NONE`, `SUCCESSIVE_DAYS`, `SUCCESSIVE_HALF_DAYS`). Empêcher l'espacement excessif de deux cours d'une même matière.
-
-**Règles Métier de Validation (API / ORM)** pour `resource_type == 'Subject'` :
-*   **1/ Cible Obligatoire** : L'attribut `target_subject_b_id` est obligatoire.
-*   **2/ Immuabilité** : Il n'est pas possible de modifier `resource_id` ni `target_subject_b_id` après la création.
-*   **3/ Exclusivité des Incompatibilités** : Les attributs `incompatible_same_half_day`, `incompatible_same_day`, `incompatible_two_consecutive_days` et `min_free_half_days_between` sont exclusifs. L'activation de l'un remet à zéro/null les autres.
-*   **4/ Synchronisation de Succession** : Si `resource_id == target_subject_b_id` (matière sur elle-même), `prevent_consecutive_a_then_b` et `prevent_consecutive_b_then_a` ont toujours la même valeur (la modification de l'un met à jour l'autre).
-*   **5/ Ordre Hebdomadaire Neutre (Même Matière)** : Si `resource_id == target_subject_b_id`, alors `weekly_order` est obligatoirement forcé à `NONE`.
-*   **6/ Exclusivité de l'Ordre Hebdomadaire** : Il est impossible d'avoir 'A avant B' et 'B avant A' en même temps (pris en charge par la nature même de l'Enum `weekly_order`).
-*   **7/ Limitation des Groupes et Espacements (Matières Différentes)** : Si `resource_id != target_subject_b_id`, alors les attributs `group_course_order` et `max_separation` sont obligatoirement forcés à `NONE`.
-*   **8/ Optionnalité Restreinte** : L'attribut `is_optional` ne peut être à `True` (vœu) que pour les contraintes de type `Subject`. Pour tout autre `resource_type`, `is_optional` doit être `False` (contrainte stricte).
-*   **9/ Périmètre de Classes Restreint** : Le champ `divisions` (Many2Many) n'est applicable qu'aux contraintes de type `Subject`. Pour tout autre `resource_type`, il est forcé à vide.
-
-##### B. Contraintes sur les Enseignants (`resource_type == 'Teacher'`)
+##### A. Contraintes sur les Enseignants (`resource_type == 'Teacher'`)
 Garantit les conditions de service et l'aménagement du temps de travail des professeurs. Ces contraintes régissent la planification de leur temps de travail :
 
 *   **Max Horaire** (Limitation de la charge de cours effective) :
@@ -677,7 +642,40 @@ Délimite les conditions de travail des élèves d'une division (classe entière
 Gère les contraintes logistiques liées aux déplacements des professeurs ou élèves sur les différents campus :
 *   `max_travel_trips_per_day` : Nombre maximum de déplacements / trajets inter-sites autorisés par jour pour une même ressource (enseignant ou division/élèves) (Entier, optionnel). Si le nombre de déplacements réels dépasse ce seuil lors de la planification d'un jour donné, une alerte est levée ou le placement automatique échoue.
 
-### 15bis. CourseToCourseConstraint (Contrainte cours à cours)
+### 15bis. SubjectToSubjectConstraint (Contrainte Matière à Matière)
+Sert à définir l'espacement, la succession, la charge horaire maximale et l'ordre hebdomadaire des matières dans l'emploi du temps des élèves. Chaque ligne de contrainte s'applique à un couple de matières (Matière A et Matière B) :
+
+*   `id` : Clé primaire (Entier)
+*   `target_subject_a_id` : Clé étrangère **obligatoire** vers un premier **Subject** (Entier).
+*   `target_subject_b_id` : Clé étrangère **obligatoire** vers un second **Subject** (Entier). Si elle pointe vers la même matière que `target_subject_a_id`, la contrainte s'applique de la matière A vers elle-même.
+*   `is_optional` : Si vrai, la contrainte agit comme un voeu (pénalité soft). Si faux, c'est une contrainte stricte (pénalité hard). (Booléen, par défaut `True`).
+*   `divisions` : Relation Many2Many vers **Division**. Si vide (null), la contrainte s'applique à **toutes** les classes. Sinon, uniquement aux classes listées.
+*   **Incompatibilités** (Espacement temporel requis entre les cours de A et B). **Règle d'exclusivité** : Un seul de ces 4 attributs peut être actif à la fois :
+    *   `incompatible_same_half_day` : Si vrai, interdit d'avoir des cours de A et B sur la même demi-journée
+    *   `incompatible_same_day` : Si vrai, interdit d'avoir des cours de A et B le même jour
+    *   `incompatible_two_consecutive_days` : Si vrai, interdit d'avoir des cours de A et B sur deux jours consécutifs
+    *   `min_free_half_days_between` : Nombre minimum de demi-journées libres d'espacement forcé entre un cours de A et de B
+*   **Succession Interdite** :
+    *   `prevent_consecutive_a_then_b` : Interdit B suivant A
+    *   `prevent_consecutive_b_then_a` : Interdit A suivant B
+*   **Max Horaire** :
+    *   `max_hours_per_day` : Limite horaire maximale autorisée de cette matière par jour
+    *   `max_hours_per_half_day` : Limite horaire maximale autorisée par demi-journée
+*   **Ordre Hebdomadaire** :
+    *   `weekly_order` : Force un ordre spécifique (`NONE`, `A_BEFORE_B`, `B_BEFORE_A`).
+*   **Cours en Groupe vs Classe Entière** :
+    *   `group_course_order` : Force un ordre spécifique pour les séances en groupe.
+*   **Séparation Max** :
+    *   `max_separation` : Empêcher l'espacement excessif de deux cours d'une même matière.
+
+**Règles Métier de Validation (API / ORM)** :
+*   **1/ Immuabilité** : Il n'est pas possible de modifier `target_subject_a_id` ni `target_subject_b_id` après la création.
+*   **2/ Exclusivité des Incompatibilités** : Les attributs `incompatible_same_half_day`, `incompatible_same_day`, `incompatible_two_consecutive_days` et `min_free_half_days_between` sont exclusifs.
+*   **3/ Synchronisation de Succession** : Si `target_subject_a_id == target_subject_b_id` (matière sur elle-même), `prevent_consecutive_a_then_b` et `prevent_consecutive_b_then_a` ont toujours la même valeur.
+*   **4/ Ordre Hebdomadaire Neutre** : Si `target_subject_a_id == target_subject_b_id`, alors `weekly_order` est forcé à `NONE`.
+*   **5/ Limitation des Groupes et Espacements** : Si `target_subject_a_id != target_subject_b_id`, alors les attributs `group_course_order` et `max_separation` sont forcés à `NONE`.
+
+### 15ter. CourseToCourseConstraint (Contrainte cours à cours)
 Représente une contrainte spécifique reliant directement plusieurs instances de cours précises entre elles.
 *   `id` : Clé primaire (Entier)
 *   `type` : Type de contrainte temporelle à appliquer (Chaîne, valeurs autorisées) :

@@ -13,7 +13,7 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import ClassPartLink
 from backend.app.models.preference import ResourcePreference
-from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint
+from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint, SubjectToSubjectConstraint
 from backend.app.models.period import Period
 from backend.app.core.database import SessionLocal
 import threading
@@ -157,6 +157,41 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             only_one_half_day_per_day=rc.only_one_half_day_per_day,
             max_gap_hours_per_week=rc.max_gap_hours_per_week or 2
         ) for rc in db_constraints
+    ] + [
+        PlanningResourceConstraint(
+            id=-rc.id,
+            resource_type="Subject",
+            resource_id=rc.target_subject_a_id,
+            target_subject_a_id=rc.target_subject_a_id,
+            is_optional=rc.is_optional,
+            target_subject_b_id=rc.target_subject_b_id,
+            incompatible_same_half_day=rc.incompatible_same_half_day,
+            incompatible_same_day=rc.incompatible_same_day,
+            incompatible_two_consecutive_days=rc.incompatible_two_consecutive_days,
+            min_free_half_days_between=rc.min_free_half_days_between,
+            prevent_consecutive_a_then_b=rc.prevent_consecutive_a_then_b,
+            prevent_consecutive_b_then_a=rc.prevent_consecutive_b_then_a,
+            max_hours_per_day=rc.max_hours_per_day,
+            max_hours_per_half_day=rc.max_hours_per_half_day,
+            weekly_order=rc.weekly_order.value if rc.weekly_order else "NONE",
+            group_course_order=rc.group_course_order.value if rc.group_course_order else "NONE",
+            max_separation=rc.max_separation.value if rc.max_separation else "NONE",
+            division_ids=[d.id for d in rc.divisions] if rc.divisions else [],
+            max_hours_per_am=None,
+            max_hours_per_pm=None,
+            max_presence_days_per_week=None,
+            max_presence_hours_per_day=None,
+            late_start_days_per_week=None,
+            late_start_time=None,
+            early_end_days_per_week=None,
+            early_end_time=None,
+            min_free_days_per_week=None,
+            min_free_half_days_per_week=None,
+            max_worked_am_per_week=None,
+            max_worked_pm_per_week=None,
+            only_one_half_day_per_day=False,
+            max_gap_hours_per_week=2
+        ) for rc in db.execute(select(SubjectToSubjectConstraint)).scalars().unique().all()
     ]
 
     course_constraints_list = [
@@ -307,10 +342,12 @@ def _solve_timetable_job(db_session=None, school_id=None):
                 db_course.recompute_status()
 
         db.commit()
+        return solution
 
     except Exception as e:
         db.rollback()
         print(f"Solver thread error: {e}")
+        raise e
     finally:
         if not db_session:
             db.close()

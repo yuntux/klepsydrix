@@ -348,6 +348,7 @@ const modelToResourceType: Record<string, string> = {
   divisions: 'Division',
   schools: 'School',
   resource_constraints: 'ResourceConstraint',
+  subject_to_subject_constraints: 'SubjectToSubjectConstraint',
   courses: 'Course',
 };
 

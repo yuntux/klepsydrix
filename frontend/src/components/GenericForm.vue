@@ -71,6 +71,7 @@ interface LayoutElement {
   span?: number;
   children?: LayoutElement[];
   readOnly?: boolean;
+  readOnlyExpr?: string;
   required?: boolean;
   overrideLabel?: string;
   label?: string;
@@ -182,6 +183,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: elem.overrideLabel || original.label,
         required: elem.required === true,
         disabled: elem.readOnly === true,
+        readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : undefined,
         originalField: original,
         help: elem.help || original.help
       };
@@ -197,6 +199,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: elem.overrideLabel || original.label,
         required: elem.required === true,
         disabled: elem.readOnly === true,
+        readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : undefined,
         originalField: original,
         help: elem.help || original.help
       };
@@ -410,7 +413,16 @@ const FormLayoutGrid: any = defineComponent({
             const field = elem.originalField;
             const key = elem.key!;
             const required = elem.required === true;
-            const disabled = gridProps.isEditableForm === false || elem.disabled === true;
+            let evaluatedDisabled = false;
+            if (elem.readOnlyExpr) {
+              try {
+                const fn = new Function('model', `return ${elem.readOnlyExpr}`);
+                evaluatedDisabled = !!fn(gridProps.localModel);
+              } catch (e) {
+                console.error("Error evaluating readOnly expression", e);
+              }
+            }
+            const disabled = gridProps.isEditableForm === false || elem.disabled === true || evaluatedDisabled;
             const label = elem.label || field.label;
 
             const isFull = field.fullWidth === true;
