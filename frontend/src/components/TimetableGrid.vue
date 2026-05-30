@@ -231,7 +231,7 @@ watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([i
           const tsId = parseInt(tsIdStr);
           const ts = props.timeslots.find(t => t.id === tsId);
           if (ts) {
-            mappedData[getCellKey(ts.day_of_week, ts.hour)] = scoreInfo;
+            mappedData[getCellKey(ts.day_of_week, ts.minutes_from_midnight / 60)] = scoreInfo;
           }
         }
         heatmapData.value = mappedData;
