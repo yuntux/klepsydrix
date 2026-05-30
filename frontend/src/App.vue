@@ -1354,7 +1354,7 @@ onMounted(async () => {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 6px 12px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-sans);
   font-size: 13px;
   cursor: pointer;
@@ -1399,7 +1399,7 @@ onMounted(async () => {
   border: 1px solid transparent;
   color: var(--text-secondary);
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   text-align: left;
   font-family: var(--font-sans);

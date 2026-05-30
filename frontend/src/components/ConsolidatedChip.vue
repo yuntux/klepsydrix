@@ -44,7 +44,7 @@ const tooltipText = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 5px 12px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   font-size: 12.5px;
   font-weight: 600;
   user-select: none;
@@ -90,7 +90,7 @@ const tooltipText = computed(() => {
   font-size: 11px;
   background-color: rgba(245, 158, 11, 0.15);
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: #d97706;
   font-weight: 700;
 }

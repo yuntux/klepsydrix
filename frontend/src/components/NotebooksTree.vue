@@ -1,7 +1,7 @@
 <template>
   <div class="notebooks-container">
     <!-- Level 1 Tabs -->
-    <div class="tabs-level-1-wrapper">
+    <div class="tabs-level-1-wrapper" style="display: flex; justify-content: space-between; align-items: center;">
       <div class="tabs-level-1">
         <button
           v-for="tab in config"
@@ -14,6 +14,11 @@
           {{ tab.title }}
         </button>
       </div>
+
+      <!-- Sélecteur de thème -->
+      <button class="theme-toggle-btn" @click="toggleTheme" title="Changer de thème">
+        {{ currentThemeIndex === 1 ? '🌙' : currentThemeIndex === 2 ? '⬛' : '☀️' }}
+      </button>
     </div>
 
     <!-- Level 2 Sub-Tabs (if children exist on level 1) -->
@@ -94,6 +99,19 @@ interface NotebookNode {
 }
 
 const config = ref<NotebookNode[]>([]);
+
+const themes = ['light', 'dark', 'strict'];
+const currentThemeIndex = ref(0);
+
+function toggleTheme() {
+  currentThemeIndex.value = (currentThemeIndex.value + 1) % themes.length;
+  const newTheme = themes[currentThemeIndex.value];
+  if (newTheme === 'light') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', newTheme);
+  }
+}
 
 const activeLevel1Id = ref<string>('');
 const activeLevel2Id = ref<string>('');
@@ -237,13 +255,27 @@ function getTabStyle(tab: NotebookNode, isActive: boolean) {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-bottom: none;
-  border-top-left-radius: 4px;
-  border-top-right-radius: 4px;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
   cursor: pointer;
   outline: none;
   transition: all 0.2s ease;
   position: relative;
   top: 1px;
+}
+
+.theme-toggle-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  transition: background-color 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+  background-color: rgba(128, 128, 128, 0.15);
 }
 
 .tab-btn-l1:hover {

@@ -216,7 +216,7 @@ onUnmounted(() => {
   padding: 5px 35px 5px 12px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   cursor: text;
   transition: all var(--transition-fast);
   position: relative;
@@ -255,7 +255,7 @@ onUnmounted(() => {
   border: 1px solid rgba(99, 102, 241, 0.2);
   color: var(--accent-primary);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   user-select: none;
@@ -296,7 +296,7 @@ onUnmounted(() => {
   overflow-y: auto;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   z-index: 1000;
   box-shadow: var(--shadow-lg);
   animation: slideDown 0.15s ease-out;
@@ -379,7 +379,7 @@ onUnmounted(() => {
   border-color: transparent;
   padding: 2px 24px 2px 4px;
   min-height: 28px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   gap: 4px;
 }
 
@@ -403,7 +403,7 @@ onUnmounted(() => {
 .is-inline .tag-badge {
   font-size: 11px;
   padding: 1px 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   gap: 2px;
 }
 
@@ -420,14 +420,14 @@ onUnmounted(() => {
   max-height: 200px;
   background-color: var(--bg-card);
   border: 1.5px solid var(--accent-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   z-index: 9999 !important;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
   padding: 4px;
 }
 
 .is-inline .option-item {
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   margin-bottom: 2px;
   padding: 6px 10px;
 }

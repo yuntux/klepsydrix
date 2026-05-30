@@ -273,7 +273,7 @@ onUnmounted(() => {
   overflow-y: auto;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   z-index: 1000;
   box-shadow: var(--shadow-lg);
   animation: slideDown 0.15s ease-out;
@@ -294,7 +294,7 @@ onUnmounted(() => {
 
 .option-item.is-selected {
   background-color: var(--accent-primary);
-  color: #ffffff;
+  color: var(--bg-card);
 }
 
 .no-options {
@@ -323,7 +323,7 @@ onUnmounted(() => {
   padding: 4px 8px;
   height: 28px;
   font-size: 13px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .is-inline .form-input:hover {
@@ -358,14 +358,14 @@ onUnmounted(() => {
   max-height: 200px;
   background-color: var(--bg-card);
   border: 1.5px solid var(--accent-primary); /* Bordure d'accent violette prononcée */
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   z-index: 9999 !important; /* Force le dropdown au-dessus du tableau */
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2); /* Ombre extra forte */
   padding: 4px;
 }
 
 .is-inline .option-item {
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   margin-bottom: 2px;
   padding: 6px 10px;
 }

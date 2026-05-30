@@ -224,7 +224,7 @@ onUnmounted(() => {
 .pref-level-off-hashed {
   background: repeating-linear-gradient(45deg, rgba(156, 163, 175, 0.05) 0px, rgba(156, 163, 175, 0.05) 6px, rgba(156, 163, 175, 0.2) 6px, rgba(156, 163, 175, 0.2) 12px) !important;
   border: 1px solid rgba(156, 163, 175, 0.3) !important;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .layer-bg, .layer-fg {

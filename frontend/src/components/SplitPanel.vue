@@ -155,7 +155,7 @@ function stopDrag() {
 
 .split-panel-resizer:hover .resizer-line,
 .split-panel-resizer.dragging .resizer-line {
-  background-color: #6366F1; /* Indigo-500 */
+  background-color: var(--accent-primary); /* Indigo-500 */
   width: 4px;
 }
 </style>

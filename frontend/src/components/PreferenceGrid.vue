@@ -130,7 +130,7 @@
               </div>
 
               <div class="legend-item">
-                <div class="legend-color-box" style="display: flex; align-items: center; justify-content: center; font-weight: bold; background: #e5e7eb; border: 1px solid #d1d5db; color: #374151;">2/3</div>
+                <div class="legend-color-box" style="display: flex; align-items: center; justify-content: center; font-weight: bold; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">2/3</div>
                 <div class="legend-text">
                   Indique le nombre de ressources impactées (ex: 2 enseignants sur 3) lorsqu'une sélection multiple est active.
                 </div>
@@ -985,7 +985,7 @@ watch(resourceOptions, () => {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   outline: none;
   cursor: pointer;
   font-family: inherit;
@@ -1043,7 +1043,7 @@ watch(resourceOptions, () => {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -1062,28 +1062,28 @@ watch(resourceOptions, () => {
 
 .btn-brush.brush-preferred.active {
   background-color: rgba(16, 185, 129, 0.15);
-  border-color: #10b981;
+  border-color: var(--accent-success);
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
-  color: #10b981;
+  color: var(--accent-success);
 }
 
 .btn-brush.brush-undesirable.active {
   background-color: rgba(245, 158, 11, 0.15);
-  border-color: #f59e0b;
+  border-color: var(--accent-warning);
   box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
-  color: #f59e0b;
+  color: var(--accent-warning);
 }
 
 .btn-brush.brush-unsuited.active {
   background-color: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
+  border-color: var(--accent-danger);
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
-  color: #ef4444;
+  color: var(--accent-danger);
 }
 
 .btn-brush.brush-neutral.active {
   background-color: var(--bg-surface);
-  border-color: #9ca3af;
+  border-color: var(--text-muted);
   color: var(--text-primary);
 }
 
@@ -1093,10 +1093,10 @@ watch(resourceOptions, () => {
   border-radius: 50%;
 }
 
-.bg-green { background-color: #10b981; }
-.bg-orange { background-color: #f59e0b; }
-.bg-red { background-color: #ef4444; }
-.bg-neutral { background-color: #6b7280; }
+.bg-green { background-color: var(--accent-success); }
+.bg-orange { background-color: var(--accent-warning); }
+.bg-red { background-color: var(--accent-danger); }
+.bg-neutral { background-color: var(--text-secondary); }
 
 /* Grille */
 .grid-wrapper {
@@ -1227,19 +1227,19 @@ watch(resourceOptions, () => {
 .pref-level-preferred {
   background-color: rgba(16, 185, 129, 0.12) !important;
   border: 1px solid rgba(16, 185, 129, 0.35);
-  color: #10b981;
+  color: var(--accent-success);
 }
 
 .pref-level-undesirable {
   background-color: rgba(245, 158, 11, 0.12) !important;
   border: 1px solid rgba(245, 158, 11, 0.35);
-  color: #f59e0b;
+  color: var(--accent-warning);
 }
 
 .pref-level-unsuited {
   background-color: rgba(239, 68, 68, 0.12) !important;
   border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #ef4444;
+  color: var(--accent-danger);
 }
 
 .pref-level-neutral {
@@ -1251,25 +1251,25 @@ watch(resourceOptions, () => {
 .pref-level-preferred-hashed {
   background: repeating-linear-gradient(45deg, rgba(16, 185, 129, 0.05) 0px, rgba(16, 185, 129, 0.05) 6px, rgba(16, 185, 129, 0.25) 6px, rgba(16, 185, 129, 0.25) 12px) !important;
   border: 1.5px dashed rgba(16, 185, 129, 0.5) !important;
-  color: #10b981;
+  color: var(--accent-success);
 }
 
 .pref-level-undesirable-hashed {
   background: repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.05) 0px, rgba(245, 158, 11, 0.05) 6px, rgba(245, 158, 11, 0.25) 6px, rgba(245, 158, 11, 0.25) 12px) !important;
   border: 1.5px dashed rgba(245, 158, 11, 0.5) !important;
-  color: #f59e0b;
+  color: var(--accent-warning);
 }
 
 .pref-level-unsuited-hashed {
   background: repeating-linear-gradient(45deg, rgba(239, 68, 68, 0.05) 0px, rgba(239, 68, 68, 0.05) 6px, rgba(239, 68, 68, 0.25) 6px, rgba(239, 68, 68, 0.25) 12px) !important;
   border: 1.5px dashed rgba(239, 68, 68, 0.5) !important;
-  color: #ef4444;
+  color: var(--accent-danger);
 }
 
 .pref-level-mixed-hashed {
   background: repeating-linear-gradient(45deg, rgba(59, 130, 246, 0.05) 0px, rgba(59, 130, 246, 0.05) 6px, rgba(59, 130, 246, 0.25) 6px, rgba(59, 130, 246, 0.25) 12px) !important;
   border: 1.5px dashed rgba(59, 130, 246, 0.5) !important;
-  color: #3b82f6;
+  color: var(--accent-secondary);
 }
 
 .cell-label {
@@ -1296,7 +1296,7 @@ watch(resourceOptions, () => {
   max-width: 90%;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   display: flex;
@@ -1342,7 +1342,7 @@ watch(resourceOptions, () => {
   background-color: var(--bg-secondary);
   border-left: 4px solid var(--accent-primary);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-primary);
@@ -1364,7 +1364,7 @@ watch(resourceOptions, () => {
   width: 60px;
   height: 35px;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1394,7 +1394,7 @@ watch(resourceOptions, () => {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1436,7 +1436,7 @@ watch(resourceOptions, () => {
   display: flex;
   flex-direction: column;
   padding: 2px;
-  background-color: #e5e7eb;
+  background-color: var(--bg-secondary);
 }
 
 .instance-row {
@@ -1445,7 +1445,7 @@ watch(resourceOptions, () => {
   width: 100%;
   font-size: 9px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--text-secondary);
   padding: 0 4px;
 }
 
@@ -1481,7 +1481,7 @@ watch(resourceOptions, () => {
   cursor: pointer;
   background-color: var(--bg-secondary);
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   transition: all 0.2s;
 }
@@ -1515,7 +1515,7 @@ watch(resourceOptions, () => {
   z-index: 10000;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   padding: 12px;
   max-width: 320px;
@@ -1558,7 +1558,7 @@ watch(resourceOptions, () => {
 
 .tooltip-badge {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1566,25 +1566,25 @@ watch(resourceOptions, () => {
 
 .tooltip-level-preferred {
   background-color: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  color: var(--accent-success);
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .tooltip-level-undesirable {
   background-color: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+  color: var(--accent-warning);
   border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
 .tooltip-level-unsuited {
   background-color: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  color: var(--accent-danger);
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .tooltip-level-neutral {
   background-color: rgba(156, 163, 175, 0.15);
-  color: #9ca3af;
+  color: var(--text-muted);
   border: 1px solid rgba(156, 163, 175, 0.3);
 }
 

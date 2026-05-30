@@ -465,7 +465,7 @@ function onDrop(day: number, hour: number, event: DragEvent) {
   color: var(--text-muted);
   cursor: pointer;
   padding: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -487,7 +487,7 @@ function onDrop(day: number, hour: number, event: DragEvent) {
   color: var(--text-muted);
   cursor: pointer;
   padding: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -495,7 +495,7 @@ function onDrop(day: number, hour: number, event: DragEvent) {
   opacity: 0.6;
 }
 .pin-btn:hover, .pin-btn.is-pinned {
-  color: var(--accent-warning, #f59e0b);
+  color: var(--accent-warning, var(--accent-warning));
   opacity: 1;
 }
 .pin-btn.is-pinned {
@@ -506,7 +506,7 @@ function onDrop(day: number, hour: number, event: DragEvent) {
   height: 12px;
 }
 .placed-course.is-pinned-card {
-  border-left: 3px solid var(--accent-warning, #f59e0b) !important;
+  border-left: 3px solid var(--accent-warning, var(--accent-warning)) !important;
 }
 
 .heatmap-overlay {

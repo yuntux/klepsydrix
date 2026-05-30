@@ -174,7 +174,7 @@ function addItem() {
   gap: 8px;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 12px;
 }
 
@@ -233,8 +233,8 @@ function addItem() {
 .delete-btn {
   background: #fef2f2;
   border: 1px solid #fecaca;
-  color: #ef4444;
-  border-radius: 4px;
+  color: var(--accent-danger);
+  border-radius: var(--radius-md);
   cursor: pointer;
   padding: 2px 6px;
   font-size: 12px;
@@ -267,7 +267,7 @@ function addItem() {
   background-color: var(--accent-primary);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-weight: 500;
   font-size: 13px;

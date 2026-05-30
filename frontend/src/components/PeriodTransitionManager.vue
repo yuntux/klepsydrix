@@ -363,7 +363,7 @@ async function savePeriods() {
   color: var(--text-secondary);
   background: var(--bg-primary);
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
@@ -391,9 +391,9 @@ async function savePeriods() {
 .alert-warning {
   background-color: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
-  color: #F59E0B;
+  color: var(--accent-warning);
   padding: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   font-size: 13px;
   margin-bottom: 15px;
 }
@@ -480,7 +480,7 @@ async function savePeriods() {
   border: none;
   width: 28px;
   height: 28px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -496,7 +496,7 @@ async function savePeriods() {
 
 .btn-delete:hover {
   background-color: rgba(239, 68, 68, 0.15);
-  color: var(--accent-danger, #EF4444);
+  color: var(--accent-danger, var(--accent-danger));
 }
 
 .inline-input {
@@ -535,7 +535,7 @@ async function savePeriods() {
 
 .date-text.locked {
   font-style: italic;
-  color: var(--text-muted, #9CA3AF);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .input-date-inline {
@@ -543,7 +543,7 @@ async function savePeriods() {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-family: monospace;
   font-size: 12.5px;
   outline: none;
@@ -563,7 +563,7 @@ async function savePeriods() {
 
 .btn {
   padding: 6px 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-weight: 500;
   font-size: 12.5px;
   cursor: pointer;

@@ -180,9 +180,9 @@ const colorPalette = [
 /* Panneau de la palette */
 .swatch-panel {
   z-index: 9999;
-  background: #202632;
-  border: 1px solid #2b3342;
-  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
   padding: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.6);
   display: flex;
@@ -216,12 +216,12 @@ const colorPalette = [
 
 .swatch-btn:hover {
   transform: scale(1.2);
-  border-color: #fff;
+  border-color: var(--bg-card);
 }
 
 .swatch-btn.active {
-  border-color: #fff;
-  box-shadow: 0 0 0 2px #6366f1;
+  border-color: var(--bg-card);
+  box-shadow: 0 0 0 2px var(--accent-primary);
   transform: scale(1.1);
 }
 
@@ -229,12 +229,12 @@ const colorPalette = [
   display: flex;
   align-items: center;
   gap: 6px;
-  border-top: 1px solid #2b3342;
+  border-top: 1px solid var(--border-color);
   padding-top: 8px;
 }
 
 .hex-hash {
-  color: #6b7280;
+  color: var(--text-secondary);
   font-family: monospace;
   font-weight: 700;
   font-size: 13px;
@@ -243,10 +243,10 @@ const colorPalette = [
 .hex-input {
   flex: 1;
   background: rgba(10,12,16,0.6);
-  border: 1px solid #2b3342;
-  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 2px 6px;
-  color: #f3f4f6;
+  color: var(--text-primary);
   font-family: monospace;
   font-size: 12px;
   outline: none;
@@ -254,7 +254,7 @@ const colorPalette = [
 }
 
 .hex-input:focus {
-  border-color: #6366f1;
+  border-color: var(--accent-primary);
 }
 
 .hex-preview {
@@ -269,7 +269,7 @@ const colorPalette = [
   width: 100%;
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.25);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   color: #f87171;
   font-size: 12px;
   font-family: var(--font-sans, sans-serif);

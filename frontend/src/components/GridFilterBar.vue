@@ -46,7 +46,7 @@
         <div 
           v-if="openDropdownType"
           class="resource-dropdown-panel"
-          style="position: fixed; z-index: 999; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
+          style="position: fixed; z-index: 999; background: white; border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-height: 280px; overflow-y: auto; min-width: 240px;"
           :style="dropdownPos"
           @click.stop
         >
@@ -54,7 +54,7 @@
             <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectAll(openDropdownType)">Tout</button>
             <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectNone(openDropdownType)">Rien</button>
           </div>
-          <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid #f3f4f6;">
+          <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid var(--text-primary);">
             <input 
               type="checkbox" 
               :value="r.id" 
@@ -63,7 +63,7 @@
             />
             <span style="flex: 1; font-size: 13px;">{{ r.display_name }}</span>
           </label>
-          <div v-if="getActiveList(openDropdownType).length === 0" style="padding: 12px; color: #9ca3af; text-align: center; font-size: 13px;">Aucune ressource</div>
+          <div v-if="getActiveList(openDropdownType).length === 0" style="padding: 12px; color: var(--text-muted); text-align: center; font-size: 13px;">Aucune ressource</div>
         </div>
       </Teleport>
     </template>
@@ -444,10 +444,10 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--bg-card);
   padding: 4px 8px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--border-color);
   cursor: pointer;
   user-select: none;
   font-size: 11px;
@@ -467,7 +467,7 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
   width: 32px;
   height: 18px;
   background: rgba(0, 0, 0, 0.15);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   position: relative;
   transition: background 0.3s;
 }

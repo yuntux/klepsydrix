@@ -99,7 +99,7 @@ function updateBrush(value: BrushType) {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -118,28 +118,28 @@ function updateBrush(value: BrushType) {
 
 .btn-brush.brush-preferred.active {
   background-color: rgba(16, 185, 129, 0.15);
-  border-color: #10b981;
+  border-color: var(--accent-success);
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
-  color: #10b981;
+  color: var(--accent-success);
 }
 
 .btn-brush.brush-undesirable.active {
   background-color: rgba(245, 158, 11, 0.15);
-  border-color: #f59e0b;
+  border-color: var(--accent-warning);
   box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
-  color: #f59e0b;
+  color: var(--accent-warning);
 }
 
 .btn-brush.brush-unsuited.active {
   background-color: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
+  border-color: var(--accent-danger);
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
-  color: #ef4444;
+  color: var(--accent-danger);
 }
 
 .btn-brush.brush-neutral.active {
   background-color: var(--bg-surface);
-  border-color: #9ca3af;
+  border-color: var(--text-muted);
   color: var(--text-primary);
 }
 
@@ -149,8 +149,8 @@ function updateBrush(value: BrushType) {
   border-radius: 50%;
 }
 
-.bg-green { background-color: #10b981; }
-.bg-orange { background-color: #f59e0b; }
-.bg-red { background-color: #ef4444; }
-.bg-neutral { background-color: #6b7280; }
+.bg-green { background-color: var(--accent-success); }
+.bg-orange { background-color: var(--accent-warning); }
+.bg-red { background-color: var(--accent-danger); }
+.bg-neutral { background-color: var(--text-secondary); }
 </style>

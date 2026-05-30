@@ -93,7 +93,7 @@ defineEmits<{
   max-width: 580px;
   background: rgba(30, 36, 48, 0.95);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
   padding: 24px;
   display: flex;
@@ -131,7 +131,7 @@ defineEmits<{
   background-color: rgba(239, 68, 68, 0.15);
   color: #f87171;
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -157,7 +157,7 @@ defineEmits<{
 
 .modal-subtitle {
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .modal-body {
@@ -168,11 +168,11 @@ defineEmits<{
 
 .alert-message {
   background-color: rgba(239, 68, 68, 0.08);
-  border-left: 4px solid #ef4444;
+  border-left: 4px solid var(--accent-danger);
   padding: 12px 16px;
   border-radius: 0 8px 8px 0;
   font-size: 14px;
-  color: #f3f4f6;
+  color: var(--text-primary);
   line-height: 1.5;
 }
 
@@ -185,7 +185,7 @@ defineEmits<{
   background-color: rgba(239, 68, 68, 0.2);
   color: #f87171;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 700;
 }
@@ -199,7 +199,7 @@ defineEmits<{
 .list-header {
   font-size: 13px;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -209,7 +209,7 @@ defineEmits<{
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background-color: rgba(10, 12, 16, 0.35);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -223,7 +223,7 @@ defineEmits<{
   padding: 10px 12px;
   background-color: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   transition: background-color 0.2s;
 }
 
@@ -245,7 +245,7 @@ defineEmits<{
 
 .session-reason {
   font-size: 11px;
-  color: #ef4444;
+  color: var(--accent-danger);
 }
 
 .session-meta {
@@ -258,7 +258,7 @@ defineEmits<{
   color: #818cf8;
   border: 1px solid rgba(99, 102, 241, 0.25);
   padding: 3px 8px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
 }
@@ -266,7 +266,7 @@ defineEmits<{
 .confirmation-question {
   font-size: 13.5px;
   font-weight: 500;
-  color: #e5e7eb;
+  color: var(--bg-secondary);
 }
 
 .modal-footer {
@@ -284,7 +284,7 @@ defineEmits<{
   justify-content: center;
   gap: 8px;
   padding: 10px 20px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -296,7 +296,7 @@ defineEmits<{
 .btn-secondary {
   background-color: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e5e7eb;
+  color: var(--bg-secondary);
 }
 
 .btn-secondary:hover {
@@ -305,7 +305,7 @@ defineEmits<{
 }
 
 .btn-danger {
-  background-color: #ef4444;
+  background-color: var(--accent-danger);
   border: none;
   color: #fff;
 }

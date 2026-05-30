@@ -340,7 +340,7 @@ const consolidatedWeeks = computed(() => {
   color: var(--accent-primary);
   border: 1px solid rgba(99, 102, 241, 0.2);
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
 }
 
 .btn-close {
@@ -351,7 +351,7 @@ const consolidatedWeeks = computed(() => {
   cursor: pointer;
   line-height: 1;
   padding: 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   transition: all 0.2s;
 }
 

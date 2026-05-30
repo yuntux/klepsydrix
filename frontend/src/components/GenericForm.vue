@@ -859,7 +859,7 @@ function handleDelete() {
   max-width: 95%;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   overflow: visible;
   box-shadow: var(--shadow-lg), 0 0 30px rgba(99, 102, 241, 0.15);
   display: flex;
@@ -925,7 +925,7 @@ function handleDelete() {
   box-sizing: border-box;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 10px 14px;
   color: var(--text-primary);
   font-size: 14px;
@@ -1043,8 +1043,8 @@ input:checked + .slider:before {
 .inline-form-container {
   width: 100%;
   height: 100%;
-  background-color: #FFFFFF;
-  border-left: 1px solid #E2E8F0;
+  background-color: var(--bg-card);
+  border-left: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
 }
@@ -1057,38 +1057,38 @@ input:checked + .slider:before {
 }
 
 .generic-form-inline .form-header {
-  background-color: #F8FAFC;
-  border-bottom: 1px solid #E2E8F0;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
   padding: 14px 20px;
 }
 
 .generic-form-inline .form-title {
-  color: #1E293B;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .generic-form-inline .form-body {
   padding: 10px;
-  background-color: #FFFFFF;
+  background-color: var(--bg-card);
   overflow-y: auto;
   flex: 1;
 }
 
 .generic-form-inline .form-input,
 .generic-form-inline .form-select {
-  background-color: #F8FAFC;
-  border: 1px solid #CBD5E1;
-  color: #1E293B;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .generic-form-inline .form-input:focus,
 .generic-form-inline .form-select:focus {
-  border-color: #6366F1;
-  background-color: #FFFFFF;
+  border-color: var(--accent-primary);
+  background-color: var(--bg-card);
 }
 
 .generic-form-inline .form-label {
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .form-input:disabled, .form-select:disabled, .select-custom:disabled {
@@ -1113,7 +1113,7 @@ input:checked + .slider:before {
   padding: 8px 12px;
   background-color: var(--bg-surface);
   border: 1px dashed var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
 }
 
 .group-title {
@@ -1195,18 +1195,18 @@ input:checked + .slider:before {
   visibility: hidden;
   opacity: 0;
   width: 250px;
-  background-color: #1e293b; /* slate-800 dark background */
-  color: #f8fafc; /* slate-50 light text */
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
   text-align: left;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   position: absolute;
   z-index: 1000;
   bottom: 125%; /* Position the tooltip above the text */
   left: 50%;
   transform: translateX(-50%);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-color);
   font-size: 12px;
   font-weight: normal;
   line-height: 1.5;
@@ -1224,7 +1224,7 @@ input:checked + .slider:before {
   margin-left: -5px;
   border-width: 5px;
   border-style: solid;
-  border-color: #1e293b transparent transparent transparent;
+  border-color: var(--bg-secondary) transparent transparent transparent;
 }
 
 .help-tooltip-wrapper:hover .help-tooltip {
@@ -1235,7 +1235,7 @@ input:checked + .slider:before {
 /* Basic styling inside the parsed markdown tooltip */
 .help-tooltip strong {
   font-weight: bold;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .help-tooltip em {
@@ -1243,9 +1243,10 @@ input:checked + .slider:before {
 }
 
 .help-tooltip code {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: var(--bg-surface);
+  color: var(--accent-primary);
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-family: monospace;
   font-size: 11px;
 }
@@ -1264,9 +1265,9 @@ input:checked + .slider:before {
 .multi-edit-banner {
   display: flex;
   gap: 12px;
-  background-color: #f0fdf4; /* Light green background */
-  border: 1px solid #bbf7d0; /* Green border */
-  border-radius: 6px;
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-lg);
   padding: 12px 16px;
   margin-bottom: 15px;
 }
@@ -1282,21 +1283,21 @@ input:checked + .slider:before {
 .multi-edit-banner-title {
   font-size: 14px;
   font-weight: 700;
-  color: #166534; /* Dark green text */
+  color: var(--accent-success);
 }
 .multi-edit-banner-text {
   font-size: 12px;
-  color: #15803d;
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 .field-modified-badge {
-  background-color: #d1fae5; /* Green 100 */
-  color: #065f46; /* Green 800 */
-  border: 1px solid #a7f3d0;
+  background-color: rgba(16, 185, 129, 0.15);
+  color: var(--accent-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   margin-left: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1305,21 +1306,22 @@ input:checked + .slider:before {
   gap: 2px;
 }
 .field-modified-badge-inline {
-  background-color: #d1fae5;
-  color: #065f46;
-  border: 1px solid #a7f3d0;
+  background-color: rgba(16, 185, 129, 0.15);
+  color: var(--accent-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
   font-size: 10px;
   font-weight: 700;
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .form-input-divergent, .form-select-divergent {
-  background-color: #e5e7eb !important;
+  background-color: rgba(156, 163, 175, 0.1) !important;
   border-style: dashed !important;
-  color: #9ca3af !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-muted) !important;
 }
 .form-input-modified, .form-select-modified {
-  border-color: #10b981 !important;
+  border-color: var(--accent-success) !important;
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
 }
 .switch-divergent {
@@ -1330,19 +1332,19 @@ input:checked + .slider:before {
   border-radius: 34px;
 }
 .status-divergent {
-  color: #9ca3af !important;
+  color: var(--text-muted) !important;
   font-style: italic;
 }
 .color-swatch-divergent {
   opacity: 0.6;
-  border: 1px dashed #9ca3af;
+  border: 1px dashed var(--text-muted);
 }
 .color-swatch-modified {
-  border: 2px solid #10b981;
+  border: 2px solid var(--accent-success);
 }
 .color-divergent-text {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-style: italic;
   margin-left: 8px;
 }

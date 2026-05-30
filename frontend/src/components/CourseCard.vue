@@ -8,7 +8,7 @@
       bottom: isPlaced ? 'auto' : undefined,
       zIndex: isPlaced ? 10 : undefined,
       position: isPlaced ? 'absolute' : 'relative',
-      color: 'var(--text-primary)',
+      color: backgroundColor ? '#0F172A' : 'var(--text-primary)',
       borderLeftColor: backgroundColor ? 'rgba(0, 0, 0, 0.1)' : 'var(--accent-primary)',
       width: isPlaced && overlapCount && overlapCount > 1 ? `calc(${100 / overlapCount}% - ${(overlapIndex === overlapCount - 1) ? 8 : 4}px)` : undefined,
       left: isPlaced && overlapCount && overlapCount > 1 ? `calc(${(100 / overlapCount) * (overlapIndex || 0)}% + 4px)` : undefined,
@@ -21,7 +21,7 @@
     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
       <span class="placed-subject">{{ course.subject }}</span>
       <div v-if="isPlaced" style="display: flex; align-items: center; gap: 2px;">
-        <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'">
+        <button @click.stop="$emit('togglePin', course.id)" class="pin-btn" :class="{ 'is-pinned': course.is_pinned }" :title="course.is_pinned ? 'Déverrouiller le cours' : 'Verrouiller le cours'" :style="{ color: backgroundColor ? '#334155' : undefined }">
           <svg v-if="course.is_pinned" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="lock-icon">
             <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
           </svg>
@@ -29,7 +29,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h16.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 12v8.25a1.5 1.5 0 0 0 1.5 1.5Z" />
           </svg>
         </button>
-        <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille">
+        <button @click.stop="$emit('unassign', course.id)" class="unassign-btn" title="Retirer de la grille" :style="{ color: backgroundColor ? '#334155' : undefined }">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
@@ -43,7 +43,7 @@
     </div>
 
     <div style="display: flex; justify-content: space-between; align-items: flex-end; flex: 1; min-height: 0; gap: 4px; overflow: hidden;">
-      <div class="placed-meta" style="color: var(--text-secondary)">
+      <div class="placed-meta" :style="{ color: backgroundColor ? '#334155' : 'var(--text-secondary)' }">
         <div v-if="teachersText" class="text-truncate">👨‍🏫 {{ teachersText }}</div>
         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
           <span v-if="divisionsText" class="text-truncate">👥 {{ divisionsText }}</span>
@@ -98,7 +98,7 @@ const formattedDuration = computed(() => {
   left: 4px;
   right: 4px;
   bottom: 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 8px;
   font-size: 12px;
   display: flex;
@@ -165,7 +165,7 @@ const formattedDuration = computed(() => {
 .pin-btn, .unassign-btn {
   background: rgba(255, 255, 255, 0.2);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   width: 20px;
   height: 20px;
   display: flex;
@@ -202,7 +202,7 @@ const formattedDuration = computed(() => {
   font-size: 11.5px;
   background: rgba(0, 0, 0, 0.05);
   padding: 2.5px 7px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   font-weight: bold;
   font-family: monospace;
 }
@@ -211,7 +211,7 @@ const formattedDuration = computed(() => {
   font-size: 11px;
   font-weight: 800;
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   line-height: 1.1;
   background: rgba(0, 0, 0, 0.1);
 }

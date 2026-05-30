@@ -926,7 +926,7 @@ function onDrop(event: DragEvent, index: number) {
 <style scoped>
 /* Validation visuelle pour les champs requis */
 .inline-input:invalid, .inline-select:invalid, .inline-number:invalid {
-  border-color: #ef4444 !important;
+  border-color: var(--accent-danger) !important;
   background-color: #fef2f2 !important;
   outline: 2px solid #fca5a5 !important;
 }
@@ -937,7 +937,7 @@ function onDrop(event: DragEvent, index: number) {
   width: 100%;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
@@ -969,7 +969,7 @@ function onDrop(event: DragEvent, index: number) {
   color: var(--accent-primary);
   border: 1px solid rgba(99, 102, 241, 0.25);
   padding: 2px 8px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1004,7 +1004,7 @@ function onDrop(event: DragEvent, index: number) {
   width: 220px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: 100;
   padding: 12px;
@@ -1040,7 +1040,7 @@ function onDrop(event: DragEvent, index: number) {
   color: var(--text-primary);
   cursor: pointer;
   padding: 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   transition: background-color var(--transition-fast);
 }
 
@@ -1152,7 +1152,7 @@ function onDrop(event: DragEvent, index: number) {
   width: 100%;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 5px 10px;
   color: var(--text-primary);
   font-size: 12px;
@@ -1243,7 +1243,7 @@ function onDrop(event: DragEvent, index: number) {
   border: none;
   width: 28px;
   height: 28px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1270,7 +1270,7 @@ function onDrop(event: DragEvent, index: number) {
 /* Badges */
 .badge-boolean {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1310,7 +1310,7 @@ function onDrop(event: DragEvent, index: number) {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
   cursor: pointer;
   height: 22px;
@@ -1340,7 +1340,7 @@ function onDrop(event: DragEvent, index: number) {
   background-color: transparent;
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
@@ -1378,7 +1378,7 @@ function onDrop(event: DragEvent, index: number) {
   border: 1px solid transparent;
   color: var(--text-primary);
   padding: 6px 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
   font-family: var(--font-sans);
   font-size: 13px;
@@ -1414,7 +1414,7 @@ function onDrop(event: DragEvent, index: number) {
 .inline-color-select {
   width: 100%;
   border: 1px solid var(--border-color);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 4px 8px;
   font-family: monospace;
   font-size: 12px;
@@ -1532,7 +1532,7 @@ input:checked + .inline-slider:before {
   cursor: pointer;
   color: var(--text-muted);
   padding: 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1620,10 +1620,10 @@ input:checked + .inline-slider:before {
   visibility: hidden;
   opacity: 0;
   width: 250px;
-  background-color: #1e293b; /* slate-800 dark background */
-  color: #f8fafc; /* slate-50 light text */
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
   text-align: left;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   position: absolute;
   z-index: 1000;
@@ -1649,7 +1649,7 @@ input:checked + .inline-slider:before {
   margin-left: -5px;
   border-width: 5px;
   border-style: solid;
-  border-color: #1e293b transparent transparent transparent;
+  border-color: var(--bg-secondary) transparent transparent transparent;
 }
 
 .help-tooltip-wrapper:hover .help-tooltip {
@@ -1660,7 +1660,7 @@ input:checked + .inline-slider:before {
 /* Basic styling inside the parsed markdown tooltip */
 .help-tooltip strong {
   font-weight: bold;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .help-tooltip em {
@@ -1670,7 +1670,7 @@ input:checked + .inline-slider:before {
 .help-tooltip code {
   background-color: rgba(255, 255, 255, 0.15);
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-family: monospace;
   font-size: 11px;
 }
@@ -1694,6 +1694,6 @@ input:checked + .inline-slider:before {
 .help-tooltip.tooltip-bottom::after {
   bottom: 100%;
   top: auto;
-  border-color: transparent transparent #1e293b transparent;
+  border-color: transparent transparent var(--bg-secondary) transparent;
 }
 </style>
