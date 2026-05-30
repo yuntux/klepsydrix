@@ -12,6 +12,7 @@ def seed_v2_data():
     print("[SEED V2] Initialisation de la base de données avec le jeu d'essai V2...")
     from backend.app.models.base import Base
     import backend.app.models
+    from backend.app.models.timeslot import Timeslot
     
     # 1. Recréer toutes les tables pour repartir à blanc
     Base.metadata.drop_all(bind=engine)

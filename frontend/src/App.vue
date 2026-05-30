@@ -867,7 +867,6 @@ const columnsConfig = computed(() => {
   }
   // ---------------------------------------------------
   return [];
-  return [];
 });
 
 // Configurations dynamiques de champs pour GenericForm
