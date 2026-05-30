@@ -350,6 +350,26 @@ def seed_v2_data():
                 db.execute(text("INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"), {"course_id": course_id, "division_id": d_id})
                 course_count += 1
                 
+        # 14. Création de contraintes métier entre les matières
+        print("[SEED V2] Ajout des contraintes matière (SubjectToSubjectConstraint)...")
+        # Contrainte 1 : Interdire les cours de maths après les cours d'EPS
+        db.execute(text(
+            "INSERT INTO subject_to_subject_constraints (target_subject_a_id, target_subject_b_id, is_optional, prevent_consecutive_a_then_b, incompatible_same_day, incompatible_same_half_day, incompatible_two_consecutive_days, weekly_order, group_course_order, max_separation) "
+            "VALUES (:eps_id, :maths_id, 0, 1, 0, 0, 0, 'NONE', 'NONE', 'NONE')"
+        ), {"eps_id": subject_ids["EPS"], "maths_id": subject_ids["MATHS"]})
+        
+        # Contrainte 2 : Max 2 heures de français par jour
+        db.execute(text(
+            "INSERT INTO subject_to_subject_constraints (target_subject_a_id, target_subject_b_id, is_optional, max_hours_per_day, incompatible_same_day, incompatible_same_half_day, incompatible_two_consecutive_days, weekly_order, group_course_order, max_separation) "
+            "VALUES (:fran_id, :fran_id, 0, 2.0, 0, 0, 0, 'NONE', 'NONE', 'NONE')"
+        ), {"fran_id": subject_ids["FRAN"]})
+        
+        # Contrainte 3 : 2 jours minimum entre deux cours d'EPS
+        db.execute(text(
+            "INSERT INTO subject_to_subject_constraints (target_subject_a_id, target_subject_b_id, is_optional, min_free_half_days_between, incompatible_same_day, incompatible_same_half_day, incompatible_two_consecutive_days, weekly_order, group_course_order, max_separation) "
+            "VALUES (:eps_id, :eps_id, 0, 4, 0, 0, 0, 'NONE', 'NONE', 'NONE')"
+        ), {"eps_id": subject_ids["EPS"]})
+        
         db.commit()
         print(f"[SEED V2] Succès ! Jeu d'essai V2 généré avec : 2 établissements, 9 disciplines, 9 matières, 40 profs, {len(divisions)} divisions, {len(classrooms)} salles et {course_count} cours/séances.")
         

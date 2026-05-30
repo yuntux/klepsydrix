@@ -62,8 +62,8 @@ class SubjectToSubjectConstraint(Base):
     __table_args__ = (UniqueConstraint('target_subject_a_id', 'target_subject_b_id', name='uix_subject_a_b'),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    target_subject_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière cible (A)"})
-    target_subject_b_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière cible (B)", "help": "La seconde matière impliquée dans la contrainte."})
+    target_subject_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière A"})
+    target_subject_b_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière B"})
 
     is_optional: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Optionnelle", "help": "Si coché, la contrainte est traitée comme un vœu (soft) plutôt que stricte (hard)."})
 
@@ -162,9 +162,9 @@ class SubjectToSubjectConstraint(Base):
 
     def update(self, db, vals):
         if 'target_subject_a_id' in vals and vals['target_subject_a_id'] != self.target_subject_a_id:
-            raise ValueError("Il n'est pas possible de modifier target_subject_a_id après création.")
+            raise ValueError("Il n'est pas possible de modifier les matières associées après création.")
         if 'target_subject_b_id' in vals and vals['target_subject_b_id'] != self.target_subject_b_id:
-            raise ValueError("Il n'est pas possible de modifier target_subject_b_id après création.")
+            raise ValueError("Il n'est pas possible de modifier les matières associées après création.")
 
         self._apply_business_rules(vals, is_update=True, current_obj=self)
         return super().update(db, vals)

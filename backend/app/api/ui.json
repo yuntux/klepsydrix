@@ -750,15 +750,15 @@
                       "children": [
                         {
                           "key": "weekly_order",
-                          "readOnly": false
+                          "readOnly": "model.target_subject_a_id && model.target_subject_b_id && model.target_subject_a_id === model.target_subject_b_id"
                         },
                         {
                           "key": "group_course_order",
-                          "readOnly": false
+                          "readOnly": "model.target_subject_a_id && model.target_subject_b_id && model.target_subject_a_id !== model.target_subject_b_id"
                         },
                         {
                           "key": "max_separation",
-                          "readOnly": false
+                          "readOnly": "model.target_subject_a_id && model.target_subject_b_id && model.target_subject_a_id !== model.target_subject_b_id"
                         }
                       ]
                     }
