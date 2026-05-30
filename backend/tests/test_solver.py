@@ -718,8 +718,9 @@ def test_get_linked_groups(db_session: Session):
     assert g_c.id in linked_to_a_ids
     assert g_b.id not in linked_to_a_ids  # cp_a et cp_b sont dans la meme partition, donc pas de lien direct
 
-
 def test_course_to_course_constraints(db_session: Session):
+    import os
+    os.environ["SOLVER_TIME_LIMIT_SECONDS"] = "5"
     from backend.app.models.constraint import course_constraint_associations
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()

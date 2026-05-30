@@ -201,9 +201,14 @@ def time_to_minutes(time_str: str) -> int:
 
 
 def periods_overlap(periods_a: List[int], periods_b: List[int]) -> bool:
-    if not periods_a or not periods_b:
+    if len(periods_a) == 0 or len(periods_b) == 0:
         return True
-    return any(p in periods_b for p in periods_a)
+    if periods_a == periods_b:
+        return True
+    for pa in periods_a:
+        if pa in periods_b:
+            return True
+    return False
 
 
 @constraint_provider
@@ -932,6 +937,9 @@ def _share_reference_period(c1: PlanningCourse, c2: PlanningCourse, scope: str, 
         return c1.week_type == c2.week_type or c1.week_type == "T" or c2.week_type == "T"
         
     if not weeks_overlap(c1.week_type, c2.week_type):
+        return False
+        
+    if not periods_overlap(c1.period_ids, c2.period_ids):
         return False
         
     if scope == "SLOT":
