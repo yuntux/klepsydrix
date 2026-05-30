@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Date
+from sqlalchemy import Column, Integer, String, Date, Float
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
 
@@ -13,6 +13,11 @@ class School(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom de l'établissement", "placeholder": "ex: Collège Jean Jaurès"})
     student_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de rentrée des élèves"})
     student_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de sortie des élèves"})
+
+    # Limites de poids pédagogique (matières lourdes)
+    max_pedagogic_weight_per_day: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"label": "Poids pédagogique max par jour", "min": "0.0", "step": "0.5"})
+    max_pedagogic_weight_per_morning: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"label": "Poids pédagogique max par matinée", "min": "0.0", "step": "0.5"})
+    max_pedagogic_weight_per_afternoon: Mapped[Optional[float]] = mapped_column(Float, nullable=True, info={"label": "Poids pédagogique max par après-midi", "min": "0.0", "step": "0.5"})
 
     # Relations de navigation
     teachers: Mapped[list["Teacher"]] = relationship("Teacher", back_populates="school", passive_deletes="all", info={"label": "Enseignants"})

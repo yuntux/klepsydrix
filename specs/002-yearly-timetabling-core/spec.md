@@ -282,6 +282,9 @@ Représente une entité administrative scolaire autonome (un collège, un lycée
 *   `postal_code` : Code postal (Chaîne)
 *   `student_start_date` : Date de rentrée des élèves (Date, e.g. "2026-09-02")
 *   `student_end_date` : Date de sortie des élèves (Date, e.g. "2027-07-04")
+*   `max_pedagogic_weight_per_day` : Limite du poids pédagogique cumulé (matières lourdes) autorisé par jour (Flottant, optionnel)
+*   `max_pedagogic_weight_per_morning` : Limite du poids pédagogique cumulé autorisé par matinée (Flottant, optionnel)
+*   `max_pedagogic_weight_per_afternoon` : Limite du poids pédagogique cumulé autorisé par après-midi (Flottant, optionnel)
 
 > [!NOTE]
 > **Gestion globale de la granularité et combinatoire :** 

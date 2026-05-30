@@ -108,7 +108,7 @@ def seed_v2_data():
         for day in range(1, 7):
             m_val = 480
             while m_val < 1080:
-                if day == 3 and m_val >= 720:
+                if day == 3 and m_val >= Timeslot.get_noon_boundary_minutes():
                     m_val += 15
                     continue
                 db.execute(text("INSERT INTO timeslots (day_of_week, minutes_from_midnight) VALUES (:day, :minutes_from_midnight)"), {"day": day, "minutes_from_midnight": m_val})
