@@ -847,8 +847,8 @@ def test_course_to_course_constraints(db_session: Session):
     ts_hd1 = db_session.get(Timeslot, course_hd_1.timeslot_id)
     ts_hd2 = db_session.get(Timeslot, course_hd_2.timeslot_id)
     if ts_hd1.day_of_week == ts_hd2.day_of_week:
-        hd1_am = ts_hd1.minutes_from_midnight < 720
-        hd2_am = ts_hd2.minutes_from_midnight < 720
+        hd1_am = ts_hd1.minutes_from_midnight < Timeslot.get_noon_boundary_minutes()
+        hd2_am = ts_hd2.minutes_from_midnight < Timeslot.get_noon_boundary_minutes()
         assert hd1_am != hd2_am
 
     # FORCE_SAME_SCOPE (CUSTOM_HALF_DAYS) : même bloc de 4 demi-journées (2 jours)
@@ -865,10 +865,10 @@ def test_share_reference_period():
     from backend.app.solver.constraints import _share_reference_period, PlanningCourse, PlanningTimeslot
     
     # Création des timeslots de test
-    ts1 = PlanningTimeslot(id=1, day_of_week=1, minutes_from_midnight=540, absolute_end_of_day=18.0)
-    ts2 = PlanningTimeslot(id=2, day_of_week=1, minutes_from_midnight=600, absolute_end_of_day=18.0) # même jour, même demi-journée (matin)
-    ts3 = PlanningTimeslot(id=3, day_of_week=1, minutes_from_midnight=840, absolute_end_of_day=18.0) # même jour, après-midi
-    ts4 = PlanningTimeslot(id=4, day_of_week=2, minutes_from_midnight=540, absolute_end_of_day=18.0)  # jour différent
+    ts1 = PlanningTimeslot(id=1, day_of_week=1, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes())
+    ts2 = PlanningTimeslot(id=2, day_of_week=1, minutes_from_midnight=600, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes()) # même jour, même demi-journée (matin)
+    ts3 = PlanningTimeslot(id=3, day_of_week=1, minutes_from_midnight=840, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes()) # même jour, après-midi
+    ts4 = PlanningTimeslot(id=4, day_of_week=2, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes())  # jour différent
     
     c1 = PlanningCourse(id=1, duration_minutes=60, timeslot=ts1, week_type="A")
     c2 = PlanningCourse(id=2, duration_minutes=60, timeslot=ts2, week_type="A")
@@ -898,7 +898,7 @@ def test_share_reference_period():
     
     # 5. CUSTOM_HALF_DAYS (ex: n=4 demi-journées, soit tranches de 2 jours)
     assert _share_reference_period(c1, c4, "CUSTOM_HALF_DAYS", 4)
-    ts_wed = PlanningTimeslot(id=5, day_of_week=3, minutes_from_midnight=540, absolute_end_of_day=18.0)
+    ts_wed = PlanningTimeslot(id=5, day_of_week=3, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes())
     c_wed = PlanningCourse(id=7, duration_minutes=60, timeslot=ts_wed, week_type="A")
     assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)
 
@@ -1131,7 +1131,8 @@ def setup_group_course_order_scenario(db_session, enum_value, pin_c1_day, pin_c2
     div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV3", "mef_id": mef.id})
     
     part = Partition.create(db_session, {"division_id": div.id, "code": f"P_{uai_val}", "name": "PART"})
-    cp = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP_{uai_val}", "name": "CP"})
+    cp1 = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP1_{uai_val}", "name": "CP1"})
+    cp2 = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP2_{uai_val}", "name": "CP2"})
     
     # Create grid to avoid overflow and unique constraints
     timeslots = {}
@@ -1143,23 +1144,26 @@ def setup_group_course_order_scenario(db_session, enum_value, pin_c1_day, pin_c2
             if minutes == 480:
                 timeslots[day] = ts.id
 
-    cr = Classroom.create(db_session, {"school_id": sch.id, "code": f"R3_{uai_val}", "name": "Room 3", "capacity": 30})
+    cr1 = Classroom.create(db_session, {"school_id": sch.id, "code": f"R1_{uai_val}", "name": "Room 1", "capacity": 30})
+    cr2 = Classroom.create(db_session, {"school_id": sch.id, "code": f"R2_{uai_val}", "name": "Room 2", "capacity": 30})
+    cr3 = Classroom.create(db_session, {"school_id": sch.id, "code": f"R3_{uai_val}", "name": "Room 3", "capacity": 30})
 
     # c1 = FULL CLASS
-    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id], "timeslot_id": timeslots[pin_c1_day], "classroom_ids": [cr.id], "is_pinned": True})
+    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "division_ids": [div.id], "timeslot_id": timeslots[pin_c1_day], "classroom_ids": [cr1.id], "is_pinned": True})
     
     # c2 = GROUP CLASS 1
-    c2 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp.id], "timeslot_id": timeslots[pin_c2_day], "classroom_ids": [cr.id], "is_pinned": True})
+    c2 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp1.id], "timeslot_id": timeslots[pin_c2_day], "classroom_ids": [cr2.id], "is_pinned": True})
 
     if pin_c3_day:
         # c3 = GROUP CLASS 2
-        c3 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp.id], "timeslot_id": timeslots[pin_c3_day], "classroom_ids": [cr.id], "is_pinned": True})
+        c3 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub.id, "duration_minutes": 60, "class_part_ids": [cp2.id], "timeslot_id": timeslots[pin_c3_day], "classroom_ids": [cr3.id], "is_pinned": True})
 
     SubjectToSubjectConstraint.create(db_session, {
         "target_subject_a_id": sub.id,
         "target_subject_b_id": sub.id,
         "group_course_order": enum_value,
-        "is_optional": False
+        "is_optional": False,
+        "incompatible_same_day": False
     })
     
     db_session.commit()
@@ -1217,3 +1221,60 @@ def test_group_course_order_before_or_after_fortnight(db_session: Session):
     sch = setup_group_course_order_scenario(db_session, "GROUP_BEFORE_OR_AFTER_FORTNIGHT", pin_c1_day=2, pin_c2_day=3, pin_c3_day=3)
     solution = _solve_timetable_job(db_session, sch.id)
     assert solution.score.hard_score < 0
+
+def test_solver_pedagogic_weight_limits(db_session: Session):
+    from backend.app.models.school import School
+    from backend.app.models.subject import Subject
+    from backend.app.models.course import Course
+    from backend.app.models.division import Division
+    from backend.app.models.mef import Mef
+    from backend.app.models.discipline import Discipline
+    from datetime import date
+    import uuid
+
+    uai_val = str(uuid.uuid4())[:8]
+    # Limite à 3.0 de poids par jour, 1.5 par matinée, 2.0 par aprem
+    sch = School.create(db_session, {
+        "uai": uai_val, 
+        "name": "Sch", 
+        "student_start_date": date(2026, 9, 1), 
+        "student_end_date": date(2027, 6, 30),
+        "max_pedagogic_weight_per_day": 3.0,
+        "max_pedagogic_weight_per_morning": 1.5,
+        "max_pedagogic_weight_per_afternoon": 2.0
+    })
+    
+    disc = Discipline.create(db_session, {"code": f"D_{uai_val}", "name": "D"})
+    
+    # Matière très lourde : Mathématiques (Poids 2.0)
+    sub_math = Subject.create(db_session, {"code": f"MATH_{uai_val}", "code_nomenclature": f"M_{uai_val}", "discipline_id": disc.id, "short_name": "Math", "name": "Math", "pedagogic_weight": 2.0})
+    
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"MEF_{uai_val}", "name": "M", "max_students_per_class": 30, "forecast_student_count": 30})
+    div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV", "mef_id": mef.id})
+
+    cr1 = Classroom.create(db_session, {"school_id": sch.id, "code": f"RM_{uai_val}", "name": "Room"})
+
+    # Lundi = 1
+    for m in [480, 510, 540, 570]:
+        ts = db_session.query(Timeslot).filter_by(day_of_week=1, minutes_from_midnight=m).first()
+        if not ts:
+            Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": m})
+            
+    ts_am1 = db_session.query(Timeslot).filter_by(day_of_week=1, minutes_from_midnight=480).first()
+
+    # 120 minutes (2 heures) de Math. Poids total = 2.0 * 2 = 4.0
+    c1 = Course.create(db_session, {"school_id": sch.id, "subject_id": sub_math.id, "duration_minutes": 120, "division_ids": [div.id], "timeslot_id": ts_am1.id, "classroom_ids": [cr1.id], "is_pinned": True})
+
+    db_session.commit()
+    from backend.app.solver.solver import _solve_timetable_job
+    solution1 = _solve_timetable_job(db_session, sch.id)
+    
+    # Dépassement matinée: 4.0 - 1.5 = 2.5 (25 penalité)
+    # Dépassement journée: 4.0 - 3.0 = 1.0 (10 penalité)
+    assert solution1.score.hard_score <= -35
+    
+    # Reduit à 30 minutes. Poids = 2.0 * 0.5 = 1.0. Sous la limite (1.5)
+    c1.update(db_session, {"duration_minutes": 30})
+    db_session.commit()
+    solution2 = _solve_timetable_job(db_session, sch.id)
+    assert solution2.score.hard_score == 0

@@ -92,7 +92,22 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     teachers_map = {t.id: PlanningTeacher(t.id, t.display_name) for t in db_teachers}
     non_teaching_staffs_map = {s.id: PlanningNonTeachingStaff(s.id, s.first_name, s.last_name) for s in db_non_teaching_staffs}
     classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
-    divisions_map = {d.id: PlanningDivision(d.id, d.name) for d in db_divisions}
+    from backend.app.models.school import School
+    sch_limits = {}
+    if school_id is not None:
+        school_obj = db.execute(select(School).filter(School.id == school_id)).scalars().first()
+        if school_obj:
+            sch_limits["day"] = school_obj.max_pedagogic_weight_per_day
+            sch_limits["morning"] = school_obj.max_pedagogic_weight_per_morning
+            sch_limits["afternoon"] = school_obj.max_pedagogic_weight_per_afternoon
+
+    divisions_map = {d.id: PlanningDivision(
+        id=d.id,
+        name=d.name,
+        max_pedagogic_weight_per_day=sch_limits.get("day"),
+        max_pedagogic_weight_per_morning=sch_limits.get("morning"),
+        max_pedagogic_weight_per_afternoon=sch_limits.get("afternoon")
+    ) for d in db_divisions}
     from backend.app.models.system_setting import SystemSetting, SystemSettingKey
     setting = db.execute(select(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION)).scalars().first()
     if not setting or not setting.value:
@@ -104,7 +119,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         if ts.day_of_week not in max_minutes_by_day or ts.minutes_from_midnight > max_minutes_by_day[ts.day_of_week]:
             max_minutes_by_day[ts.day_of_week] = ts.minutes_from_midnight
 
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, max_minutes_by_day[ts.day_of_week] + std_duration_min) for ts in db_timeslots}
+    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, max_minutes_by_day[ts.day_of_week] + std_duration_min, ts.get_noon_boundary_minutes()) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())
@@ -221,20 +236,34 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         # Charger week_type et class_part_ids
         week_type = c.week_type.value
         class_part_ids = []
+        division_ids = set([d.id for d in c.divisions]) if c.divisions else set()
             
         if c.groups:
             for grp in c.groups:
-                class_part_ids.extend([cp.id for cp in grp.class_parts])
+                for cp in grp.class_parts:
+                    class_part_ids.append(cp.id)
+                    if cp.division_id:
+                        division_ids.add(cp.division_id)
         if c.divisions:
             for div in c.divisions:
                 for part in div.partitions:
                     class_part_ids.extend([cp.id for cp in part.class_parts])
             
         if c.class_parts:
-            class_part_ids.extend([cp.id for cp in c.class_parts])
+            for cp in c.class_parts:
+                class_part_ids.append(cp.id)
+                if cp.division_id:
+                    division_ids.add(cp.division_id)
                     
         class_part_ids = list(set(class_part_ids))
             
+        from backend.app.models.subject import Subject
+        pedagogic_weight = 0.0
+        if c.subject_id:
+            subj = db.execute(select(Subject).filter(Subject.id == c.subject_id)).scalars().first()
+            if subj and subj.pedagogic_weight:
+                pedagogic_weight = subj.pedagogic_weight
+
         pc = PlanningCourse(
             id=c.id,
             subject_id=c.subject_id,
@@ -247,8 +276,11 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             original_timeslot_id=c.timeslot_id,
             original_classroom_id=cr_planning.id if cr_planning else None,
             parent_id=getattr(c, 'parent_id', None),
+            pedagogic_weight_total=pedagogic_weight * (c.duration_minutes / 60.0),
             week_type=week_type,
             class_part_ids=class_part_ids,
+            all_division_ids=list(division_ids),
+            is_full_class=(len(c.divisions) > 0 and len(c.groups) == 0 and len(c.class_parts) == 0),
             period_ids=(
                 [p.id for p in c.periods]
                 if c.periods
