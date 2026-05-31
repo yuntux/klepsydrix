@@ -176,20 +176,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, provide } from 'vue';
+import { ref, onMounted, watch, computed, provide, defineAsyncComponent } from 'vue';
 import type { Component } from 'vue';
-import Sidebar from './components/Sidebar.vue';
-import TimetableGrid from './components/TimetableGrid.vue';
-import GridContainer from './components/GridContainer.vue';
-import GenericList from './components/GenericList.vue';
-import GenericForm from './components/GenericForm.vue';
-import ImpactConfirmDialog from './components/ImpactConfirmDialog.vue';
-import CoursePopin from './components/CoursePopin.vue';
-import PreferenceGrid from './components/PreferenceGrid.vue';
-import PeriodTransitionManager from './components/PeriodTransitionManager.vue';
 import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
+
+// Chargement asynchrone (Lazy Loading) des gros composants métiers
+const TimetableGrid = defineAsyncComponent(() => import('./components/TimetableGrid.vue'));
+const GridContainer = defineAsyncComponent(() => import('./components/GridContainer.vue'));
+const GenericList = defineAsyncComponent(() => import('./components/GenericList.vue'));
+const GenericForm = defineAsyncComponent(() => import('./components/GenericForm.vue'));
+const PreferenceGrid = defineAsyncComponent(() => import('./components/PreferenceGrid.vue'));
+const PeriodTransitionManager = defineAsyncComponent(() => import('./components/PeriodTransitionManager.vue'));
+const ImpactConfirmDialog = defineAsyncComponent(() => import('./components/ImpactConfirmDialog.vue'));
+const CoursePopin = defineAsyncComponent(() => import('./components/CoursePopin.vue'));
 
 // États partagés
 const courses = ref<Course[]>([]);

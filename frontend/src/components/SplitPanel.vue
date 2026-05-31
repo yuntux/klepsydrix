@@ -81,24 +81,33 @@ function startDrag(event: MouseEvent, index: number) {
   window.addEventListener('mouseup', stopDrag);
 }
 
+let isDraggingRaf = false;
+
 function handleDrag(event: MouseEvent) {
   if (activeResizerIndex.value === null || !containerRef.value) return;
+  if (isDraggingRaf) return;
+  isDraggingRaf = true;
   
-  const deltaX = event.clientX - startX;
-  const newLeftWidthPx = initialLeftWidth + deltaX;
-  const newRightWidthPx = initialRightWidth - deltaX;
-  
-  // Contrainte de largeur minimale (150px) pour chaque panneau
-  if (newLeftWidthPx < 150 || newRightWidthPx < 150) return;
-  
-  const totalContainerWidth = containerRef.value.getBoundingClientRect().width;
-  
-  // Convertir en pourcentage
-  const leftPercent = (newLeftWidthPx / totalContainerWidth) * 100;
-  const rightPercent = (newRightWidthPx / totalContainerWidth) * 100;
-  
-  widths.value[leftIndex] = `${leftPercent}%`;
-  widths.value[rightIndex] = `${rightPercent}%`;
+  requestAnimationFrame(() => {
+    isDraggingRaf = false;
+    if (activeResizerIndex.value === null || !containerRef.value) return;
+    
+    const deltaX = event.clientX - startX;
+    const newLeftWidthPx = initialLeftWidth + deltaX;
+    const newRightWidthPx = initialRightWidth - deltaX;
+    
+    // Contrainte de largeur minimale (150px) pour chaque panneau
+    if (newLeftWidthPx < 150 || newRightWidthPx < 150) return;
+    
+    const totalContainerWidth = containerRef.value.getBoundingClientRect().width;
+    
+    // Convertir en pourcentage
+    const leftPercent = (newLeftWidthPx / totalContainerWidth) * 100;
+    const rightPercent = (newRightWidthPx / totalContainerWidth) * 100;
+    
+    widths.value[leftIndex] = `${leftPercent}%`;
+    widths.value[rightIndex] = `${rightPercent}%`;
+  });
 }
 
 function stopDrag() {
