@@ -54,7 +54,7 @@
             <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectAll(openDropdownType)">Tout</button>
             <button class="btn btn-sm" style="flex: 1; padding: 2px; font-size: 11px;" @click="selectNone(openDropdownType)">Rien</button>
           </div>
-          <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid var(--text-primary);">
+          <label v-for="r in getActiveList(openDropdownType)" :key="r.id" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0; cursor: pointer; border-bottom: 1px solid var(--border-color);">
             <input 
               type="checkbox" 
               :value="r.id" 

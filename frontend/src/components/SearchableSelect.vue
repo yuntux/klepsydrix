@@ -28,22 +28,28 @@
       </span>
     </div>
 
-    <div v-if="isOpen && !disabled" class="options-dropdown glass-morphism">
+    <div v-if="isOpen && !disabled" class="options-dropdown glass-morphism" @scroll="onScroll" ref="dropdownRef">
       <div v-if="filteredOptions.length === 0" class="no-options">
         Aucun résultat trouvé
       </div>
       <div
         v-else
-        v-for="(option, index) in filteredOptions"
-        :key="option.value"
-        class="option-item"
-        :class="{
-          'is-selected': option.value === modelValue,
-          'is-highlighted': index === highlightedIndex
-        }"
-        @mousedown.prevent="selectOption(option)"
+        class="virtual-scroller-inner"
+        :style="{ height: `${filteredOptions.length * itemHeight}px` }"
       >
-        {{ option.label }}
+        <div
+          v-for="option in visibleOptions"
+          :key="option.value"
+          class="option-item"
+          :style="{ transform: `translateY(${option.index * itemHeight}px)` }"
+          :class="{
+            'is-selected': option.value === modelValue,
+            'is-highlighted': option.index === highlightedIndex
+          }"
+          @mousedown.prevent="selectOption(option)"
+        >
+          {{ option.label }}
+        </div>
       </div>
     </div>
   </div>
@@ -75,6 +81,25 @@ const isOpen = ref(false);
 const searchQuery = ref('');
 const highlightedIndex = ref(-1);
 const containerRef = ref<HTMLElement | null>(null);
+const dropdownRef = ref<HTMLElement | null>(null);
+
+// Virtual scrolling variables
+const itemHeight = 32; // Fixed height per option
+const scrollTop = ref(0);
+
+function onScroll(e: Event) {
+  scrollTop.value = (e.target as HTMLElement).scrollTop;
+}
+
+const visibleOptions = computed(() => {
+  const start = Math.max(0, Math.floor(scrollTop.value / itemHeight) - 2);
+  const end = Math.min(filteredOptions.value.length, start + Math.ceil(220 / itemHeight) + 4);
+  
+  return filteredOptions.value.slice(start, end).map((opt, i) => ({
+    ...opt,
+    index: start + i
+  }));
+});
 
 // Trouver l'option courante
 const selectedOption = computed(() => {
@@ -144,6 +169,7 @@ function toggleDropdown() {
   } else {
     isOpen.value = true;
     searchQuery.value = '';
+    scrollTop.value = 0;
   }
 }
 
@@ -191,6 +217,18 @@ function navigateOptions(direction: number) {
   if (count === 0) return;
 
   highlightedIndex.value = (highlightedIndex.value + direction + count) % count;
+
+  // Auto-scroll pour garder l'élément en surbrillance visible
+  if (dropdownRef.value) {
+    const el = dropdownRef.value;
+    const top = highlightedIndex.value * itemHeight;
+    const bottom = top + itemHeight;
+    if (top < el.scrollTop) {
+      el.scrollTop = top;
+    } else if (bottom > el.scrollTop + el.clientHeight) {
+      el.scrollTop = bottom - el.clientHeight;
+    }
+  }
 }
 
 // Clic à l'extérieur pour fermer
@@ -279,12 +317,27 @@ onUnmounted(() => {
   animation: slideDown 0.15s ease-out;
 }
 
+.virtual-scroller-inner {
+  position: relative;
+  width: 100%;
+}
+
 .option-item {
-  padding: 8px 12px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  line-height: 32px;
   font-size: 13px;
   color: var(--text-primary);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .option-item:hover, .option-item.is-highlighted {
@@ -366,8 +419,8 @@ onUnmounted(() => {
 
 .is-inline .option-item {
   border-radius: var(--radius-md);
-  margin-bottom: 2px;
-  padding: 6px 10px;
+  margin-bottom: 0;
+  padding: 0 10px;
 }
 
 .is-inline .option-item:last-child {

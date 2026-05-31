@@ -31,23 +31,29 @@
       </span>
     </div>
 
-    <div v-if="isOpen && !disabled" class="options-dropdown glass-morphism">
+    <div v-if="isOpen && !disabled" class="options-dropdown glass-morphism" @scroll="onScroll" ref="dropdownRef">
       <div v-if="filteredOptions.length === 0" class="no-options">
         Aucun résultat trouvé
       </div>
       <div
         v-else
-        v-for="(option, index) in filteredOptions"
-        :key="option.value"
-        class="option-item"
-        :class="{
-          'is-selected': isSelected(option.value),
-          'is-highlighted': index === highlightedIndex
-        }"
-        @mousedown.prevent="toggleOption(option)"
+        class="virtual-scroller-inner"
+        :style="{ height: `${filteredOptions.length * itemHeight}px` }"
       >
-        <span class="checkbox-indicator">{{ isSelected(option.value) ? '✓' : '' }}</span>
-        <span class="option-label">{{ option.label }}</span>
+        <div
+          v-for="option in visibleOptions"
+          :key="option.value"
+          class="option-item"
+          :style="{ transform: `translateY(${option.index * itemHeight}px)` }"
+          :class="{
+            'is-selected': isSelected(option.value),
+            'is-highlighted': option.index === highlightedIndex
+          }"
+          @mousedown.prevent="toggleOption(option)"
+        >
+          <span class="checkbox-indicator">{{ isSelected(option.value) ? '✓' : '' }}</span>
+          <span class="option-label">{{ option.label }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -80,6 +86,25 @@ const searchQuery = ref('');
 const highlightedIndex = ref(-1);
 const containerRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
+const dropdownRef = ref<HTMLElement | null>(null);
+
+// Virtual scrolling variables
+const itemHeight = 32; // Fixed height per option
+const scrollTop = ref(0);
+
+function onScroll(e: Event) {
+  scrollTop.value = (e.target as HTMLElement).scrollTop;
+}
+
+const visibleOptions = computed(() => {
+  const start = Math.max(0, Math.floor(scrollTop.value / itemHeight) - 2);
+  const end = Math.min(filteredOptions.value.length, start + Math.ceil(220 / itemHeight) + 4);
+  
+  return filteredOptions.value.slice(start, end).map((opt, i) => ({
+    ...opt,
+    index: start + i
+  }));
+});
 
 // Normaliser modelValue en tableau
 const currentValues = computed(() => {
@@ -184,6 +209,18 @@ function navigateOptions(direction: number) {
   const len = filteredOptions.value.length;
   if (len === 0) return;
   highlightedIndex.value = (highlightedIndex.value + direction + len) % len;
+
+  // Auto-scroll
+  if (dropdownRef.value) {
+    const el = dropdownRef.value;
+    const top = highlightedIndex.value * itemHeight;
+    const bottom = top + itemHeight;
+    if (top < el.scrollTop) {
+      el.scrollTop = top;
+    } else if (bottom > el.scrollTop + el.clientHeight) {
+      el.scrollTop = bottom - el.clientHeight;
+    }
+  }
 }
 
 function handleClickOutside(event: MouseEvent) {
@@ -302,15 +339,30 @@ onUnmounted(() => {
   animation: slideDown 0.15s ease-out;
 }
 
+.virtual-scroller-inner {
+  position: relative;
+  width: 100%;
+}
+
 .option-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 0 12px;
+  line-height: 32px;
   font-size: 13px;
   color: var(--text-primary);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .checkbox-indicator {
@@ -428,8 +480,8 @@ onUnmounted(() => {
 
 .is-inline .option-item {
   border-radius: var(--radius-md);
-  margin-bottom: 2px;
-  padding: 6px 10px;
+  margin-bottom: 0;
+  padding: 0 10px;
 }
 
 .is-inline .option-item:last-child {
