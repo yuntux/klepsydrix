@@ -216,7 +216,8 @@ const heatmapData = ref<Record<string, any>>({});
 const isLoadingHeatmap = ref<boolean>(false);
 
 import { watch } from 'vue';
-
+import { useDataStore } from '../stores/data';
+const dataStore = useDataStore();
 // Watcher pour le heatmap
 watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([isActive, courseIds]) => {
   if (isActive && courseIds && (courseIds as number[]).length === 1) {
@@ -229,7 +230,7 @@ watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([i
         const mappedData: Record<string, any> = {};
         for (const [tsIdStr, scoreInfo] of Object.entries(data)) {
           const tsId = parseInt(tsIdStr);
-          const ts = props.timeslots.find(t => t.id === tsId);
+          const ts = dataStore.timeslotMap[tsId];
           if (ts) {
             mappedData[getCellKey(ts.day_of_week, ts.minutes_from_midnight / 60)] = scoreInfo;
           }
@@ -278,7 +279,7 @@ function onDragLeave(day: number, hour: number, event: DragEvent) {
 }
 
 function getTimeslot(day: number, hour: number): Timeslot | undefined {
-  return props.timeslots.find(ts => ts.day_of_week === day && Math.abs((ts.minutes_from_midnight / 60) - hour) < 0.001);
+  return dataStore.getTimeslot(day, hour);
 }
 
 const parentIdsSet = computed(() => {

@@ -181,6 +181,9 @@ import type { Component } from 'vue';
 import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
+import { useDataStore } from './stores/data';
+
+const dataStore = useDataStore();
 
 // Chargement asynchrone (Lazy Loading) des gros composants métiers
 const TimetableGrid = defineAsyncComponent(() => import('./components/TimetableGrid.vue'));
@@ -231,7 +234,7 @@ function toggleCourseSelection(id: number, event?: MouseEvent) {
   if (autoTarget.value) {
     if (selectedCourseIds.value.length > 0) {
       const targetId = selectedCourseIds.value[selectedCourseIds.value.length - 1];
-      const course = courses.value.find(c => c.id === targetId);
+      const course = dataStore.courseMap[targetId];
       if (course) {
         selectedTeacherIds.value = [...(course.teacher_ids || [])];
         selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
@@ -250,9 +253,9 @@ function toggleCourseSelection(id: number, event?: MouseEvent) {
 
 watch(autoTarget, (newVal) => {
   if (newVal && selectedCourseIds.value.length > 0) {
-    // Appliquer le ciblage immédiatement sur le dernier cours sélectionné
+    // Si activé, on applique immédiatement les filtres du cours actuellement sélectionné
     const id = selectedCourseIds.value[selectedCourseIds.value.length - 1];
-    const course = courses.value.find(c => c.id === id);
+    const course = dataStore.courseMap[id];
     if (course) {
       selectedTeacherIds.value = [...(course.teacher_ids || [])];
       selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
@@ -368,6 +371,15 @@ const scoreData = ref<{ hard_score: number; soft_score: number; summary: string;
 async function loadData() {
   try {
     const data = await api.fetchTimetable();
+    
+    // Remplir le store pour accès O(1)
+    dataStore.setCourses(data.courses);
+    dataStore.setTimeslots(data.timeslots);
+    dataStore.setTeachers(data.teachers);
+    dataStore.setNonTeachingStaffs(data.non_teaching_staffs);
+    dataStore.setDivisions(data.divisions);
+    dataStore.setClassrooms(data.classrooms);
+
     courses.value = data.courses;
     timeslots.value = data.timeslots;
     teachers.value = data.teachers;

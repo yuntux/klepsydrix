@@ -1,19 +1,19 @@
-import { Teacher, Division, Classroom } from '../types';
+import { useDataStore } from '../stores/data';
 
-export function getTeacherName(teachers: Teacher[] | undefined, id: number): string {
-  if (!teachers) return 'Enseignant inconnu';
-  return teachers.find(t => t.id === id)?.display_name || 'Enseignant inconnu';
+export function getTeacherName(teachers: any[] | undefined, id: number): string {
+  const store = useDataStore();
+  return store.teacherMap[id]?.display_name || 'Enseignant inconnu';
 }
 
-export function getDivisionName(divisions: Division[] | undefined, id: number): string {
-  if (!divisions) return 'Classe inconnue';
-  return divisions.find(d => d.id === id)?.display_name || 'Classe inconnue';
+export function getDivisionName(divisions: any[] | undefined, id: number): string {
+  const store = useDataStore();
+  return store.divisionMap[id]?.display_name || 'Classe inconnue';
 }
 
-export function getClassroomName(classrooms: Classroom[] | undefined, id: number | null): string {
+export function getClassroomName(classrooms: any[] | undefined, id: number | null): string {
   if (id === null) return 'Non affectée';
-  if (!classrooms) return 'Salle inconnue';
-  return classrooms.find(c => c.id === id)?.display_name || 'Salle inconnue';
+  const store = useDataStore();
+  return store.classroomMap[id]?.display_name || 'Salle inconnue';
 }
 
 export function onCourseDragStart(event: DragEvent, courseId: number) {
@@ -24,6 +24,6 @@ export function onCourseDragStart(event: DragEvent, courseId: number) {
 }
 
 export function getNonTeachingStaffName(staffs: any[] | undefined, id: number): string {
-  if (!staffs) return 'Personnel inconnu';
-  return staffs.find(s => s.id === id)?.display_name || 'Personnel inconnu';
+  const store = useDataStore();
+  return store.nonTeachingStaffMap[id]?.display_name || 'Personnel inconnu';
 }
