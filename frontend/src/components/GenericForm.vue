@@ -47,6 +47,8 @@ import { ref, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
+import BaseTooltip from './BaseTooltip.vue';
+import BaseToggle from './BaseToggle.vue';
 import Many2ManyOrderedList from './widgets/Many2ManyOrderedList.vue';
 
 
@@ -590,17 +592,15 @@ const FormLayoutGrid: any = defineComponent({
                 class: 'toggle-wrapper',
                 style: inputStyle
               }, [
-                h('label', { class: ['switch', disabled ? 'disabled-switch' : '', isDivergent(key) && !isModified(key) ? 'switch-divergent' : '', isModified(key) ? 'switch-modified' : ''] }, [
-                  h('input', {
-                    type: 'checkbox',
-                    checked: !!gridProps.localModel[key],
-                    disabled: disabled,
-                    onChange: (e: Event) => {
-                      gridProps.localModel[key] = (e.target as HTMLInputElement).checked;
-                    }
-                  }),
-                  h('span', { class: 'slider round' })
-                ]),
+                h(BaseToggle, {
+                  modelValue: !!gridProps.localModel[key],
+                  disabled: disabled,
+                  isDivergent: isDivergent(key) && !isModified(key),
+                  isModified: isModified(key),
+                  'onUpdate:modelValue': (val: boolean) => {
+                    gridProps.localModel[key] = val;
+                  }
+                }),
                 h('span', {
                   class: [
                     'toggle-status',
@@ -676,26 +676,7 @@ const FormLayoutGrid: any = defineComponent({
               }, [
                 h('span', {}, label),
                 required ? h('span', { class: 'required-indicator' }, ' *') : null,
-                elem.help ? h('span', {
-                  class: 'help-tooltip-wrapper',
-                  onClick: (e: Event) => e.stopPropagation(),
-                  onMouseenter: (e: MouseEvent) => {
-                    const tip = (e.currentTarget as HTMLElement).querySelector('.help-tooltip') as HTMLElement;
-                    if (!tip) return;
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    Object.assign(tip.style, {
-                      position: 'fixed', bottom: 'auto',
-                      left: Math.max(8, Math.min(r.left, window.innerWidth - 258)) + 'px',
-                      top: (r.top > tip.offsetHeight + 8 ? r.top - tip.offsetHeight - 8 : r.bottom + 8) + 'px'
-                    });
-                  }
-                }, [
-                  h('span', { class: 'help-icon' }, '?'),
-                  h('span', {
-                    class: 'help-tooltip',
-                    innerHTML: renderMarkdown(elem.help)
-                  })
-                ]) : null
+                elem.help ? h(BaseTooltip, { htmlContent: renderMarkdown(elem.help) }) : null
               ]),
               isModified(key) ? h('span', { class: 'field-modified-badge', style: { marginLeft: '0px', marginTop: '4px' } }, '✏️ Modifié') : null
             ]);
@@ -965,59 +946,6 @@ function handleDelete() {
   height: 42px;
 }
 
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 48px;
-  height: 24px;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  transition: .3s;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 3px;
-  bottom: 3px;
-  background-color: var(--text-secondary);
-  transition: .3s;
-}
-
-input:checked + .slider {
-  background-color: rgba(99, 102, 241, 0.2);
-  border-color: var(--accent-primary);
-}
-
-input:checked + .slider:before {
-  transform: translateX(24px);
-  background-color: var(--accent-primary);
-}
-
-.slider.round {
-  border-radius: 34px;
-}
-
-.slider.round:before {
-  border-radius: 50%;
-}
 
 .toggle-status {
   font-size: 13px;

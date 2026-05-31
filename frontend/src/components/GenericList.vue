@@ -142,15 +142,11 @@
 
                 <!-- Booléen (Switch / Checkbox en ligne) -->
                 <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
-                  <label class="inline-switch" :class="{ 'disabled-switch': isColumnReadOnly(col.key, item) }">
-                    <input 
-                      type="checkbox" 
-                      :checked="!!item[col.key]" 
-                      :disabled="isColumnReadOnly(col.key, item)"
-                      @change="updateInline(item, col.key, $event.target.checked)"
-                    />
-                    <span class="inline-slider inline-round"></span>
-                  </label>
+                  <BaseToggle
+                    :model-value="!!item[col.key]"
+                    :disabled="isColumnReadOnly(col.key, item)"
+                    @update:model-value="updateInline(item, col.key, $event)"
+                  />
                 </div>
 
                 <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
@@ -285,6 +281,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
+import BaseToggle from './BaseToggle.vue';
 
 interface ColumnDef {
   key: string;

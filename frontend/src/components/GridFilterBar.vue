@@ -114,14 +114,15 @@
     <!-- Spacer pour pousser les actions vers la droite quand il y a de la place -->
     <div class="filter-spacer"></div>
 
-    <!-- Ciblage auto -->
     <div v-if="showAutoTargetToggle" class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
       <label>Ciblage auto :</label>
-      <div class="toggle-container" role="button" tabindex="0" @click="$emit('update:autoTarget', !autoTarget)" @keydown.space.prevent="$emit('update:autoTarget', !autoTarget)" @keydown.enter="$emit('update:autoTarget', !autoTarget)">
-        <span :class="{ 'active': !autoTarget }">Désactivé</span>
-        <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
-        <span :class="{ 'active': autoTarget }">Activé</span>
-      </div>
+      <BaseToggle
+        :model-value="autoTarget"
+        @update:model-value="$emit('update:autoTarget', $event)"
+      >
+        <template #left>Désactivé</template>
+        <template #right>Activé</template>
+      </BaseToggle>
     </div>
 
     <div class="filter-item" v-if="mode === 'timetable'">
@@ -135,20 +136,24 @@
     
     <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
       <label>Placement assisté :</label>
-      <div class="toggle-container" role="button" tabindex="0" @click="$emit('update:placementAssistantActive', !placementAssistantActive)" @keydown.space.prevent="$emit('update:placementAssistantActive', !placementAssistantActive)" @keydown.enter="$emit('update:placementAssistantActive', !placementAssistantActive)">
-        <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
-        <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
-        <span :class="{ 'active': placementAssistantActive }">Activé</span>
-      </div>
+      <BaseToggle
+        :model-value="placementAssistantActive"
+        @update:model-value="$emit('update:placementAssistantActive', $event)"
+      >
+        <template #left>Désactivé</template>
+        <template #right>Activé</template>
+      </BaseToggle>
     </div>
     
     <div class="filter-item" v-if="mode === 'timetable'" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
       <label>Affichage :</label>
-      <div class="toggle-container" role="button" tabindex="0" @click="$emit('update:isDetailedView', !isDetailedView)" @keydown.space.prevent="$emit('update:isDetailedView', !isDetailedView)" @keydown.enter="$emit('update:isDetailedView', !isDetailedView)">
-        <span :class="{ 'active': !isDetailedView }">Compact</span>
-        <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
-        <span :class="{ 'active': isDetailedView }">Détaillé</span>
-      </div>
+      <BaseToggle
+        :model-value="isDetailedView"
+        @update:model-value="$emit('update:isDetailedView', $event)"
+      >
+        <template #left>Compact</template>
+        <template #right>Détaillé</template>
+      </BaseToggle>
     </div>
     
     <slot name="actions"></slot>
@@ -157,6 +162,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import BaseToggle from './BaseToggle.vue';
 
 const props = withDefaults(defineProps<{
   mode?: 'timetable' | 'preference';
@@ -441,59 +447,5 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
 
 .checkbox-text {
   user-select: none;
-}
-
-/* Toggle Switch Styles */
-.toggle-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-card);
-  padding: 4px 8px;
-  border-radius: 20px;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  user-select: none;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.toggle-container span {
-  transition: color 0.3s;
-}
-
-.toggle-container span.active {
-  color: var(--accent-primary);
-}
-
-.toggle-switch {
-  width: 32px;
-  height: 18px;
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: var(--radius-xl);
-  position: relative;
-  transition: background 0.3s;
-}
-
-.toggle-switch::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
-.toggle-switch.on {
-  background: var(--accent-primary);
-}
-
-.toggle-switch.on::after {
-  transform: translateX(14px);
 }
 </style>
