@@ -532,3 +532,29 @@ graph TD
 * **Résolution** : Une fois le cours positionné, le solveur résout le conflit en décalant le cours gênant vers un créneau libre, élevant le score à `0 Hard` (amélioration acceptée).
 * **Résilience** : Si le problème est réellement insoluble, le solveur choisira de laisser le cours non placé (`-1 Hard`) plutôt que de forcer son affectation sur un créneau qui générerait des conflits multiples en cascade (qui cumuleraient un score de `-2 Hard` ou pire).
 
+---
+
+## 15. Architecture Frontend (Performance et Design System)
+
+Le frontend a été réarchitecturé pour garantir des performances d'affichage (60 FPS) même avec de gros volumes de données, tout en réduisant la dette technique.
+
+### A. Gestion d'État Centralisée (Pinia)
+Les ressources métiers de base (Cyles, Classes, Enseignants, Salles, etc.) sont chargées une seule fois via l'API et stockées dans des stores Pinia (`stores/data.ts`).
+- **Indexation O(1)** : Plutôt que de rechercher dans des listes via `Array.find()` (complexité O(N)), le store maintient des index sous forme de dictionnaires ou de `Map` indexés par ID. Cela accélère de manière exponentielle le rendu des grosses grilles.
+- **Réactivité Ciblée** : Les composants ne s'abonnent qu'aux fragments d'état nécessaires.
+
+### B. Stratégie de Cache SWR (TanStack Vue Query)
+Pour soulager le backend et améliorer l'expérience utilisateur, les appels d'API (listes génériques, options de filtres) sont interceptés par **TanStack Vue Query**.
+- **Stale-While-Revalidate (SWR)** : Les données sont considérées "fraîches" (`staleTime: 60000` par défaut). Si l'utilisateur navigue entre plusieurs vues, la réponse est servie instantanément depuis le cache en RAM.
+- **Invalidation Fine** : Lors de la modification d'une ressource (via un formulaire), seules les requêtes associées à cette ressource sont invalidées, déclenchant un refetch silencieux en arrière-plan.
+
+### C. Rendu Virtuel (Virtual Scrolling)
+Pour l'affichage de tables très volumineuses (ex: des milliers de créneaux temporels générés), l'utilisation d'une simple pagination a été remplacée ou complétée par du **Virtual Scrolling** (`GenericList.vue`).
+- Seules les lignes du DOM physiquement visibles à l'écran (plus une petite marge de pré-rendu `overscan`) sont générées. 
+- Au fil du défilement, les éléments du DOM sont recyclés avec de nouvelles données, maintenant un compte d'éléments DOM bas et constant.
+
+### D. Design System Atomique et Tokens CSS
+Afin d'éviter la prolifération de CSS dupliqué ou de couleurs en dur, l'application repose sur un ensemble strict de tokens CSS et de composants de base (Atomes).
+- **Fichier de Tokens Centralisé (`main.css`)** : L'ensemble des couleurs (`--accent-primary`, `--bg-surface`, etc.), des espacements (`--spacing-md`) et des ombres (`--shadow-lg`) sont définis comme des variables natives (`:root`) dans `frontend/src/assets/main.css`. Il est strictement interdit d'utiliser des couleurs hexadécimales en dur ailleurs dans le projet.
+- **Composants `Base*`** : Toute interaction utilisateur passe par des composants mutualisés (ex: `BaseButton.vue`, `BaseInput.vue`, `BaseModal.vue`, `BaseToggle.vue`).
+- **Thème 100% CSS Variables** : Les couleurs et opacités sont construites de manière dynamique avec la fonction native CSS `color-mix()` (ex: `color-mix(in srgb, var(--accent-primary) 20%, transparent)`), garantissant qu'un changement de variable dans `main.css` se répercute uniformément dans toute l'application sans casser le design (ex: les halos de focus, les backgrounds de modales).

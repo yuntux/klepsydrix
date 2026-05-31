@@ -27,15 +27,15 @@
         />
 
         <div class="form-actions">
-          <button v-if="localModel && localModel.id && !isMultiEdit" type="button" class="btn btn-danger btn-delete" @click="handleDelete">
+          <BaseButton v-if="localModel && localModel.id && !isMultiEdit" type="button" variant="danger" class="btn-delete" @click="handleDelete">
             Supprimer
-          </button>
-          <button type="button" class="btn btn-secondary" @click="handleCancel">
+          </BaseButton>
+          <BaseButton type="button" variant="secondary" @click="handleCancel">
             Annuler
-          </button>
-          <button v-if="isEditableForm" type="submit" class="btn btn-primary">
+          </BaseButton>
+          <BaseButton v-if="isEditableForm" type="submit" variant="primary">
             Enregistrer
-          </button>
+          </BaseButton>
         </div>
       </form>
     </div>
@@ -49,9 +49,8 @@ import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseTooltip from './BaseTooltip.vue';
 import BaseToggle from './BaseToggle.vue';
+import BaseButton from './BaseButton.vue';
 import Many2ManyOrderedList from './widgets/Many2ManyOrderedList.vue';
-
-
 interface FormField {
   key: string;
   label: string;

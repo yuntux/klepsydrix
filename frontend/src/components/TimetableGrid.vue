@@ -47,24 +47,29 @@
             Score: {{ scoreData ? scoreData.hard_score : '?' }}H / {{ scoreData ? scoreData.soft_score : '?' }}S
           </div>
 
-          <button class="btn btn-secondary" @click="$emit('reset')" :disabled="loading">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
+          <BaseButton variant="secondary" @click="$emit('reset')" :disabled="loading">
             Réinitialiser
-          </button>
-
-          <button v-if="!loading" class="btn btn-primary" @click="$emit('solve')">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 21l8.982-11.795M20.614 4c-.754.902-1.455 1.89-2.115 2.948m-2.115 2.948c-.07.112-.14.224-.21.336m-2.285 3.655A17.228 17.228 0 0 1 8.134 16m-4.82-4.48A17.185 17.185 0 0 1 11.25 8.134m0 0a17.185 17.185 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 1 4.82 4.48M11.25 8.134a17.228 17.228 0 0 0-3.116 7.866m0 0a17.22 17.22 0 0 0-4.819-4.48M12 8.5c.5-1 1.5-1.5 2.5-1.5s2 1 2.5 2c.5 1 .5 2-1 3.5s-2.5 2-3 3.5m0-7.5c-1-1-1.5-2.5-1.5-4s1-3 2.5-3s2.5 1.5 2.5 3c0 1.5-.5 3-1.5 4" />
-            </svg>
-            Résolution Auto
-          </button>
-
-          <button v-else class="btn btn-danger" @click="$emit('stop-solve')">
-            <span class="spinner-small"></span>
+          </BaseButton>
+          
+          <BaseButton v-if="!loading" variant="primary" @click="$emit('solve')">
+            <template #icon>
+              <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </template>
+            Générer
+          </BaseButton>
+          
+          <BaseButton v-else variant="danger" @click="$emit('stop-solve')">
+            <template #icon>
+              <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z" />
+              </svg>
+            </template>
             Arrêter
-          </button>
+          </BaseButton>
         </div>
       </template>
       
@@ -128,6 +133,8 @@
 import { ref, computed } from 'vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from '../types';
 import BaseGrid from './BaseGrid.vue';
+import BaseTooltip from './BaseTooltip.vue';
+import BaseButton from './BaseButton.vue';
 import GridContainer from './GridContainer.vue';
 import Sidebar from './Sidebar.vue';
 import CourseCard from './CourseCard.vue';

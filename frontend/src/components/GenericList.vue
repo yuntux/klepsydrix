@@ -253,34 +253,34 @@
           Page {{ currentPage }} sur {{ totalPages }}
         </span>
         <div class="pagination-buttons">
-          <button 
-            class="btn btn-secondary btn-icon-only" 
+          <BaseButton 
+            variant="secondary" iconOnly 
             :disabled="currentPage === 1"
             @click="currentPage = 1"
           >
-            «
-          </button>
-          <button 
-            class="btn btn-secondary btn-icon-only" 
+            <template #icon>«</template>
+          </BaseButton>
+          <BaseButton 
+            variant="secondary" iconOnly 
             :disabled="currentPage === 1"
             @click="currentPage--"
           >
-            ‹
-          </button>
-          <button 
-            class="btn btn-secondary btn-icon-only" 
+            <template #icon>‹</template>
+          </BaseButton>
+          <BaseButton 
+            variant="secondary" iconOnly 
             :disabled="currentPage === totalPages || totalPages === 0"
             @click="currentPage++"
           >
-            ›
-          </button>
-          <button 
-            class="btn btn-secondary btn-icon-only" 
+            <template #icon>›</template>
+          </BaseButton>
+          <BaseButton 
+            variant="secondary" iconOnly 
             :disabled="currentPage === totalPages || totalPages === 0"
             @click="currentPage = totalPages"
           >
-            »
-          </button>
+            <template #icon>»</template>
+          </BaseButton>
         </div>
       </div>
     </div>
@@ -293,6 +293,7 @@ import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseToggle from './BaseToggle.vue';
+import BaseButton from './BaseButton.vue';
 
 interface ColumnDef {
   key: string;
