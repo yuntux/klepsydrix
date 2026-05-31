@@ -84,7 +84,8 @@
               <input 
                 v-else
                 type="text" 
-                v-model="filters[col.key]" 
+                :value="filters[col.key] || ''" 
+                @input="debouncedUpdateFilter(col.key, ($event.target as HTMLInputElement).value)"
                 :placeholder="'Filtrer...'" 
                 class="filter-input"
               />
@@ -673,6 +674,14 @@ const perPage = ref(30);
 
 // Filtres
 const filters = ref<Record<string, string>>({});
+let filterTimeout: any = null;
+function debouncedUpdateFilter(key: string, value: string) {
+  if (filterTimeout) clearTimeout(filterTimeout);
+  filterTimeout = setTimeout(() => {
+    filters.value[key] = value;
+  }, 300);
+}
+
 watch(() => props.columns, () => {
   filters.value = {};
   props.columns.forEach(c => {
