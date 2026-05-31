@@ -1,7 +1,7 @@
 <template>
   <div class="generic-list-container">
     <!-- Conteneur de table avec scroll -->
-    <div class="table-wrapper">
+    <div class="table-wrapper" ref="tableWrapperRef" @scroll="onScroll">
       <table class="premium-table" :style="{ minWidth: totalTableWidth + 'px' }">
         <thead>
           <tr class="header-tr">
@@ -95,8 +95,13 @@
         </thead>
         
         <tbody>
+          <!-- Espace virtuel haut -->
+          <tr v-if="isVirtualMode && virtualPaddingTop > 0">
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }"></td>
+          </tr>
+
           <!-- Ligne virtuelle interactive "+ Ajouter une ligne" -->
-          <tr v-if="!listConfig?.disableAdd" class="add-row-tr" @click="$emit('add')">
+          <tr v-if="!listConfig?.disableAdd && (!isVirtualMode || virtualStartIndex === 0)" class="add-row-tr" @click="$emit('add')">
             <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="add-row-td">
               <div class="add-row-wrapper">
                 <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
@@ -107,13 +112,13 @@
             </td>
           </tr>
 
-          <tr v-if="paginatedItems.length === 0" class="empty-tr">
+          <tr v-if="displayedItems.length === 0" class="empty-tr">
             <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="empty-td">
               Aucune donnée à afficher.
             </td>
           </tr>
           <tr 
-            v-for="item in paginatedItems" 
+            v-for="item in displayedItems" 
             :key="item.id" 
             class="body-tr"
             :class="{ 'selected-row': selectedIds.has(item.id) }"
@@ -214,6 +219,11 @@
               </div>
             </td>
           </tr>
+
+          <!-- Espace virtuel bas -->
+          <tr v-if="isVirtualMode && virtualPaddingBottom > 0">
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }"></td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -233,11 +243,12 @@
             <option :value="30">30</option>
             <option :value="50">50</option>
             <option :value="100">100</option>
+            <option :value="10000">Tout</option>
           </select>
           par page
         </label>
       </div>
-      <div class="pagination-right">
+      <div class="pagination-right" v-if="perPage !== 10000">
         <span class="pagination-info">
           Page {{ currentPage }} sur {{ totalPages }}
         </span>
@@ -756,15 +767,60 @@ const filteredItems = computed(() => {
   return result;
 });
 
-// Pagination
+// Pagination et Virtualisation
+const tableWrapperRef = ref<HTMLElement | null>(null);
+
+const isVirtualMode = computed(() => perPage.value === 10000);
+const rowHeight = 44; // Hauteur estimée d'une ligne
+const overscan = 10; // Nombre de lignes pré-rendues hors écran
+
+const scrollTop = ref(0);
+
+function onScroll(e: Event) {
+  if (isVirtualMode.value) {
+    scrollTop.value = (e.target as HTMLElement).scrollTop;
+  }
+}
+
+const virtualStartIndex = computed(() => {
+  if (!isVirtualMode.value) return 0;
+  return Math.max(0, Math.floor(scrollTop.value / rowHeight) - overscan);
+});
+
+const virtualVisibleCount = computed(() => {
+  if (!isVirtualMode.value) return filteredItems.value.length;
+  // Suppose container height ~800px if not perfectly measured
+  const containerHeight = tableWrapperRef.value ? tableWrapperRef.value.clientHeight : 800;
+  return Math.ceil(containerHeight / rowHeight) + (overscan * 2);
+});
+
+const virtualEndIndex = computed(() => {
+  if (!isVirtualMode.value) return filteredItems.value.length;
+  return Math.min(filteredItems.value.length, virtualStartIndex.value + virtualVisibleCount.value);
+});
+
+const virtualPaddingTop = computed(() => {
+  return virtualStartIndex.value * rowHeight;
+});
+
+const virtualPaddingBottom = computed(() => {
+  return (filteredItems.value.length - virtualEndIndex.value) * rowHeight;
+});
+
 const totalPages = computed(() => {
+  if (isVirtualMode.value) return 1;
   return Math.ceil(filteredItems.value.length / perPage.value);
 });
 
 const paginatedItems = computed(() => {
+  if (isVirtualMode.value) {
+    return filteredItems.value.slice(virtualStartIndex.value, virtualEndIndex.value);
+  }
   const start = (currentPage.value - 1) * perPage.value;
   return filteredItems.value.slice(start, start + perPage.value);
 });
+
+const displayedItems = computed(() => paginatedItems.value);
 
 // Multisélection (Actions groupées & Raccourcis EDT p.41) dépendantes de filteredItems
 const isAllSelected = computed(() => {

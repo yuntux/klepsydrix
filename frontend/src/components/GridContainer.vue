@@ -219,6 +219,7 @@ withDefaults(defineProps<{
   periodIds: () => [],
   hideResourceSelectors: false,
   hideSchoolSelector: false,
+  hideWeekSelector: false,
   hidePeriodSelector: false,
   showAutoTargetToggle: true,
   showPlacementAssistantToggle: true
