@@ -1,12 +1,14 @@
 [
   {
     "id": "timetable_root",
-    "title": "📅 Emploi du temps",
+    "icon": "calendar",
+    "title": "Emploi du temps",
     "borderColor": "#3B82F6",
     "children": [
       {
         "id": "timetable_viewer",
-        "title": "🔍 Visualiseur",
+        "icon": "search",
+        "title": "Visualiseur",
         "borderColor": "#3B82F6",
         "panels": [
           {
@@ -18,7 +20,8 @@
       },
       {
         "id": "divisions_setting",
-        "title": "🎒 Classes",
+        "icon": "backpack",
+        "title": "Classes",
         "borderColor": "#8B5CF6",
         "children": [
           {
@@ -77,16 +80,13 @@
                 "id": "divisions_pref_form",
                 "component": "GenericForm",
                 "resourceKey": "resource_constraints",
-                "relationName": "constraint_record",
                 "width": "30%",
+                "relationName": "constraint_record",
                 "placeholderText": "Veuillez choisir une classe dans la liste de gauche pour configurer ses contraintes.",
                 "formConfig": {
                   "editableForm": true,
                   "fields": [
                     {
-                      "type": "group",
-                      "string": "Max Horaire [M]",
-                      "col": 3,
                       "children": [
                         {
                           "key": "max_hours_per_day",
@@ -106,12 +106,12 @@
                           "readOnly": false,
                           "help": "Volume d'heures maximum autorisées l'après-midi (à partir de 12h)."
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Max Horaire [M]",
+                      "col": 3
                     },
                     {
-                      "type": "group",
-                      "string": "Horaires Aménagés [A]",
-                      "col": 2,
                       "children": [
                         {
                           "key": "late_start_days_per_week",
@@ -133,12 +133,12 @@
                           "overrideLabel": "jours/sem. au plus tard à",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Horaires Aménagés [A]",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Maximum de demi-journées de cours [J]",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_worked_am_per_week",
@@ -155,19 +155,22 @@
                           "overrideLabel": "N'avoir cours\n qu'1/2 j. par j.",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Maximum de demi-journées de cours [J]",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Préférences d'Optimisation",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_gap_hours_per_week",
                           "overrideLabel": "Nombre d'heures de trous tolérées",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Préférences d'Optimisation",
+                      "col": 2
                     }
                   ]
                 }
@@ -178,7 +181,8 @@
       },
       {
         "id": "groups_setting",
-        "title": "👥 Groupes",
+        "icon": "users",
+        "title": "Groupes",
         "borderColor": "#8B5CF6",
         "children": [
           {
@@ -211,7 +215,8 @@
       },
       {
         "id": "teachers_setting",
-        "title": "👨‍🏫 Enseignants",
+        "icon": "teacher",
+        "title": "Enseignants",
         "borderColor": "#F59E0B",
         "children": [
           {
@@ -239,9 +244,6 @@
                       "string": "État Civil"
                     },
                     {
-                      "type": "group",
-                      "string": "Identité de l'Enseignant",
-                      "col": 2,
                       "children": [
                         {
                           "key": "code",
@@ -261,7 +263,10 @@
                           "required": true,
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Identité de l'Enseignant",
+                      "col": 2
                     },
                     {
                       "type": "newline"
@@ -271,9 +276,6 @@
                       "string": "Paramètres Contractuels"
                     },
                     {
-                      "type": "group",
-                      "string": "Contrat & Rattachement",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_weekly_hours",
@@ -287,7 +289,10 @@
                           "required": true,
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Contrat & Rattachement",
+                      "col": 2
                     }
                   ]
                 }
@@ -338,16 +343,13 @@
                 "id": "teachers_pref_form",
                 "component": "GenericForm",
                 "resourceKey": "resource_constraints",
-                "relationName": "constraint_record",
                 "width": "30%",
+                "relationName": "constraint_record",
                 "placeholderText": "Veuillez choisir un enseignant dans la liste de gauche pour configurer ses contraintes.",
                 "formConfig": {
                   "editableForm": true,
                   "fields": [
                     {
-                      "type": "group",
-                      "string": "Max Horaire [M]",
-                      "col": 3,
                       "children": [
                         {
                           "key": "max_hours_per_day",
@@ -367,12 +369,12 @@
                           "readOnly": false,
                           "help": "Volume d'heures maximum autorisées l'après-midi (à partir de 12h).\n- **Impact** : Permet d'éviter les surcharges de fin de journée."
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Max Horaire [M]",
+                      "col": 3
                     },
                     {
-                      "type": "group",
-                      "string": "Maximum Présentiel [P]",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_presence_days_per_week",
@@ -384,12 +386,12 @@
                           "overrideLabel": "Journées d'au plus (h)",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Maximum Présentiel [P]",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Horaires Aménagés [A]",
-                      "col": 2,
                       "children": [
                         {
                           "key": "late_start_days_per_week",
@@ -411,12 +413,12 @@
                           "overrideLabel": "jours/sem. au plus tard à",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Horaires Aménagés [A]",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Plages Libres Garanties [G]",
-                      "col": 2,
                       "children": [
                         {
                           "key": "min_free_days_per_week",
@@ -428,12 +430,12 @@
                           "overrideLabel": "Demi-journées libres",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Plages Libres Garanties [G]",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Maximum de demi-journées de travail [J]",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_worked_am_per_week",
@@ -451,19 +453,22 @@
                           "readOnly": false,
                           "help": "Interdire strictement d'avoir des cours prévus à la fois le matin et l'après-midi sur un même jour.\n- **Impact** : Règle dure du solveur."
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Maximum de demi-journées de travail [J]",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Préférences d'Optimisation",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_gap_hours_per_week",
                           "overrideLabel": "Nombre d'heures de trous tolérées",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Préférences d'Optimisation",
+                      "col": 2
                     }
                   ]
                 }
@@ -474,7 +479,8 @@
       },
       {
         "id": "non_teaching_staffs_setting",
-        "title": "🧑‍💼 Pers. non enseignant",
+        "icon": "briefcase",
+        "title": "Pers. non enseignant",
         "borderColor": "#F59E0B",
         "children": [
           {
@@ -540,7 +546,8 @@
       },
       {
         "id": "classrooms_setting",
-        "title": "🏢 Salles",
+        "icon": "building",
+        "title": "Salles",
         "borderColor": "#06B6D4",
         "children": [
           {
@@ -606,7 +613,8 @@
       },
       {
         "id": "subjects_setting",
-        "title": "📖 Matières",
+        "icon": "book-open",
+        "title": "Matières",
         "borderColor": "#EC4899",
         "children": [
           {
@@ -668,9 +676,6 @@
                   "editableForm": true,
                   "fields": [
                     {
-                      "type": "group",
-                      "string": "Cible et Périmètre",
-                      "col": 2,
                       "children": [
                         {
                           "key": "target_subject_a_id",
@@ -688,12 +693,12 @@
                           "key": "is_optional",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Cible et Périmètre",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Incompatibilités",
-                      "col": 2,
                       "children": [
                         {
                           "key": "incompatible_same_half_day",
@@ -711,12 +716,12 @@
                           "key": "min_free_half_days_between",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Incompatibilités",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Empêchement de consécutivité",
-                      "col": 2,
                       "children": [
                         {
                           "key": "prevent_consecutive_a_then_b",
@@ -726,12 +731,12 @@
                           "key": "prevent_consecutive_b_then_a",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Empêchement de consécutivité",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Horaires maximum",
-                      "col": 2,
                       "children": [
                         {
                           "key": "max_hours_per_day",
@@ -741,12 +746,12 @@
                           "key": "max_hours_per_half_day",
                           "readOnly": false
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Horaires maximum",
+                      "col": 2
                     },
                     {
-                      "type": "group",
-                      "string": "Ordre",
-                      "col": 2,
                       "children": [
                         {
                           "key": "weekly_order",
@@ -760,7 +765,10 @@
                           "key": "max_separation",
                           "readOnly": "model.target_subject_a_id && model.target_subject_b_id && model.target_subject_a_id !== model.target_subject_b_id"
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Ordre",
+                      "col": 2
                     }
                   ]
                 }
@@ -771,7 +779,8 @@
       },
       {
         "id": "materials_setting",
-        "title": "🛠️ Matériels",
+        "icon": "wrench",
+        "title": "Matériels",
         "borderColor": "#3B82F6",
         "layout": "VERTICAL",
         "panels": [
@@ -791,7 +800,8 @@
       },
       {
         "id": "courses_setting",
-        "title": "📚 Cours",
+        "icon": "book",
+        "title": "Cours",
         "borderColor": "#F43F5E",
         "children": [
           {
@@ -899,26 +909,23 @@
                   "editableForm": true,
                   "fields": [
                     {
-                      "type": "group",
-                      "string": "Paramètres Généraux",
                       "children": [
                         "label",
                         "is_optional"
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Paramètres Généraux"
                     },
                     {
-                      "type": "group",
-                      "string": "Comportement temporel",
                       "children": [
                         "type",
                         "scope",
                         "custom_half_days"
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Comportement temporel"
                     },
                     {
-                      "type": "group",
-                      "string": "Cours impliqués",
-                      "col": 1,
                       "children": [
                         {
                           "key": "course_ids",
@@ -927,13 +934,25 @@
                           "widgetParams": {
                             "orderColumn": "sequence_order",
                             "columns": [
-                              {"key": "subject_id", "label": "Matière"},
-                              {"key": "division_ids", "label": "Classe"},
-                              {"key": "teacher_ids", "label": "Prof"}
+                              {
+                                "key": "subject_id",
+                                "label": "Matière"
+                              },
+                              {
+                                "key": "division_ids",
+                                "label": "Classe"
+                              },
+                              {
+                                "key": "teacher_ids",
+                                "label": "Prof"
+                              }
                             ]
                           }
                         }
-                      ]
+                      ],
+                      "type": "group",
+                      "string": "Cours impliqués",
+                      "col": 1
                     }
                   ]
                 }
@@ -946,12 +965,13 @@
   },
   {
     "id": "settings_root",
-    "title": "⚙️ Paramètres",
-    "backgroundColor": "#1E293B",
+    "icon": "cog",
+    "title": "Paramètres",
     "children": [
       {
         "id": "schools_setting",
-        "title": "🏫 Établissements",
+        "icon": "school",
+        "title": "Établissements",
         "borderColor": "#10B981",
         "layout": "VERTICAL",
         "panels": [
@@ -971,7 +991,8 @@
       },
       {
         "id": "disciplines_setting",
-        "title": "📚 Disciplines",
+        "icon": "book",
+        "title": "Disciplines",
         "borderColor": "#6366F1",
         "layout": "VERTICAL",
         "panels": [
@@ -991,7 +1012,8 @@
       },
       {
         "id": "missions_setting",
-        "title": "🎯 Missions",
+        "icon": "target",
+        "title": "Missions",
         "borderColor": "#F43F5E",
         "layout": "VERTICAL",
         "panels": [
@@ -1011,7 +1033,8 @@
       },
       {
         "id": "election_methods_setting",
-        "title": "🗳️ Élections",
+        "icon": "box",
+        "title": "Élections",
         "borderColor": "#10B981",
         "layout": "VERTICAL",
         "panels": [
@@ -1031,7 +1054,8 @@
       },
       {
         "id": "periods_setting",
-        "title": "📅 Périodes",
+        "icon": "calendar",
+        "title": "Périodes",
         "borderColor": "#8B5CF6",
         "layout": "VERTICAL",
         "panels": [
@@ -1050,7 +1074,8 @@
       },
       {
         "id": "system_settings_setting",
-        "title": "⚙️ Config globale",
+        "icon": "cog",
+        "title": "Config globale",
         "borderColor": "#6B7280",
         "layout": "VERTICAL",
         "panels": [
@@ -1068,6 +1093,7 @@
           }
         ]
       }
-    ]
+    ],
+    "backgroundColor": "#1E293B"
   }
 ]

@@ -674,7 +674,17 @@ const FormLayoutGrid: any = defineComponent({
                 required ? h('span', { class: 'required-indicator' }, ' *') : null,
                 elem.help ? h('span', {
                   class: 'help-tooltip-wrapper',
-                  onClick: (e: Event) => e.stopPropagation()
+                  onClick: (e: Event) => e.stopPropagation(),
+                  onMouseenter: (e: MouseEvent) => {
+                    const tip = (e.currentTarget as HTMLElement).querySelector('.help-tooltip') as HTMLElement;
+                    if (!tip) return;
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    Object.assign(tip.style, {
+                      position: 'fixed', bottom: 'auto',
+                      left: Math.max(8, Math.min(r.left, window.innerWidth - 258)) + 'px',
+                      top: (r.top > tip.offsetHeight + 8 ? r.top - tip.offsetHeight - 8 : r.bottom + 8) + 'px'
+                    });
+                  }
                 }, [
                   h('span', { class: 'help-icon' }, '?'),
                   h('span', {
@@ -1200,11 +1210,8 @@ input:checked + .slider:before {
   text-align: left;
   border-radius: var(--radius-lg);
   padding: 10px 12px;
-  position: absolute;
-  z-index: 1000;
-  bottom: 125%; /* Position the tooltip above the text */
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
+  z-index: 9999;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-color);
   font-size: 12px;
@@ -1219,9 +1226,9 @@ input:checked + .slider:before {
 .help-tooltip::after {
   content: "";
   position: absolute;
-  top: 100%; /* At the bottom of the tooltip */
-  left: 50%;
-  margin-left: -5px;
+  top: 100%;
+  left: 8px;
+  margin-left: 0;
   border-width: 5px;
   border-style: solid;
   border-color: var(--bg-secondary) transparent transparent transparent;

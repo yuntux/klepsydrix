@@ -1,17 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --bg-primary: #D1D5DB;
-  /* bg-gray-300 */
-  --bg-secondary: #E5E7EB;
-  /* bg-gray-200 */
-  --bg-surface: #F3F4F6;
-  /* bg-gray-100 */
+  --bg-primary: #FFFFFF;
+  /* Blanc pur — fond principal */
+  --bg-secondary: #F8FAFC;
+  /* slate-50 — sidebar, topbar */
+  --bg-surface: #F1F5F9;
+  /* slate-100 — hovers, zones secondaires */
   --bg-card: #FFFFFF;
-  /* Blanc pur */
+  /* Blanc pur — cartes */
 
-  --border-color: #CBD5E1;
-  /* slate-300 */
+  --border-color: #E2E8F0;
+  /* slate-200 — bordures discrètes */
   --border-glow: #6366f1;
 
   --text-primary: #0F172A;

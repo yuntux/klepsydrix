@@ -111,48 +111,47 @@
       </div>
     </div>
 
-    <!-- Right actions slot & Toggles -->
-    <div class="filter-actions-right" style="margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 16px;">
-      
-      <!-- Ciblage auto -->
-      <div v-if="showAutoTargetToggle" class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
-        <label>Ciblage auto :</label>
-        <div class="toggle-container" @click="$emit('update:autoTarget', !autoTarget)">
-          <span :class="{ 'active': !autoTarget }">Désactivé</span>
-          <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
-          <span :class="{ 'active': autoTarget }">Activé</span>
-        </div>
-      </div>
+    <!-- Spacer pour pousser les actions vers la droite quand il y a de la place -->
+    <div class="filter-spacer"></div>
 
-      <div class="filter-item" v-if="mode === 'timetable'">
-        <label>Mise en page :</label>
-        <select :value="layoutMode" @change="$emit('update:layoutMode', ($event.target as HTMLSelectElement).value)" class="select-custom" style="min-width: 180px;">
-          <option value="merged">Assemblé sur la grille</option>
-          <option value="resource_columns">Une colonne par ressource</option>
-          <option value="resource_grids">Une grille par ressource</option>
-        </select>
+    <!-- Ciblage auto -->
+    <div v-if="showAutoTargetToggle" class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
+      <label>Ciblage auto :</label>
+      <div class="toggle-container" @click="$emit('update:autoTarget', !autoTarget)">
+        <span :class="{ 'active': !autoTarget }">Désactivé</span>
+        <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
+        <span :class="{ 'active': autoTarget }">Activé</span>
       </div>
-      
-      <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
-        <label>Placement assisté :</label>
-        <div class="toggle-container" @click="$emit('update:placementAssistantActive', !placementAssistantActive)">
-          <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
-          <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
-          <span :class="{ 'active': placementAssistantActive }">Activé</span>
-        </div>
-      </div>
-      
-      <div class="filter-item" v-if="mode === 'timetable'" style="margin-right: 16px;" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
-        <label>Affichage :</label>
-        <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
-          <span :class="{ 'active': !isDetailedView }">Compact</span>
-          <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
-          <span :class="{ 'active': isDetailedView }">Détaillé</span>
-        </div>
-      </div>
-      
-      <slot name="actions"></slot>
     </div>
+
+    <div class="filter-item" v-if="mode === 'timetable'">
+      <label>Mise en page :</label>
+      <select :value="layoutMode" @change="$emit('update:layoutMode', ($event.target as HTMLSelectElement).value)" class="select-custom" style="min-width: 180px;">
+        <option value="merged">Assemblé sur la grille</option>
+        <option value="resource_columns">Une colonne par ressource</option>
+        <option value="resource_grids">Une grille par ressource</option>
+      </select>
+    </div>
+    
+    <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
+      <label>Placement assisté :</label>
+      <div class="toggle-container" @click="$emit('update:placementAssistantActive', !placementAssistantActive)">
+        <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
+        <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
+        <span :class="{ 'active': placementAssistantActive }">Activé</span>
+      </div>
+    </div>
+    
+    <div class="filter-item" v-if="mode === 'timetable'" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
+      <label>Affichage :</label>
+      <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
+        <span :class="{ 'active': !isDetailedView }">Compact</span>
+        <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
+        <span :class="{ 'active': isDetailedView }">Détaillé</span>
+      </div>
+    </div>
+    
+    <slot name="actions"></slot>
   </div>
 </template>
 
@@ -393,6 +392,11 @@ function onPeriodCheckboxToggle(pId: number, event: Event) {
   padding: 12px 16px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
+  align-items: center;
+}
+
+.filter-spacer {
+  flex: 1 0 0;
 }
 
 .filter-item {

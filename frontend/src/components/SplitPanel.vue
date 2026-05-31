@@ -113,14 +113,15 @@ function stopDrag() {
   display: flex;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   background-color: transparent;
 }
 
 .split-panel-item {
   height: 100%;
-  overflow: auto;
+  overflow-x: visible;
+  overflow-y: auto;
   position: relative;
   display: flex;
   flex-direction: column;
