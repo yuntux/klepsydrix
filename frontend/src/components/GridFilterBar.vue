@@ -116,10 +116,7 @@
 
     <div v-if="showAutoTargetToggle" class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
       <label>Ciblage auto :</label>
-      <BaseToggle
-        :model-value="autoTarget"
-        @update:model-value="$emit('update:autoTarget', $event)"
-      >
+      <BaseToggle v-model="autoTarget">
         <template #left>Désactivé</template>
         <template #right>Activé</template>
       </BaseToggle>
@@ -127,7 +124,7 @@
 
     <div class="filter-item" v-if="mode === 'timetable'">
       <label>Mise en page :</label>
-      <select :value="layoutMode" @change="$emit('update:layoutMode', ($event.target as HTMLSelectElement).value)" class="select-custom" style="min-width: 180px;">
+      <select v-model="layoutMode" class="select-custom" style="min-width: 180px;">
         <option value="merged">Assemblé sur la grille</option>
         <option value="resource_columns">Une colonne par ressource</option>
         <option value="resource_grids">Une grille par ressource</option>
@@ -136,10 +133,7 @@
     
     <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
       <label>Placement assisté :</label>
-      <BaseToggle
-        :model-value="placementAssistantActive"
-        @update:model-value="$emit('update:placementAssistantActive', $event)"
-      >
+      <BaseToggle v-model="placementAssistantActive">
         <template #left>Désactivé</template>
         <template #right>Activé</template>
       </BaseToggle>
@@ -147,10 +141,7 @@
     
     <div class="filter-item" v-if="mode === 'timetable'" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
       <label>Affichage :</label>
-      <BaseToggle
-        :model-value="isDetailedView"
-        @update:model-value="$emit('update:isDetailedView', $event)"
-      >
+      <BaseToggle v-model="isDetailedView">
         <template #left>Compact</template>
         <template #right>Détaillé</template>
       </BaseToggle>
@@ -163,6 +154,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import BaseToggle from './BaseToggle.vue';
+import { useGridStore } from '../stores/grid';
+import { storeToRefs } from 'pinia';
+
+const gridStore = useGridStore();
+const { autoTarget, layoutMode, placementAssistantActive, isDetailedView } = storeToRefs(gridStore);
 
 const props = withDefaults(defineProps<{
   mode?: 'timetable' | 'preference';
@@ -184,16 +180,9 @@ const props = withDefaults(defineProps<{
   periodTypeId?: number | null;
   periodIds?: number[];
   
-  hideResourceSelectors?: boolean;
-  hideSchoolSelector?: boolean;
-  hideWeekSelector?: boolean;
   hidePeriodSelector?: boolean;
-  isDetailedView?: boolean;
-  autoTarget?: boolean;
   showAutoTargetToggle?: boolean;
-  layoutMode?: string;
   showPlacementAssistantToggle?: boolean;
-  placementAssistantActive?: boolean;
 }>(), {
   mode: 'timetable',
   schools: () => [],
@@ -215,12 +204,8 @@ const props = withDefaults(defineProps<{
   hideSchoolSelector: false,
   hideWeekSelector: false,
   hidePeriodSelector: false,
-  isDetailedView: false,
-  autoTarget: false,
   showAutoTargetToggle: true,
-  layoutMode: 'merged',
-  showPlacementAssistantToggle: true,
-  placementAssistantActive: false
+  showPlacementAssistantToggle: true
 });
 
 const emit = defineEmits<{
@@ -232,10 +217,6 @@ const emit = defineEmits<{
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
-  (e: 'update:isDetailedView', value: boolean): void;
-  (e: 'update:autoTarget', value: boolean): void;
-  (e: 'update:layoutMode', value: string): void;
-  (e: 'update:placementAssistantActive', value: boolean): void;
 }>();
 
 // Filter resources by schoolId if set

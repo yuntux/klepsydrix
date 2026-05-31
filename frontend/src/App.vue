@@ -210,11 +210,11 @@ const periodIds = ref<number[]>([]);
 const periodsList = ref<any[]>([]);
 const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
-const autoTarget = ref<boolean>(false);
-const layoutMode = ref<string>('merged');
-const placementAssistantActive = ref<boolean>(false);
 
-const selectedCourseIds = ref<number[]>([]);
+import { useGridStore } from './stores/grid';
+import { storeToRefs } from 'pinia';
+const gridStore = useGridStore();
+const { autoTarget, layoutMode, placementAssistantActive, isDetailedView, selectedCourseIds } = storeToRefs(gridStore);
 
 watch(schoolId, () => {
   selectedTeacherIds.value = [];
@@ -225,22 +225,7 @@ watch(schoolId, () => {
 
 function toggleCourseSelection(id: number, event?: MouseEvent) {
   const isMulti = event && (event.ctrlKey || event.metaKey);
-  const isSelected = selectedCourseIds.value.includes(id);
-
-  if (isMulti) {
-    if (isSelected) {
-      selectedCourseIds.value = selectedCourseIds.value.filter(x => x !== id);
-    } else {
-      selectedCourseIds.value.push(id);
-    }
-  } else {
-    // Single selection mode
-    if (isSelected && selectedCourseIds.value.length === 1) {
-      selectedCourseIds.value = [];
-    } else {
-      selectedCourseIds.value = [id];
-    }
-  }
+  gridStore.toggleCourseSelection(id, isMulti);
   
   // Auto target logic : Si activé, le clic met à jour les filtres
   if (autoTarget.value) {

@@ -29,16 +29,8 @@
       @update:weekType="$emit('update:weekType', $event)"
       @update:periodTypeId="$emit('update:periodTypeId', $event)"
       @update:periodIds="$emit('update:periodIds', $event)"
-      :isDetailedView="isDetailedView"
-      @update:isDetailedView="$emit('update:isDetailedView', $event)"
-      :autoTarget="autoTarget"
-      @update:autoTarget="$emit('update:autoTarget', $event)"
       :showAutoTargetToggle="showAutoTargetToggle"
-      :layoutMode="layoutMode"
-      @update:layoutMode="$emit('update:layoutMode', $event)"
       :showPlacementAssistantToggle="showPlacementAssistantToggle"
-      :placementAssistantActive="placementAssistantActive"
-      @update:placementAssistantActive="$emit('update:placementAssistantActive', $event)"
     >
       <template #actions>
         <slot name="actions">
@@ -134,6 +126,11 @@ import { ref } from 'vue';
 import GridFilterBar from './GridFilterBar.vue';
 import BrushPalette from './BrushPalette.vue';
 import BaseGrid from './BaseGrid.vue';
+import { useGridStore } from '../stores/grid';
+import { storeToRefs } from 'pinia';
+
+const gridStore = useGridStore();
+const { layoutMode } = storeToRefs(gridStore);
 
 const sidebarWidth = ref(320);
 let startX = 0;
@@ -195,13 +192,8 @@ withDefaults(defineProps<{
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
   hideWeekSelector?: boolean;
-  hidePeriodSelector?: boolean;
-  isDetailedView?: boolean;
-  autoTarget?: boolean;
   showAutoTargetToggle?: boolean;
-  layoutMode?: string;
   showPlacementAssistantToggle?: boolean;
-  placementAssistantActive?: boolean;
   activeResources?: any[];
 }>(), {
   preferenceMode: 'none',
@@ -227,14 +219,9 @@ withDefaults(defineProps<{
   periodIds: () => [],
   hideResourceSelectors: false,
   hideSchoolSelector: false,
-  hideWeekSelector: false,
   hidePeriodSelector: false,
-  isDetailedView: false,
-  autoTarget: false,
   showAutoTargetToggle: true,
-  layoutMode: 'merged',
-  showPlacementAssistantToggle: true,
-  placementAssistantActive: false
+  showPlacementAssistantToggle: true
 });
 
 defineEmits<{
@@ -245,12 +232,7 @@ defineEmits<{
   (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
-  (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
-  (e: 'update:isDetailedView', value: boolean): void;
-  (e: 'update:autoTarget', value: boolean): void;
-  (e: 'update:layoutMode', value: string): void;
-  (e: 'update:placementAssistantActive', value: boolean): void;
   
   // Grid events
   (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;
