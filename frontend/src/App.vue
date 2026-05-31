@@ -182,8 +182,10 @@ import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
 import { useDataStore } from './stores/data';
+import { useQueryClient } from '@tanstack/vue-query';
 
 const dataStore = useDataStore();
+const queryClient = useQueryClient();
 
 // Chargement asynchrone (Lazy Loading) des gros composants métiers
 const TimetableGrid = defineAsyncComponent(() => import('./components/TimetableGrid.vue'));
@@ -410,7 +412,10 @@ async function loadOpenApiSpec() {
 
 async function loadSchools() {
   try {
-    const res = await api.fetchGenericList('schools', 0, 1000);
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'schools'],
+      queryFn: () => api.fetchGenericList('schools', 0, 1000)
+    });
     schoolsList.value = res.items;
   } catch (e) {
     console.error("Échec du chargement des écoles", e);
@@ -419,7 +424,10 @@ async function loadSchools() {
 
 async function loadPeriodTypes() {
   try {
-    const res = await api.fetchGenericList('period_types', 0, 1000);
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'period_types'],
+      queryFn: () => api.fetchGenericList('period_types', 0, 1000)
+    });
     periodTypesList.value = res.items;
   } catch (e) {
     console.error("Échec du chargement des types de périodes", e);
@@ -428,7 +436,10 @@ async function loadPeriodTypes() {
 
 async function loadPeriods() {
   try {
-    const res = await api.fetchGenericList('periods', 0, 1000);
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'periods'],
+      queryFn: () => api.fetchGenericList('periods', 0, 1000)
+    });
     periodsList.value = res.items;
   } catch (e) {
     console.error("Échec du chargement des périodes", e);
@@ -441,7 +452,10 @@ async function loadGenericItems() {
   try {
     const listPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList');
     const filters = listPanel?.listConfig?.filters || {};
-    const res = await api.fetchGenericList(activeAdminModel.value, 0, 1000, undefined, filters);
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', activeAdminModel.value, filters],
+      queryFn: () => api.fetchGenericList(activeAdminModel.value, 0, 1000, undefined, filters)
+    });
     genericItems.value = res.items;
   } catch (err: any) {
     showNotification('error', err.message || 'Erreur lors du chargement des ressources');
@@ -450,13 +464,13 @@ async function loadGenericItems() {
   }
 }
 
-const FK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: string; rawData?: any }>; loadedAt: number }>>({});
+const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: string; rawData?: any }> }>>({});
 
 provide('fkOptionsCache', fkOptionsCache);
 
 function invalidateFkCache(resourceName: string) {
   delete fkOptionsCache.value[resourceName];
+  queryClient.invalidateQueries({ queryKey: ['genericList', resourceName] });
 }
 
 function fkOptions(resourceName: string): Array<{ value: any; label: string }> {
@@ -469,7 +483,6 @@ async function loadFkOptionsForModel(model: string) {
   const schema = openApiSpec.value.components?.schemas?.[schemaName];
   if (!schema || !schema.properties) return;
 
-  const now = Date.now();
   const resourcesToFetch = new Set<string>();
 
   for (const [key, prop] of Object.entries<any>(schema.properties)) {
@@ -480,11 +493,7 @@ async function loadFkOptionsForModel(model: string) {
     }
 
     if (resourceName) {
-      const cached = fkOptionsCache.value[resourceName];
-      const isStale = !cached || (now - cached.loadedAt > FK_CACHE_TTL_MS);
-      if (isStale) {
-        resourcesToFetch.add(resourceName);
-      }
+      resourcesToFetch.add(resourceName);
     }
   }
 
@@ -492,18 +501,20 @@ async function loadFkOptionsForModel(model: string) {
     await Promise.all(
       Array.from(resourcesToFetch).map(async (resourceName) => {
         try {
-          const res = await api.fetchGenericList(resourceName, 0, 1000);
+          const res = await queryClient.fetchQuery({
+            queryKey: ['genericList', resourceName],
+            queryFn: () => api.fetchGenericList(resourceName, 0, 1000)
+          });
           fkOptionsCache.value[resourceName] = {
             items: (res.items || []).map((item: any) => ({
               value: item.id,
               label: item.display_name || item.name || item.code || String(item.id),
               rawData: item
-            })),
-            loadedAt: now
+            }))
           };
         } catch (e) {
           console.error(`Failed to fetch options for resource ${resourceName}`, e);
-          fkOptionsCache.value[resourceName] = { items: [], loadedAt: now };
+          fkOptionsCache.value[resourceName] = { items: [] };
         }
       })
     );

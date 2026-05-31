@@ -192,6 +192,7 @@ withDefaults(defineProps<{
   hideResourceSelectors?: boolean;
   hideSchoolSelector?: boolean;
   hideWeekSelector?: boolean;
+  hidePeriodSelector?: boolean;
   showAutoTargetToggle?: boolean;
   showPlacementAssistantToggle?: boolean;
   activeResources?: any[];
