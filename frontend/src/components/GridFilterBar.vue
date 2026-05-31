@@ -117,7 +117,7 @@
     <!-- Ciblage auto -->
     <div v-if="showAutoTargetToggle" class="filter-item" title="Sélectionne automatiquement les ressources (classe, enseignant, etc.) du cours sur lequel vous cliquez pour filtrer la vue.">
       <label>Ciblage auto :</label>
-      <div class="toggle-container" @click="$emit('update:autoTarget', !autoTarget)">
+      <div class="toggle-container" role="button" tabindex="0" @click="$emit('update:autoTarget', !autoTarget)" @keydown.space.prevent="$emit('update:autoTarget', !autoTarget)" @keydown.enter="$emit('update:autoTarget', !autoTarget)">
         <span :class="{ 'active': !autoTarget }">Désactivé</span>
         <div class="toggle-switch" :class="{ 'on': autoTarget }"></div>
         <span :class="{ 'active': autoTarget }">Activé</span>
@@ -135,7 +135,7 @@
     
     <div class="filter-item" v-if="mode === 'timetable' && showPlacementAssistantToggle" title="Lorsqu'activé et qu'un seul cours est sélectionné, affiche une carte de chaleur colorant chaque créneau selon le score du solveur (Vert = optimal, Orange = sous-optimal, Rouge = conflit). Au survol, les contraintes violées ou respectées sont détaillées.">
       <label>Placement assisté :</label>
-      <div class="toggle-container" @click="$emit('update:placementAssistantActive', !placementAssistantActive)">
+      <div class="toggle-container" role="button" tabindex="0" @click="$emit('update:placementAssistantActive', !placementAssistantActive)" @keydown.space.prevent="$emit('update:placementAssistantActive', !placementAssistantActive)" @keydown.enter="$emit('update:placementAssistantActive', !placementAssistantActive)">
         <span :class="{ 'active': !placementAssistantActive }">Désactivé</span>
         <div class="toggle-switch" :class="{ 'on': placementAssistantActive }"></div>
         <span :class="{ 'active': placementAssistantActive }">Activé</span>
@@ -144,7 +144,7 @@
     
     <div class="filter-item" v-if="mode === 'timetable'" title="Interrupteur permettant d'alterner entre une vue compacte (où l'on voit les cours composés) et une vue détaillée (où l'on voit le détail des composants pour chaque cours composé).">
       <label>Affichage :</label>
-      <div class="toggle-container" @click="$emit('update:isDetailedView', !isDetailedView)">
+      <div class="toggle-container" role="button" tabindex="0" @click="$emit('update:isDetailedView', !isDetailedView)" @keydown.space.prevent="$emit('update:isDetailedView', !isDetailedView)" @keydown.enter="$emit('update:isDetailedView', !isDetailedView)">
         <span :class="{ 'active': !isDetailedView }">Compact</span>
         <div class="toggle-switch" :class="{ 'on': isDetailedView }"></div>
         <span :class="{ 'active': isDetailedView }">Détaillé</span>

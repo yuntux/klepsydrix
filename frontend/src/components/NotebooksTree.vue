@@ -21,7 +21,7 @@
           <template v-for="l1 in config" :key="l1.id">
             <!-- Level 1 as Group -->
             <template v-if="l1.children && l1.children.length > 0">
-              <div class="nav-group-header" :class="{ open: isGroupOpen(l1.id) }" @click="toggleGroup(l1, $event)">
+              <div class="nav-group-header" :class="{ open: isGroupOpen(l1.id) }" role="button" tabindex="0" @click="toggleGroup(l1, $event)" @keydown.enter="toggleGroup(l1, $event)">
                 <MenuIcon :name="l1.icon || 'calendar'" />
                 <span class="label">{{ l1.title }}</span>
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -30,7 +30,7 @@
                 <template v-for="l2 in l1.children" :key="l2.id">
                   <!-- Level 2 as Group -->
                   <template v-if="l2.children && l2.children.length > 0">
-                    <div class="submenu-item has-children" :class="{ open: isGroupOpen(l2.id) }" @click="toggleSubGroup(l2.id)">
+                    <div class="submenu-item has-children" :class="{ open: isGroupOpen(l2.id) }" role="button" tabindex="0" @click="toggleSubGroup(l2.id)" @keydown.enter="toggleSubGroup(l2.id)">
                       {{ l2.title }}
                       <svg class="sub-chevron" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
                     </div>
@@ -38,14 +38,15 @@
                       <div v-for="l3 in l2.children" :key="l3.id" 
                            class="sub-submenu-item" 
                            :class="{ active: activeLeafId === l3.id }" 
-                           @click="selectLeaf(l3, l2, l1)">
+                           role="button" tabindex="0"
+                           @click="selectLeaf(l3, l2, l1)" @keydown.enter="selectLeaf(l3, l2, l1)">
                         {{ l3.title }}
                       </div>
                     </div>
                   </template>
                   <!-- Level 2 as Leaf -->
                   <template v-else>
-                    <div class="submenu-item" :class="{ active: activeLeafId === l2.id }" @click="selectLeaf(l2, l1, null)">
+                    <div class="submenu-item" :class="{ active: activeLeafId === l2.id }" role="button" tabindex="0" @click="selectLeaf(l2, l1, null)" @keydown.enter="selectLeaf(l2, l1, null)">
                       {{ l2.title }}
                     </div>
                   </template>
@@ -54,7 +55,7 @@
             </template>
             <!-- Level 1 as Leaf -->
             <template v-else>
-              <div class="nav-item" :class="{ active: activeLeafId === l1.id }" @click="selectLeaf(l1, null, null)">
+              <div class="nav-item" :class="{ active: activeLeafId === l1.id }" role="button" tabindex="0" @click="selectLeaf(l1, null, null)" @keydown.enter="selectLeaf(l1, null, null)">
                 <MenuIcon :name="l1.icon || 'calendar'" />
                 <span class="label">{{ l1.title }}</span>
                 <div class="tooltip-tip">{{ l1.title }}</div>
@@ -64,7 +65,7 @@
         </div>
 
         <div class="sidebar-footer">
-          <div class="nav-item" @click="toggleTheme">
+          <div class="nav-item" role="button" tabindex="0" @click="toggleTheme" @keydown.enter="toggleTheme">
             <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
               {{ currentThemeIndex === 1 ? '🌙' : currentThemeIndex === 2 ? '⬛' : '☀️' }}
             </div>
@@ -142,7 +143,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
 import SplitPanel from './SplitPanel.vue';
 import MenuIcon from './MenuIcon.vue';
 import { fetchMenus } from '../services/api';
@@ -165,7 +166,7 @@ interface NotebookNode {
   panels?: Panel[];
 }
 
-const config = ref<NotebookNode[]>([]);
+const config = shallowRef<NotebookNode[]>([]);
 const isSidebarCollapsed = ref(false);
 const openGroupIds = ref<Set<string>>(new Set());
 const activeLeafId = ref<string>('');

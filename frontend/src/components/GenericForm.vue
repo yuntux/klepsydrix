@@ -87,8 +87,10 @@ interface LayoutElement {
   originalField?: FormField;
   help?: string;
 }
+const markdownCache = new Map<string, string>();
 function renderMarkdown(md: string | undefined): string {
   if (!md) return '';
+  if (markdownCache.has(md)) return markdownCache.get(md)!;
   let html = md;
   html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   
@@ -131,7 +133,9 @@ function renderMarkdown(md: string | undefined): string {
     processedLines.push('</ul>');
   }
   
-  return processedLines.join('\n');
+  const result = processedLines.join('\n');
+  markdownCache.set(md, result);
+  return result;
 }
 
 interface FormConfig {
