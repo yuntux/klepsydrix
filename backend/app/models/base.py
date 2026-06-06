@@ -101,6 +101,19 @@ class CRUDMixin:
         for key, value in local_vals.items():
             if key in mapper.columns:
                 setattr(instance, key, value)
+            else:
+                # Injection de relations mock pour les onchange
+                for rel in mapper.relationships:
+                    possible_keys = [f"{rel.key}_ids", f"{rel.key[:-1]}_ids", f"{rel.key[:-3]}y_ids"]
+                    if rel.uselist and key in possible_keys and isinstance(value, list):
+                        target_cls = rel.mapper.class_
+                        mocks = []
+                        for v in value:
+                            m = target_cls()
+                            m.id = v
+                            mocks.append(m)
+                        setattr(instance, rel.key, mocks)
+                        break
                 
         # Exécuter les méthodes @onchange qui écoutent ce field_name
         for attr_name in dir(instance):
@@ -138,6 +151,7 @@ class CRUDMixin:
         Méthode de création standard surchargeable avec gestion des related_fields.
         """
         try:
+            original_vals_keys = set(vals.keys())
             # 1. Inspecter et extraire les relations de type collection (Many-to-Many / One-to-Many)
             from sqlalchemy import inspect
             collection_updates = {}
@@ -214,9 +228,11 @@ class CRUDMixin:
                 method = getattr(instance, attr_name)
                 if callable(method) and hasattr(method, "_constrains"):
                     constrained_fields = getattr(method, "_constrains")
-                    if not constrained_fields or any(f in vals for f in constrained_fields):
+                    if not constrained_fields or any(f in original_vals_keys for f in constrained_fields):
                         method(db)
 
+            instance._via_crud_mixin_update = True
+            db.flush()
             db.refresh(instance)
             return instance
         except Exception as e:
@@ -246,6 +262,7 @@ class CRUDMixin:
         Méthode de mise à jour standard surchargeable avec gestion des related_fields.
         """
         try:
+            original_vals_keys = set(vals.keys())
             # 1. Inspecter et extraire les relations de type collection (Many-to-Many / One-to-Many)
             from sqlalchemy import inspect
             collection_updates = {}
@@ -322,9 +339,10 @@ class CRUDMixin:
                 method = getattr(self, attr_name)
                 if callable(method) and hasattr(method, "_constrains"):
                     constrained_fields = getattr(method, "_constrains")
-                    if not constrained_fields or any(f in vals for f in constrained_fields):
+                    if not constrained_fields or any(f in original_vals_keys for f in constrained_fields):
                         method(db)
 
+            db.flush()
             db.refresh(self)
             return self
         except Exception as e:
@@ -436,7 +454,13 @@ def receive_before_update(mapper, connection, target):
     if session and not session.is_modified(target, include_collections=False):
         return
     if not getattr(target, '_via_crud_mixin_update', False):
-        raise RuntimeError(f"Mise à jour directe interdite pour {target.__class__.__name__}. Utilisez la méthode update() de CRUDMixin.")
+        obj_id = getattr(target, 'id', 'Unknown')
+        from sqlalchemy.orm.attributes import get_history
+        from sqlalchemy import inspect
+        insp = inspect(target)
+        modified = [c.key for c in insp.mapper.column_attrs if get_history(target, c.key).has_changes()]
+        print(f"======> MODIFIED ATTRS for {target.__class__.__name__} {obj_id}: {modified}")
+        raise RuntimeError(f"Mise à jour directe interdite pour {target.__class__.__name__} (ID: {obj_id}). Utilisez la méthode update() de CRUDMixin.")
 
 @event.listens_for(Base, 'before_delete', propagate=True)
 def receive_before_delete(mapper, connection, target):

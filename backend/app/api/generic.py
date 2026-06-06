@@ -434,6 +434,11 @@ def make_instance_call_endpoint(model):
             
     return instance_call_endpoint
 
+def make_actions_endpoint(model):
+    def actions_endpoint():
+        return getattr(model, "__actions__", [])
+    return actions_endpoint
+
 # Génération dynamique des routes explicites et typées au chargement pour toutes les ressources
 for resource_name, model in MODEL_MAP.items():
     create_schema = make_pydantic_model(model, all_optional=False)
@@ -453,6 +458,15 @@ for resource_name, model in MODEL_MAP.items():
         methods=["GET"],
         response_model=list_schema,
         summary=f"Lister les {resource_name}",
+        tags=[resource_name]
+    )
+    # 1.5. Obtenir les actions génériques du modèle (GET /api/generic/{resource_name}/actions)
+    router.add_api_route(
+        path=f"/{resource_name}/actions",
+        endpoint=make_actions_endpoint(model),
+        methods=["GET"],
+        response_model=List[Dict[str, Any]],
+        summary=f"Obtenir les actions métier sur {resource_name}",
         tags=[resource_name]
     )
     

@@ -109,8 +109,8 @@ class TestCompositionModes:
         assert len(children) == 4
 
     def test_mode_6_three_groups_two_classes(self, db_session):
-        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_groups=1)
-        mapping.append({"teacher_ids": [teachers[1].id], "group_ids": [groups[2].id], "classroom_ids": []})
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_groups=1, extra_teachers=1)
+        mapping.append({"teacher_ids": [teachers[2].id], "group_ids": [groups[2].id], "classroom_ids": []})
         children = CompositionModes.apply(db_session, parent, 6, mapping)
         assert len(children) == 4
 
@@ -219,3 +219,23 @@ class TestCompositionModes:
         with pytest.raises(CompositionError) as excinfo:
             CompositionModes.apply(db_session, parent, 1, [])
         assert "obligatoire" in str(excinfo.value)
+
+    def test_rpc_save_composition_safe_update(self, db_session):
+        """Vérifie que rpc_save_composition peut s'exécuter sans provoquer l'erreur de sécurité 'Mise à jour directe interdite'."""
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_periods=2)
+        
+        # Simuler les données retournées par l'interface via rpc_preview_composition
+        children_vals = [
+            {"subject_id": parent.subject_id, "duration_minutes": 30, "teacher_ids": [teachers[0].id], "parent_id": parent.id},
+            {"subject_id": parent.subject_id, "duration_minutes": 30, "teacher_ids": [teachers[1].id], "parent_id": parent.id}
+        ]
+        
+        # Exécuter la sauvegarde RPC
+        res = parent.rpc_save_composition(db_session, children_vals)
+        db_session.flush() # Force le flush pour s'assurer qu'aucune sécurité n'est levée
+        
+        assert res["status"] == "ok"
+        assert res["count"] == 2
+        assert len(parent.children) == 2
+        # Vérifie que la surcharge métier a bien tourné (is_composed doit être True)
+        assert parent.is_composed is True

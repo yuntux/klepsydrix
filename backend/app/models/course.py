@@ -4,7 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
-from backend.app.models.base import Base, exposed, constrains
+from backend.app.models.base import Base, exposed, constrains, onchange
 from backend.app.models.preference import WeekType
 
 course_teachers = Table(
@@ -73,6 +73,16 @@ course_periods = Table(
 
 class Course(Base):
     __tablename__ = "courses"
+    __actions__ = [
+        {
+            "id": "compose_course",
+            "label": "Décomposer le cours",
+            "type": "wizard",
+            "component": "CourseCompositionWizard",
+            "icon": "fa-sitemap",
+            "condition": "record.is_composed === true && record.status !== 'COMPLETELY_PLACED'"
+        }
+    ]
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True, info={"label": "Cours parent"})
@@ -234,6 +244,18 @@ class Course(Base):
                         f"La période '{period.name}' (type {period.period_type_id}) ne correspond pas "
                         f"au type de période '{self.period_type_id}' du cours."
                     )
+
+    @onchange('teacher_ids', 'is_co_teaching', 'children_ids')
+    @constrains('teacher_ids', 'is_co_teaching', 'children_ids')
+    def _compute_is_composed(self, db=None):
+        """Marque automatiquement le cours comme composé s'il y a plusieurs profs sans co-enseignement, ou s'il a des enfants."""
+        has_multiple_teachers = getattr(self, 'teachers', None) and len(self.teachers) > 1 and not getattr(self, 'is_co_teaching', False)
+        has_children = getattr(self, 'children', None) and len(self.children) > 0
+        
+        if has_multiple_teachers or has_children:
+            self.is_composed = True
+        else:
+            self.is_composed = False
 
     @constrains('week_type', 'parent_id')
     def _sync_parent_week_type(self, db, exclude_child_id=None):
@@ -594,22 +616,56 @@ class Course(Base):
         return res
 
     def compose_by_mode(self, db: Session, mode: int, mapping: list[dict] = None) -> dict:
-        """
-        Décompose ce cours complexe selon un mode de composition EDT (1-9).
-        
-        Méthode RPC appelable via :
-          POST /api/generic/courses/{id}/call/compose_by_mode
-          Payload: {"args": [], "kwargs": {"mode": 3, "mapping": [...]}}
-        
-        Returns:
-            dict avec la liste des IDs des enfants générés
-        """
+        """Méthode RPC legacy conservée pour compatibilité."""
         from backend.app.models.composition_mode import CompositionModes
-        children = CompositionModes.apply(db, self, mode, mapping)
+        children = CompositionModes.apply(db, self, mode, mapping, preview=False)
         return {
             "status": "ok",
             "parent_id": self.id,
             "mode": mode,
+            "children_ids": [c.id for c in children],
+            "count": len(children),
+        }
+
+    def rpc_get_available_modes(self, db: Session, mapping: list[dict]) -> dict:
+        """Renvoie les modes de composition applicables."""
+        from backend.app.models.composition_mode import CompositionModes
+        modes = CompositionModes.get_available_modes(self, mapping)
+        return {"status": "ok", "available_modes": modes}
+
+    def rpc_preview_composition(self, db: Session, mode: int, mapping: list[dict]) -> dict:
+        """Génère l'aperçu des enfants sans les sauvegarder."""
+        from backend.app.models.composition_mode import CompositionModes
+        children_vals = CompositionModes.apply(db, self, mode, mapping, preview=True)
+        return {"status": "ok", "children_vals": children_vals}
+
+    def rpc_save_composition(self, db: Session, children_vals: list[dict]) -> dict:
+        """Sauvegarde définitivement les enfants modifiés par l'utilisateur."""
+        # 1. Supprimer les anciens enfants proprement sans déclencher de synchronisation intermédiaire sur le parent
+        children_to_delete = db.query(Course).filter(Course.parent_id == self.id).all()
+        for child in children_to_delete:
+            child.parent_id = None  # On détache l'enfant avant sa suppression
+            child.delete(db)
+            
+        # 2. Créer les nouveaux enfants de manière isolée pour éviter de perturber le parent prématurément
+        children = []
+        for vals in children_vals:
+            vals_copy = dict(vals)
+            # Ne pas lier au parent tout de suite pour éviter les flushs conflictuels
+            vals_copy.pop('parent_id', None)
+            # Mais il faut s'assurer qu'ils aient le bon school_id (et subject_id) qui seraient normalement copiés du parent
+            vals_copy.setdefault('school_id', self.school_id)
+            vals_copy.setdefault('subject_id', self.subject_id)
+            
+            children.append(Course.create(db, vals_copy))
+            
+        # 3. Rattacher tous les enfants au parent via la méthode officielle update()
+        # Cela déclenchera correctement les calculs métier (@onchange, etc)
+        self.update(db, {'children_ids': [c.id for c in children]})
+            
+        return {
+            "status": "ok",
+            "parent_id": self.id,
             "children_ids": [c.id for c in children],
             "count": len(children),
         }

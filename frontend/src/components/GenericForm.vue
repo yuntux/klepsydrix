@@ -30,6 +30,20 @@
           <BaseButton v-if="localModel && localModel.id && !isMultiEdit" type="button" variant="danger" class="btn-delete" @click="handleDelete">
             Supprimer
           </BaseButton>
+          
+          <!-- Actions dynamiques métier du modèle -->
+          <template v-if="localModel && localModel.id && !isMultiEdit">
+            <BaseButton 
+              v-for="action in modelActions.filter(a => evaluateActionCondition(a, localModel))" 
+              :key="action.id"
+              type="button" 
+              variant="success" 
+              @click="handleActionClick(action)"
+            >
+              {{ action.label || action.name }}
+            </BaseButton>
+          </template>
+
           <BaseButton type="button" variant="secondary" @click="handleCancel">
             Annuler
           </BaseButton>
@@ -39,6 +53,17 @@
         </div>
       </form>
     </div>
+    
+    <BaseModal v-model="showWizard" :title="activeActionTitle" maxWidth="1600px">
+      <component 
+        v-if="showWizard && activeWizard"
+        :is="componentsMap[activeWizard]"
+        :recordId="localModel.id" 
+        :model="localModel"
+        @cancel="showWizard = false" 
+        @success="showWizard = false"
+      />
+    </BaseModal>
   </div>
 </template>
 
@@ -50,7 +75,38 @@ import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseTooltip from './BaseTooltip.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
+import BaseModal from './BaseModal.vue';
 import Many2ManyOrderedList from './widgets/Many2ManyOrderedList.vue';
+import CourseCompositionWizard from './widgets/CourseCompositionWizard.vue';
+import * as api from '../services/api';
+
+const showWizard = ref(false);
+const modelActions = ref<any[]>([]);
+const activeWizard = ref<string | null>(null);
+const activeActionTitle = ref<string>('');
+
+const componentsMap: Record<string, any> = {
+  'CourseCompositionWizard': CourseCompositionWizard
+};
+
+function evaluateActionCondition(action: any, model: any) {
+  if (!action.condition) return true;
+  try {
+    const fn = new Function('record', 'model', `return ${action.condition}`);
+    return !!fn(model, model);
+  } catch (e) {
+    return false;
+  }
+}
+
+function handleActionClick(action: any) {
+  if (action.type === 'wizard') {
+    activeWizard.value = action.component;
+    activeActionTitle.value = action.label || action.name || 'Assistant';
+    showWizard.value = true;
+  }
+}
+
 interface FormField {
   key: string;
   label: string;
@@ -161,7 +217,18 @@ const emit = defineEmits<{
   (e: 'delete', value: Record<string, any>): void;
 }>();
 
-
+watch(() => props.resourceKey, async (newKey) => {
+  if (newKey) {
+    try {
+      modelActions.value = await api.fetchGenericActions(newKey);
+    } catch (e) {
+      console.warn("Could not fetch actions for", newKey, e);
+      modelActions.value = [];
+    }
+  } else {
+    modelActions.value = [];
+  }
+}, { immediate: true });
 
 const isEditableForm = computed(() => {
   return props.formConfig?.editableForm !== false;

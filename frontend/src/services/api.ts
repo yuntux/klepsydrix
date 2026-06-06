@@ -248,5 +248,10 @@ export async function callInstanceMethod(
   return response.json();
 }
 
-
-
+export async function fetchGenericActions(resourceName: string): Promise<any[]> {
+  const response = await fetch(`/api/generic/${resourceName}/actions`);
+  if (!response.ok) {
+    throw new Error(`Erreur de chargement des actions pour ${resourceName}`);
+  }
+  return response.json();
+}
