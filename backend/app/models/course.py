@@ -540,11 +540,19 @@ class Course(Base):
         
         # Recalculer le statut du nouveau cours
         instance.recompute_status()
+        
+        if instance.parent_id:
+            parent = db.get(cls, instance.parent_id)
+            if parent:
+                parent.recompute_status()
+                
         return instance
 
     def update(self, db: Session, vals: dict):
         # 1. Synchronisation avec le parent (si applicable)
         self.__class__._sync_vals_from_parent(db, vals, instance=self)
+        
+        old_parent_id = self.parent_id
         
         # 3. Sauvegarde
         res = super().update(db, vals)
@@ -567,6 +575,16 @@ class Course(Base):
         
         # Recalculer son propre statut
         self.recompute_status()
+        
+        # Faire remonter au parent
+        if old_parent_id and old_parent_id != self.parent_id:
+            old_parent = db.get(self.__class__, old_parent_id)
+            if old_parent:
+                old_parent.recompute_status(exclude_child_id=self.id)
+        if self.parent_id:
+            parent = db.get(self.__class__, self.parent_id)
+            if parent:
+                parent.recompute_status()
 
         # 4. Si on a bougé, on propage le mouvement aux enfants en forçant leur recalcul
         if 'timeslot_id' in vals or 'is_pinned' in vals:
@@ -574,6 +592,27 @@ class Course(Base):
                 child.update(db, {})
                 
         return res
+
+    def compose_by_mode(self, db: Session, mode: int, mapping: list[dict] = None) -> dict:
+        """
+        Décompose ce cours complexe selon un mode de composition EDT (1-9).
+        
+        Méthode RPC appelable via :
+          POST /api/generic/courses/{id}/call/compose_by_mode
+          Payload: {"args": [], "kwargs": {"mode": 3, "mapping": [...]}}
+        
+        Returns:
+            dict avec la liste des IDs des enfants générés
+        """
+        from backend.app.models.composition_mode import CompositionModes
+        children = CompositionModes.apply(db, self, mode, mapping)
+        return {
+            "status": "ok",
+            "parent_id": self.id,
+            "mode": mode,
+            "children_ids": [c.id for c in children],
+            "count": len(children),
+        }
 
     def delete(self, db: Session):
         from sqlalchemy import delete

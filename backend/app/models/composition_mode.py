@@ -1,0 +1,349 @@
+"""
+Modes de composition des cours complexes pour Klepsydrix.
+
+Ces 9 modes s'appuient obligatoirement sur un "mapping" fourni par
+l'utilisateur qui précise la répartition spatiale (qui voit qui, dans quelle salle).
+Les modes (1-9) appliquent ensuite la logique temporelle (alternances, décalages, périodes).
+"""
+
+from sqlalchemy.orm import Session
+from backend.app.models.course import Course
+
+
+class CompositionError(Exception):
+    pass
+
+
+class CompositionModes:
+
+    @staticmethod
+    def _get_second_half_offset(db: Session, course: Course) -> int:
+        from backend.app.models.system_setting import SystemSetting
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
+        duration = int(setting.value) if setting and setting.value.isdigit() else 30
+        return (course.duration_minutes // 2) // duration
+
+    @staticmethod
+    def _resolve_dynamic_groups(db: Session, course: Course, mapping: list[dict]):
+        from backend.app.models.group import Group
+        for row in mapping:
+            cp_ids = set(row.get('class_part_ids', []))
+            if len(cp_ids) > 1 and not row.get('group_ids'):
+                existing_groups = db.query(Group).all()
+                found_group = None
+                for g in existing_groups:
+                    g_cp_ids = {cp.id for cp in g.class_parts}
+                    if g_cp_ids == cp_ids:
+                        found_group = g
+                        break
+                
+                if found_group:
+                    row['group_ids'] = row.get('group_ids', []) + [found_group.id]
+                    if found_group not in course.groups:
+                        course.update(db, {"group_ids": [g.id for g in course.groups] + [found_group.id]})
+                else:
+                    import uuid
+                    new_group = Group.create(db, {
+                        "code": f"AUTO_{uuid.uuid4().hex[:6]}",
+                        "name": f"Groupe Auto ({len(cp_ids)} parties)",
+                        "class_part_ids": list(cp_ids)
+                    })
+                    row['group_ids'] = row.get('group_ids', []) + [new_group.id]
+                    course.update(db, {"group_ids": [g.id for g in course.groups] + [new_group.id]})
+                
+                db.flush()
+                # On vide class_part_ids car le groupe englobe ces parties
+                row['class_part_ids'] = []
+
+    @staticmethod
+    def get_available_modes(course: Course, mapping: list[dict]) -> list[int]:
+        """
+        Retourne la liste des IDs des modes (1-9) applicables selon 
+        la configuration du cours (ex: nombre de périodes) et le mapping.
+        """
+        n = len(mapping) if mapping else 0
+        periods_count = len(course.periods)
+        
+        available = []
+        if n >= 1:
+            available.extend([1, 2])
+        if n >= 2:
+            available.extend([3, 4, 5])
+        if n >= 3:
+            available.append(6)
+            
+        if periods_count >= 2 and n >= 2:
+            available.extend([7, 8, 9])
+            
+        return sorted(list(set(available)))
+
+    @staticmethod
+    def apply(db: Session, course: Course, mode: int, mapping: list[dict] = None) -> list[Course]:
+        if not course.is_composed:
+            raise CompositionError("Le cours doit être un cours composé (is_composed=True).")
+
+        mapping = mapping or []
+        if not mapping:
+            raise CompositionError("Un mapping (répartition spatiale) est obligatoire pour composer le cours.")
+
+        available_modes = CompositionModes.get_available_modes(course, mapping)
+        if mode not in available_modes:
+            raise CompositionError(f"Le mode {mode} n'est pas applicable avec la répartition actuelle (ex: pas assez de lignes, groupes ou périodes). Modes possibles: {available_modes}")
+
+        CompositionModes._resolve_dynamic_groups(db, course, mapping)
+
+        # Delete existing children via CRUDMixin pour respecter les callbacks et suppressions en cascade
+        children_to_delete = db.query(Course).filter(Course.parent_id == course.id).all()
+        for child in children_to_delete:
+            child.delete(db)
+
+        method = getattr(CompositionModes, f"_mode_{mode}", None)
+        if method is None:
+            raise CompositionError(f"Mode {mode} non implémenté (valeurs autorisées : 1-9).")
+
+        children = method(db, course, mapping)
+        
+        return children
+
+    @staticmethod
+    def _build_base_vals(course: Course, map_row: dict) -> dict:
+        """Fusionne les données communes du parent avec les ressources spécifiques du mapping."""
+        return {
+            'subject_id': course.subject_id,
+            'school_id': course.school_id,
+            'duration_minutes': course.duration_minutes,
+            'parent_id': course.id,
+            'is_composed': False,
+            'week_type': course.week_type.value,
+            'period_type_id': course.period_type_id,
+            'material_ids': [r.id for r in course.materials],
+            'non_teaching_staff_ids': [r.id for r in course.non_teaching_staffs],
+            # Ressources spatiales fournies par le mapping (ou liste vide si omis)
+            'teacher_ids': map_row.get('teacher_ids', []),
+            'classroom_ids': map_row.get('classroom_ids', []),
+            'division_ids': map_row.get('division_ids', []),
+            'class_part_ids': map_row.get('class_part_ids', []),
+            'group_ids': map_row.get('group_ids', []),
+            'period_ids': map_row.get('period_ids', [r.id for r in course.periods]),
+        }
+
+    # ------------------------------------------------------------------ #
+    #   Modes 1 & 2 : Répartition simple                                 #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _mode_1(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 1 : Une séance par professeur (1 enfant par ligne de mapping)."""
+        children = []
+        for row in mapping:
+            vals = CompositionModes._build_base_vals(course, row)
+            children.append(Course.create(db, vals))
+        return children
+
+    @staticmethod
+    def _mode_2(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 2 : Une séance par professeur pour chaque quinzaine (2 enfants par ligne)."""
+        children = []
+        for row in mapping:
+            for week in ['A', 'B']:
+                vals = CompositionModes._build_base_vals(course, row)
+                vals['week_type'] = week
+                children.append(Course.create(db, vals))
+        return children
+
+    # ------------------------------------------------------------------ #
+    #   Modes 3 & 4 : Barrettes avec rotation de sous-groupes            #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _mode_3(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 3 : Barrette - professeurs changent de groupe à mi-cours."""
+        children = []
+        offset = CompositionModes._get_second_half_offset(db, course)
+        n = len(mapping)
+        if n == 0:
+            return children
+
+        for i, row in enumerate(mapping):
+            # 1ère moitié
+            vals_1 = CompositionModes._build_base_vals(course, row)
+            vals_1['duration_minutes'] = course.duration_minutes // 2
+            vals_1['parent_timeslot_offset'] = 0
+            children.append(Course.create(db, vals_1))
+            
+            # 2ème moitié (rotation circulaire des professeurs)
+            # T[i] prend le groupe de la ligne G[(i+1)%n] (donc on attribue le prof de "n-1-i" ou "i+1")
+            next_row = mapping[(i + 1) % n]
+            vals_2 = CompositionModes._build_base_vals(course, row)
+            vals_2['duration_minutes'] = course.duration_minutes // 2
+            vals_2['parent_timeslot_offset'] = offset
+            vals_2['teacher_ids'] = next_row.get('teacher_ids', [])
+            children.append(Course.create(db, vals_2))
+
+        return children
+
+    @staticmethod
+    def _mode_4(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 4 : Barrette + alternance quinzaine."""
+        children = []
+        offset = CompositionModes._get_second_half_offset(db, course)
+        n = len(mapping)
+        if n == 0:
+            return children
+
+        for i, row in enumerate(mapping):
+            next_row = mapping[(i + 1) % n]
+
+            # Semaine A
+            vals_a1 = CompositionModes._build_base_vals(course, row)
+            vals_a1['week_type'] = 'A'
+            vals_a1['duration_minutes'] = course.duration_minutes // 2
+            vals_a1['parent_timeslot_offset'] = 0
+            children.append(Course.create(db, vals_a1))
+
+            vals_a2 = CompositionModes._build_base_vals(course, row)
+            vals_a2['week_type'] = 'A'
+            vals_a2['duration_minutes'] = course.duration_minutes // 2
+            vals_a2['parent_timeslot_offset'] = offset
+            vals_a2['teacher_ids'] = next_row.get('teacher_ids', [])
+            children.append(Course.create(db, vals_a2))
+
+            # Semaine B (Inverse de la Semaine A)
+            vals_b1 = CompositionModes._build_base_vals(course, row)
+            vals_b1['week_type'] = 'B'
+            vals_b1['duration_minutes'] = course.duration_minutes // 2
+            vals_b1['parent_timeslot_offset'] = 0
+            vals_b1['teacher_ids'] = next_row.get('teacher_ids', [])
+            children.append(Course.create(db, vals_b1))
+
+            vals_b2 = CompositionModes._build_base_vals(course, row)
+            vals_b2['week_type'] = 'B'
+            vals_b2['duration_minutes'] = course.duration_minutes // 2
+            vals_b2['parent_timeslot_offset'] = offset
+            children.append(Course.create(db, vals_b2))
+
+        return children
+
+    # ------------------------------------------------------------------ #
+    #   Mode 5 : Rotation quinzaine croisée                              #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _mode_5(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 5 : Les professeurs changent de classe à chaque quinzaine."""
+        children = []
+        n = len(mapping)
+        if n == 0:
+            return children
+
+        for i, row in enumerate(mapping):
+            # Semaine A (direct)
+            vals_a = CompositionModes._build_base_vals(course, row)
+            vals_a['week_type'] = 'A'
+            children.append(Course.create(db, vals_a))
+
+            # Semaine B (rotation)
+            next_row = mapping[(i + 1) % n]
+            vals_b = CompositionModes._build_base_vals(course, row)
+            vals_b['week_type'] = 'B'
+            vals_b['teacher_ids'] = next_row.get('teacher_ids', [])
+            children.append(Course.create(db, vals_b))
+
+        return children
+
+    # ------------------------------------------------------------------ #
+    #   Mode 6 : Trois groupes / Deux classes                            #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _mode_6(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """
+        Mode 6 : Trois groupes pour deux classes.
+        Le mapping doit contenir 3 lignes.
+        La ligne 0 sera appliquée aux Semaines A et B.
+        La ligne 1 en Semaine A.
+        La ligne 2 en Semaine B.
+        """
+        children = []
+        if len(mapping) < 3:
+            raise CompositionError("Mode 6 : le mapping doit contenir au moins 3 groupes configurés.")
+
+        # G1 (Semaines A et B)
+        for week in ['A', 'B']:
+            vals = CompositionModes._build_base_vals(course, mapping[0])
+            vals['week_type'] = week
+            children.append(Course.create(db, vals))
+
+        # G2 (Semaine A)
+        vals_a = CompositionModes._build_base_vals(course, mapping[1])
+        vals_a['week_type'] = 'A'
+        children.append(Course.create(db, vals_a))
+
+        # G3 (Semaine B)
+        vals_b = CompositionModes._build_base_vals(course, mapping[2])
+        vals_b['week_type'] = 'B'
+        children.append(Course.create(db, vals_b))
+
+        return children
+
+    # ------------------------------------------------------------------ #
+    #   Modes 7-9 : Variations par période                               #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _mode_7(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """
+        Mode 7 : Un groupe a cours au S1, l'autre au S2.
+        Le mapping indique quelle ligne va avec quelle période.
+        Si la ligne a des period_ids spécifiques, on les utilise, 
+        sinon on associe la ligne i avec la période i.
+        """
+        children = []
+        periods = list(course.periods)
+        if not periods:
+            raise CompositionError("Mode 7 : le cours parent doit être lié à au moins une période.")
+
+        for i, row in enumerate(mapping):
+            vals = CompositionModes._build_base_vals(course, row)
+            if not row.get('period_ids'):
+                period_idx = i % len(periods)
+                vals['period_ids'] = [periods[period_idx].id]
+            children.append(Course.create(db, vals))
+        return children
+
+    @staticmethod
+    def _mode_8(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 8 : Les professeurs changent de groupe à chaque période."""
+        children = []
+        periods = list(course.periods)
+        n = len(mapping)
+        if not periods or n == 0:
+            return children
+
+        for pi, period in enumerate(periods):
+            for i, row in enumerate(mapping):
+                teacher_source_row = mapping[(i + pi) % n]
+                vals = CompositionModes._build_base_vals(course, row)
+                vals['teacher_ids'] = teacher_source_row.get('teacher_ids', [])
+                vals['period_ids'] = [period.id]
+                children.append(Course.create(db, vals))
+        return children
+
+    @staticmethod
+    def _mode_9(db: Session, course: Course, mapping: list[dict]) -> list[Course]:
+        """Mode 9 : Un groupe unique change de professeur à chaque période."""
+        children = []
+        periods = list(course.periods)
+        n = len(mapping)
+        if not periods or n == 0:
+            return children
+
+        for pi, period in enumerate(periods):
+            # Pour chaque période, on ne crée qu'une seule séance (un seul groupe)
+            # On prend le professeur de la ligne de mapping correspondante (modulo n)
+            row = mapping[pi % n]
+            vals = CompositionModes._build_base_vals(course, row)
+            vals['period_ids'] = [period.id]
+            children.append(Course.create(db, vals))
+            
+        return children
