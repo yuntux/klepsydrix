@@ -19,8 +19,8 @@ class CompositionModes:
     @staticmethod
     def _get_second_half_offset(db: Session, course: Course) -> int:
         from backend.app.models.system_setting import SystemSetting
-        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-        duration = int(setting.value) if setting and setting.value.isdigit() else 30
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        duration = int(val)
         return (course.duration_minutes // 2) // duration
 
     @staticmethod
@@ -56,7 +56,7 @@ class CompositionModes:
                 row['class_part_ids'] = []
 
     @staticmethod
-    def get_available_modes(course: Course, mapping: list[dict]) -> list[int]:
+    def get_available_modes(db: Session, course: Course, mapping: list[dict]) -> list[int]:
         """
         Retourne la liste des IDs des modes (1-9) applicables selon 
         la configuration du cours (ex: nombre de périodes) et le mapping.
@@ -72,11 +72,20 @@ class CompositionModes:
         n = len(valid_mapping)
         periods_count = len(course.periods)
         
+        from backend.app.models.system_setting import SystemSetting
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        duration = int(val)
+        
         available = []
         if n >= 1:
             available.extend([1, 2])
+            
         if n >= 2:
-            available.extend([3, 4, 5])
+            # Modes 3 et 4 coupent le cours en 2, la durée doit donc être au moins 2 * duration et un multiple exact
+            if course.duration_minutes % (2 * duration) == 0:
+                available.extend([3, 4])
+            available.append(5) # Mode 5 ne coupe pas le cours en 2
+            
         if n >= 3:
             available.append(6)
             
@@ -113,7 +122,7 @@ class CompositionModes:
                     raise CompositionError(f"Le professeur (ID: {teacher_id}) ne peut pas être affecté sur plusieurs lignes de répartition différentes.")
                 seen_teachers.add(teacher_id)
 
-        available_modes = CompositionModes.get_available_modes(course, mapping)
+        available_modes = CompositionModes.get_available_modes(db, course, mapping)
         if mode not in available_modes:
             raise CompositionError(f"Le mode {mode} n'est pas applicable avec la répartition actuelle (ex: pas assez de lignes, groupes ou périodes). Modes possibles: {available_modes}")
 

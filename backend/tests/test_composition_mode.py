@@ -203,11 +203,11 @@ class TestCompositionModes:
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_periods=2)
         # Mapping avec 1 ligne : seulement 1 et 2 dispo
         mapping_1_row = [mapping[0]]
-        available_1_row = CompositionModes.get_available_modes(parent, mapping_1_row)
+        available_1_row = CompositionModes.get_available_modes(db_session, parent, mapping_1_row)
         assert available_1_row == [1, 2]
         
         # Mapping avec 2 lignes et périodes : 1 à 5 + 7, 8, 9 (donc tout sauf 6)
-        available_2_rows = CompositionModes.get_available_modes(parent, mapping)
+        available_2_rows = CompositionModes.get_available_modes(db_session, parent, mapping)
         assert set(available_2_rows) == {1, 2, 3, 4, 5, 7, 8, 9}
         
         # Test d'exception sur mode impossible

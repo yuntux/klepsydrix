@@ -363,10 +363,10 @@ Avant de lancer le calcul d'optimisation, le solveur filtre les créneaux récup
 **Objectif : Contrôle de l'explosion combinatoire.**
 Le solveur réduit drastiquement le champ des possibles en n'autorisant les cours à démarrer qu'à des heures rondes (8h00, 8h30, 9h00...). S'il devait évaluer chaque point de départ possible toutes les 15 minutes, le temps de calcul augmenterait de manière exponentielle.
 
-### C. Découplage entre Heure de Début et Durée Réelle
-Il ne faut pas confondre le pas de la grille (les heures de début autorisées) et la durée d'un cours une fois celui-ci démarré.
-- **Pas de la grille (`STANDARD_TIMESLOT_DURATION`)** : Détermine les points d'ancrage possibles (ex: démarrage autorisé à 8h00, 8h30).
-- **Durée réelle du cours (`c.duration_minutes`)** : Communiquée individuellement au solveur sous forme d'une variable `step` en heures (ex: `55 / 60.0 = 0.916`). Ainsi, un cours démarrant à 8h00 durera mathématiquement jusqu'à 8h55 pour le solveur, ce qui lui permettra de détecter précisément les chevauchements et conflits sans se laisser tromper par la taille des créneaux sous-jacents.
+### C. Couplage Strict entre le Pas de la Grille et la Durée
+Contrairement à une approche libre, Klepsydrix impose un couplage fort entre le pas de la grille de l'établissement et la durée réelle des cours pour garantir la stabilité algorithmique, notamment lors des décompositions complexes (barrettes, chevauchements).
+- **Pas de la grille (`STANDARD_TIMESLOT_DURATION`)** : Détermine la taille des blocs de construction de l'emploi du temps (ex: 5, 10, 15, 30 ou 60 minutes).
+- **Durée réelle du cours (`c.duration_minutes`)** : Doit obligatoirement être un **multiple exact** du pas de la grille. Par exemple, avec un pas de 60 minutes, un cours peut durer 60, 120, ou 180 minutes, mais pas 90. Cette règle assure que chaque cours occupe un nombre entier de "créneaux de base", permettant au solveur d'utiliser des matrices d'occupation binaires et garantissant l'intégrité des découpages (offsets entiers) lors des compositions mathématiques (ex: Modes 3 et 4).
 
 ---
 

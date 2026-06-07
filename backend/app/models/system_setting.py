@@ -26,6 +26,14 @@ class SystemSetting(Base):
     })
     value: Mapped[str] = mapped_column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30"})
 
+    @classmethod
+    def get_system_setting_value(cls, db, key: str) -> str:
+        setting = db.query(cls).filter(cls.key == key).first()
+        if key == "STANDARD_TIMESLOT_DURATION":
+            if not setting or not setting.value or not setting.value.isdigit():
+                raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
+        return setting.value if setting else None
+
     def delete(self, db):
         if self.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION:
             raise ValueError("Il est impossible de supprimer le paramètre système 'STANDARD_TIMESLOT_DURATION'.")

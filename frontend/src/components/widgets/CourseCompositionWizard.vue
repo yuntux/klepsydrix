@@ -2,7 +2,7 @@
   <div class="composition-wizard">
     <div class="wizard-header">
       <h2>Composition du cours (ID: {{ recordId }})</h2>
-      <p class="text-sm text-gray-500">Répartissez les ressources du parent dans le tableau ci-dessous, puis choisissez un mode temporel.</p>
+      <p class="text-sm text-gray-500">Associez les ressources du parent dans le tableau ci-dessous, puis choisissez un mode de répartition temporelle.</p>
     </div>
 
     <div v-if="loading" class="loader-container">
@@ -117,6 +117,7 @@
               <th>Semaine</th>
               <th>Durée (min)</th>
               <th>Offset</th>
+              <th>Périodes</th>
               <th>Professeurs (IDs)</th>
               <th>Groupes (IDs)</th>
             </tr>
@@ -136,6 +137,13 @@
               </td>
               <td>
                 <input type="number" v-model="child.parent_timeslot_offset" class="form-input" min="0" />
+              </td>
+              <td>
+                <SearchableMultiSelect 
+                  v-model="child.period_ids" 
+                  :options="periodOptions" 
+                  placeholder="Héritées du parent" 
+                />
               </td>
               <td class="text-xs">{{ (child.teacher_ids || []).join(', ') }}</td>
               <td class="text-xs">{{ (child.group_ids || []).join(', ') }}</td>
@@ -193,6 +201,7 @@ const groupOptions = ref<Array<{value: number, label: string}>>([]);
 const classPartOptions = ref<Array<{value: number, label: string}>>([]);
 const divisionOptions = ref<Array<{value: number, label: string}>>([]);
 const classroomOptions = ref<Array<{value: number, label: string}>>([]);
+const periodOptions = ref<Array<{value: number, label: string}>>([]);
 
 const mapping = ref<Array<any>>([
   { teacher_ids: [], group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [] }
@@ -237,12 +246,13 @@ let debounceTimeout: any = null;
 
 onMounted(async () => {
   try {
-    const [teachersRes, groupsRes, classPartsRes, divisionsRes, classroomsRes] = await Promise.all([
+    const [teachersRes, groupsRes, classPartsRes, divisionsRes, classroomsRes, periodsRes] = await Promise.all([
       api.fetchGenericList('teachers', 0, 1000),
       api.fetchGenericList('groups', 0, 1000),
       api.fetchGenericList('class_parts', 0, 1000),
       api.fetchGenericList('divisions', 0, 1000),
-      api.fetchGenericList('classrooms', 0, 1000)
+      api.fetchGenericList('classrooms', 0, 1000),
+      api.fetchGenericList('periods', 0, 1000)
     ]);
     
     // Filtrer pour ne garder que les ressources appartenant au cours parent (si model est fourni)
@@ -251,6 +261,7 @@ onMounted(async () => {
     const validClassPartIds = props.model?.class_part_ids || [];
     const validDivisionIds = props.model?.division_ids || [];
     const validClassroomIds = props.model?.classroom_ids || [];
+    const validPeriodIds = props.model?.period_ids || [];
 
     const filteredTeachers = validTeacherIds.length > 0 
       ? teachersRes.items.filter((i: any) => validTeacherIds.includes(i.id))
@@ -272,11 +283,16 @@ onMounted(async () => {
       ? classroomsRes.items.filter((i: any) => validClassroomIds.includes(i.id))
       : classroomsRes.items;
 
+    const filteredPeriods = validPeriodIds.length > 0
+      ? periodsRes.items.filter((i: any) => validPeriodIds.includes(i.id))
+      : periodsRes.items;
+
     teacherOptions.value = filteredTeachers.map((i: any) => ({ value: i.id, label: `${i.first_name} ${i.last_name}` }));
     groupOptions.value = filteredGroups.map((i: any) => ({ value: i.id, label: i.name || `Groupe ${i.id}` }));
     classPartOptions.value = filteredClassParts.map((i: any) => ({ value: i.id, label: i.name || `Partie ${i.id}` }));
     divisionOptions.value = filteredDivisions.map((i: any) => ({ value: i.id, label: i.name || `Classe ${i.id}` }));
     classroomOptions.value = filteredClassrooms.map((i: any) => ({ value: i.id, label: i.name || `Salle ${i.id}` }));
+    periodOptions.value = filteredPeriods.map((i: any) => ({ value: i.id, label: i.name || `Période ${i.id}` }));
     
     // Initialiser le mapping par défaut : une ligne par prof du cours
     if (validTeacherIds.length > 0) {

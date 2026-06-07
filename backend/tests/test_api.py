@@ -647,6 +647,73 @@ def test_course_complex_offset_propagation(db_session: Session):
     assert child1.timeslot_id == ts2.id
     assert child2.timeslot_id == ts3.id
 
+def test_course_child_timeslot_recomputes_offset(db_session: Session):
+    """Vérifie que la modification directe du timeslot d'un enfant recalcule son offset."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=510)
+    ts_end = Timeslot(day_of_week=1, minutes_from_midnight=1020)
+    for ts in [ts1, ts2, ts_end]:
+        ts._via_crud_mixin_create = True
+        db_session.add(ts)
+    db_session.commit()
+
+    parent = Course(subject_id=subject.id, school_id=school.id, duration_minutes=60, is_composed=True)
+    parent._via_crud_mixin_create = True
+    db_session.add(parent)
+    db_session.commit()
+
+    # Placement du parent
+    parent.update(db_session, {"timeslot_id": ts1.id})
+
+    # Création de l'enfant (sera initialement sur le même créneau que le parent car offset par défaut = 0)
+    child = Course.create(db_session, {
+        "parent_id": parent.id,
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "duration_minutes": 30
+    })
+    
+    assert child.timeslot_id == ts1.id
+    assert child.parent_timeslot_offset == 0
+    
+    # Modification manuelle du créneau de l'enfant vers ts2 (offset devrait passer à 1)
+    child.update(db_session, {"timeslot_id": ts2.id})
+    
+    # L'offset doit avoir été automatiquement calculé à 1
+    assert child.parent_timeslot_offset == 1
+    assert child.timeslot_id == ts2.id
+
+def test_course_child_timeslot_raises_error_if_parent_unplaced(db_session: Session):
+    """Vérifie qu'il est interdit d'assigner un créneau à un enfant si le parent n'en a pas."""
+    import pytest
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts1._via_crud_mixin_create = True
+    db_session.add(ts1)
+    db_session.commit()
+
+    parent = Course(subject_id=subject.id, school_id=school.id, duration_minutes=60, is_composed=True)
+    parent._via_crud_mixin_create = True
+    db_session.add(parent)
+    db_session.commit()
+
+    child = Course.create(db_session, {
+        "parent_id": parent.id,
+        "subject_id": subject.id,
+        "school_id": school.id,
+        "duration_minutes": 30
+    })
+    
+    # Tenter d'assigner un créneau à l'enfant doit lever une erreur (le parent n'est pas placé)
+    with pytest.raises(ValueError) as exc:
+        child.update(db_session, {"timeslot_id": ts1.id})
+        
+    assert "pas encore planifié" in str(exc.value)
 
 def test_course_status_calculation(db_session: Session):
     school = db_session.query(School).first()

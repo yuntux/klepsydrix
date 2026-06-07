@@ -108,11 +108,9 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         max_pedagogic_weight_per_morning=sch_limits.get("morning"),
         max_pedagogic_weight_per_afternoon=sch_limits.get("afternoon")
     ) for d in db_divisions}
-    from backend.app.models.system_setting import SystemSetting, SystemSettingKey
-    setting = db.execute(select(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION)).scalars().first()
-    if not setting or not setting.value:
-        raise ValueError("Le paramètre système obligatoire 'STANDARD_TIMESLOT_DURATION' est manquant ou non défini.")
-    std_duration_min = int(setting.value)
+    from backend.app.models.system_setting import SystemSetting
+    val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+    std_duration_min = int(val)
     
     max_minutes_by_day = {}
     for ts in db_timeslots:

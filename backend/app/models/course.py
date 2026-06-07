@@ -71,6 +71,28 @@ course_periods = Table(
     extend_existing=True
 )
 
+def get_duration_options():
+    from backend.app.core.database import SessionLocal
+    from backend.app.models.system_setting import SystemSetting
+    db = SessionLocal()
+    try:
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        step = int(val)
+        
+        def format_duration(minutes):
+            if minutes >= 60:
+                h = minutes // 60
+                m = minutes % 60
+                return f"{h}h" if m == 0 else f"{h}h{m:02d}"
+            return f"{minutes} min"
+            
+        # Générer des options jusqu'à 8 heures (480 minutes)
+        max_duration_minutes = 480
+        num_slots = max_duration_minutes // step
+        return [{"value": step * i, "label": format_duration(step * i)} for i in range(1, num_slots + 1)]
+    finally:
+        db.close()
+
 class Course(Base):
     __tablename__ = "courses"
     __actions__ = [
@@ -101,7 +123,7 @@ class Course(Base):
     period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de période"})
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=55, info={"label": "Durée (minutes)"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "select", "options": get_duration_options})
     name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Nom / Libellé", "placeholder": "ex: Cours de maths avancé"})
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True, info={"label": "Mémo / Note interne"})
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})
@@ -282,6 +304,14 @@ class Course(Base):
             parent.week_type = WeekType.W
         db.add(parent)
 
+    @constrains('duration_minutes')
+    def validate_duration_multiple(self, db):
+        from backend.app.models.system_setting import SystemSetting
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        duration = int(val)
+        if self.duration_minutes % duration != 0:
+            raise ValueError(f"La durée du cours ({self.duration_minutes} min) doit être un multiple exact du créneau standard ({duration} min).")
+
     @constrains('duration_minutes', 'parent_id', 'timeslot_id')
     def validate_child_constraints(self, db):
         """Vérifie qu'un cours enfant respecte les limites de temps, de ressources et de profondeur."""
@@ -460,10 +490,8 @@ class Course(Base):
         from backend.app.models.system_setting import SystemSetting, SystemSettingKey
         max_minutes = db.query(func.max(Timeslot.minutes_from_midnight)).filter(Timeslot.day_of_week == target_ts.day_of_week).scalar()
         if max_minutes is not None:
-            setting = db.query(SystemSetting).filter(SystemSetting.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION).first()
-            if not setting or not setting.value:
-                raise ValueError("Le paramètre système obligatoire 'STANDARD_TIMESLOT_DURATION' est manquant ou non défini.")
-            std_duration_min = int(setting.value)
+            val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+            std_duration_min = int(val)
             absolute_end_minutes = max_minutes + std_duration_min
             if target_end > absolute_end_minutes:
                 raise ValueError("Le cours déborde de la grille horaire de la journée.")
@@ -543,12 +571,35 @@ class Course(Base):
             
         parent_id = vals.get('parent_id', getattr(instance, 'parent_id', None))
         if parent := (db.get(cls, parent_id) if parent_id else None):
+            from backend.app.models.timeslot import Timeslot
+            
+            # Si l'utilisateur ou le solveur force le timeslot_id de l'enfant, on recalcule l'offset
+            if 'timeslot_id' in vals and vals['timeslot_id'] is not None:
+                if not parent.timeslot_id:
+                    raise ValueError("Impossible d'assigner un créneau directement à un cours enfant si son cours parent n'est pas encore planifié.")
+                
+                child_ts = db.get(Timeslot, vals['timeslot_id'])
+                parent_ts = db.get(Timeslot, parent.timeslot_id)
+                if child_ts and parent_ts:
+                    if child_ts.day_of_week != parent_ts.day_of_week:
+                        raise ValueError("Le cours enfant doit être placé le même jour que son parent.")
+                    if child_ts.minutes_from_midnight < parent_ts.minutes_from_midnight:
+                        raise ValueError("Le cours enfant ne peut pas commencer avant son parent.")
+                    
+                    # On compte le nombre de créneaux exacts qui séparent le parent de l'enfant
+                    offset = db.query(Timeslot).filter(
+                        Timeslot.day_of_week == parent_ts.day_of_week,
+                        Timeslot.minutes_from_midnight > parent_ts.minutes_from_midnight,
+                        Timeslot.minutes_from_midnight <= child_ts.minutes_from_midnight
+                    ).count()
+                    vals['parent_timeslot_offset'] = offset
+
+            # Sync descendante (écrasement du timeslot de l'enfant)
             offset = vals.get('parent_timeslot_offset', getattr(instance, 'parent_timeslot_offset', 0))
             vals['is_pinned'] = parent.is_pinned
             vals['timeslot_id'] = None
             
             if parent.timeslot_id:
-                from backend.app.models.timeslot import Timeslot
                 if parent_ts := db.get(Timeslot, parent.timeslot_id):
                     vals['timeslot_id'] = parent_ts.get_offset_timeslot(db, offset)
 
@@ -628,9 +679,9 @@ class Course(Base):
         }
 
     def rpc_get_available_modes(self, db: Session, mapping: list[dict]) -> dict:
-        """Renvoie les modes de composition applicables."""
+        """Retourne la liste des modes de composition applicables."""
         from backend.app.models.composition_mode import CompositionModes
-        modes = CompositionModes.get_available_modes(self, mapping)
+        modes = CompositionModes.get_available_modes(db, self, mapping)
         return {"status": "ok", "available_modes": modes}
 
     def rpc_preview_composition(self, db: Session, mode: int, mapping: list[dict]) -> dict:

@@ -239,7 +239,7 @@ def seed_v2_data():
             for s_code in simple_subjects:
                 subj_id = subject_ids[s_code]
                 t_id = random.choice(teacher_pool)
-                duration = 55
+                duration = 60
                 
                 db.execute(text(
                     "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
@@ -340,7 +340,7 @@ def seed_v2_data():
                 
                 db.execute(text(
                     "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, 55, 0, 0, :week_type, 0, 0, :school_id, 0)"
+                    "VALUES (:subject_id, 60, 0, 0, :week_type, 0, 0, :school_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "week_type": w_type,

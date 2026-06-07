@@ -10,10 +10,8 @@ def get_dynamic_step():
     from backend.app.models.system_setting import SystemSetting
     db = SessionLocal()
     try:
-        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-        if not setting or not setting.value.isdigit():
-            raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
-        duration = int(setting.value)
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        duration = int(val)
         return duration / 60.0
     finally:
         db.close()
@@ -38,10 +36,8 @@ class Timeslot(Base):
             raise ValueError("L'heure d'un créneau ne peut pas être négative.")
             
         from backend.app.models.system_setting import SystemSetting
-        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-        if not setting or not setting.value.isdigit():
-            raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
-        duration = int(setting.value)
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        duration = int(val)
         
         if self.minutes_from_midnight + duration > 24 * 60:
             raise ValueError(f"Le créneau (avec une durée de {duration}min) déborde sur la journée suivante (> 24h).")
@@ -52,10 +48,8 @@ class Timeslot(Base):
     @classmethod
     def get_active_timeslots(cls, db):
         from backend.app.models.system_setting import SystemSetting
-        setting = db.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
-        if not setting or not setting.value.isdigit():
-            raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
-        duration = int(setting.value)
+        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
+        duration = int(val)
         
         all_ts = db.query(cls).all()
         active_ts = []
