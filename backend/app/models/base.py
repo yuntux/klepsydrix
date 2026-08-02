@@ -317,6 +317,20 @@ class CRUDMixin:
                 target_cls = rel.mapper.class_
                 items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()}
                 ordered_items = [items_by_id[i] for i in ids if i in items_by_id]
+                
+                # Option A : Intercepter la cascade "delete-orphan" pour appliquer la suppression métier
+                if getattr(rel.cascade, 'delete_orphan', False):
+                    current_items = getattr(self, rel_key, [])
+                    if current_items is not None:
+                        # On copie la liste pour itérer dessus sans problème
+                        for item in list(current_items):
+                            if item.id not in ids:
+                                if hasattr(item, 'delete'):
+                                    item.delete(db)
+                                else:
+                                    item._via_crud_mixin_delete = True
+                                    db.delete(item)
+
                 setattr(self, rel_key, ordered_items)
 
                 # Gestion d'un champ d'ordre sur la table d'association

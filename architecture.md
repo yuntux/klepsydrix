@@ -174,6 +174,31 @@ Les règles de synchronisation des champs (ex: décocher automatiquement "même 
 - Le `CRUDMixin` instancie alors un objet en mémoire (sans aucune transaction en base de données), peuple ses attributs, exécute dynamiquement les méthodes `@onchange` rattachées au champ déclencheur, puis calcule un "diff" des champs qui ont été altérés par la logique métier.
 - Ce delta est renvoyé instantanément au frontend.
 
+### F. Mécanisme des Actions Personnalisées (`__actions__`)
+Klepsydrix permet d'enrichir les interfaces génériques (`GenericForm.vue`, `GenericList.vue`) en injectant des boutons d'actions contextuels directement pilotés par le modèle backend.
+
+**Déclaration sur le modèle**
+L'attribut de classe `__actions__` définit la liste des actions disponibles pour la ressource. L'API générique lit cet attribut et l'envoie au frontend en même temps que le schéma.
+```python
+    __actions__ = [
+        {
+            "id": "compose_course",
+            "label": "Décomposer le cours",
+            "type": "wizard",
+            "component": "CourseCompositionWizard",
+            "icon": "fa-sitemap",
+            "condition": "record.is_composed === true && record.status !== 'COMPLETELY_PLACED'"
+        }
+    ]
+```
+
+**Types d'actions supportées**
+- **Type `api`** : Déclenche un appel RPC asynchrone vers une méthode backend d'instance via l'endpoint générique `POST /api/generic/.../call/{id}`. C'est idéal pour un bouton d'action simple ("Valider", "Générer", etc.).
+- **Type `wizard`** : Ouvre une modale contenant un composant Vue.js spécifique (déclaré via `component`). Le composant reçoit en propriété (`modelValue`) le record actif. Cela permet de créer des interfaces de saisie assistées complexes au-dessus du CRUD basique.
+
+**Affichage dynamique (Condition)**
+La clé `condition` accepte une expression JavaScript brute. Le frontend l'évalue dynamiquement à chaque rendu (via une sandbox basique) en lui passant l'état actuel du `record`. Cela permet d'afficher ou de cacher instantanément un bouton selon les valeurs du formulaire (ex: afficher le bouton uniquement si le cours est composé et non placé).
+
 **2. Synchronisation Frontend Debouncée**
 Côté Vue 3 (`GenericForm.vue`), un `watcher` intelligent observe les modifications locales du formulaire (`localModel`). Pour éviter de surcharger le réseau lors d'une saisie rapide, l'appel à l'API `/onchange` est "debouncé" (ex: 250ms). Dès réception de la réponse, le frontend fusionne le diff, ce qui déclenche la mise à jour réactive de l'interface (cases qui se cochent/décochent, valeurs forcées) sans aucun enregistrement manuel de la part de l'utilisateur.
 

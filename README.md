@@ -29,8 +29,8 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
     - Planification avancée annuelle (Alternances A/B, Groupes)
     - Expliquer à l'utilisateur pourquoi il n'est pas possible de placer un cours sur tel créneau
     - Montrer sur le calendrier les "poids" des différentes créeaux sur lesquels on pourrait placer un cours
-    - Lister tous les cours non placés qui peuvent aller dans ce créeaux (tet lees classer par "poiods")
-    - Afficher els permuttaions possibles de cours déjà placés.
+    - Lister tous les cours non placés qui peuvent aller dans ce créeaux (et les classer par "poids")
+    - Afficher les permuttaions possibles de cours déjà placés.
     - Voir les salles libres sur un créneau et les cours sans salles
 
 - Paramétrage : 
@@ -46,7 +46,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Affections automatique des élèves aux classes
 - Génération automatique des groupes et affectation automatique des élèves aux groupes
 - Fonction d'ajustement en masse des liens entre groupes en fonction de la répartition des élèvs dans les groupes
-- Gérer les élèves déttachés
+
 
 ### 4. Emploi du temps opérationnel (hebdomadaire)
 - Déclinaison de l'emploi du temps annuel en emploi du temps hebdomadaire
@@ -54,15 +54,19 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Gestion des remplacements et absences de professeurs/personnels
 - Gestion des changements de salles
 - Gestion des élèves et de leurs responsables
-- Gestion de la pause déjeuner
+- Gestion des services de la demi-pension 
+- Rafinement de l'affichage de la grille pour impression
+- Gestion des récréations (par classe)
+- Gérer des groupes à effectfi variable, et la liste des participants à la semaine
+- Gérer les élèves déttachés
 - Gestion des permanences / CDI
 - Recherche des salles disponibles
 - Gestion des statistiques
-- Fonction permettant de supprimer tous les liens inutiles entre parties de classe une fois les éleèves affectées aux parties de classe.
+- Fonction permettant de supprimer tous les liens inutiles entre parties de classe une fois les élèves affectées aux parties de classe.
 
 ### 5. Rencontres parents professeurs
 - Paramétrage des rencontres parents professeurs
-- Collecte des veoux des parents et des professeurs
+- Collecte des vœux des parents et des professeurs
 - Génération automatique des créneaux de rencontre
 
 ### 6. Conseils de classe
