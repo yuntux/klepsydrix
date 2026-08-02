@@ -31,7 +31,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
     - Montrer sur le calendrier les "poids" des différentes créeaux sur lesquels on pourrait placer un cours
     - Lister tous les cours non placés qui peuvent aller dans ce créeaux (et les classer par "poids")
     - Afficher les permuttaions possibles de cours déjà placés.
-    - Voir les salles libres sur un créneau et les cours sans salles
+    - Voir les salles libres sur un créneau et les cours sans salle
 
 - Paramétrage : 
     - du calendrier de l'année (jours travaillés, horaires, etc) de chaque établissement
@@ -64,17 +64,7 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Gestion des statistiques
 - Fonction permettant de supprimer tous les liens inutiles entre parties de classe une fois les élèves affectées aux parties de classe.
 
-### 5. Rencontres parents professeurs
-- Paramétrage des rencontres parents professeurs
-- Collecte des vœux des parents et des professeurs
-- Génération automatique des créneaux de rencontre
-
-### 6. Conseils de classe
-- Paramétrage des délégués des parents et des élèves sur les classes
-- Planification des conseils de classe
-- Génération automatique des créneaux de conseil de classe
-
-### 7. Imports et export des données
+### 5. Imports et export des données
 - Import des fichiers SIECLE / STSWeb
 - Export des données vers STSWeb (groupe, affectation des élèves aux groupes, emploi du temps)
 - Intégration des webservices Omogen (anciennement Netsynchro)
@@ -82,16 +72,26 @@ Ce lot définit le périmètre d'une V1 "Tranche Verticale" pour Klepsydrix. L'o
 - Capacité à exporter des données tabulaires via CTR/Cmd + C / CTRL/Cmd + V dans un tableur (libreoffice / excel ...)
 - Capacité à importer des données tabulaires via CTRL/Cmd + C / CTRL/Cmd + V depuis un tableur (libreoffice / excel ...)
 
-### 8. Communication avec les acteurs
-- Impression des emplois du temps (PDF)
-- Publication des emplois du temps (portail intranet / ENT)
-- Envoi d'emails / SMS / notifications aux parents / professeurs / élèves
+### 6. Conseils de classe
+- Paramétrage des délégués des parents et des élèves sur les classes
+- Planification des conseils de classe
+- Génération automatique des créneaux de conseil de classe
 
-### 9. Gestion des utilisateurs et des droits
+### 7. Rencontres parents professeurs
+- Paramétrage des rencontres parents professeurs
+- Collecte des vœux des parents et des professeurs
+- Génération automatique des créneaux de rencontre
+
+### 8. Gestion des utilisateurs et des droits
 - Intégration d'une gestion fine des droits d'accès
 - Intégration d'une gestion des permissions par profil
 - Connexion locale ou via SSO
 - Traçabilité des actions (qui a fait quoi, quand)
+  
+### 9. Communication avec les acteurs
+- Impression des emplois du temps (PDF)
+- Publication des emplois du temps (portail intranet / ENT)
+- Envoi d'emails / SMS / notifications aux parents / professeurs / élèves
 
 ### 10. Ergonomie / pilotage
 - Intégration d'un "cockpit" pour visualiser les indicateurs clés du quotient

@@ -134,8 +134,8 @@ const computedGridTemplateColumns = computed(() => {
 
 const computedGridTemplateRows = computed(() => {
   const hasResourceHeader = props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0;
-  // Always adapt to container size using minmax(0, 1fr)
-  return hasResourceHeader ? '40px 30px repeat(10, minmax(0, 1fr))' : '40px repeat(10, minmax(0, 1fr))';
+  const numHours = hours.value.length;
+  return hasResourceHeader ? `40px 30px repeat(${numHours}, minmax(0, 1fr))` : `40px repeat(${numHours}, minmax(0, 1fr))`;
 });
 
 let startX = 0;
