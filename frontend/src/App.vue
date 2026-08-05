@@ -1187,6 +1187,7 @@ function getFormFieldsConfig(resourceKey?: string) {
           step: prop.step,
           options: options,
           resource: resourceName,
+          parentField: prop.parentField,
           default: prop.default,
           help: prop.help,
           widget: prop.widget,

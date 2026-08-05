@@ -738,3 +738,57 @@ def delete(self, db):
 **Placé haut dans la pile frontend, appelé par TOUT point d'entrée de création** (exigence explicite : ne pas limiter l'appel au seul panneau détail) — `onAddGeneric` (panneau maître/liste standard) et `onAddDetailGeneric` (panneau détail) appellent tous les deux `api.fetchDefaults(...)` avant de construire le brouillon local, avec un `context` différent selon le point d'entrée (`{}` pour une liste standalone, `{resource, id}` de l'élément maître sélectionné pour un panneau détail). N'importe quel modèle bénéficie donc automatiquement de son propre `default_get()`, depuis n'importe quel écran qui l'affiche, sans que le frontend ait besoin de connaître la logique métier concernée.
 
 **`context` est un contrat libre**, pas un schéma déclaré : chaque `default_get()` lit les clés qui l'intéressent (ici `resource`/`id`) et ignore le reste — pas de validation Pydantic stricte sur sa forme, à l'image du `context` dict d'Odoo.
+
+### J. Popin CRUD pour une Relation Possédée (`parentField` + `GenericListModal`)
+
+**Le besoin** : une colonne `_ids` de type liste (ex: `Service.repartition_ids`) peut représenter deux choses très différentes, qui appellent des IHM opposées :
+- un **many-to-many vers des enregistrements indépendants** (ex: `teacher_ids` — les profs existent en dehors du service, on *choisit* parmi eux) → le picker `SearchableMultiSelect` déjà en place est le bon outil ;
+- une **relation 1-à-N "possédée"** (ex: `repartition_ids` — une `ServiceRepartition` n'a aucun sens hors de son `Service`) → il ne faut jamais un picker de sélection, mais un vrai CRUD (créer/modifier/supprimer les enregistrements enfants eux-mêmes).
+
+**Solution rejetée** : un nouveau type de `widget` à déclarer par colonne dans `ui.json` (ex: `"widget": "related_list_popin"`). Rejetée explicitement (déjà assez de widgets qui font la même chose) au profit d'une distinction **automatique**, dérivée du schéma déjà généré par le moteur générique — zéro configuration `ui.json` à écrire au-delà de retirer un éventuel `readOnly: true`.
+
+**Mécanisme retenu** :
+- `make_pydantic_model` (`backend/app/api/generic.py`), dans la boucle qui génère les champs `_ids` pour chaque relation `uselist`, ajoute désormais `"parentField": <nom de la FK de retour>` **uniquement quand `rel.secondary is None`** (donc jamais pour un vrai m2m comme `teacher_ids`) — la FK est déduite de `rel.local_remote_pairs`, exactement comme pour `CRUDMixin._cascade_delete_dependents` (section H) :
+  ```python
+  if rel.secondary is None:
+      for local_col, remote_col in rel.local_remote_pairs:
+          if remote_col.table is rel.mapper.class_.__table__:
+              rel_schema_extra["parentField"] = rel.mapper.get_property_by_column(remote_col).key
+              break
+  ```
+- `GenericList.vue` : toute colonne dont le `FormField` porte à la fois `resource` **et** `parentField` (et qui n'est pas en lecture seule) affiche un résumé (`getDisplayValue`, déjà existant) + un bouton crayon (œil si lecture seule) au lieu du picker multiselect par défaut. Le clic ouvre `relatedListModal` (état local du composant).
+- `GenericListModal.vue` (nouveau composant, léger) : `BaseModal` + `GenericList` réutilisés tels quels. Charge ses propres données via `fetchGenericList(resource, 0, 1000, undefined, {[parentField]: item.id})` — le filtrage par FK arbitraire est déjà supporté nativement par l'endpoint liste générique (`generic.py`, boucle sur `request.query_params`), aucun changement backend necessaire pour ça. Dérive `fields`/`columns` depuis le schéma OpenAPI de la ressource enfant (même logique que `App.vue::getFormFieldsConfig`, réimplémentée en version minimale plutôt que partagée — voir "Pourquoi pas un composable partagé" ci-dessous). Add/update/delete passent par les mêmes fonctions génériques que partout ailleurs (`createGenericItem`/`updateGenericItem`/`deleteGenericItem`), et émettent `resource:mutated` (section E) pour invalider le cache FK au bon endroit.
+
+**Pourquoi pas un composable partagé avec `App.vue::getFormFieldsConfig`** : cette fonction gère aussi des cas propres à `App.vue` (options d'heures dérivées de la grille de créneaux, listes globales `schoolsList`/`periodTypesList`) qui n'ont pas de sens dans une popin générique. Plutôt que de la refactoriser (risque élevé, fonction utilisée par tous les écrans de l'appli) pour un seul nouveau composant, `GenericListModal.vue` réimplémente une version volontairement réduite de la même logique schéma-driven (pas de gestion des colonnes `time`, pas de largeur dynamique de colonne) — accepté comme compromis pragmatique, à réévaluer si un troisième besoin similaire apparaît.
+
+**Ce que ça garantit** : toute future relation 1-à-N "possédée" exposée en `_ids` (peu importe le modèle) obtient automatiquement le bouton crayon + popin CRUD dès qu'elle n'est pas `readOnly` — aucun code à écrire, à la différence du m2m vers des enregistrements indépendants qui garde le picker `SearchableMultiSelect` comme aujourd'hui.
+
+**Configurer les colonnes de la popin (`ColumnConfig.listConfig`)** : par défaut, la popin affiche tous les champs de la ressource enfant. Pour restreindre/réordonner/relabelliser (ex: masquer `name` et `course_ids` de la popin `ServiceRepartition`, y compris de son propre sélecteur de colonnes), une solution ad-hoc a été tentée puis rejetée (`popinHiddenColumns: string[]`, une clé dédiée avec sa propre sémantique) — remplacée par le **même mécanisme, empaqueté** : `ColumnConfig` (l'objet déjà utilisé pour configurer chaque colonne d'un `listConfig`) accepte maintenant une clé `listConfig`, dont la valeur est un `ListConfig` **complet**, structurellement identique à celui de n'importe quel panneau `GenericList` :
+```json
+"repartition_ids": {
+  "overrideLabel": "Répartitions",
+  "listConfig": {
+    "editableInline": true,
+    "columns": {
+      "occurrence_count": { "visibleByDefault": true, "overrideLabel": "Occurrences" },
+      "duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée" },
+      "periodicity": { "visibleByDefault": true, "overrideLabel": "Périodicité" }
+    }
+  }
+}
+```
+`GenericList.vue` transmet ce `listConfig` tel quel à `GenericListModal`, qui le fusionne uniquement avec l'état `readOnly` (calculé côté parent, toujours prioritaire) avant de le repasser à sa propre instance interne de `GenericList`. Le masquage complet des colonnes non listées (y compris du sélecteur) ne demande **aucun code nouveau** : c'est le comportement déjà existant de `internalColumns` (watcher sur `props.columns`/`props.listConfig`) — quand `listConfig.columns` est fourni, il sert d'allowlist stricte (seules les clés qu'il contient deviennent des colonnes), exactement comme pour n'importe quel panneau `GenericList` classique aujourd'hui. Aucune interface TypeScript ni aucun composant n'a eu besoin d'un traitement spécial pour la popin — `ColumnConfig.listConfig: ListConfig` est une simple référence récursive vers un type qui existait déjà.
+
+### K. Dropdowns Tronqués dans une Popin Peu Remplie — Choix Délibéré de ne Pas Corriger la Cause de Fond
+
+**Le symptôme** : dans une popin peu remplie (ex: `GenericListModal` avec 2-3 lignes), un dropdown ouvert depuis une cellule (`SearchableSelect`/`SearchableMultiSelect`) ou le sélecteur de colonnes de `GenericList` peut apparaître tronqué, avec un ascenseur pour voir la fin de la liste.
+
+**Cause identifiée** : ces dropdowns sont en `position: absolute` (jamais en `Teleport`), donc soumis au découpage (`overflow: hidden`/`auto`) de tout ancêtre — ici `BaseModal.modal-body` et `GenericList.table-wrapper`. Quand le conteneur est petit, la partie du dropdown qui dépasse visuellement est coupée. Un ancien correctif (`z-index: 9999 !important` sur la variante inline) ne réglait pas ce problème : le `z-index` ne joue que sur l'ordre d'empilement, jamais sur le découpage `overflow` d'un ancêtre — piège CSS classique.
+
+**Deux solutions envisagées** :
+1. **Correctif général** (`Teleport` + positionnement viewport via `getBoundingClientRect()`, sur `SearchableSelect`/`SearchableMultiSelect`/le sélecteur de colonnes de `GenericList`) — implémenté puis **retiré** après relecture : trop de surface touchée (3 composants partagés, utilisés dans tout l'écran) pour un besoin observé à un seul endroit, sans possibilité de vérification réelle en navigateur (règle du projet — voir `constitution.md` Principe II). Le risque de régression sur des composants aussi transverses a été jugé disproportionné par rapport au problème constaté.
+2. **Correctif local, ciblé sur la popin** (retenu) — donner à `GenericListModal` une taille suffisante pour que les dropdowns qu'elle contient (peu d'options dans ce cas d'usage : périodicité, durée) ne soient jamais tronqués en pratique.
+
+**Pourquoi ce choix** : le correctif général reste la solution techniquement correcte si ce même symptôme réapparaît ailleurs dans l'app (plusieurs endroits touchés indépendamment serait un signal fort qu'investir dans le correctif générique en vaut la peine) — mais tant que le besoin observé reste isolé à cette popin, la solution locale est nettement moins risquée pour un résultat équivalent dans ce cas précis. Ne pas confondre "solution la plus élégante en théorie" et "solution la mieux dimensionnée pour le besoin réel" : sur ce coup-ci, ces critères n'allaient pas dans le même sens.
+
+**Piège rencontré en implémentant la solution 2** : un premier essai a donné `min-height: 420px` à `.generic-list-modal-content` (le wrapper autour de `GenericList` dans `GenericListModal.vue`). Insuffisant : `GenericList.vue` repose sur `.generic-list-container { height: 100%; }` pour que son `.table-wrapper` (`flex: 1`, la zone scrollable où les dropdowns de cellule s'ancrent) s'étire — et la résolution CSS d'un `height: 100%` exige que le parent direct ait une hauteur *définie*. Un `min-height` seul sur un bloc `display: block` ne fournit pas cette garantie de façon fiable : le `min-height` ajoutait de l'espace vide *autour* de la liste (toujours petite) plutôt que d'agrandir la liste elle-même. Correctif : remplacer `min-height` par une `height` fixe (`height: 420px`) sur `.generic-list-modal-content`, qui *est* une hauteur définie — `height: 100%` de `.generic-list-container` s'y résout alors correctement, et `.table-wrapper` s'étire réellement. Le scroll interne déjà présent sur `.table-wrapper` (`overflow: auto`) continue de gérer le cas où il y a plus de lignes que ne peut en afficher 420px, donc aucune régression pour les listes plus longues.

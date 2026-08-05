@@ -1041,7 +1041,18 @@
                 "total_weekly_duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée totale (min)", "readOnly": true },
                 "weighting_coefficient": { "visibleByDefault": true, "overrideLabel": "Pondération" },
                 "reduced_group_student_count": { "visibleByDefault": true, "overrideLabel": "Élèves en effectif réduit" },
-                "repartition_ids": { "visibleByDefault": true, "overrideLabel": "Répartitions", "readOnly": true }
+                "repartition_ids": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Répartitions",
+                  "listConfig": {
+                    "editableInline": true,
+                    "columns": {
+                      "occurrence_count": { "visibleByDefault": true, "overrideLabel": "Occurrences" },
+                      "duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée" },
+                      "periodicity": { "visibleByDefault": true, "overrideLabel": "Périodicité" }
+                    }
+                  }
+                }
               }
             }
           }

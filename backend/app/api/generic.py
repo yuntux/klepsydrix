@@ -172,6 +172,17 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
                 target_table = rel.mapper.class_.__tablename__
                 title = rel.info.get("label", field_name.replace("_", " ").title())
                 rel_schema_extra = {"resource": target_table, "ui_type": "multiselect"}
+                if rel.secondary is None:
+                    # Relation 1-à-N "possédée" (pas un many-to-many via table d'association) :
+                    # expose le nom de la FK de retour côté enfant, pour permettre au frontend
+                    # d'ouvrir une popin CRUD générique filtrée sur ce champ (GenericListModal)
+                    # sans aucune configuration ui.json dédiée. Absent pour un vrai m2m (ex:
+                    # teacher_ids) où les enregistrements pointés existent indépendamment du
+                    # parent et ne doivent pas être créés/supprimés depuis cette popin.
+                    for local_col, remote_col in rel.local_remote_pairs:
+                        if remote_col.table is rel.mapper.class_.__table__:
+                            rel_schema_extra["parentField"] = rel.mapper.get_property_by_column(remote_col).key
+                            break
                 for k, v in rel.info.items():
                     if k not in ("label", "type"):
                         rel_schema_extra[k] = v() if callable(v) else v

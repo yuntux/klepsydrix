@@ -52,14 +52,14 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                     </svg>
                   </button>
-                  
+
                   <div v-if="showDropdown" class="column-dropdown glass-morphism">
                     <div class="dropdown-header">Affichage des colonnes</div>
                     <div class="dropdown-list">
                       <label v-for="col in internalColumns" :key="col.key" class="dropdown-item">
-                        <input 
-                          type="checkbox" 
-                          :checked="col.visible" 
+                        <input
+                          type="checkbox"
+                          :checked="col.visible"
                           @change="toggleColumnVisibility(col.key)"
                         />
                         <span>{{ col.label }}</span>
@@ -173,6 +173,20 @@
                   @update:model-value="updateInline(item, col.key, $event)"
                 />
 
+                <!-- Relation 1-à-N "possédée" (ex: repartition_ids) : jamais un simple picker
+                     multiselect (les enregistrements ciblés n'existent pas indépendamment du
+                     parent) — résumé + bouton crayon ouvrant une popin CRUD générique. -->
+                <div v-else-if="getFieldDef(col.key)?.resource && getFieldDef(col.key)?.parentField" class="inline-related-list-wrapper">
+                  <span class="related-list-summary">{{ getDisplayValue(item, col.key) || '—' }}</span>
+                  <button
+                    class="btn-edit-related"
+                    :title="isColumnReadOnly(col.key, item) ? 'Consulter' : 'Modifier'"
+                    @click.stop="openRelatedListModal(item, col.key)"
+                  >
+                    {{ isColumnReadOnly(col.key, item) ? '👁' : '✏️' }}
+                  </button>
+                </div>
+
                 <SearchableMultiSelect
                   v-else-if="getFieldDef(col.key)?.type === 'multiselect'"
                   :model-value="item[col.key]" 
@@ -284,6 +298,17 @@
         </div>
       </div>
     </div>
+
+    <GenericListModal
+      v-if="relatedListModal"
+      :resourceKey="relatedListModal.resourceKey"
+      :filterField="relatedListModal.filterField"
+      :filterValue="relatedListModal.filterValue"
+      :title="relatedListModal.title"
+      :readOnly="relatedListModal.readOnly"
+      :listConfig="relatedListModal.listConfig"
+      @close="relatedListModal = null"
+    />
   </div>
 </template>
 
@@ -294,6 +319,7 @@ import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
+import GenericListModal from './GenericListModal.vue';
 
 interface ColumnDef {
   key: string;
@@ -315,6 +341,8 @@ interface FormField {
   step?: string;
   options?: Array<{ value: any; label: string }>;
   help?: string;
+  resource?: string;
+  parentField?: string;
 }
 
 interface ColumnConfig {
@@ -323,6 +351,11 @@ interface ColumnConfig {
   readOnly?: boolean;
   required?: boolean;
   help?: string;
+  // Pour une colonne _ids représentant une relation possédée (voir generic.py::parentField) :
+  // listConfig complet de la popin CRUD ouverte sur la ressource enfant — même structure que le
+  // listConfig d'un panneau GenericList classique (columns, editableInline, disableAdd, ...),
+  // simplement imbriquée ici plutôt que déclarée à un nouvel endroit. Voir GenericListModal.vue.
+  listConfig?: ListConfig;
 }
 
 interface ListConfig {
@@ -412,6 +445,23 @@ const totalTableWidth = computed(() => {
   const actionsWidth = 40;
   return colsWidth + checkboxWidth + actionsWidth;
 });
+
+// Popin CRUD générique pour une colonne "_ids" représentant une relation possédée (voir
+// GenericListModal.vue et generic.py::parentField).
+const relatedListModal = ref<{ resourceKey: string; filterField: string; filterValue: any; title: string; readOnly: boolean; listConfig?: ListConfig } | null>(null);
+
+function openRelatedListModal(item: any, key: string) {
+  const fieldDef = getFieldDef(key);
+  if (!fieldDef?.resource || !fieldDef?.parentField) return;
+  relatedListModal.value = {
+    resourceKey: fieldDef.resource,
+    filterField: fieldDef.parentField,
+    filterValue: item.id,
+    title: fieldDef.label || key,
+    readOnly: isColumnReadOnly(key, item),
+    listConfig: props.listConfig?.columns?.[key]?.listConfig,
+  };
+}
 
 function isColumnReadOnly(key: string, item?: any): boolean {
   if (!isEditableInline.value) return true;
@@ -1514,6 +1564,40 @@ function onDrop(event: DragEvent, index: number) {
   font-weight: 600;
   font-size: 12px;
   padding: 4px 6px;
+}
+
+/* Relation possédée (popin CRUD) */
+.inline-related-list-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  min-width: 0;
+}
+
+.related-list-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.btn-edit-related {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: var(--radius-md);
+  line-height: 1;
+}
+
+.btn-edit-related:hover {
+  background-color: var(--bg-surface);
 }
 
 /* Switch toggle en ligne */

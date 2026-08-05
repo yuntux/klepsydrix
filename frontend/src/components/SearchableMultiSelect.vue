@@ -5,7 +5,7 @@
         <span class="tag-label">{{ val.label }}</span>
         <span v-if="!disabled" class="tag-remove" @click.stop="removeOption(val.value)">×</span>
       </div>
-      
+
       <input
         v-if="!disabled"
         ref="inputRef"
@@ -21,7 +21,7 @@
         @keydown.backspace="handleBackspace"
         @keydown.escape.prevent="closeDropdown"
       />
-      
+
       <span v-if="selectedOptions.length === 0 && disabled" class="empty-placeholder">
         Aucun
       </span>
@@ -99,7 +99,7 @@ function onScroll(e: Event) {
 const visibleOptions = computed(() => {
   const start = Math.max(0, Math.floor(scrollTop.value / itemHeight) - 2);
   const end = Math.min(filteredOptions.value.length, start + Math.ceil(220 / itemHeight) + 4);
-  
+
   return filteredOptions.value.slice(start, end).map((opt, i) => ({
     ...opt,
     index: start + i

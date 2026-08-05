@@ -5,7 +5,7 @@
         <h3 class="modal-title">{{ title }}</h3>
         <button class="btn-close" @click="$emit('update:modelValue', false)">&times;</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" :class="{ 'no-padding': noPadding }">
         <slot></slot>
       </div>
       <div class="modal-footer" v-if="$slots.footer">
@@ -22,11 +22,13 @@ withDefaults(defineProps<{
   maxWidth?: string;
   width?: string;
   closeOnOutside?: boolean;
+  noPadding?: boolean;
 }>(), {
   title: '',
   maxWidth: '800px',
   width: '100%',
-  closeOnOutside: true
+  closeOnOutside: true,
+  noPadding: false
 });
 
 defineEmits<{
@@ -88,6 +90,10 @@ defineEmits<{
   padding: 24px;
   overflow-y: auto;
   flex: 1;
+}
+
+.modal-body.no-padding {
+  padding: 0;
 }
 .modal-footer {
   padding: 16px 24px;

@@ -94,7 +94,7 @@ function onScroll(e: Event) {
 const visibleOptions = computed(() => {
   const start = Math.max(0, Math.floor(scrollTop.value / itemHeight) - 2);
   const end = Math.min(filteredOptions.value.length, start + Math.ceil(220 / itemHeight) + 4);
-  
+
   return filteredOptions.value.slice(start, end).map((opt, i) => ({
     ...opt,
     index: start + i
