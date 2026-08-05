@@ -964,6 +964,35 @@
     ]
   },
   {
+    "id": "prerentree_root",
+    "icon": "briefcase",
+    "title": "Pré-rentrée",
+    "borderColor": "#10B981",
+    "children": [
+      {
+        "id": "mefs_setting",
+        "icon": "school",
+        "title": "MEF",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "mefs_list",
+            "component": "GenericList",
+            "resourceKey": "mefs",
+            "width": "60%"
+          },
+          {
+            "id": "mefs_form",
+            "component": "GenericForm",
+            "resourceKey": "mefs",
+            "width": "40%"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "id": "settings_root",
     "icon": "cog",
     "title": "Paramètres",

@@ -660,7 +660,7 @@ async function onSelectionChangeGeneric(ids: any[]) {
           formModel.value = {};
           isEditing.value = false;
         }
-      } else if (!isListEditableInline.value && !isEditModalDisabled.value) {
+      } else if (!isEditModalDisabled.value) {
         onEditGeneric(item);
       }
     }
