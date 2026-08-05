@@ -29,7 +29,10 @@ class Service(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    mef_service_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mef_services.id", ondelete="SET NULL"), nullable=True, info={"label": "Service MEF d'origine", "readOnly": True})
+    # ondelete=CASCADE (pas SET NULL) : un Service généré à partir d'un MefService ne doit jamais
+    # survivre à la suppression de son gabarit d'origine (décision métier explicite) — un Service
+    # peut rester nullable ici pour rester ad-hoc dès sa création, mais pas le devenir en cascade.
+    mef_service_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mef_services.id", ondelete="CASCADE"), nullable=True, info={"label": "Service MEF d'origine", "readOnly": True})
     mef_division_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mef_divisions.id", ondelete="SET NULL"), nullable=True, info={"label": "Lien MEF/Division"})
     group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True, info={"label": "Groupe"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière"})
@@ -64,7 +67,11 @@ class Service(Base):
     election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod")
     alignment: Mapped[Optional["Alignment"]] = relationship("Alignment", back_populates="services")
     teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=service_teachers, info={"label": "Enseignants"})
-    repartitions: Mapped[list["ServiceRepartition"]] = relationship("ServiceRepartition", back_populates="service", cascade="all, delete-orphan", info={"label": "Répartitions"})
+    # Pas de cascade="delete-orphan" ici : la suppression en cascade des ServiceRepartition est
+    # désormais pilotée par CRUDMixin._cascade_delete_dependents() à partir du ondelete=CASCADE
+    # de ServiceRepartition.service_id (voir base.py) — déclarer aussi une cascade ORM ferait
+    # doublon (tentative de suppression redondante sur des lignes déjà supprimées).
+    repartitions: Mapped[list["ServiceRepartition"]] = relationship("ServiceRepartition", back_populates="service", info={"label": "Répartitions"})
 
     @constrains()
     def _check_structure_exclusivity(self, db: Session):
@@ -111,7 +118,7 @@ class Service(Base):
     @property
     def is_synced_with_mef_service(self) -> bool:
         if not self.mef_service_id or not self.mef_service:
-            return True
+            return False
         ms = self.mef_service
         return all(getattr(self, f) == getattr(ms, f) for f in self._MEF_SERVICE_MIRROR_FIELDS)
 

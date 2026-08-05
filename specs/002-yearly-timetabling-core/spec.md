@@ -407,9 +407,13 @@ Le MEF est un concept structurant pour :
 *   *Relations (1-à-N)* : `mef_services` (Liste des dotations d'heures réglementaires par matière pour ce niveau), `division_links` (Liste des **MefDivision** rattachant ce MEF à une ou plusieurs classes)
 
 ### 4bis. MEFService (Service standard de formation)
-Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » pour générer un **Service** (opérationnel) par classe (`Division`) associée au MEF, évitant la saisie manuelle répétitive pour chaque classe. La propagation MEFService → Service se fait à sens unique : modifier un `Service` déjà généré n'impacte jamais son `MEFService` d'origine.
+Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » pour générer un **Service** (opérationnel) par classe (`Division`) associée au MEF, évitant la saisie manuelle répétitive pour chaque classe. La propagation entre `MEFService` et `Service` n'est symétrique que dans un sens : le gabarit est **autoritaire** sur les champs miroirs (voir 4quinquies) de tous ses `Service` générés, à la création comme à toute modification ultérieure ; l'inverse n'est jamais vrai, modifier un `Service` n'impacte jamais son `MEFService` d'origine.
 
-> **Génération automatique** : la création d'un `MEFService` génère automatiquement un `Service` pour chaque `MefDivision` déjà rattachée à son MEF ; symétriquement, la création d'un `MefDivision` génère automatiquement un `Service` pour chaque `MEFService` déjà existant de son MEF (voir `Service.generate_from_mef_service`). Cette génération n'a lieu qu'à la création — elle ne se redéclenche jamais sur une modification ultérieure (propagation à sens unique, en création seulement).
+> **Génération automatique (création)** : la création d'un `MEFService` génère automatiquement un `Service` pour chaque `MefDivision` déjà rattachée à son MEF ; symétriquement, la création d'un `MefDivision` génère automatiquement un `Service` pour chaque `MEFService` déjà existant de son MEF (voir `Service.generate_from_mef_service`).
+
+> **Propagation forcée (modification)** : toute modification d'un `MEFService` répercute ses champs miroirs sur **tous** les `Service` déjà générés à partir de lui, **y compris ceux ayant déjà divergé manuellement** (`is_synced_with_mef_service` à `False`) — ces derniers perdent alors leurs ajustements locaux, écrasés par le gabarit. `student_count` est exclu de cette propagation (voir ci-dessous).
+
+> **Suppression en cascade** : supprimer un `MEFService` supprime aussi tous les `Service` (et leurs `ServiceRepartition`) générés à partir de lui — ils ne sont jamais laissés orphelins avec `mef_service_id` à `NULL`. Les `Service` ad-hoc (sans lien vers ce `MEFService`) ne sont pas affectés.
 *   `id` : Clé primaire (Entier)
 *   `mef_id` : Clé étrangère vers le **MEF** parent (Entier, relation 1-à-N)
 *   `subject_id` : Clé étrangère vers la **Subject** (Matière) enseignée (Entier, relation N-à-1)
@@ -448,6 +452,8 @@ Objet de liaison porté par la relation N-à-N entre **MEF** et **Division**. Un
 *   `computed_student_count` : Effectif réellement affecté, calculé automatiquement en comptant les **Student** partageant à la fois cette division (`division_id`) et ce MEF (`mef_id`) — propriété non stockée, toujours à jour. Sur une division composite (double-niveau), chaque `MefDivision` ne compte donc que les élèves de son propre MEF.
 *   `display_name` : Libellé d'affichage composite (Chaîne, ex: "6EME GENERALE - 6ème A") = `"{nom du MEF} - {nom de la Division}"`
 
+> **Suppression bloquée si un Service en dépend encore** (comportement confirmé explicitement, par opposition à une suppression en cascade) : contrairement à `MEFService` (suppression en cascade, voir 4bis), supprimer un `MefDivision` ne supprime jamais les `Service` qui le référencent — leur `mef_division_id` est mis à `NULL`. Si un `Service` ainsi affecté ne dispose d'aucun `group_id` de repli, il se retrouverait sans aucune structure (violation de l'exclusivité de structure, voir 4quinquies), donc la suppression du `MefDivision` est **refusée** tant que ce cas se présente. Choix délibéré : `MefDivision` représente une classe réelle (potentiellement déjà porteuse de professeurs assignés, de répartitions et de cours placés), au rayon d'action de suppression plus large et plus risqué que celui d'un gabarit `MEFService` encore en cours de paramétrage — on préfère forcer un traitement explicite (supprimer le `Service` ou lui donner un `Group` de repli) plutôt que de risquer une perte de configuration accidentelle en cascade.
+
 ### 4quinquies. Service (Service opérationnel)
 L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **Group**), un ou plusieurs professeurs, et une matière. Généré à partir d'un **MEFService** (un `Service` par Division associée au MEF), mais librement modifiable ensuite sans impact sur son gabarit d'origine — la propagation MEFService → Service est à sens unique.
 *   `id` : Clé primaire (Entier)
@@ -461,7 +467,7 @@ L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **
 *   `alignment_id` : Clé étrangère optionnelle vers un **Alignment** (Entier, relation N-à-1)
 *   *Relations (N-à-N)* : `teacher_ids` (Professeur(s) affecté(s) à ce service — plusieurs en cas de co-enseignement)
 *   *Relations (1-à-N)* : `repartitions` (Liste des **ServiceRepartition** décomposant ce service — voir ci-dessous)
-*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id`, les trois durées hebdomadaires et `reduced_group_student_count` du service à son `MEFService` d'origine. Toujours vrai pour un service ad-hoc (sans `mef_service_id`).
+*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id`, les trois durées hebdomadaires et `reduced_group_student_count` du service à son `MEFService` d'origine. **Toujours faux pour un service ad-hoc** (sans `mef_service_id`) — il n'existe alors aucun gabarit avec lequel être synchronisé. Pour un service généré, la dérive n'est **jamais durable** : toute modification ultérieure du `MEFService` d'origine réécrase ces champs sur le service (voir 4bis, « Propagation forcée »), ce qui repasse l'indicateur à vrai.
 
 > **Contraintes d'intégrité de Service :**
 > - **Exclusivité de structure :** `mef_division_id` et `group_id` ne peuvent pas être renseignés simultanément, et l'un des deux est obligatoire.

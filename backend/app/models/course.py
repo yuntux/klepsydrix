@@ -139,7 +139,10 @@ class Course(Base):
 
     # Relations de navigation hiérarchique
     parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
-    children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", cascade="all, delete-orphan", info={"label": "Cours enfants"})
+    # Pas de cascade="delete-orphan" ici : la suppression en cascade des Course enfants est
+    # désormais pilotée par CRUDMixin._cascade_delete_dependents() à partir du ondelete=CASCADE
+    # de Course.parent_id (voir base.py) — déclarer aussi une cascade ORM ferait doublon.
+    children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", info={"label": "Cours enfants"})
 
     # Relations de navigation Mto1
     subject_relation: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="courses")

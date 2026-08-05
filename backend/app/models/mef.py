@@ -95,6 +95,29 @@ class MefService(Base):
             Service.generate_from_mef_service(db, instance, mef_division)
         return instance
 
+    def update(self, db, vals: dict):
+        """
+        À la modification d'un MefService, répercute les champs miroirs (voir
+        Service._MEF_SERVICE_MIRROR_FIELDS) sur tous les Service déjà générés à partir de ce
+        gabarit — y compris ceux ayant déjà divergé manuellement (is_synced_with_mef_service
+        à False), qui perdent donc leurs ajustements locaux à chaque mise à jour du gabarit.
+        Propagation forcée à chaque modification, contrairement à la création qui ne génère
+        qu'une fois (voir Service.generate_from_mef_service). Reste à sens unique dans l'autre
+        sens : modifier un Service n'impacte jamais son MefService d'origine.
+        """
+        instance = super().update(db, vals)
+        from backend.app.models.service import Service
+        mirror_vals = {field: getattr(self, field) for field in Service._MEF_SERVICE_MIRROR_FIELDS}
+        services = db.query(Service).filter(Service.mef_service_id == self.id).all()
+        for service in services:
+            service.update(db, dict(mirror_vals))
+        return instance
+
+    # Pas de delete() surchargé ici : Service.mef_service_id porte ondelete="CASCADE" (décision
+    # métier : un Service généré ne doit jamais survivre à la suppression de son gabarit), donc
+    # CRUDMixin._cascade_delete_dependents() supprime déjà les Service liés automatiquement
+    # (et transitivement leurs ServiceRepartition) — voir base.py.
+
 class MefDivision(Base):
     """
     Objet de liaison entre un MEF et une Division. Porte les effectifs propres à ce

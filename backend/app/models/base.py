@@ -363,11 +363,57 @@ class CRUDMixin:
             db.rollback()
             raise e
 
+    def _cascade_delete_dependents(self, db: Session):
+        """
+        Avant la suppression, traite explicitement CHAQUE ligne d'une autre table qui référence
+        self via une clé étrangère — en se basant uniquement sur le schéma (ForeignKey.ondelete),
+        systématiquement déclaré sur chaque FK de ce projet, et PAS sur une éventuelle
+        relationship() ORM déclarée. Une relation qu'on aurait oublié de déclarer côté ORM (c'est
+        exactement ce qui manquait pour MefDivision -> Service avant ce correctif) est donc
+        protégée exactement comme les autres, sans configuration à ajouter au cas par cas.
+
+        - ondelete="CASCADE"  : l'enfant est supprimé via son propre .delete() — cascade réelle,
+          récursive (chaque enfant traite à son tour ses propres dépendants).
+        - ondelete="SET NULL" : l'enfant SURVIT, mais sa FK est mise à NULL via un vrai .update(),
+          ce qui revalide ses @constrains() — si ça viole un invariant métier (ex: Service exige
+          exactement un de mef_division_id/group_id), l'update() lève une erreur et annule toute
+          la suppression, plutôt que de corrompre silencieusement les données.
+        - "RESTRICT"/"NO ACTION"/None : rien à faire ici, la BDD bloquera elle-même la suppression
+          s'il reste des lignes enfants.
+        - Tables sans classe mappée (tables d'association pures type service_teachers) : ignorées
+          — aucune logique métier n'est portée par une ligne d'association, le ondelete=CASCADE de
+          la table suffit.
+        """
+        if not hasattr(self, "__mapper__"):
+            return
+        from sqlalchemy import inspect
+        from sqlalchemy.orm import class_mapper
+
+        table = self.__class__.__table__
+        table_to_class = {m.local_table: m.class_ for m in Base.registry.mappers}
+
+        for other_table in Base.metadata.tables.values():
+            for fk in other_table.foreign_keys:
+                if fk.column.table is not table or fk.ondelete not in ("CASCADE", "SET NULL"):
+                    continue
+                child_cls = table_to_class.get(other_table)
+                if child_cls is None:
+                    continue
+                fk_attr = class_mapper(child_cls).get_property_by_column(fk.parent).key
+                children = db.query(child_cls).filter(getattr(child_cls, fk_attr) == self.id).all()
+                for child in children:
+                    if fk.ondelete == "CASCADE":
+                        if not getattr(child, '_via_crud_mixin_delete', False):
+                            child.delete(db)
+                    else:
+                        child.update(db, {fk_attr: None})
+
     def delete(self, db: Session):
         """
         Marque l'objet pour suppression. Le commit est géré par l'endpoint.
         """
         self._via_crud_mixin_delete = True
+        self._cascade_delete_dependents(db)
         try:
             db.delete(self)
             db.flush()

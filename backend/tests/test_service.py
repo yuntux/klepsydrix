@@ -71,6 +71,65 @@ class TestMefServiceFields:
         })
         assert ms.total_weekly_duration_minutes == 180
 
+    def test_deleting_mef_service_deletes_its_generated_services(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        from backend.app.models.mef import MefService
+        mef_service = MefService.create(db_session, {"mef_id": mef.id, "subject_id": subject.id})
+        service = db_session.query(Service).filter(Service.mef_service_id == mef_service.id).one()
+        repartition = ServiceRepartition.create(db_session, {
+            "service_id": service.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "WEEKLY",
+        })
+
+        mef_service.delete(db_session)
+
+        assert db_session.query(Service).filter(Service.id == service.id).first() is None
+        assert db_session.query(ServiceRepartition).filter(ServiceRepartition.id == repartition.id).first() is None
+
+    def test_deleting_mef_service_does_not_touch_unrelated_services(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        from backend.app.models.mef import MefService
+        mef_service = MefService.create(db_session, {"mef_id": mef.id, "subject_id": subject.id})
+        ad_hoc_service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+
+        mef_service.delete(db_session)
+
+        assert db_session.query(Service).filter(Service.id == ad_hoc_service.id).first() is not None
+
+
+class TestMefDivisionDeletion:
+    """
+    Service.mef_division_id porte ondelete="SET NULL" (contrairement à mef_service_id, qui est
+    en CASCADE) : un Service peut légitimement survivre sans MefDivision s'il est rattaché à un
+    Group à la place. Mais un Service généré via MefDivision n'a pas de group_id — le nullifier
+    violerait donc _check_structure_exclusivity. Grâce à CRUDMixin._cascade_delete_dependents()
+    (base.py), ce nullify passe désormais par un vrai Service.update(), qui revalide réellement
+    la contrainte et bloque la suppression au lieu de la laisser corrompre les données en
+    silence (c'était le risque précédemment identifié et non traité pour MefDivision -> Service).
+    """
+    def test_deleting_mef_division_is_blocked_if_a_service_would_be_left_without_structure(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        # Commit explicite : le rollback déclenché par l'échec ci-dessous revient à ce point (et
+        # non au tout début de la session, qui ne committe jamais rien par défaut dans ce fixture).
+        db_session.commit()
+
+        with pytest.raises(ValueError, match="doit être rattaché"):
+            mef_division.delete(db_session)
+
+        # Le rollback a déjà eu lieu à l'intérieur de Service.update() (voir CRUDMixin) : ni le
+        # Service, ni le MefDivision n'ont été supprimés.
+        assert db_session.query(MefDivision).filter(MefDivision.id == mef_division.id).first() is not None
+        assert db_session.query(Service).filter(Service.id == service.id).first() is not None
+
+    def test_deleting_mef_division_succeeds_once_no_service_references_it(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        service.delete(db_session)
+
+        mef_division.delete(db_session)
+
+        assert db_session.query(MefDivision).filter(MefDivision.id == mef_division.id).first() is None
+
 
 class TestServiceStructure:
     def test_service_requires_exactly_one_structure(self, db_session):
@@ -116,13 +175,13 @@ class TestServiceStructure:
 
 
 class TestServiceSyncIndicator:
-    def test_ad_hoc_service_is_always_synced(self, db_session):
+    def test_ad_hoc_service_without_mef_service_is_never_synced(self, db_session):
         _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
         service = Service.create(db_session, {
             "subject_id": subject.id,
             "mef_division_id": mef_division.id,
         })
-        assert service.is_synced_with_mef_service is True
+        assert service.is_synced_with_mef_service is False
 
     def test_service_generated_from_template_is_synced_until_diverging(self, db_session):
         _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
@@ -146,9 +205,40 @@ class TestServiceSyncIndicator:
         service.update(db_session, {"weighting_coefficient": 1.1})
         assert service.is_synced_with_mef_service is False
 
-        # Modifier le gabarit ne resynchronise pas automatiquement le service (propagation à sens unique)
+        # Modifier le gabarit réécrase les champs miroirs de TOUS ses services (y compris déjà
+        # divergés) : le service perd son ajustement local (weighting_coefficient revient à 1.0,
+        # la valeur du gabarit) et repasse synchronisé.
         mef_service.update(db_session, {"weekly_duration_full_class_minutes": 150})
-        assert service.weekly_duration_full_class_minutes == 120
+        assert service.weekly_duration_full_class_minutes == 150
+        assert service.weighting_coefficient == 1.0
+        assert service.is_synced_with_mef_service is True
+
+    def test_updating_mef_service_does_not_propagate_student_count(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        from backend.app.models.mef import MefService
+        mef_service = MefService.create(db_session, {
+            "mef_id": mef.id,
+            "subject_id": subject.id,
+            "student_count": 28,
+        })
+        service = db_session.query(Service).filter(Service.mef_service_id == mef_service.id).one()
+        service.update(db_session, {"student_count": 15})
+
+        mef_service.update(db_session, {"student_count": 30})
+        assert service.student_count == 15
+
+    def test_updating_mef_service_never_propagates_back_from_service_edits(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        from backend.app.models.mef import MefService
+        mef_service = MefService.create(db_session, {
+            "mef_id": mef.id,
+            "subject_id": subject.id,
+            "weekly_duration_full_class_minutes": 120,
+        })
+        service = db_session.query(Service).filter(Service.mef_service_id == mef_service.id).one()
+
+        service.update(db_session, {"weekly_duration_full_class_minutes": 999})
+        assert mef_service.weekly_duration_full_class_minutes == 120
 
 
 class TestServiceRepartition:

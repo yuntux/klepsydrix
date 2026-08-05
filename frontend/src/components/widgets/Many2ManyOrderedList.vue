@@ -28,7 +28,8 @@
               type="number"
               class="form-input cell-input"
               :disabled="disabled"
-              :value="getCellValue(id, col)"
+              :value="draftValues[id + '-' + col.key] ?? getCellValue(id, col)"
+              @input="onCellInput(id, col, $event)"
               @change="onCellEdit(id, col, $event)"
             />
             <template v-else>{{ getCellValue(id, col) }}</template>
@@ -238,12 +239,21 @@ function moveDown(index: number) {
   emit('update:modelValue', localModel.value);
 }
 
+// Le widget écrit directement sur props.field.resource (ex: "mef_services") en dehors du cycle
+// enregistrer/soumettre du formulaire parent. Ce resource n'est donc jamais invalidé par le submit
+// du formulaire (qui n'invalide que sa propre ressource, ex: "mefs") — sans ce signal, le cache
+// d'options FK (fkOptionsCache / TanStack Query) reste périmé pour quiconque le consulte ensuite.
+function notifyResourceMutated() {
+  window.dispatchEvent(new CustomEvent('resource:mutated', { detail: { resource_name: props.field.resource } }));
+}
+
 async function removeItem(index: number) {
   if (props.disabled) return;
   const id = localModel.value[index];
 
   if (isAssociationMode.value) {
     await deleteGenericItem(props.field.resource, id);
+    notifyResourceMutated();
   }
 
   const newArr = [...localModel.value];
@@ -263,6 +273,7 @@ async function addItem() {
       [parentField]: props.parentRecord.id,
       [pickField]: selectedToAdd.value
     });
+    notifyResourceMutated();
     localRowData.value = { ...localRowData.value, [created.id]: created };
     localModel.value = [...localModel.value, created.id];
     emit('update:modelValue', localModel.value);
@@ -276,10 +287,25 @@ async function addItem() {
   selectedToAdd.value = null;
 }
 
+// Brouillon de saisie en cours, indexé par "id-colKey" : tant qu'une case est en cours d'édition,
+// le binding :value la lit ici plutôt que via getCellValue(), pour ne jamais se faire écraser par
+// un re-render externe (ex: l'appel /onchange débounce de GenericForm, déclenché par la saisie
+// d'un AUTRE champ du formulaire) survenant avant le blur — sans quoi Vue réinitialiserait le champ
+// à son ancienne valeur pendant que l'utilisateur tape encore, et le blur/@change enverrait alors
+// cette ancienne valeur au lieu de la saisie réelle.
+const draftValues = ref<Record<string, string>>({});
+
+function onCellInput(id: number, col: any, event: Event) {
+  draftValues.value = { ...draftValues.value, [id + '-' + col.key]: (event.target as HTMLInputElement).value };
+}
+
 async function onCellEdit(id: number, col: any, event: Event) {
   const value = Number((event.target as HTMLInputElement).value) || 0;
   const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
+  notifyResourceMutated();
   localRowData.value = { ...localRowData.value, [id]: updated };
+  const { [id + '-' + col.key]: _discard, ...rest } = draftValues.value;
+  draftValues.value = rest;
 }
 
 // Une colonne est un many2one éditable si elle référence une ressource (col.resource, ex:
@@ -296,6 +322,7 @@ function fkColumnOptions(col: any): { value: any; label: string }[] {
 
 async function onFkCellEdit(id: number, col: any, value: any) {
   const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
+  notifyResourceMutated();
   localRowData.value = { ...localRowData.value, [id]: updated };
 }
 </script>

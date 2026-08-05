@@ -1415,6 +1415,12 @@ onMounted(async () => {
   // Écoute des événements de mutation pour rafraîchir les données globales d'App.vue
   window.addEventListener('resource:mutated', (e: any) => {
     const resource = e.detail?.resource_name;
+    if (!resource) return;
+    // Toute ressource mutée doit voir son cache d'options FK (fkOptionsCache / TanStack Query)
+    // invalidé, sans quoi un widget qui édite une ressource "en aparté" (ex: Many2ManyOrderedList
+    // en mode association) laisse les autres consommateurs de cette ressource (y compris son propre
+    // repli field.options) afficher des données périmées jusqu'au prochain changement de menu actif.
+    invalidateFkCache(resource);
     if (resource === 'schools') loadSchools();
     if (resource === 'period_types') loadPeriodTypes();
     if (resource === 'periods') loadPeriods();

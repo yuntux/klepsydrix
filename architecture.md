@@ -224,6 +224,7 @@ L'interface `GenericForm.vue` prend en charge l'attribut optionnel `widget` (et 
   - **Ajouter** déclenche un `POST` direct sur la ressource de la relation (ex: `/api/generic/mef_divisions`), créant immédiatement une nouvelle ligne — pas un simple ajout dans le tableau en attente de l'enregistrement du formulaire parent.
   - **Retirer** déclenche un `DELETE` immédiat de la ligne (et non un simple détachement), car la ligne n'a pas d'existence en dehors de cette association.
   - Une colonne peut être marquée `"editable": true` : elle se rend alors comme un champ `<input>` et déclenche un `PATCH` direct sur la ligne au changement (ex: la saisie de l'effectif prévu), indépendamment du bouton "Enregistrer" du formulaire parent.
+  - **Invalidation du cache FK après écriture directe** : puisque `Ajouter`/`Retirer`/l'édition de colonne écrivent directement sur `field.resource` (ex: `mef_services`) en dehors du cycle de soumission du formulaire parent, ce dernier n'invalide jamais ce cache (il n'invalide que sa propre ressource, ex: `mefs`). Le widget émet donc lui-même un `window.dispatchEvent(new CustomEvent('resource:mutated', { detail: { resource_name: field.resource } }))` après chaque écriture réussie ; le listener global dans `App.vue` (`onMounted`) invalide alors systématiquement `fkOptionsCache`/le cache TanStack Query de cette ressource. Sans ce signal, tout consommateur de `fkOptionsCache[resource]` (y compris le repli `field.options` du widget lui-même pour les lignes pas encore éditées dans la session en cours) affiche des données périmées jusqu'au prochain changement de menu actif — un bug réel rencontré et corrigé sur le widget "Services MEF".
   - Exemple (`Division.mef_links`, dans `backend/app/models/division.py`) :
     ```python
     info={
@@ -625,7 +626,7 @@ Certains champs doivent être **recalculés à chaque création/modification et 
 
 Le `CRUDMixin` exécute un second `db.flush()` juste après la boucle des méthodes `@constrains`, ce qui permet de détourner ce mécanisme de validation pour du calcul-et-stockage : une méthode `@constrains()` (sans argument, donc toujours exécutée) qui se contente d'assigner `self.name = ...` au lieu de lever une exception voit sa valeur automatiquement persistée par ce flush, aussi bien en création qu'en modification. Toute donnée insérée en SQL brut (seed `init_db.py`) contourne ce mécanisme et doit donc porter la valeur calculée à la main.
 
-### G. Génération en Cascade à la Création (`classmethod create()` surchargé)
+### G. Génération en Cascade à la Création, Propagation Forcée sur Modification (gabarit → objets générés)
 Quand la création d'un objet A doit automatiquement engendrer des objets B liés (ex: un `MefService` génère un `Service` par `MefDivision` déjà rattachée à son MEF, et symétriquement un `MefDivision` génère un `Service` par `MefService` déjà existant), le pattern est de surcharger `create()` sur le modèle A plutôt que d'ajouter une méthode séparée à appeler manuellement :
 
 ```python
@@ -636,9 +637,71 @@ def create(cls, db, vals: dict):
     return instance
 ```
 
-**Points clés** :
-- La génération n'a lieu **qu'à la création**, jamais sur `update()` — la propagation reste à sens unique (voir aussi la section F et `Service.is_synced_with_mef_service` pour détecter la dérive après coup plutôt que de forcer une resynchronisation).
+**Points clés (création)** :
+- La **génération de nouvelles lignes B** n'a lieu **qu'à la création de A** — un `MefService`/`MefDivision` supplémentaire ne va jamais faire apparaître de nouveaux `Service` en dehors de ce moment-là.
 - Factoriser les champs copiés dans un tuple partagé (ex: `Service._MEF_SERVICE_MIRROR_FIELDS`), réutilisé à la fois par le générateur et par l'indicateur de dérive, pour éviter que les deux listes divergent silencieusement.
 - Extraire la génération elle-même dans un `classmethod` dédié sur le modèle B (ex: `Service.generate_from_mef_service(db, mef_service, mef_division)`), appelé par les deux sens de la cascade — évite de dupliquer la logique de construction du dict `vals`.
 - **Ajouter une contrainte d'unicité** (`@constrains()` interrogeant `db.query(...)` pour un doublon) sur la clé qui identifie l'objet B généré (ici le couple `(mef_service_id, mef_division_id)`), dès qu'une cascade automatique existe : sans elle, une création manuelle redondante du même B passe silencieusement et produit un doublon. Ce garde-fou a d'ailleurs immédiatement révélé un test existant qui recréait manuellement un `Service` déjà auto-généré.
 - Le seed (`init_db.py`) insère en SQL brut et ne passe jamais par `create()` : la cascade ne s'y déclenche donc pas, cohérent avec le reste du seed qui contourne systématiquement la logique métier ORM.
+
+**Propagation forcée sur `update()`** : contrairement à la génération de lignes (create-only), la **valeur des champs miroirs** peut rester autoritaire côté gabarit A même après la création de B — c'est un choix produit à trancher explicitement, pas une évidence technique. Pour `MefService` → `Service`, le choix retenu est que le gabarit reste autoritaire à vie : toute modification d'un `MefService` réécrase les champs miroirs sur **tous** ses `Service` déjà générés, y compris ceux ayant déjà divergé manuellement — la dérive détectée par `is_synced_with_mef_service` n'est donc jamais durable, seulement le reflet de l'écart jusqu'à la prochaine modification du gabarit :
+
+```python
+def update(self, db, vals: dict):
+    instance = super().update(db, vals)
+    mirror_vals = {field: getattr(self, field) for field in Service._MEF_SERVICE_MIRROR_FIELDS}
+    for service in db.query(Service).filter(Service.mef_service_id == self.id).all():
+        service.update(db, dict(mirror_vals))
+    return instance
+```
+- Surcharge de l'**instance method** `update()` (pas un `classmethod` comme `create()`), puisqu'on modifie un objet A déjà existant.
+- Requêter les `Service` liés via `db.query(...)` plutôt que via la collection de relation `self.services` : cette dernière peut rester obsolète en mémoire dans la même session après une mise à jour de FK faite depuis l'« autre côté » de la relation (piège déjà rencontré sur `Course.children`, `Alignment.services`).
+- La propagation reste asymétrique : modifier un `Service` n'impacte jamais son `MefService` d'origine, dans aucun des deux sens de la relation.
+
+### H. Suppression en Cascade Pilotée par le Schéma (`CRUDMixin._cascade_delete_dependents`)
+
+**Le problème de fond** : `Base` porte un listener global `before_delete`/`before_update` qui rejette (`RuntimeError`) toute écriture ne passant pas par `CRUDMixin.update()`/`delete()` (repérée via les flags d'instance `_via_crud_mixin_update`/`_via_crud_mixin_delete`) — un garde-fou contre les écritures directes (`db.delete(obj)`/`setattr` sans passer par l'API). Mais SQLAlchemy propose DEUX mécanismes de suppression totalement indépendants et souvent mal alignés :
+- **Côté base de données**, le `ondelete=` du `ForeignKey(...)` (`CASCADE`, `SET NULL`, `RESTRICT`, `NO ACTION`) — systématiquement déclaré sur chaque FK de ce projet.
+- **Côté ORM**, le `cascade=` du `relationship(...)` (`delete`, `delete-orphan`, absent par défaut) — déclaré seulement sur quelques relations (`Course.children`, `Service.repartitions` avant ce correctif), et surtout combiné dans ce projet à `passive_deletes="all"` sur la quasi-totalité des relations 1-N, qui dit explicitement à l'ORM *« ne charge pas les enfants, laisse la BDD gérer via `ondelete=` »*.
+
+Conséquence concrète : dès que `passive_deletes` est utilisé (la norme ici), une suppression en cascade `CASCADE`/`SET NULL` se produit **entièrement en SQL**, sans jamais instancier les objets Python concernés — donc sans jamais déclencher `@constrains()` ni les listeners `before_update`/`before_delete`. C'est exactement ce qui laissait `MefDivision → Service` non protégé : supprimer un `MefDivision` mettait silencieusement `Service.mef_division_id` à `NULL` en BDD, pouvant laisser un `Service` sans aucune structure (ni Division, ni Groupe) sans que `_check_structure_exclusivity` ne s'en aperçoive jamais.
+
+**Pourquoi pas un correctif par relation (`cascade="all, delete-orphan"` + surcharge de `delete()` au cas par cas)** : ça a été la première approche (voir historique), mais elle a deux défauts rédhibitoires : (1) toute relation *déclarée* comme `delete-orphan` fait toujours l'objet d'un doublon de traitement avec le `before_delete` (la cascade ORM native ne pose jamais le flag `_via_crud_mixin_delete`) — donc il aurait fallu un correctif par modèle, un par un, en espérant n'en oublier aucun ; (2) et surtout, une relation qui n'a **jamais été déclarée côté ORM** (le cas `MefDivision → Service`, qui n'a même pas de collection `services` sur `MefDivision`) reste invisible à toute solution basée sur `mapper.relationships` — aucun audit, aussi rigoureux soit-il, ne garantit qu'on ne l'oubliera pas pour un futur modèle.
+
+**La solution retenue, générique et indépendante de toute déclaration ORM** : `CRUDMixin._cascade_delete_dependents()` (`backend/app/models/base.py`) parcourt, avant chaque suppression, le **schéma** lui-même (`Base.metadata`) — pas les `relationship()` — à la recherche de toute table portant une FK vers la table de l'objet supprimé, et traite chaque ligne trouvée selon le `ondelete=` de cette FK :
+
+```python
+def _cascade_delete_dependents(self, db):
+    table = self.__class__.__table__
+    table_to_class = {m.local_table: m.class_ for m in Base.registry.mappers}
+    for other_table in Base.metadata.tables.values():
+        for fk in other_table.foreign_keys:
+            if fk.column.table is not table or fk.ondelete not in ("CASCADE", "SET NULL"):
+                continue
+            child_cls = table_to_class.get(other_table)
+            if child_cls is None:
+                continue  # table d'association pure (secondary=) : pas de logique métier à protéger
+            fk_attr = class_mapper(child_cls).get_property_by_column(fk.parent).key
+            for child in db.query(child_cls).filter(getattr(child_cls, fk_attr) == self.id).all():
+                if fk.ondelete == "CASCADE":
+                    child.delete(db)                    # cascade réelle, récursive
+                else:
+                    child.update(db, {fk_attr: None})   # vrai update() : @constrains() s'exécute
+
+def delete(self, db):
+    self._via_crud_mixin_delete = True
+    self._cascade_delete_dependents(db)
+    db.delete(self)
+    db.flush()
+```
+
+**Ce que ça garantit, structurellement** :
+- Fonctionne pour **toute** FK du projet, déclarée ou non côté `relationship()` — plus de zone d'ombre possible pour un futur modèle : le mécanisme se base sur une information (`ondelete=`) déjà systématiquement obligatoire dans ce projet, jamais sur une convention à retenir en plus.
+- `ondelete="CASCADE"` → suppression réelle et récursive (chaque enfant traite à son tour ses propres dépendants via son propre `.delete()`).
+- `ondelete="SET NULL"` → passe par un vrai `.update()`, donc `@constrains()` s'exécute réellement : si la mise à `NULL` violerait un invariant métier (`_check_structure_exclusivity` sur `Service`), l'`update()` lève une erreur qui annule toute la suppression (transaction entière annulée) — la corruption silencieuse devient un échec bloquant et explicite, sans qu'aucune règle n'ait eu besoin d'être écrite spécifiquement pour `MefDivision`.
+- `RESTRICT`/`NO ACTION` : rien à faire, la BDD bloque nativement.
+- Les tables d'association pures (`secondary=`, ex: `service_teachers`) sont ignorées : aucune classe mappée, donc aucune logique métier possible sur ces lignes — leur propre `ondelete=CASCADE` suffit.
+
+**Conséquence sur les déclarations existantes** : les `cascade="all, delete-orphan"` de `Course.children` et `Service.repartitions` ont été retirés (devenus redondants et risquant un double traitement/avertissement SQLAlchemy) — la suppression en cascade de ces deux relations est désormais entièrement portée par ce mécanisme générique, pilotée par le `ondelete="CASCADE"` déjà présent sur `Course.parent_id`/`ServiceRepartition.service_id`. `passive_deletes="all"` reste présent ailleurs dans le projet sans risque : ce mécanisme traite tout **avant** que SQLAlchemy n'ait la moindre chance de gérer quoi que ce soit lui-même, donc `passive_deletes` (qui ne fait que désactiver la gestion *native* de l'ORM) n'entre jamais en conflit avec lui.
+
+**Cas concret résolu par ce mécanisme sans code dédié** : `Service.mef_service_id` porte désormais `ondelete="CASCADE"` (changé depuis `SET NULL`, décision métier explicite : un `Service` généré ne doit jamais survivre à la suppression de son gabarit) — supprimer un `MefService` supprime donc ses `Service` (et transitivement leurs `ServiceRepartition`) sans aucune surcharge `delete()` sur `MefService`. `Service.mef_division_id` reste en `SET NULL` ; supprimer un `MefDivision` est désormais **bloqué** tant qu'un `Service` généré en dépend encore (aucun `group_id` de repli), avec le message d'erreur métier existant (`_check_structure_exclusivity`), sans qu'aucune ligne de code n'ait été écrite spécifiquement pour ce cas.
