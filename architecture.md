@@ -624,3 +624,21 @@ Pour afficher deux listes liées côte à côte dans un même onglet (ex: les cl
 Certains champs doivent être **recalculés à chaque création/modification et persistés** (contrairement aux propriétés `@exposed` classiques, calculées à la demande et jamais stockées) — ex: `ServiceRepartition.name` (`"2x1h(H)"`, dérivé de `occurrence_count`/`duration_minutes`/`periodicity`).
 
 Le `CRUDMixin` exécute un second `db.flush()` juste après la boucle des méthodes `@constrains`, ce qui permet de détourner ce mécanisme de validation pour du calcul-et-stockage : une méthode `@constrains()` (sans argument, donc toujours exécutée) qui se contente d'assigner `self.name = ...` au lieu de lever une exception voit sa valeur automatiquement persistée par ce flush, aussi bien en création qu'en modification. Toute donnée insérée en SQL brut (seed `init_db.py`) contourne ce mécanisme et doit donc porter la valeur calculée à la main.
+
+### G. Génération en Cascade à la Création (`classmethod create()` surchargé)
+Quand la création d'un objet A doit automatiquement engendrer des objets B liés (ex: un `MefService` génère un `Service` par `MefDivision` déjà rattachée à son MEF, et symétriquement un `MefDivision` génère un `Service` par `MefService` déjà existant), le pattern est de surcharger `create()` sur le modèle A plutôt que d'ajouter une méthode séparée à appeler manuellement :
+
+```python
+@classmethod
+def create(cls, db, vals: dict):
+    instance = super().create(db, vals)
+    # ... requêtes pour trouver les objets liés déjà existants, puis génération de B ...
+    return instance
+```
+
+**Points clés** :
+- La génération n'a lieu **qu'à la création**, jamais sur `update()` — la propagation reste à sens unique (voir aussi la section F et `Service.is_synced_with_mef_service` pour détecter la dérive après coup plutôt que de forcer une resynchronisation).
+- Factoriser les champs copiés dans un tuple partagé (ex: `Service._MEF_SERVICE_MIRROR_FIELDS`), réutilisé à la fois par le générateur et par l'indicateur de dérive, pour éviter que les deux listes divergent silencieusement.
+- Extraire la génération elle-même dans un `classmethod` dédié sur le modèle B (ex: `Service.generate_from_mef_service(db, mef_service, mef_division)`), appelé par les deux sens de la cascade — évite de dupliquer la logique de construction du dict `vals`.
+- **Ajouter une contrainte d'unicité** (`@constrains()` interrogeant `db.query(...)` pour un doublon) sur la clé qui identifie l'objet B généré (ici le couple `(mef_service_id, mef_division_id)`), dès qu'une cascade automatique existe : sans elle, une création manuelle redondante du même B passe silencieusement et produit un doublon. Ce garde-fou a d'ailleurs immédiatement révélé un test existant qui recréait manuellement un `Service` déjà auto-généré.
+- Le seed (`init_db.py`) insère en SQL brut et ne passe jamais par `create()` : la cascade ne s'y déclenche donc pas, cohérent avec le reste du seed qui contourne systématiquement la logique métier ORM.

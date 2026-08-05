@@ -408,6 +408,8 @@ Le MEF est un concept structurant pour :
 
 ### 4bis. MEFService (Service standard de formation)
 Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » pour générer un **Service** (opérationnel) par classe (`Division`) associée au MEF, évitant la saisie manuelle répétitive pour chaque classe. La propagation MEFService → Service se fait à sens unique : modifier un `Service` déjà généré n'impacte jamais son `MEFService` d'origine.
+
+> **Génération automatique** : la création d'un `MEFService` génère automatiquement un `Service` pour chaque `MefDivision` déjà rattachée à son MEF ; symétriquement, la création d'un `MefDivision` génère automatiquement un `Service` pour chaque `MEFService` déjà existant de son MEF (voir `Service.generate_from_mef_service`). Cette génération n'a lieu qu'à la création — elle ne se redéclenche jamais sur une modification ultérieure (propagation à sens unique, en création seulement).
 *   `id` : Clé primaire (Entier)
 *   `mef_id` : Clé étrangère vers le **MEF** parent (Entier, relation 1-à-N)
 *   `subject_id` : Clé étrangère vers la **Subject** (Matière) enseignée (Entier, relation N-à-1)
@@ -464,6 +466,7 @@ L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **
 > **Contraintes d'intégrité de Service :**
 > - **Exclusivité de structure :** `mef_division_id` et `group_id` ne peuvent pas être renseignés simultanément, et l'un des deux est obligatoire.
 > - **Cohérence MEF :** Si `mef_service_id` et `mef_division_id` sont tous deux renseignés, ils doivent porter sur le même MEF (`mef_service.mef_id == mef_division.mef_id`).
+> - **Unicité du couple MEFService/MefDivision :** il ne peut exister qu'un seul `Service` par couple (`mef_service_id`, `mef_division_id`) — empêche la création d'un doublon en plus de celui déjà généré automatiquement.
 > - **Homogénéité d'alignement :** Un service ne peut rejoindre un `Alignment`, ni voir ses `ServiceRepartition` modifiées ensuite, que si l'ensemble de ses lignes de répartition reste strictement identique à celui des autres services du même alignement (voir Alignment ci-dessous).
 
 ### 4sexies. ServiceRepartition (Ligne de répartition)

@@ -81,6 +81,20 @@ class MefService(Base):
             + (self.weekly_duration_reduced_minutes or 0) \
             + (self.weekly_duration_split_minutes or 0)
 
+    @classmethod
+    def create(cls, db, vals: dict):
+        """
+        À la création d'un MefService, génère automatiquement un Service pour chaque
+        Division déjà liée au MEF (via MefDivision) — propagation à sens unique, en
+        création seulement (voir Service.generate_from_mef_service).
+        """
+        instance = super().create(db, vals)
+        from backend.app.models.service import Service
+        mef_divisions = db.query(MefDivision).filter(MefDivision.mef_id == instance.mef_id).all()
+        for mef_division in mef_divisions:
+            Service.generate_from_mef_service(db, instance, mef_division)
+        return instance
+
 class MefDivision(Base):
     """
     Objet de liaison entre un MEF et une Division. Porte les effectifs propres à ce
@@ -97,6 +111,20 @@ class MefDivision(Base):
     # Relations de navigation
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="division_links")
     division: Mapped[Optional["Division"]] = relationship("Division", back_populates="mef_links")
+
+    @classmethod
+    def create(cls, db, vals: dict):
+        """
+        À la création d'un MefDivision (rattachement d'une classe à un MEF), génère
+        automatiquement un Service pour chaque MefService déjà existant du MEF — propagation
+        à sens unique, en création seulement (voir Service.generate_from_mef_service).
+        """
+        instance = super().create(db, vals)
+        from backend.app.models.service import Service
+        mef_services = db.query(MefService).filter(MefService.mef_id == instance.mef_id).all()
+        for mef_service in mef_services:
+            Service.generate_from_mef_service(db, mef_service, instance)
+        return instance
 
     @property
     def display_name(self) -> str:

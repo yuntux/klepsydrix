@@ -45,6 +45,14 @@ class Service(Base):
     weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "min": 0})
     reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
 
+    # Champs mirroir du MefService d'origine : copiés à la génération, comparés par
+    # is_synced_with_mef_service. student_count est volontairement exclu (voir MefService.student_count).
+    _MEF_SERVICE_MIRROR_FIELDS = (
+        "subject_id", "discipline_id", "election_method_id", "weighting_coefficient",
+        "weekly_duration_full_class_minutes", "weekly_duration_reduced_minutes",
+        "weekly_duration_split_minutes", "reduced_group_student_count",
+    )
+
     # Relations de navigation
     mef_service: Mapped[Optional["MefService"]] = relationship("MefService", back_populates="services")
     mef_division: Mapped[Optional["MefDivision"]] = relationship("MefDivision")
@@ -71,6 +79,18 @@ class Service(Base):
             if self.mef_service.mef_id != self.mef_division.mef_id:
                 raise ValueError("Le service MEF d'origine et le lien MEF/Division doivent concerner le même MEF.")
 
+    @constrains()
+    def _check_unique_mef_service_mef_division_pair(self, db: Session):
+        if not self.mef_service_id or not self.mef_division_id:
+            return
+        duplicate = db.query(Service).filter(
+            Service.mef_service_id == self.mef_service_id,
+            Service.mef_division_id == self.mef_division_id,
+            Service.id != self.id,
+        ).first()
+        if duplicate:
+            raise ValueError("Un Service existe déjà pour ce couple MefService/MefDivision (générés automatiquement à la création du MefService ou du MefDivision).")
+
     @constrains("alignment_id")
     def _check_alignment_repartition_match(self, db: Session):
         if not self.alignment_id:
@@ -93,16 +113,25 @@ class Service(Base):
         if not self.mef_service_id or not self.mef_service:
             return True
         ms = self.mef_service
-        return (
-            self.subject_id == ms.subject_id and
-            self.discipline_id == ms.discipline_id and
-            self.weighting_coefficient == ms.weighting_coefficient and
-            self.election_method_id == ms.election_method_id and
-            self.weekly_duration_full_class_minutes == ms.weekly_duration_full_class_minutes and
-            self.weekly_duration_reduced_minutes == ms.weekly_duration_reduced_minutes and
-            self.weekly_duration_split_minutes == ms.weekly_duration_split_minutes and
-            self.reduced_group_student_count == ms.reduced_group_student_count
-        )
+        return all(getattr(self, f) == getattr(ms, f) for f in self._MEF_SERVICE_MIRROR_FIELDS)
+
+    @classmethod
+    def generate_from_mef_service(cls, db: Session, mef_service: "MefService", mef_division: "MefDivision") -> "Service":
+        """
+        Crée un Service pour ce couple (MefService, MefDivision), en copiant les valeurs du
+        gabarit. Appelé automatiquement par MefService.create() (pour chaque MefDivision déjà
+        liée au MEF) et par MefDivision.create() (pour chaque MefService déjà existant du MEF) —
+        propagation à sens unique, en création seulement (voir is_synced_with_mef_service pour
+        détecter la dérive après coup, plutôt que de re-synchroniser de force sur update).
+        """
+        vals = {
+            "mef_service_id": mef_service.id,
+            "mef_division_id": mef_division.id,
+            "student_count": mef_service.student_count,
+        }
+        for field in cls._MEF_SERVICE_MIRROR_FIELDS:
+            vals[field] = getattr(mef_service, field)
+        return cls.create(db, vals)
 
 
 def _repartition_signature(service: "Service") -> frozenset:

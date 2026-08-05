@@ -135,15 +135,12 @@ class TestServiceSyncIndicator:
             "weekly_duration_split_minutes": 30,
             "weighting_coefficient": 1.0,
         })
-        service = Service.create(db_session, {
-            "subject_id": mef_service.subject_id,
-            "mef_division_id": mef_division.id,
-            "mef_service_id": mef_service.id,
-            "weekly_duration_full_class_minutes": 120,
-            "weekly_duration_reduced_minutes": 0,
-            "weekly_duration_split_minutes": 30,
-            "weighting_coefficient": 1.0,
-        })
+        # mef_division existe déjà (via _base_fixtures) : la création du MefService a donc
+        # déjà généré automatiquement le Service correspondant (voir MefService.create()).
+        service = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division.id,
+        ).one()
         assert service.is_synced_with_mef_service is True
 
         service.update(db_session, {"weighting_coefficient": 1.1})
