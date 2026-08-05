@@ -135,16 +135,18 @@ class Course(Base):
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
- 
+    service_repartition_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("service_repartitions.id", ondelete="SET NULL"), nullable=True, info={"label": "Répartition de service d'origine", "readOnly": True})
+
     # Relations de navigation hiérarchique
     parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
     children: Mapped[list["Course"]] = relationship("Course", back_populates="parent", cascade="all, delete-orphan", info={"label": "Cours enfants"})
- 
+
     # Relations de navigation Mto1
     subject_relation: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="courses")
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["Mission"]] = relationship("Mission", back_populates="courses")
+    service_repartition: Mapped[Optional["ServiceRepartition"]] = relationship("ServiceRepartition", back_populates="courses")
     election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod", back_populates="courses")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
@@ -158,6 +160,35 @@ class Course(Base):
     periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods, info={"label": "Périodes"})
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts, info={"label": "Groupes de classe"})
     groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses", info={"label": "Groupes"})
+
+    @exposed
+    @property
+    def is_consistent_with_service(self) -> bool:
+        """
+        Indicateur de dérive par rapport au service d'origine (calculé à la demande, réservé
+        aux cours sans enfant). Permet de repérer les cours dont la durée ou la périodicité a
+        divergé de la ServiceRepartition qui les a générés, pour mesurer l'écart avec le TRMD.
+        """
+        from sqlalchemy.orm import object_session
+        db = object_session(self)
+        has_children = bool(self.children) or (
+            db is not None and self.id is not None and
+            db.query(Course).filter(Course.parent_id == self.id).count() > 0
+        )
+        if has_children:
+            return True
+        if not self.service_repartition_id or not self.service_repartition:
+            return True
+
+        from backend.app.models.service import RepartitionPeriodicity
+        sr = self.service_repartition
+        if self.duration_minutes != sr.duration_minutes:
+            return False
+        if sr.periodicity == RepartitionPeriodicity.WEEKLY and self.week_type != WeekType.W:
+            return False
+        if sr.periodicity == RepartitionPeriodicity.BIWEEKLY and self.week_type not in (WeekType.A, WeekType.B):
+            return False
+        return True
 
     @property
     def has_conflict(self) -> bool:

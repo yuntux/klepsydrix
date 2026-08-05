@@ -21,16 +21,42 @@ class Mef(Base):
     division_links: Mapped[list["MefDivision"]] = relationship("MefDivision", back_populates="mef", passive_deletes="all", info={"label": "Classes liées"})
 
 class MefService(Base):
+    """
+    Gabarit réglementaire : dotation d'heures par matière pour un MEF. Sert de patron pour
+    générer un Service (opérationnel) par Division associée au MEF. weekly_hours a été
+    remplacé par une décomposition par type de comptage (classe entière / effectif réduit /
+    effectif dédoublé), car un même volume horaire peut se répartir différemment selon ces trois
+    modalités (ex: 2h30 = 2h en classe entière + 30min en effectif dédoublé).
+    """
     __tablename__ = "mef_services"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     mef_id: Mapped[int] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="CASCADE"), nullable=False, info={"label": "MEF"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière"})
-    weekly_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, info={"label": "Volume horaire hebdomadaire", "min": 0.0, "max": 40.0, "step": "0.5"})
+    discipline_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="SET NULL"), nullable=True, info={"label": "Discipline"})
+    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
+
+    student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif attendu par division", "min": 0, "max": 50})
+    weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
+
+    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "min": 0})
+    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "min": 0})
+    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "min": 0})
+    reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
 
     # Relations de navigation
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="mef_services")
     subject: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="mef_services")
+    discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
+    election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod")
+    services: Mapped[list["Service"]] = relationship("Service", back_populates="mef_service", info={"label": "Services générés"})
+
+    @exposed
+    @property
+    def total_weekly_duration_minutes(self) -> int:
+        return (self.weekly_duration_full_class_minutes or 0) \
+            + (self.weekly_duration_reduced_minutes or 0) \
+            + (self.weekly_duration_split_minutes or 0)
 
 class MefDivision(Base):
     """

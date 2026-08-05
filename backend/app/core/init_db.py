@@ -230,6 +230,47 @@ def seed_v2_data():
                 ), {"fn": fn, "ln": f"{ln}_{code}", "division_id": d_id, "mef_id": mef_2_id})
             db.commit()
 
+        # 11b. Création de MefService (gabarit Maths), et propagation manuelle en Service opérationnel
+        # pour 6ème A et 6ème B, alignés (même modèle de répartition : 2x1h hebdo + 1x30min dédoublé)
+        maths_id = subject_ids["MATHS"]
+        mef_service_6_id = db.execute(text(
+            "INSERT INTO mef_services (mef_id, subject_id, discipline_id, student_count, weighting_coefficient, "
+            "weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, weekly_duration_split_minutes, reduced_group_student_count) "
+            "VALUES (:mef_id, :subject_id, :discipline_id, 28, 1.0, 120, 0, 30, 14)"
+        ), {"mef_id": mef_6_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"]})
+        db.commit()
+        mef_service_6_id = db.execute(text("SELECT id FROM mef_services WHERE mef_id = :mef_id AND subject_id = :subject_id"), {"mef_id": mef_6_id, "subject_id": maths_id}).scalar()
+
+        alignment_id = db.execute(text("INSERT INTO alignments (code, name) VALUES ('AL_MATHS_6EME', 'Maths - Alignement 6ème A/B')"))
+        db.commit()
+        alignment_id = db.execute(text("SELECT id FROM alignments WHERE code = 'AL_MATHS_6EME'")).scalar()
+
+        service_ids = []
+        for code in ["6EME_A", "6EME_B"]:
+            mef_division_id = db.execute(text(
+                "SELECT md.id FROM mef_divisions md JOIN divisions d ON d.id = md.division_id WHERE d.code = :code"
+            ), {"code": code}).scalar()
+            db.execute(text(
+                "INSERT INTO services (mef_service_id, mef_division_id, subject_id, discipline_id, student_count, "
+                "weighting_coefficient, weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, "
+                "weekly_duration_split_minutes, reduced_group_student_count, alignment_id) "
+                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, 28, 1.0, 120, 0, 30, 14, :alignment_id)"
+            ), {"mef_service_id": mef_service_6_id, "mef_division_id": mef_division_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "alignment_id": alignment_id})
+            db.commit()
+            service_id = db.execute(text("SELECT id FROM services WHERE mef_division_id = :mef_division_id"), {"mef_division_id": mef_division_id}).scalar()
+            service_ids.append(service_id)
+
+        for service_id in service_ids:
+            db.execute(text(
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity) "
+                "VALUES (:service_id, 2, 60, 'WEEKLY')"
+            ), {"service_id": service_id})
+            db.execute(text(
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity) "
+                "VALUES (:service_id, 1, 30, 'WEEKLY')"
+            ), {"service_id": service_id})
+            db.commit()
+
         # 12. Création des Salles de Classe (10 salles)
         classrooms = []
         for i in range(1, 11):
