@@ -587,10 +587,14 @@ def test_auto_create_class_part_links(db_session: Session):
 
 def test_student_and_link_constraints(db_session: Session):
     import pytest
+    from backend.app.models.mef import Mef, MefDivision
     school = db_session.query(School).first()
     d = Division.create(db_session, {"code": "DIV_STUD_TEST", "name": "Div Stud Test", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
     d_id = d.id
-    
+
+    mef = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_STUD_TEST", "name": "MEF Test", "max_students_per_class": 30, "forecast_student_count": 25})
+    MefDivision.create(db_session, {"mef_id": mef.id, "division_id": d_id, "forecast_student_count": 25})
+
     # Partitions
     p1 = Partition.create(db_session, {"code": "P_STUD_1", "name": "Partition 1", "division_id": d_id})
     p2 = Partition.create(db_session, {"code": "P_STUD_2", "name": "Partition 2", "division_id": d_id})
@@ -626,6 +630,7 @@ def test_student_and_link_constraints(db_session: Session):
         "first_name": "Jean",
         "last_name": "Dupont",
         "division_id": d_id,
+        "mef_id": mef.id,
         "class_part_ids": [cp1_a_id, cp2_a_id]
     })
     assert student1.id is not None
@@ -639,6 +644,7 @@ def test_student_and_link_constraints(db_session: Session):
             "first_name": "Invalide",
             "last_name": "SamePart",
             "division_id": d_id,
+            "mef_id": mef.id,
             "class_part_ids": [cp1_a_id, cp1_b_id]
         })
         
@@ -655,6 +661,7 @@ def test_student_and_link_constraints(db_session: Session):
             "first_name": "Invalide",
             "last_name": "WrongDiv",
             "division_id": d_id,
+            "mef_id": mef.id,
             "class_part_ids": [cp_d2.id]
         })
 
@@ -668,6 +675,55 @@ def test_student_and_link_constraints(db_session: Session):
     with pytest.raises(ValueError, match="Impossible de supprimer ce lien|Cannot delete"):
         l_del = db_session.get(ClassPartLink, link_to_delete_id)
         l_del.delete(db_session)
+
+
+def test_student_mef_must_match_division(db_session: Session):
+    import pytest
+    from backend.app.models.mef import Mef, MefDivision
+    school = db_session.query(School).first()
+    d = Division.create(db_session, {"code": "DIV_MEF_TEST", "name": "Div Mef Test", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+
+    mef_linked = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_LINKED", "name": "MEF Lié", "max_students_per_class": 30, "forecast_student_count": 25})
+    mef_unrelated = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_UNRELATED", "name": "MEF Non Lié", "max_students_per_class": 30, "forecast_student_count": 25})
+    MefDivision.create(db_session, {"mef_id": mef_linked.id, "division_id": d.id, "forecast_student_count": 25})
+    db_session.commit()
+
+    # Un élève dont le MEF n'est pas lié à sa division doit être rejeté
+    with pytest.raises(ValueError, match="doit être l'un des MEF liés"):
+        Student.create(db_session, {"first_name": "Paul", "last_name": "Martin", "division_id": d.id, "mef_id": mef_unrelated.id})
+
+    db_session.commit()
+
+    # Un élève dont le MEF est bien lié à sa division est accepté
+    student = Student.create(db_session, {"first_name": "Alice", "last_name": "Durand", "division_id": d.id, "mef_id": mef_linked.id})
+    assert student.id is not None
+    db_session.commit()
+
+    # L'effectif calculé du lien MEF/Division reflète l'élève réparti
+    link = db_session.query(MefDivision).filter_by(mef_id=mef_linked.id, division_id=d.id).first()
+    assert link.computed_student_count == 1
+
+
+def test_mef_division_computed_count_is_per_mef(db_session: Session):
+    """Sur une division composite (double-niveau), chaque MefDivision ne doit compter
+    que les élèves de son propre MEF, pas l'ensemble des élèves de la division."""
+    from backend.app.models.mef import Mef, MefDivision
+    school = db_session.query(School).first()
+    d = Division.create(db_session, {"code": "DIV_DOUBLE_NIVEAU", "name": "Div Double Niveau", "student_count": 4, "color": "#CCCCCC", "school_id": school.id})
+
+    mef_a = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_A_DBL", "name": "MEF A", "max_students_per_class": 30, "forecast_student_count": 2})
+    mef_b = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_B_DBL", "name": "MEF B", "max_students_per_class": 30, "forecast_student_count": 2})
+    link_a = MefDivision.create(db_session, {"mef_id": mef_a.id, "division_id": d.id, "forecast_student_count": 2})
+    link_b = MefDivision.create(db_session, {"mef_id": mef_b.id, "division_id": d.id, "forecast_student_count": 2})
+    db_session.commit()
+
+    Student.create(db_session, {"first_name": "E1", "last_name": "MefA", "division_id": d.id, "mef_id": mef_a.id})
+    Student.create(db_session, {"first_name": "E2", "last_name": "MefA", "division_id": d.id, "mef_id": mef_a.id})
+    Student.create(db_session, {"first_name": "E3", "last_name": "MefB", "division_id": d.id, "mef_id": mef_b.id})
+    db_session.commit()
+
+    assert link_a.computed_student_count == 2
+    assert link_b.computed_student_count == 1
 
 
 def test_get_linked_groups(db_session: Session):
@@ -1124,9 +1180,10 @@ def test_max_separation_successive_days_orm(db_session: Session):
     disc = Discipline.create(db_session, {"code": "D", "name": "D"})
     sub = Subject.create(db_session, {"code": "S1", "code_nomenclature": "S1", "discipline_id": disc.id, "short_name": "S1", "name": "S1", "color": "#000"})
     
-    from backend.app.models.mef import Mef
+    from backend.app.models.mef import Mef, MefDivision
     mef = Mef.create(db_session, {"school_id": sch.id, "code_national": "M", "name": "M", "max_students_per_class": 30, "forecast_student_count": 30})
-    div = Division.create(db_session, {"school_id": sch.id, "code": "DIV", "name": "DIV", "mef_id": mef.id})
+    div = Division.create(db_session, {"school_id": sch.id, "code": "DIV", "name": "DIV"})
+    MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
     
     # Timeslots: Lundi, Mercredi (days 1, 3)
     ts_lun = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
@@ -1163,9 +1220,10 @@ def setup_group_course_order_scenario(db_session, enum_value, pin_c1_day, pin_c2
     disc = Discipline.create(db_session, {"code": f"D_{uai_val}", "name": "D3"})
     sub = Subject.create(db_session, {"code": f"S_{uai_val}", "code_nomenclature": f"S_{uai_val}", "discipline_id": disc.id, "short_name": "S3", "name": "S3", "color": "#000"})
     
-    from backend.app.models.mef import Mef
+    from backend.app.models.mef import Mef, MefDivision
     mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"M_{uai_val}", "name": "M3", "max_students_per_class": 30, "forecast_student_count": 30})
-    div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV3", "mef_id": mef.id})
+    div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV3"})
+    MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
     
     part = Partition.create(db_session, {"division_id": div.id, "code": f"P_{uai_val}", "name": "PART"})
     cp1 = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP1_{uai_val}", "name": "CP1"})
@@ -1264,7 +1322,7 @@ def test_solver_pedagogic_weight_limits(db_session: Session):
     from backend.app.models.subject import Subject
     from backend.app.models.course import Course
     from backend.app.models.division import Division
-    from backend.app.models.mef import Mef
+    from backend.app.models.mef import Mef, MefDivision
     from backend.app.models.discipline import Discipline
     from datetime import date
     import uuid
@@ -1287,7 +1345,8 @@ def test_solver_pedagogic_weight_limits(db_session: Session):
     sub_math = Subject.create(db_session, {"code": f"MATH_{uai_val}", "code_nomenclature": f"M_{uai_val}", "discipline_id": disc.id, "short_name": "Math", "name": "Math", "pedagogic_weight": 2.0})
     
     mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"MEF_{uai_val}", "name": "M", "max_students_per_class": 30, "forecast_student_count": 30})
-    div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV", "mef_id": mef.id})
+    div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV"})
+    MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
 
     cr1 = Classroom.create(db_session, {"school_id": sch.id, "code": f"RM_{uai_val}", "name": "Room"})
 

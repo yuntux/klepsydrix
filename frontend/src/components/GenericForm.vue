@@ -352,6 +352,8 @@ const layoutTree = computed<LayoutElement[]>(() => {
     disabled: false,
     readOnlyExpr: f.readOnlyExpr,
     invisibleExpr: f.invisibleExpr,
+    widget: f.widget,
+    widgetParams: f.widgetParams,
     originalField: f,
     help: f.help
   }));
@@ -560,6 +562,7 @@ const FormLayoutGrid: any = defineComponent({
                 field: field,
                 widgetParams: elem.widgetParams,
                 disabled: disabled,
+                parentRecord: gridProps.localModel,
                 style: inputStyle,
                 'onUpdate:modelValue': (val: any) => {
                   gridProps.localModel[key] = val;

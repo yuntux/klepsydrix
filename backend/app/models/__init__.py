@@ -3,7 +3,7 @@ from backend.app.models.school import School
 from backend.app.models.discipline import Discipline
 from backend.app.models.family import Family
 from backend.app.models.subject import Subject
-from backend.app.models.mef import Mef, MefService
+from backend.app.models.mef import Mef, MefService, MefDivision
 from backend.app.models.trmd_budget import TrmdBudget
 from backend.app.models.classroom import Classroom
 from backend.app.models.teacher import Teacher

@@ -19,10 +19,22 @@ class Student(Base):
     first_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Prénom"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom"})
     division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"label": "Division"})
+    mef_id: Mapped[int] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="CASCADE"), nullable=False, info={"label": "MEF"})
 
     # Relations de navigation
     division: Mapped[Optional["Division"]] = relationship("Division")
+    mef: Mapped[Optional["Mef"]] = relationship("Mef")
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=student_class_parts, back_populates="students", info={"label": "Parties de classe"})
+
+    @constrains()
+    def _check_student_mef_matches_division(self, db: Session):
+        from backend.app.models.mef import MefDivision
+        linked = db.query(MefDivision).filter(
+            MefDivision.division_id == self.division_id,
+            MefDivision.mef_id == self.mef_id
+        ).first()
+        if not linked:
+            raise ValueError(f"Le MEF de l'élève {self.first_name} {self.last_name} doit être l'un des MEF liés à sa division.")
 
     @constrains()
     def _check_student_class_parts(self, db: Session):
@@ -36,7 +48,7 @@ class Student(Base):
             for j in range(i + 1, len(parts)):
                 cp_a = parts[i]
                 cp_b = parts[j]
-                
+
                 if cp_a.partition_id == cp_b.partition_id:
                     raise ValueError(f"L'élève {self.first_name} {self.last_name} ne peut pas appartenir à deux parties de la même partition.")
 

@@ -15,11 +15,26 @@ class Division(Base):
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #3498DB"})
 
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
-    mef_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="SET NULL"), nullable=True, info={"label": "Filière / MEF"})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="divisions")
-    mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="divisions")
+    mef_links: Mapped[list["MefDivision"]] = relationship(
+        "MefDivision", back_populates="division", passive_deletes="all",
+        info={
+            "label": "Effectifs par MEF",
+            "widget": "many2many_ordered_list",
+            "widgetParams": {
+                "pickResource": "mefs",
+                "pickField": "mef_id",
+                "parentField": "division_id",
+                "columns": [
+                    {"key": "mef_id", "label": "MEF"},
+                    {"key": "forecast_student_count", "label": "Effectif prévu", "editable": True},
+                    {"key": "computed_student_count", "label": "Effectif calculé"}
+                ]
+            }
+        }
+    )
     partitions: Mapped[list["Partition"]] = relationship("Partition", back_populates="division", passive_deletes="all", info={"label": "Partitions"})
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all", info={"label": "Cours"})
 

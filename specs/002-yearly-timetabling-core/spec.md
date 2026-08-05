@@ -414,7 +414,15 @@ Modèle de service d'enseignement lié à un MEF. Il sert de « gabarit » ou de
 *   `name` : Libellé de la classe (Chaîne, e.g. "Troisième A")
 *   `student_count` : Nombre total d'élèves de la classe (Entier)
 *   `color` : Code couleur d'affichage (Chaîne)
-*   `mef_id` : Clé étrangère optionnelle vers le **MEF** principal de la classe (Entier, relation N-à-1). Si la classe est composite (multi-MEF ou double-niveau), elle est liée à son MEF de référence majoritaire.
+*   *Relations (1-à-N)* : `mef_links` (Liste des **MefDivision** rattachant cette classe à un ou plusieurs MEF — voir ci-dessous)
+
+### 4quater. MefDivision (Effectif MEF / Division)
+Objet de liaison porté par la relation N-à-N entre **MEF** et **Division**. Une classe physique peut réunir des élèves de plusieurs MEF différents (ex: double-niveau, ou classe de 3ème réunissant des élèves de MEF Général et MEF SEGPA) ; chaque couple (MEF, Division) possède donc son propre effectif attendu.
+*   `id` : Clé primaire (Entier)
+*   `mef_id` : Clé étrangère vers le **MEF** concerné (Entier, relation N-à-1)
+*   `division_id` : Clé étrangère vers la **Division** concernée (Entier, relation N-à-1)
+*   `forecast_student_count` : Effectif prévu pour ce couple MEF/Division, saisi manuellement par le planificateur (Entier)
+*   `computed_student_count` : Effectif réellement affecté, calculé automatiquement en comptant les **Student** partageant à la fois cette division (`division_id`) et ce MEF (`mef_id`) — propriété non stockée, toujours à jour. Sur une division composite (double-niveau), chaque `MefDivision` ne compte donc que les élèves de son propre MEF.
 
 ### 5. ClassPart (Partie de classe)
 Une composante élémentaire issue d'une partition de classe (ex : Demi-classe 1, Esp1, Latin).
@@ -460,15 +468,17 @@ Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de cla
 > - **Validation de suppression (Surcharge delete) :** Un utilisateur ne peut supprimer un lien d'incompatibilité que si et seulement si l'intersection des élèves inscrits dans les deux parties de classe est vide (aucun élève n'est membre des deux parties à la fois).
 
 ### 6ter. Student (Élève)
-Représente un élève physique inscrit dans l'établissement, rattaché à une division et éventuellement à plusieurs parties de classe.
+Représente un élève physique inscrit dans l'établissement, rattaché à une division, à un MEF (sa formation propre), et éventuellement à plusieurs parties de classe.
 *   `id` : Clé primaire (Entier)
 *   `first_name` : Prénom de l'élève (Chaîne, max 50 car.)
 *   `last_name` : Nom de l'élève (Chaîne, max 50 car.)
 *   `division_id` : Clé étrangère vers la **Division** (Entier)
+*   `mef_id` : Clé étrangère vers le **MEF** (formation) de l'élève (Entier). Distinct de la Division : c'est ce qui permet de distinguer, au sein d'une même classe physique, les élèves de formations différentes (ex: double-niveau, MEF Général / MEF SEGPA).
 
 > **Contraintes d'intégrité de Student :**
 > - **Unicité de partition :** Un élève ne peut pas appartenir à deux parties de classe différentes de la même partition (les parties d'une même partition étant disjointes par nature).
 > - **Cohérence de division :** Un élève ne peut appartenir qu'à des parties de classe associées à sa propre division (c'est-à-dire que le `division_id` de la partition d'attachement doit correspondre au `division_id` de l'élève).
+> - **Cohérence MEF/Division :** Le `mef_id` de l'élève doit obligatoirement correspondre à l'un des MEF liés à sa Division via un enregistrement **MefDivision** existant.
 
 > [!NOTE]
 > **Règles d'intégrité de la structure des groupes (déjà implémentées dans `group.py`) :**

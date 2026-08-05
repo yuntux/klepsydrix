@@ -15,7 +15,15 @@
             <button class="order-btn" @click.prevent="moveDown(index)" :disabled="index === localModel.length - 1" title="Descendre">▼</button>
           </td>
           <td v-for="col in columns" :key="col.key">
-            {{ getCellValue(id, col) }}
+            <input
+              v-if="col.editable && isAssociationMode"
+              type="number"
+              class="form-input cell-input"
+              :disabled="disabled"
+              :value="getCellValue(id, col)"
+              @change="onCellEdit(id, col, $event)"
+            />
+            <template v-else>{{ getCellValue(id, col) }}</template>
           </td>
           <td class="actions-col">
             <button class="delete-btn" @click.prevent="removeItem(index)" title="Retirer">✕</button>
@@ -26,11 +34,11 @@
         </tr>
       </tbody>
     </table>
-    
+
     <div class="add-container" v-if="!disabled">
       <select v-model="selectedToAdd" class="add-select form-select">
         <option :value="null" disabled>-- Ajouter un élément --</option>
-        <option v-for="opt in availableOptions" :key="opt.value" :value="opt.value">
+        <option v-for="opt in (isAssociationMode ? availablePickOptions : availableOptions)" :key="opt.value" :value="opt.value">
           {{ opt.label }}
         </option>
       </select>
@@ -41,6 +49,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, inject } from 'vue';
+import { fetchGenericList, createGenericItem, updateGenericItem, deleteGenericItem } from '../../services/api';
 
 const fkOptionsCache = inject<any>('fkOptionsCache', ref({}));
 const openApiSpec = inject<any>('openApiSpec', ref(null));
@@ -50,6 +59,7 @@ const props = defineProps<{
   field: any;
   widgetParams?: any;
   disabled?: boolean;
+  parentRecord?: any;
 }>();
 
 const emit = defineEmits<{
@@ -72,24 +82,66 @@ const columns = computed(() => {
   return props.widgetParams?.columns || [{ key: 'label', label: 'Élément' }];
 });
 
+// --- Mode association : la relation pointe vers un objet de liaison "possédé" (ex: MefDivision)
+// qu'il faut créer/supprimer directement, plutôt que rattacher/détacher une ligne déjà existante.
+const isAssociationMode = computed(() => !!props.widgetParams?.pickResource);
+
+// Options du sélecteur "pick" (ex: la liste des Mef) — chargées séparément de field.options
+// (qui référence les lignes de la relation elle-même, ex: mef_divisions, pas les Mef).
+const pickOptions = ref<any[]>([]);
+
+// Données fraîchement créées/éditées, en attendant que le cache global (fkOptionsCache /
+// field.options, peuplé une seule fois au montage du formulaire) soit rechargé.
+const localRowData = ref<Record<number, any>>({});
+
+async function loadPickOptions() {
+  if (!isAssociationMode.value) return;
+  const resourceName = props.widgetParams.pickResource;
+  const schoolId = props.parentRecord?.school_id;
+  const res = await fetchGenericList(resourceName, 0, 1000, schoolId);
+  pickOptions.value = res.items;
+}
+
+watch(() => [props.widgetParams?.pickResource, props.parentRecord?.school_id], loadPickOptions, { immediate: true });
+
+function getRowData(id: any): any {
+  if (localRowData.value[id]) return localRowData.value[id];
+  const options = props.field?.options || [];
+  const opt = options.find((o: any) => o.value === id);
+  return opt?.rawData || {};
+}
+
 const availableOptions = computed(() => {
   const options = props.field?.options || [];
   return options.filter((o: any) => !localModel.value.includes(o.value));
 });
 
+const availablePickOptions = computed(() => {
+  if (!isAssociationMode.value) return [];
+  const pickField = props.widgetParams.pickField || 'id';
+  const usedValues = new Set(localModel.value.map(id => getRowData(id)[pickField]));
+  return pickOptions.value
+    .filter((o: any) => !usedValues.has(o.id))
+    .map((o: any) => ({ value: o.id, label: o.display_name || o.name || `#${o.id}` }));
+});
+
 function getCellValue(id: any, col: any): string {
-  const options = props.field?.options || [];
-  const opt = options.find((o: any) => o.value === id);
-  if (!opt) return String(id);
-  
-  if (col.key === 'label') return opt.label;
-  
-  const raw = opt.rawData;
-  if (!raw) return opt.label;
-  
+  const raw = getRowData(id);
+
+  if (col.key === 'label') {
+    const options = props.field?.options || [];
+    const opt = options.find((o: any) => o.value === id);
+    return opt?.label || String(id);
+  }
+
   const val = raw[col.key];
-  
   if (val === undefined || val === null) return '';
+
+  // En mode association, le champ "pick" (ex: mef_id) se résout via les pickOptions déjà chargées.
+  if (isAssociationMode.value && col.key === props.widgetParams.pickField) {
+    const found = pickOptions.value.find((o: any) => o.id === val);
+    return found ? (found.display_name || found.name || String(val)) : String(val);
+  }
 
   let resourceName = col.resource;
 
@@ -99,7 +151,7 @@ function getCellValue(id: any, col: any): string {
     if (targetSchema && targetSchema.properties && targetSchema.properties[col.key]) {
       const propConfig = targetSchema.properties[col.key];
       resourceName = propConfig.resource;
-      
+
       if (!resourceName && propConfig.anyOf) {
         const opt = propConfig.anyOf.find((o: any) => o.resource);
         if (opt) resourceName = opt.resource;
@@ -125,7 +177,7 @@ function getCellValue(id: any, col: any): string {
   if (Array.isArray(val)) {
     return val.join(', ');
   }
-  
+
   return String(val);
 }
 
@@ -149,20 +201,48 @@ function moveDown(index: number) {
   emit('update:modelValue', localModel.value);
 }
 
-function removeItem(index: number) {
+async function removeItem(index: number) {
   if (props.disabled) return;
+  const id = localModel.value[index];
+
+  if (isAssociationMode.value) {
+    await deleteGenericItem(props.field.resource, id);
+  }
+
   const newArr = [...localModel.value];
   newArr.splice(index, 1);
   localModel.value = newArr;
   emit('update:modelValue', localModel.value);
 }
 
-function addItem() {
+async function addItem() {
   if (props.disabled || !selectedToAdd.value) return;
+
+  if (isAssociationMode.value) {
+    if (!props.parentRecord?.id) return;
+    const parentField = props.widgetParams.parentField;
+    const pickField = props.widgetParams.pickField;
+    const created = await createGenericItem(props.field.resource, {
+      [parentField]: props.parentRecord.id,
+      [pickField]: selectedToAdd.value
+    });
+    localRowData.value = { ...localRowData.value, [created.id]: created };
+    localModel.value = [...localModel.value, created.id];
+    emit('update:modelValue', localModel.value);
+    selectedToAdd.value = null;
+    return;
+  }
+
   const newArr = [...localModel.value, selectedToAdd.value];
   localModel.value = newArr;
   emit('update:modelValue', localModel.value);
   selectedToAdd.value = null;
+}
+
+async function onCellEdit(id: number, col: any, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value) || 0;
+  const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
+  localRowData.value = { ...localRowData.value, [id]: updated };
 }
 </script>
 
@@ -210,6 +290,12 @@ function addItem() {
 .actions-col {
   width: 40px;
   text-align: right;
+}
+
+.cell-input {
+  width: 90px;
+  padding: 2px 6px;
+  font-size: 13px;
 }
 
 .order-btn {

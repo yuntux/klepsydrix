@@ -218,6 +218,29 @@ L'interface `GenericForm.vue` prend en charge l'attribut optionnel `widget` (et 
   - Il inclut des contrôles pour **ordonner** les éléments de l'association. Les modifications d'ordre modifient l'ordre du tableau envoyé au backend.
   - Côté backend, grâce à la généricité du `CRUDMixin`, il suffit d'ajouter `"ordered_by": "sequence_order"` dans le dictionnaire `info` du modèle Python pour que ce nouvel ordre soit sauvegardé silencieusement dans la table d'association `secondary`.
 
+- **Mode association (`widgetParams.pickResource`)** : Extension du même widget pour les relations One-to-Many pointant vers un **objet de liaison possédé** (ex: `MefDivision`, qui porte ses propres attributs comme `forecast_student_count`), par opposition à une vraie relation `secondary=` où l'on rattache des lignes déjà existantes. Contrairement au mode standard, il n'existe ici aucune ligne "libre" à sélectionner : chaque ligne appartient dès sa création à l'enregistrement parent.
+  - Déclenché dès que `widgetParams.pickResource` est renseigné (ex: `"mefs"`) : le sélecteur "Ajouter" interroge alors ce `pickResource` (au lieu des options de la relation elle-même) et exclut les éléments déjà liés.
+  - `widgetParams.parentField` / `widgetParams.pickField` indiquent respectivement la clé étrangère vers le parent (ex: `division_id`) et vers l'élément choisi (ex: `mef_id`) à envoyer lors de la création.
+  - **Ajouter** déclenche un `POST` direct sur la ressource de la relation (ex: `/api/generic/mef_divisions`), créant immédiatement une nouvelle ligne — pas un simple ajout dans le tableau en attente de l'enregistrement du formulaire parent.
+  - **Retirer** déclenche un `DELETE` immédiat de la ligne (et non un simple détachement), car la ligne n'a pas d'existence en dehors de cette association.
+  - Une colonne peut être marquée `"editable": true` : elle se rend alors comme un champ `<input>` et déclenche un `PATCH` direct sur la ligne au changement (ex: la saisie de l'effectif prévu), indépendamment du bouton "Enregistrer" du formulaire parent.
+  - Exemple (`Division.mef_links`, dans `backend/app/models/division.py`) :
+    ```python
+    info={
+        "widget": "many2many_ordered_list",
+        "widgetParams": {
+            "pickResource": "mefs",
+            "pickField": "mef_id",
+            "parentField": "division_id",
+            "columns": [
+                {"key": "mef_id", "label": "MEF"},
+                {"key": "forecast_student_count", "label": "Effectif prévu", "editable": True},
+                {"key": "computed_student_count", "label": "Effectif calculé"}
+            ]
+        }
+    }
+    ```
+
 ---
 
 ## 6. Bibliothèques Frontend Tierces Adoptées

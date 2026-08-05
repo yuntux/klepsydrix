@@ -185,26 +185,50 @@ def seed_v2_data():
         clg_divisions_data = ["6ème A", "6ème B", "5ème A"]
         lyc_divisions_data = ["2nde A", "2nde B", "1ère A"]
         divisions = []
-        
+        student_first_names = ["Léa", "Hugo", "Chloé"]
+        student_last_names = ["Bernard", "Petit", "Robert"]
+
         for name in clg_divisions_data:
             code = name.replace("è", "E").replace(" ", "_").upper()
             db.execute(text(
-                "INSERT INTO divisions (code, name, student_count, color, school_id, mef_id) "
-                "VALUES (:code, :name, 28, '#3498DB', :school_id, :mef_id)"
-            ), {"code": code, "name": name, "school_id": clg_id, "mef_id": mef_6_id})
+                "INSERT INTO divisions (code, name, student_count, color, school_id) "
+                "VALUES (:code, :name, 28, '#3498DB', :school_id)"
+            ), {"code": code, "name": name, "school_id": clg_id})
             db.commit()
             d_id = db.execute(text("SELECT id FROM divisions WHERE code = :code"), {"code": code}).scalar()
             divisions.append((d_id, clg_id))
+            db.execute(text(
+                "INSERT INTO mef_divisions (mef_id, division_id, forecast_student_count) "
+                "VALUES (:mef_id, :division_id, 28)"
+            ), {"mef_id": mef_6_id, "division_id": d_id})
+            db.commit()
+            for fn, ln in zip(student_first_names, student_last_names):
+                db.execute(text(
+                    "INSERT INTO students (first_name, last_name, division_id, mef_id) "
+                    "VALUES (:fn, :ln, :division_id, :mef_id)"
+                ), {"fn": fn, "ln": f"{ln}_{code}", "division_id": d_id, "mef_id": mef_6_id})
+            db.commit()
 
         for name in lyc_divisions_data:
             code = name.replace("è", "E").replace(" ", "_").upper()
             db.execute(text(
-                "INSERT INTO divisions (code, name, student_count, color, school_id, mef_id) "
-                "VALUES (:code, :name, 32, '#E74C3C', :school_id, :mef_id)"
-            ), {"code": code, "name": name, "school_id": lyc_id, "mef_id": mef_2_id})
+                "INSERT INTO divisions (code, name, student_count, color, school_id) "
+                "VALUES (:code, :name, 32, '#E74C3C', :school_id)"
+            ), {"code": code, "name": name, "school_id": lyc_id})
             db.commit()
             d_id = db.execute(text("SELECT id FROM divisions WHERE code = :code"), {"code": code}).scalar()
             divisions.append((d_id, lyc_id))
+            db.execute(text(
+                "INSERT INTO mef_divisions (mef_id, division_id, forecast_student_count) "
+                "VALUES (:mef_id, :division_id, 32)"
+            ), {"mef_id": mef_2_id, "division_id": d_id})
+            db.commit()
+            for fn, ln in zip(student_first_names, student_last_names):
+                db.execute(text(
+                    "INSERT INTO students (first_name, last_name, division_id, mef_id) "
+                    "VALUES (:fn, :ln, :division_id, :mef_id)"
+                ), {"fn": fn, "ln": f"{ln}_{code}", "division_id": d_id, "mef_id": mef_2_id})
+            db.commit()
 
         # 12. Création des Salles de Classe (10 salles)
         classrooms = []
