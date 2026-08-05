@@ -17,7 +17,30 @@ class Mef(Base):
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School")
-    mef_services: Mapped[list["MefService"]] = relationship("MefService", back_populates="mef", passive_deletes="all", info={"label": "Services MEF"})
+    mef_services: Mapped[list["MefService"]] = relationship(
+        "MefService", back_populates="mef", passive_deletes="all",
+        info={
+            "label": "Services MEF",
+            "widget": "many2many_ordered_list",
+            "widgetParams": {
+                "pickResource": "subjects",
+                "pickField": "subject_id",
+                "parentField": "mef_id",
+                "columns": [
+                    {"key": "subject_id", "label": "Matière", "editable": True},
+                    {"key": "discipline_id", "label": "Discipline", "resource": "disciplines", "editable": True},
+                    {"key": "election_method_id", "label": "Modalité d'élection", "resource": "election_methods", "editable": True},
+                    {"key": "student_count", "label": "Effectif", "editable": True},
+                    {"key": "weighting_coefficient", "label": "Pondération", "editable": True},
+                    {"key": "weekly_duration_full_class_minutes", "label": "Durée classe entière (min)", "editable": True},
+                    {"key": "weekly_duration_reduced_minutes", "label": "Durée effectif réduit (min)", "editable": True},
+                    {"key": "weekly_duration_split_minutes", "label": "Durée effectif dédoublé (min)", "editable": True},
+                    {"key": "reduced_group_student_count", "label": "Élèves effectif réduit", "editable": True},
+                    {"key": "total_weekly_duration_minutes", "label": "Durée totale (min)"}
+                ]
+            }
+        }
+    )
     division_links: Mapped[list["MefDivision"]] = relationship("MefDivision", back_populates="mef", passive_deletes="all", info={"label": "Classes liées"})
 
 class MefService(Base):

@@ -50,7 +50,24 @@ def seed_v2_data():
             db.commit()
             d_id = db.execute(text("SELECT id FROM disciplines WHERE code = :code"), {"code": code}).scalar()
             discipline_ids[code] = d_id
-            
+
+        # 3b. Modalités d'élection (nomenclature nationale STSWEB)
+        election_methods_data = [
+            ("F", "FACULTATIF", "MATIERE ENSEIGNEE OPTION FACULTATIVE"),
+            ("L", "AJOUT ACAD", "AJOUT ACADEMIQUE AU PROGRAMME"),
+            ("N", "OBL OU FAC", "MATIERE ENSEIGNEE OBLIG. OU FACULTATIVE"),
+            ("O", "OBLIGATOIR", "MATIERE ENSEIGNEE OPTION OBLIGATOIRE"),
+            ("R", "ENS.RELIG.", "ENSEIGNEMENT RELIGIEUX"),
+            ("S", "TRONC COMM", "MATIERE ENSEIGNEE EN TRONC COMMUN"),
+            ("X", "MESURE SPE", "MESURE SPECIFIQUE"),
+        ]
+        for code, short_label, long_label in election_methods_data:
+            db.execute(text(
+                "INSERT INTO election_methods (code, name, export_code) VALUES (:code, :name, :export_code)"
+            ), {"code": code, "name": long_label, "export_code": short_label})
+        db.commit()
+        election_method_s_id = db.execute(text("SELECT id FROM election_methods WHERE code = 'S'")).scalar()
+
         # 4. Création des Budgets TRMD pour les deux écoles
         for code, d_id in discipline_ids.items():
             # Collège
@@ -234,10 +251,10 @@ def seed_v2_data():
         # pour 6ème A et 6ème B, alignés (même modèle de répartition : 2x1h hebdo + 1x30min dédoublé)
         maths_id = subject_ids["MATHS"]
         mef_service_6_id = db.execute(text(
-            "INSERT INTO mef_services (mef_id, subject_id, discipline_id, student_count, weighting_coefficient, "
+            "INSERT INTO mef_services (mef_id, subject_id, discipline_id, election_method_id, student_count, weighting_coefficient, "
             "weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, weekly_duration_split_minutes, reduced_group_student_count) "
-            "VALUES (:mef_id, :subject_id, :discipline_id, 28, 1.0, 120, 0, 30, 14)"
-        ), {"mef_id": mef_6_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"]})
+            "VALUES (:mef_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, 14)"
+        ), {"mef_id": mef_6_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "election_method_id": election_method_s_id})
         db.commit()
         mef_service_6_id = db.execute(text("SELECT id FROM mef_services WHERE mef_id = :mef_id AND subject_id = :subject_id"), {"mef_id": mef_6_id, "subject_id": maths_id}).scalar()
 
@@ -251,11 +268,11 @@ def seed_v2_data():
                 "SELECT md.id FROM mef_divisions md JOIN divisions d ON d.id = md.division_id WHERE d.code = :code"
             ), {"code": code}).scalar()
             db.execute(text(
-                "INSERT INTO services (mef_service_id, mef_division_id, subject_id, discipline_id, student_count, "
+                "INSERT INTO services (mef_service_id, mef_division_id, subject_id, discipline_id, election_method_id, student_count, "
                 "weighting_coefficient, weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, "
                 "weekly_duration_split_minutes, reduced_group_student_count, alignment_id) "
-                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, 28, 1.0, 120, 0, 30, 14, :alignment_id)"
-            ), {"mef_service_id": mef_service_6_id, "mef_division_id": mef_division_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "alignment_id": alignment_id})
+                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, 14, :alignment_id)"
+            ), {"mef_service_id": mef_service_6_id, "mef_division_id": mef_division_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "election_method_id": election_method_s_id, "alignment_id": alignment_id})
             db.commit()
             service_id = db.execute(text("SELECT id FROM services WHERE mef_division_id = :mef_division_id"), {"mef_division_id": mef_division_id}).scalar()
             service_ids.append(service_id)
@@ -307,15 +324,16 @@ def seed_v2_data():
                 duration = 60
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, 0)"
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "duration_minutes": duration,
-                    "school_id": s_id
+                    "school_id": s_id,
+                    "election_method_id": election_method_s_id
                 })
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-                
+
                 db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})
                 db.execute(text("INSERT INTO course_divisions (course_id, division_id) VALUES (:course_id, :division_id)"), {"course_id": course_id, "division_id": d_id})
                 
@@ -360,9 +378,9 @@ def seed_v2_data():
 
             # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
             db.execute(text(
-                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, parent_timeslot_offset) "
-                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', 0)"
-            ), {"school_id": s_id})
+                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, election_method_id, parent_timeslot_offset) "
+                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', :election_method_id, 0)"
+            ), {"school_id": s_id, "election_method_id": election_method_s_id})
             parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
             course_count += 1
             
@@ -383,13 +401,14 @@ def seed_v2_data():
                 duration = 90
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, 0)"
+                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "parent_id": parent_id,
                     "duration_minutes": duration,
-                    "school_id": s_id
+                    "school_id": s_id,
+                    "election_method_id": election_method_s_id
                 })
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
                 
@@ -404,12 +423,13 @@ def seed_v2_data():
                 t_id = random.choice(teacher_pool)
                 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, 60, 0, 0, :week_type, 0, 0, :school_id, 0)"
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, 60, 0, 0, :week_type, 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "week_type": w_type,
-                    "school_id": s_id
+                    "school_id": s_id,
+                    "election_method_id": election_method_s_id
                 })
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
                 db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})

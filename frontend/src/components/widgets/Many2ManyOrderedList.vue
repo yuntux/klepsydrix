@@ -15,8 +15,16 @@
             <button class="order-btn" @click.prevent="moveDown(index)" :disabled="index === localModel.length - 1" title="Descendre">▼</button>
           </td>
           <td v-for="col in columns" :key="col.key">
+            <SearchableSelect
+              v-if="col.editable && isAssociationMode && isFkColumn(col)"
+              class="cell-select"
+              :modelValue="getRowData(id)[col.key] ?? null"
+              :options="fkColumnOptions(col)"
+              :disabled="disabled"
+              @update:modelValue="(val) => onFkCellEdit(id, col, val)"
+            />
             <input
-              v-if="col.editable && isAssociationMode"
+              v-else-if="col.editable && isAssociationMode"
               type="number"
               class="form-input cell-input"
               :disabled="disabled"
@@ -50,6 +58,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject } from 'vue';
 import { fetchGenericList, createGenericItem, updateGenericItem, deleteGenericItem } from '../../services/api';
+import SearchableSelect from '../SearchableSelect.vue';
 
 const fkOptionsCache = inject<any>('fkOptionsCache', ref({}));
 const openApiSpec = inject<any>('openApiSpec', ref(null));
@@ -102,7 +111,26 @@ async function loadPickOptions() {
   pickOptions.value = res.items;
 }
 
+// fkOptionsCache (injecté) n'est peuplé qu'à partir du schéma du formulaire ACTIF (ex: "mefs"),
+// jamais de celui de la ressource cible du widget (ex: "mef_services") — donc les colonnes qui
+// résolvent une autre ressource (ex: discipline_id -> disciplines) doivent charger leurs propres
+// options, sur le même principe que pickOptions.
+const columnOptionsCache = ref<Record<string, any[]>>({});
+
+async function loadColumnResourceOptions() {
+  const resourceNames = new Set<string>(
+    (props.widgetParams?.columns || [])
+      .map((c: any) => c.resource)
+      .filter((r: string | undefined) => !!r)
+  );
+  await Promise.all(Array.from(resourceNames).map(async (resourceName) => {
+    const res = await fetchGenericList(resourceName, 0, 1000);
+    columnOptionsCache.value = { ...columnOptionsCache.value, [resourceName]: res.items };
+  }));
+}
+
 watch(() => [props.widgetParams?.pickResource, props.parentRecord?.school_id], loadPickOptions, { immediate: true });
+watch(() => props.widgetParams?.columns, loadColumnResourceOptions, { immediate: true });
 
 function getRowData(id: any): any {
   if (localRowData.value[id]) return localRowData.value[id];
@@ -160,6 +188,15 @@ function getCellValue(id: any, col: any): string {
   }
 
   if (resourceName) {
+    const localItems = columnOptionsCache.value[resourceName];
+    if (localItems) {
+      const resolveLabel = (vId: any) => {
+        const found = localItems.find((item: any) => item.id === vId);
+        return found ? (found.display_name || found.name || String(vId)) : String(vId);
+      };
+      return Array.isArray(val) ? val.map(resolveLabel).join(', ') : resolveLabel(val);
+    }
+
     const cache = fkOptionsCache.value[resourceName];
     if (cache && cache.items) {
       if (Array.isArray(val)) {
@@ -244,6 +281,23 @@ async function onCellEdit(id: number, col: any, event: Event) {
   const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
   localRowData.value = { ...localRowData.value, [id]: updated };
 }
+
+// Une colonne est un many2one éditable si elle référence une ressource (col.resource, ex:
+// discipline_id -> disciplines) ou si c'est le champ "pick" lui-même (ex: subject_id).
+function isFkColumn(col: any): boolean {
+  return !!col.resource || (isAssociationMode.value && col.key === props.widgetParams.pickField);
+}
+
+function fkColumnOptions(col: any): { value: any; label: string }[] {
+  const isPickField = isAssociationMode.value && col.key === props.widgetParams.pickField;
+  const items = isPickField ? pickOptions.value : (columnOptionsCache.value[col.resource] || []);
+  return items.map((o: any) => ({ value: o.id, label: o.display_name || o.name || `#${o.id}` }));
+}
+
+async function onFkCellEdit(id: number, col: any, value: any) {
+  const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
+  localRowData.value = { ...localRowData.value, [id]: updated };
+}
 </script>
 
 <style scoped>
@@ -296,6 +350,10 @@ async function onCellEdit(id: number, col: any, event: Event) {
   width: 90px;
   padding: 2px 6px;
   font-size: 13px;
+}
+
+.cell-select {
+  min-width: 150px;
 }
 
 .order-btn {
