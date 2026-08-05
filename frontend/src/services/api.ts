@@ -141,6 +141,25 @@ export async function createGenericItem(resourceName: string, payload: any): Pro
   return response.json();
 }
 
+// Valeurs par défaut d'un nouvel enregistrement, dépendantes d'un contexte (ex: la sélection
+// courante d'un panneau maître) — pendant de default_get() côté Odoo. À appeler depuis TOUT point
+// d'entrée qui crée un nouvel objet (pas seulement un écran maître/détail précis), pour que
+// n'importe quel modèle bénéficie automatiquement de son propre default_get() backend sans que le
+// frontend ait à connaître sa logique.
+export async function fetchDefaults(resourceName: string, context: Record<string, any> = {}): Promise<any> {
+  const response = await fetch(`/api/generic/${resourceName}/defaults`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ context }),
+  });
+  if (!response.ok) {
+    return {};
+  }
+  return response.json();
+}
+
 export async function updateGenericItem(resourceName: string, id: number, payload: any): Promise<any> {
   const response = await fetch(`/api/generic/${resourceName}/${id}`, {
     method: 'PATCH',

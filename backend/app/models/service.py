@@ -21,18 +21,19 @@ class RepartitionPeriodicity(str, enum.Enum):
 class Service(Base):
     """
     Service opérationnel : affectation réelle qui lie une structure (Division via MefDivision,
-    ou Groupe), un ou plusieurs professeurs et une matière. Généré à partir d'un MefService
-    (gabarit réglementaire), mais librement modifiable ensuite sans impact sur ce dernier
+    ou Groupe), un ou plusieurs professeurs et une matière. Toujours généré à partir d'un
+    MefService (gabarit réglementaire) — jamais créé ni supprimé directement, uniquement via la
+    propagation MefService/MefDivision (voir MefService.create()/.update()/.delete() et
+    MefDivision.create()) — mais librement modifiable ensuite sans impact sur son gabarit d'origine
     (propagation à sens unique). is_synced_with_mef_service permet de détecter la dérive.
     """
     __tablename__ = "services"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    # ondelete=CASCADE (pas SET NULL) : un Service généré à partir d'un MefService ne doit jamais
-    # survivre à la suppression de son gabarit d'origine (décision métier explicite) — un Service
-    # peut rester nullable ici pour rester ad-hoc dès sa création, mais pas le devenir en cascade.
-    mef_service_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mef_services.id", ondelete="CASCADE"), nullable=True, info={"label": "Service MEF d'origine", "readOnly": True})
+    # nullable=False + ondelete=CASCADE : un Service n'existe jamais sans son MefService d'origine
+    # (ni à la création, ni après coup) — il ne doit jamais survivre à la suppression de son gabarit.
+    mef_service_id: Mapped[int] = mapped_column(Integer, ForeignKey("mef_services.id", ondelete="CASCADE"), nullable=False, info={"label": "Service MEF d'origine", "readOnly": True})
     mef_division_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mef_divisions.id", ondelete="SET NULL"), nullable=True, info={"label": "Lien MEF/Division"})
     group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True, info={"label": "Groupe"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, info={"label": "Matière"})
@@ -82,7 +83,7 @@ class Service(Base):
 
     @constrains()
     def _check_mef_consistency(self, db: Session):
-        if self.mef_service_id and self.mef_division_id and self.mef_service and self.mef_division:
+        if self.mef_division_id and self.mef_service and self.mef_division:
             if self.mef_service.mef_id != self.mef_division.mef_id:
                 raise ValueError("Le service MEF d'origine et le lien MEF/Division doivent concerner le même MEF.")
 
@@ -117,8 +118,6 @@ class Service(Base):
     @exposed
     @property
     def is_synced_with_mef_service(self) -> bool:
-        if not self.mef_service_id or not self.mef_service:
-            return False
         ms = self.mef_service
         return all(getattr(self, f) == getattr(ms, f) for f in self._MEF_SERVICE_MIRROR_FIELDS)
 

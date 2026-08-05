@@ -340,6 +340,31 @@ def make_onchange_endpoint(model):
     
     return onchange_endpoint
 
+def make_defaults_endpoint(model):
+    from pydantic import BaseModel
+
+    class DefaultsPayload(BaseModel):
+        context: dict = {}
+
+    def defaults_endpoint(payload: DefaultsPayload, db: Session = Depends(get_db)):
+        # 1. Défauts statiques déjà connus du schéma (column.default), même logique que
+        # make_pydantic_model — pour que le frontend n'ait pas à dupliquer field.default.
+        defaults = {}
+        if hasattr(model, "__table__"):
+            for column in model.__table__.columns:
+                if column.default is not None and hasattr(column.default, "arg") and not callable(column.default.arg):
+                    defaults[column.name] = column.default.arg
+        # 2. Défauts calculés dynamiquement par le modèle à partir du contexte (voir
+        # CRUDMixin.default_get, pendant de default_get() côté Odoo).
+        try:
+            dynamic_defaults = model.default_get(db, payload.context)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        defaults.update(dynamic_defaults or {})
+        return defaults
+
+    return defaults_endpoint
+
 def make_delete_endpoint(model, resource_name: str):
     def delete_endpoint(item_id: int, db: Session = Depends(get_db)):
         if issubclass(model, TransientModel):
@@ -528,6 +553,17 @@ for resource_name, model in MODEL_MAP.items():
         methods=["POST"],
         response_model=Dict[str, Any],
         summary=f"Obtenir les modifications automatiques pour {resource_name}",
+        tags=[resource_name]
+    )
+
+    # 6bis. Valeurs par défaut d'un nouvel enregistrement, dépendantes d'un contexte
+    # (POST /api/generic/{resource_name}/defaults) — pendant de default_get() côté Odoo.
+    router.add_api_route(
+        path=f"/{resource_name}/defaults",
+        endpoint=make_defaults_endpoint(model),
+        methods=["POST"],
+        response_model=Dict[str, Any],
+        summary=f"Obtenir les valeurs par défaut pour un nouvel(le) {resource_name}",
         tags=[resource_name]
     )
 

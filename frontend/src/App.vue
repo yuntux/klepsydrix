@@ -79,6 +79,7 @@
             :fields="getFormFieldsConfig(panel.resourceKey)"
             :items="detailListItems"
             :listConfig="panel.listConfig"
+            @add="onAddDetailGeneric"
             @update-item="onUpdateDetailGenericInline"
           />
         </section>
@@ -492,9 +493,35 @@ const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: st
 
 provide('fkOptionsCache', fkOptionsCache);
 
-function invalidateFkCache(resourceName: string) {
-  delete fkOptionsCache.value[resourceName];
+// Récupère et (ré)écrit fkOptionsCache[resourceName] de façon atomique : jamais de suppression
+// préalable qui laisserait un trou vide le temps du fetch (voir invalidateFkCache) — remplacer
+// directement par les données fraîches, ou conserver les anciennes si le fetch échoue.
+async function refreshFkOptionsForResource(resourceName: string) {
+  try {
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', resourceName],
+      queryFn: () => api.fetchGenericList(resourceName, 0, 1000)
+    });
+    fkOptionsCache.value[resourceName] = {
+      items: (res.items || []).map((item: any) => ({
+        value: item.id,
+        label: item.display_name || item.name || item.code || String(item.id),
+        rawData: item
+      }))
+    };
+  } catch (e) {
+    console.error(`Failed to fetch options for resource ${resourceName}`, e);
+  }
+}
+
+// Invalide ET rafraîchit immédiatement fkOptionsCache[resourceName] — ne JAMAIS se contenter de
+// supprimer l'entrée : un widget affichant déjà cette ressource (ex: Many2ManyOrderedList, qui
+// retombe sur field.options pour toute ligne pas encore éditée dans la session) se retrouverait
+// avec des données vides pendant la fenêtre entre la suppression et le prochain rechargement —
+// bug réel observé (ajouter une ligne "vidait" l'affichage des lignes existantes).
+async function invalidateFkCache(resourceName: string) {
   queryClient.invalidateQueries({ queryKey: ['genericList', resourceName] });
+  await refreshFkOptionsForResource(resourceName);
 }
 
 function fkOptions(resourceName: string): Array<{ value: any; label: string }> {
@@ -522,26 +549,7 @@ async function loadFkOptionsForModel(model: string) {
   }
 
   if (resourcesToFetch.size > 0) {
-    await Promise.all(
-      Array.from(resourcesToFetch).map(async (resourceName) => {
-        try {
-          const res = await queryClient.fetchQuery({
-            queryKey: ['genericList', resourceName],
-            queryFn: () => api.fetchGenericList(resourceName, 0, 1000)
-          });
-          fkOptionsCache.value[resourceName] = {
-            items: (res.items || []).map((item: any) => ({
-              value: item.id,
-              label: item.display_name || item.name || item.code || String(item.id),
-              rawData: item
-            }))
-          };
-        } catch (e) {
-          console.error(`Failed to fetch options for resource ${resourceName}`, e);
-          fkOptionsCache.value[resourceName] = { items: [] };
-        }
-      })
-    );
+    await Promise.all(Array.from(resourcesToFetch).map(refreshFkOptionsForResource));
   }
 }
 
@@ -579,16 +587,19 @@ const selectedParentIds = ref<any[]>([]);
 const selectedRelatedRecords = ref<any[]>([]);
 const isAddingInline = ref(false);
 
-function onAddGeneric() {
+async function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
-  // Initialiser le modèle avec les valeurs par défaut issues de l'OpenAPI
+
+  // Valeurs par défaut : OpenAPI (statiques) puis serveur (dynamiques, voir CRUDMixin.default_get,
+  // pendant Odoo default_get()) puis champs fixes ui.json (prioritaires, override explicite).
   const defaults: Record<string, any> = {};
   formFieldsConfig.value.forEach((field: any) => {
     if (field.default !== undefined) {
       defaults[field.key] = field.default;
     }
   });
-  // Appliquer les champs fixes
+  const serverDefaults = await api.fetchDefaults(activeAdminModel.value, {});
+  Object.assign(defaults, serverDefaults);
   const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
   if (formPanel?.formConfig?.fixedFields) {
     Object.assign(defaults, formPanel.formConfig.fixedFields);
@@ -597,22 +608,9 @@ function onAddGeneric() {
   selectedRelatedRecords.value = [];
   selectedParentIds.value = [];
   isEditing.value = false;
-  
+
   if (isListEditableInline.value) {
-    const newId = 'new_' + Date.now();
-    const newItem: Record<string, any> = { id: newId };
-    // Appliquer les valeurs par défaut issues de l'OpenAPI
-    formFieldsConfig.value.forEach((field: any) => {
-      if (field.default !== undefined) {
-        newItem[field.key] = field.default;
-      }
-    });
-    // Appliquer les champs fixes (ex: resource_type="Subject")
-    const formPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericForm');
-    if (formPanel?.formConfig?.fixedFields) {
-      Object.assign(newItem, formPanel.formConfig.fixedFields);
-    }
-    genericItems.value.unshift(newItem);
+    genericItems.value.unshift({ ...defaults, id: 'new_' + Date.now() });
     return;
   }
 
@@ -1026,6 +1024,33 @@ watch(activeLeaf, () => {
   }
 }, { immediate: true });
 
+// Ajout d'une ligne dans le panneau détail : crée un brouillon local (id "new_...", non
+// persisté), pré-rempli avec les valeurs par défaut OpenAPI puis serveur (voir CRUDMixin.default_get,
+// backend/app/models/base.py — pendant de default_get() côté Odoo). Le contexte transmis (ressource
+// + id de la sélection maître) est un contrat libre entre le frontend et default_get() côté modèle,
+// pas une config déclarée dans ui.json. La ligne n'est réellement créée côté serveur qu'à la
+// première édition inline (voir onUpdateDetailGenericInline).
+async function onAddDetailGeneric() {
+  const detailPanel = getDetailPanel();
+  if (!detailPanel || selectedParentIds.value.length !== 1) return;
+
+  const masterPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList' && p.role !== 'detail');
+  const masterItem = genericItems.value.find(x => x.id === selectedParentIds.value[0]);
+
+  // Valeurs par défaut : OpenAPI (statiques) puis serveur (dynamiques, voir default_get).
+  const newItem: Record<string, any> = {};
+  getFormFieldsConfig(detailPanel.resourceKey).forEach((field: any) => {
+    if (field.default !== undefined) {
+      newItem[field.key] = field.default;
+    }
+  });
+  const context = masterPanel && masterItem ? { resource: masterPanel.resourceKey, id: masterItem.id } : {};
+  const serverDefaults = await api.fetchDefaults(detailPanel.resourceKey, context);
+  Object.assign(newItem, serverDefaults);
+
+  detailListItems.value.unshift({ ...newItem, id: 'new_' + Date.now() });
+}
+
 async function onUpdateDetailGenericInline(item: any) {
   const detailPanel = getDetailPanel();
   if (!detailPanel) return;
@@ -1039,15 +1064,26 @@ async function onUpdateDetailGenericInline(item: any) {
   }
 
   try {
-    await api.updateGenericItem(detailPanel.resourceKey, item.id, item);
-    invalidateFkCache(detailPanel.resourceKey);
-    showNotification('success', 'Élément mis à jour directement !');
+    if (String(item.id).startsWith('new_')) {
+      const payload = { ...item };
+      delete payload.id;
+      const created = await api.createGenericItem(detailPanel.resourceKey, payload);
+      if (idx !== -1) {
+        detailListItems.value[idx] = created;
+      }
+      invalidateFkCache(detailPanel.resourceKey);
+      showNotification('success', 'Élément créé directement !');
+    } else {
+      await api.updateGenericItem(detailPanel.resourceKey, item.id, item);
+      invalidateFkCache(detailPanel.resourceKey);
+      showNotification('success', 'Élément mis à jour directement !');
+    }
     window.dispatchEvent(new CustomEvent('resource:mutated', {
       detail: { resource_name: detailPanel.resourceKey }
     }));
   } catch (err: any) {
     showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
-    if (idx !== -1 && oldItem) {
+    if (idx !== -1 && oldItem && !String(item.id).startsWith('new_')) {
       detailListItems.value[idx] = oldItem;
     }
   }

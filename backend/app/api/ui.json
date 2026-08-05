@@ -1028,6 +1028,7 @@
               "editableInline": true,
               "allowMultiSelect": false,
               "disableAdd": true,
+              "disableDelete": true,
               "columns": {
                 "mef_division_id": { "visibleByDefault": true, "overrideLabel": "MEF / Division", "readOnly": true },
                 "subject_id": { "visibleByDefault": true, "overrideLabel": "Matière" },

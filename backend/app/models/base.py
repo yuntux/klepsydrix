@@ -144,6 +144,18 @@ class CRUDMixin:
 
         return result
 
+    @classmethod
+    def default_get(cls, db: Session, context: dict) -> dict:
+        """
+        Point d'extension à surcharger par modèle pour calculer des valeurs par défaut d'un
+        NOUVEL enregistrement à partir d'un contexte fourni par l'appelant (ex: la sélection
+        courante d'un panneau maître dans un écran maître/détail) — pendant de default_get()
+        côté Odoo. Contrairement à @onchange/process_onchange (évaluation en mémoire, sans BDD),
+        cette méthode a accès à `db` et peut donc interroger la base. Retourne {} par défaut
+        (aucun défaut dynamique) ; le contenu de `context` est un contrat libre entre le frontend
+        et le modèle appelé, pas un schéma déclaré.
+        """
+        return {}
 
     @classmethod
     def create(cls, db: Session, vals: dict):
@@ -317,19 +329,29 @@ class CRUDMixin:
                 target_cls = rel.mapper.class_
                 items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()}
                 ordered_items = [items_by_id[i] for i in ids if i in items_by_id]
-                
-                # Option A : Intercepter la cascade "delete-orphan" pour appliquer la suppression métier
-                if getattr(rel.cascade, 'delete_orphan', False):
-                    current_items = getattr(self, rel_key, [])
-                    if current_items is not None:
-                        # On copie la liste pour itérer dessus sans problème
-                        for item in list(current_items):
-                            if item.id not in ids:
-                                if hasattr(item, 'delete'):
-                                    item.delete(db)
-                                else:
-                                    item._via_crud_mixin_delete = True
-                                    db.delete(item)
+
+                # Un élément retiré de la collection n'est jamais simplement détaché en silence dès
+                # que la relation n'est pas une table d'association (secondary=) : sans ce traitement
+                # explicite, le setattr() ci-dessous laisserait SQLAlchemy modifier l'enfant retiré
+                # hors CRUDMixin (suppression réelle si delete-orphan, sinon mise à NULL de sa FK),
+                # ce que before_delete/before_update rejette (RuntimeError "Mise à jour/suppression
+                # directe interdite") — même principe que _cascade_delete_dependents, côté update().
+                if rel.secondary is None:
+                    current_items = getattr(self, rel_key, None) or []
+                    removed_items = [item for item in current_items if item.id not in ids]
+                    is_delete_orphan = getattr(rel.cascade, 'delete_orphan', False)
+                    fk_attr = None
+                    if not is_delete_orphan and removed_items:
+                        for local_col, remote_col in rel.local_remote_pairs:
+                            if remote_col.table is target_cls.__table__:
+                                fk_attr = target_cls.__mapper__.get_property_by_column(remote_col).key
+                                break
+                    for item in removed_items:
+                        if is_delete_orphan:
+                            if not getattr(item, '_via_crud_mixin_delete', False):
+                                item.delete(db)
+                        elif fk_attr:
+                            item.update(db, {fk_attr: None})
 
                 setattr(self, rel_key, ordered_items)
 

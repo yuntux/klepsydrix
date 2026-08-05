@@ -4,6 +4,7 @@ avec MefService (gabarit réglementaire) et Course (entité plaçable).
 """
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
@@ -49,18 +50,30 @@ class TestMinutesToHours:
 
 
 def _base_fixtures(db):
+    """
+    Fixtures communes. mef_division existe déjà avant la création de mef_service : la création de
+    ce dernier déclenche donc automatiquement la génération d'un Service pour ce couple (voir
+    MefService.create()) — service est ce Service auto-généré, prêt à l'emploi pour tout test qui
+    n'a pas besoin de contrôler lui-même les valeurs du gabarit.
+    """
     school = School.create(db, {"uai": "1234567A", "name": "Collège Test"})
     discipline = Discipline.create(db, {"code": "GEN", "name": "Général"})
     subject = Subject.create(db, {"code": "MATH", "code_nomenclature": "N_MATH", "short_name": "Maths", "name": "Mathématiques", "discipline_id": discipline.id})
     mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012110", "name": "6EME", "max_students_per_class": 30, "forecast_student_count": 60})
     division = Division.create(db, {"school_id": school.id, "code": "6A", "name": "6ème A"})
     mef_division = MefDivision.create(db, {"mef_id": mef.id, "division_id": division.id, "forecast_student_count": 28})
-    return school, discipline, subject, mef, division, mef_division
+    from backend.app.models.mef import MefService
+    mef_service = MefService.create(db, {"mef_id": mef.id, "subject_id": subject.id})
+    service = db.query(Service).filter(
+        Service.mef_service_id == mef_service.id,
+        Service.mef_division_id == mef_division.id,
+    ).one()
+    return school, discipline, subject, mef, division, mef_division, mef_service, service
 
 
 class TestMefServiceFields:
     def test_total_weekly_duration_is_sum_of_three(self, db_session):
-        _, _, subject, mef, _, _ = _base_fixtures(db_session)
+        _, _, subject, mef, _, _, _, _ = _base_fixtures(db_session)
         from backend.app.models.mef import MefService
         ms = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -72,10 +85,7 @@ class TestMefServiceFields:
         assert ms.total_weekly_duration_minutes == 180
 
     def test_deleting_mef_service_deletes_its_generated_services(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        from backend.app.models.mef import MefService
-        mef_service = MefService.create(db_session, {"mef_id": mef.id, "subject_id": subject.id})
-        service = db_session.query(Service).filter(Service.mef_service_id == mef_service.id).one()
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         repartition = ServiceRepartition.create(db_session, {
             "service_id": service.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "WEEKLY",
         })
@@ -86,14 +96,15 @@ class TestMefServiceFields:
         assert db_session.query(ServiceRepartition).filter(ServiceRepartition.id == repartition.id).first() is None
 
     def test_deleting_mef_service_does_not_touch_unrelated_services(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        school, discipline, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        subject_b = Subject.create(db_session, {"code": "FR", "code_nomenclature": "N_FR", "short_name": "Français", "name": "Français", "discipline_id": discipline.id})
         from backend.app.models.mef import MefService
-        mef_service = MefService.create(db_session, {"mef_id": mef.id, "subject_id": subject.id})
-        ad_hoc_service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        other_mef_service = MefService.create(db_session, {"mef_id": mef.id, "subject_id": subject_b.id})
+        other_service = db_session.query(Service).filter(Service.mef_service_id == other_mef_service.id).one()
 
         mef_service.delete(db_session)
 
-        assert db_session.query(Service).filter(Service.id == ad_hoc_service.id).first() is not None
+        assert db_session.query(Service).filter(Service.id == other_service.id).first() is not None
 
 
 class TestMefDivisionDeletion:
@@ -107,8 +118,7 @@ class TestMefDivisionDeletion:
     silence (c'était le risque précédemment identifié et non traité pour MefDivision -> Service).
     """
     def test_deleting_mef_division_is_blocked_if_a_service_would_be_left_without_structure(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         # Commit explicite : le rollback déclenché par l'échec ci-dessous revient à ce point (et
         # non au tout début de la session, qui ne committe jamais rien par défaut dans ce fixture).
         db_session.commit()
@@ -122,8 +132,7 @@ class TestMefDivisionDeletion:
         assert db_session.query(Service).filter(Service.id == service.id).first() is not None
 
     def test_deleting_mef_division_succeeds_once_no_service_references_it(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         service.delete(db_session)
 
         mef_division.delete(db_session)
@@ -132,36 +141,42 @@ class TestMefDivisionDeletion:
 
 
 class TestServiceStructure:
+    def test_service_requires_mef_service_id(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        with pytest.raises(IntegrityError):
+            Service.create(db_session, {
+                "subject_id": subject.id,
+                "mef_division_id": mef_division.id,
+            })
+
     def test_service_requires_exactly_one_structure(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
 
         with pytest.raises(ValueError, match="doit être rattaché"):
             Service.create(db_session, {
                 "subject_id": subject.id,
+                "mef_service_id": mef_service.id,
                 "student_count": 28,
             })
 
     def test_service_rejects_both_structures(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         group = Group.create(db_session, {"code": "GRP1", "name": "Groupe 1"})
 
         with pytest.raises(ValueError, match="ne peut pas être rattaché"):
             Service.create(db_session, {
                 "subject_id": subject.id,
+                "mef_service_id": mef_service.id,
                 "mef_division_id": mef_division.id,
                 "group_id": group.id,
             })
 
     def test_service_division_id_derived_from_mef_division(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {
-            "subject_id": subject.id,
-            "mef_division_id": mef_division.id,
-        })
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         assert service.division_id == division.id
 
     def test_service_rejects_mismatched_mef(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         from backend.app.models.mef import MefService
         other_mef = Mef.create(db_session, {"school_id": school.id, "code_national": "10010012199", "name": "5EME", "max_students_per_class": 30, "forecast_student_count": 30})
         other_mef_service = MefService.create(db_session, {"mef_id": other_mef.id, "subject_id": subject.id})
@@ -175,16 +190,8 @@ class TestServiceStructure:
 
 
 class TestServiceSyncIndicator:
-    def test_ad_hoc_service_without_mef_service_is_never_synced(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {
-            "subject_id": subject.id,
-            "mef_division_id": mef_division.id,
-        })
-        assert service.is_synced_with_mef_service is False
-
     def test_service_generated_from_template_is_synced_until_diverging(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        _, _, subject, mef, division, mef_division, _, _ = _base_fixtures(db_session)
         from backend.app.models.mef import MefService
         mef_service = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -214,7 +221,7 @@ class TestServiceSyncIndicator:
         assert service.is_synced_with_mef_service is True
 
     def test_updating_mef_service_does_not_propagate_student_count(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        _, _, subject, mef, division, mef_division, _, _ = _base_fixtures(db_session)
         from backend.app.models.mef import MefService
         mef_service = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -228,7 +235,7 @@ class TestServiceSyncIndicator:
         assert service.student_count == 15
 
     def test_updating_mef_service_never_propagates_back_from_service_edits(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        _, _, subject, mef, division, mef_division, _, _ = _base_fixtures(db_session)
         from backend.app.models.mef import MefService
         mef_service = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -243,8 +250,7 @@ class TestServiceSyncIndicator:
 
 class TestServiceRepartition:
     def test_duration_must_be_multiple_of_timeslot(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
 
         with pytest.raises(ValueError, match="multiple exact"):
             ServiceRepartition.create(db_session, {
@@ -255,8 +261,7 @@ class TestServiceRepartition:
             })
 
     def test_valid_repartition_created(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
 
         r1 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
         r2 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
@@ -264,8 +269,7 @@ class TestServiceRepartition:
         assert len(service.repartitions) == 2
 
     def test_name_is_computed_and_stored_on_create(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
 
         r_weekly = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
         assert r_weekly.name == "2x1h(H)"
@@ -274,8 +278,7 @@ class TestServiceRepartition:
         assert r_biweekly.name == "1x1h30(Q)"
 
     def test_name_is_recomputed_on_update(self, db_session):
-        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         r = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
         assert r.name == "1x1h(H)"
 
@@ -284,20 +287,18 @@ class TestServiceRepartition:
 
 
 class TestAlignment:
-    def _make_service(self, db, subject, mef_division, **overrides):
-        vals = {"subject_id": subject.id, "mef_division_id": mef_division.id}
-        vals.update(overrides)
-        return Service.create(db, vals)
-
     def test_services_with_matching_repartition_can_align(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
         division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        # mef_service existe déjà : lier une nouvelle Division au MEF génère automatiquement son
+        # propre Service pour ce même gabarit (voir MefDivision.create()).
         mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
 
         alignment = Alignment.create(db_session, {"code": "AL1", "name": "Alignement Test"})
-        s1 = self._make_service(db_session, subject, mef_division)
-        s2 = self._make_service(db_session, subject, mef_division_b)
-
         ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
         ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
 
@@ -306,14 +307,15 @@ class TestAlignment:
         assert s2.alignment_id == alignment.id
 
     def test_services_with_mismatched_repartition_cannot_align(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
         division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
         mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
 
         alignment = Alignment.create(db_session, {"code": "AL2", "name": "Alignement Test 2"})
-        s1 = self._make_service(db_session, subject, mef_division)
-        s2 = self._make_service(db_session, subject, mef_division_b)
-
         ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
         ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
 
@@ -322,14 +324,15 @@ class TestAlignment:
             s2.update(db_session, {"alignment_id": alignment.id})
 
     def test_editing_repartition_after_alignment_is_blocked_if_it_breaks_homogeneity(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
         division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
         mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
 
         alignment = Alignment.create(db_session, {"code": "AL3", "name": "Alignement Test 3"})
-        s1 = self._make_service(db_session, subject, mef_division)
-        s2 = self._make_service(db_session, subject, mef_division_b)
-
         r1 = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
         ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
         s1.update(db_session, {"alignment_id": alignment.id})
@@ -341,13 +344,12 @@ class TestAlignment:
 
 class TestCourseServiceConsistency:
     def test_leaf_course_without_service_is_consistent(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         course = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60})
         assert course.is_consistent_with_service is True
 
     def test_leaf_course_matching_repartition_is_consistent(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
 
         course = Course.create(db_session, {
@@ -357,8 +359,7 @@ class TestCourseServiceConsistency:
         assert course.is_consistent_with_service is True
 
     def test_leaf_course_diverging_duration_is_inconsistent(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
 
         course = Course.create(db_session, {
@@ -368,8 +369,7 @@ class TestCourseServiceConsistency:
         assert course.is_consistent_with_service is False
 
     def test_composed_course_with_children_is_always_consistent(self, db_session):
-        school, _, subject, mef, division, mef_division = _base_fixtures(db_session)
-        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
 
         parent = Course.create(db_session, {

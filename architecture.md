@@ -621,6 +621,14 @@ Pour afficher deux listes liées côte à côte dans un même onglet (ex: les cl
 
 **Protection des champs structurants** : `isColumnReadOnly` (`GenericList.vue`) respecte désormais aussi le `readOnly` déclaré côté backend (via `info={"readOnly": True}` sur un `related_field`, propagé au schéma OpenAPI), en plus des surcharges `listConfig.columns[key].readOnly` de `ui.json`. Pour les champs sans déclaration backend (propriétés calculées, relations à cascade destructrice type `delete-orphan`), il reste nécessaire de forcer `"readOnly": true` explicitement dans `ui.json`.
 
+**Ajout de ligne depuis le panneau détail** : comme pour l'édition, le panneau détail n'a par défaut aucun handler `@add` câblé (le bouton "Ajouter" du `GenericList` reste un no-op tant que rien n'écoute l'événement) — il faut à la fois `"disableAdd": false` dans son `listConfig` et un handler `@add` explicite (`onAddDetailGeneric`, calqué sur `onAddGeneric` mais opérant sur `detailListItems`). La ligne créée est un brouillon local (`id` préfixé `new_`) non persisté tant qu'aucune cellule n'a été éditée — la création réelle (`createGenericItem`) n'a lieu qu'à la première édition inline, exactement comme pour le panneau maître. Pour pré-remplir automatiquement une FK structurante à partir de l'élément maître sélectionné, voir la section I (`default_get`) — pas de config `ui.json` dédiée à ce panneau, le mécanisme est générique et s'applique à tout point d'entrée de création. `onAddDetailGeneric` reste câblé même si aucun panneau détail actuel ne l'active (voir ci-dessous) : c'est une capacité générique prête pour un futur panneau, pas du code mort.
+
+**Masquer l'ajout et la suppression pour une ressource "gérée par propagation"** : certaines ressources ne doivent jamais être créées/supprimées à la main dans l'IHM parce qu'un autre mécanisme s'en charge entièrement (ex: `Service`, toujours généré/supprimé via la propagation `MEFService`/`MefDivision` — voir modèle `Service` et `project_service_layer.md`). Deux flags symétriques dans `listConfig`, tous deux à `false` par défaut :
+- `disableAdd` : masque la ligne "Ajouter" (déjà existant)
+- `disableDelete` : masque le bouton de suppression par ligne (`GenericList.vue`, ajouté à cette occasion)
+
+Ce sont des restrictions **UI uniquement** — l'API générique (`POST`/`DELETE /api/generic/{resource}`) reste fonctionnelle (utile pour l'administration directe, les scripts, les migrations). La garantie de fond (ex: "un `Service` a toujours un `mef_service_id`") doit être imposée séparément au niveau du modèle (`nullable=False`, `@constrains()`) — `ui.json` ne fait que guider l'utilisateur vers le bon flux, il ne remplace jamais la validation métier.
+
 ### F. Champs Calculés et Stockés (pattern `@constrains()` sans validation)
 Certains champs doivent être **recalculés à chaque création/modification et persistés** (contrairement aux propriétés `@exposed` classiques, calculées à la demande et jamais stockées) — ex: `ServiceRepartition.name` (`"2x1h(H)"`, dérivé de `occurrence_count`/`duration_minutes`/`periodicity`).
 
@@ -705,3 +713,28 @@ def delete(self, db):
 **Conséquence sur les déclarations existantes** : les `cascade="all, delete-orphan"` de `Course.children` et `Service.repartitions` ont été retirés (devenus redondants et risquant un double traitement/avertissement SQLAlchemy) — la suppression en cascade de ces deux relations est désormais entièrement portée par ce mécanisme générique, pilotée par le `ondelete="CASCADE"` déjà présent sur `Course.parent_id`/`ServiceRepartition.service_id`. `passive_deletes="all"` reste présent ailleurs dans le projet sans risque : ce mécanisme traite tout **avant** que SQLAlchemy n'ait la moindre chance de gérer quoi que ce soit lui-même, donc `passive_deletes` (qui ne fait que désactiver la gestion *native* de l'ORM) n'entre jamais en conflit avec lui.
 
 **Cas concret résolu par ce mécanisme sans code dédié** : `Service.mef_service_id` porte désormais `ondelete="CASCADE"` (changé depuis `SET NULL`, décision métier explicite : un `Service` généré ne doit jamais survivre à la suppression de son gabarit) — supprimer un `MefService` supprime donc ses `Service` (et transitivement leurs `ServiceRepartition`) sans aucune surcharge `delete()` sur `MefService`. `Service.mef_division_id` reste en `SET NULL` ; supprimer un `MefDivision` est désormais **bloqué** tant qu'un `Service` généré en dépend encore (aucun `group_id` de repli), avec le message d'erreur métier existant (`_check_structure_exclusivity`), sans qu'aucune ligne de code n'ait été écrite spécifiquement pour ce cas.
+
+### I. Valeurs par Défaut Dépendantes d'un Contexte (`default_get`, pendant d'Odoo)
+
+**Le besoin** : lors de la création d'un nouvel enregistrement depuis un écran filtré/contextuel (ex: ajouter un `Service` depuis le panneau détail "Services par classe", filtré par la classe sélectionnée à gauche), certains champs devraient se pré-remplir automatiquement à partir de ce contexte (ex: `mef_division_id`) — pas seulement à partir d'une valeur statique (`column.default` côté SQLAlchemy) qui, elle, ne peut jamais dépendre de la sélection courante de l'utilisateur.
+
+**Solution rejetée** : une première version passait par deux clés `ui.json` dédiées au panneau détail (`masterFillField`/`masterFillSourceField`) calculant le pré-remplissage **côté frontend**. Rejetée explicitement ("c'est lourdingue") au profit d'un mécanisme générique, symétrique à `default_get()` côté Odoo, où le calcul reste entièrement en Python sur le modèle concerné — pas de config déclarative par écran.
+
+**Mécanisme retenu** :
+- `CRUDMixin.default_get(cls, db, context) -> dict` (`backend/app/models/base.py`) : point d'extension à surcharger par modèle, retourne `{}` par défaut. Contrairement à `@onchange`/`process_onchange` (évaluation en mémoire, sans BDD — voir plus haut), `default_get` reçoit une vraie session `db` et peut donc interroger la base.
+- `POST /api/generic/{resource}/defaults` (`backend/app/api/generic.py`, `make_defaults_endpoint`) : fusionne les défauts statiques déjà connus du schéma (même extraction que `make_pydantic_model`, `column.default.arg`) avec le résultat de `model.default_get(db, payload.context)`.
+- `api.fetchDefaults(resource, context)` (`frontend/src/services/api.ts`) : appelle cet endpoint ; retourne `{}` silencieusement en cas d'échec (un défaut manquant ne doit jamais bloquer un ajout, contrairement à un vrai échec de `create`/`update`).
+- Exemple (`Service.default_get`, `backend/app/models/service.py`) :
+  ```python
+  @classmethod
+  def default_get(cls, db, context: dict) -> dict:
+      if context.get("resource") == "divisions" and context.get("id"):
+          mef_division = db.query(MefDivision).filter(MefDivision.division_id == context["id"]).first()
+          if mef_division:
+              return {"mef_division_id": mef_division.id}
+      return {}
+  ```
+
+**Placé haut dans la pile frontend, appelé par TOUT point d'entrée de création** (exigence explicite : ne pas limiter l'appel au seul panneau détail) — `onAddGeneric` (panneau maître/liste standard) et `onAddDetailGeneric` (panneau détail) appellent tous les deux `api.fetchDefaults(...)` avant de construire le brouillon local, avec un `context` différent selon le point d'entrée (`{}` pour une liste standalone, `{resource, id}` de l'élément maître sélectionné pour un panneau détail). N'importe quel modèle bénéficie donc automatiquement de son propre `default_get()`, depuis n'importe quel écran qui l'affiche, sans que le frontend ait besoin de connaître la logique métier concernée.
+
+**`context` est un contrat libre**, pas un schéma déclaré : chaque `default_get()` lit les clés qui l'intéressent (ici `resource`/`id`) et ignore le reste — pas de validation Pydantic stricte sur sa forme, à l'image du `context` dict d'Odoo.
