@@ -293,6 +293,11 @@ onUnmounted(() => {
   padding: 4px 8px;
   color: var(--text-primary);
   font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .disabled-text:empty::after,
@@ -370,6 +375,10 @@ onUnmounted(() => {
 }
 
 /* Styles pour l'édition en ligne dans les tableaux */
+.is-inline .input-wrapper {
+  min-width: 0;
+}
+
 .is-inline .form-input {
   background-color: transparent;
   border-color: transparent;
@@ -377,6 +386,10 @@ onUnmounted(() => {
   height: 28px;
   font-size: 13px;
   border-radius: var(--radius-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .is-inline .form-input:hover {

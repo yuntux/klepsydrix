@@ -59,6 +59,29 @@
           />
         </main>
 
+        <!-- 3bis. Composant Liste Générique "détail" : filtrée par la sélection du panneau maître -->
+        <section v-else-if="panel.component === 'GenericList' && panel.role === 'detail'" class="admin-main-content">
+          <div v-if="detailListLoading" class="loader-container">
+            <div class="spinner"></div>
+            <span>Chargement en cours...</span>
+          </div>
+          <div v-else-if="selectedParentIds.length !== 1" class="pref-placeholder">
+            <div class="placeholder-icon">👈</div>
+            <div class="placeholder-title">Sélectionnez un élément</div>
+            <div class="placeholder-subtitle">
+              {{ panel.placeholderText || "Veuillez choisir un élément dans la liste de gauche." }}
+            </div>
+          </div>
+          <GenericList
+            v-else
+            :title="panel.resourceKey"
+            :columns="detailColumnsConfig"
+            :fields="getFormFieldsConfig(panel.resourceKey)"
+            :items="detailListItems"
+            :listConfig="panel.listConfig"
+          />
+        </section>
+
         <!-- 3. Composant Liste Générique introspectif -->
         <section v-else-if="panel.component === 'GenericList'" class="admin-main-content">
           <div v-if="genericLoading" class="loader-container">
@@ -863,9 +886,7 @@ async function onConfirmImpactDelete() {
 }
 
 // Configurations dynamiques de colonnes pour GenericList
-const columnsConfig = computed(() => {
-  const model = activeAdminModel.value;
-  
+function buildColumnsConfig(model: string, items: any[]) {
   // --- GÉNÉRATION DYNAMIQUE VIA OPENAPI (LOW-CODE) ---
   if (openApiSpec.value && openApiSpec.value.components && openApiSpec.value.components.schemas) {
     const schemaName = `${model}_ReadPayload`;
@@ -875,7 +896,7 @@ const columnsConfig = computed(() => {
       const dynamicColumns = [];
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
         if (key === 'id' || key === 'display_name') continue; // On masque l'ID technique et display_name
-        
+
         let colWidth = prop.list_width;
         if (!colWidth) {
           let baseType = prop.type;
@@ -890,14 +911,13 @@ const columnsConfig = computed(() => {
           else if (prop.format === 'date-time' || prop.format === 'date') colWidth = 160;
           else {
             // Calcul dynamique basé sur le contenu réel des données
-            const items = genericItems.value || [];
             let maxLength = (prop.title || key).length;
-            
-            for (const item of items.slice(0, 100)) {
+
+            for (const item of (items || []).slice(0, 100)) {
               const val = item[key];
               if (val !== undefined && val !== null) {
                 let strVal = '';
-                
+
                 // Si c'est une clé étrangère, tenter de trouver le label
                 const resourceName = prop.resource || (prop.anyOf && prop.anyOf.find((o: any) => o.resource)?.resource);
                 if (resourceName && fkOptionsCache.value[resourceName]) {
@@ -914,7 +934,7 @@ const columnsConfig = computed(() => {
                 } else {
                   strVal = Array.isArray(val) ? val.join(', ') : String(val);
                 }
-                
+
                 if (strVal.length > maxLength) {
                   maxLength = strVal.length;
                 }
@@ -936,7 +956,74 @@ const columnsConfig = computed(() => {
   }
   // ---------------------------------------------------
   return [];
+}
+
+const columnsConfig = computed(() => buildColumnsConfig(activeAdminModel.value, genericItems.value));
+
+// --- Panneau "détail" : une seconde GenericList indépendante dans le même onglet, filtrée par
+// la sélection courante du panneau "maître" (ex: Services par classe -> Divisions | Services).
+const detailListItems = ref<any[]>([]);
+const detailListLoading = ref(false);
+
+function getDetailPanel() {
+  return activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList' && p.role === 'detail');
+}
+
+const detailColumnsConfig = computed(() => {
+  const detailPanel = getDetailPanel();
+  if (!detailPanel) return [];
+  return buildColumnsConfig(detailPanel.resourceKey, detailListItems.value);
 });
+
+async function loadDetailListItems() {
+  const detailPanel = getDetailPanel();
+  if (!detailPanel) {
+    detailListItems.value = [];
+    return;
+  }
+  if (selectedParentIds.value.length !== 1) {
+    detailListItems.value = [];
+    return;
+  }
+  const masterItem = genericItems.value.find(x => x.id === selectedParentIds.value[0]);
+  const masterField = detailPanel.listConfig?.filterFromMasterField;
+  const filterField = detailPanel.listConfig?.filterByField;
+  if (!masterItem || !masterField || !filterField) {
+    detailListItems.value = [];
+    return;
+  }
+  const masterVal = masterItem[masterField];
+  const filterValues = Array.isArray(masterVal) ? masterVal : (masterVal !== undefined && masterVal !== null ? [masterVal] : []);
+  if (filterValues.length === 0) {
+    detailListItems.value = [];
+    return;
+  }
+
+  detailListLoading.value = true;
+  try {
+    // Filtrage côté client sur l'ensemble des valeurs du champ maître (ex: tous les service_ids
+    // d'une classe, pas seulement le premier) : le endpoint générique ne filtre que sur une valeur
+    // scalaire, donc on récupère la liste complète puis on garde les lignes dont filterField
+    // correspond à l'une des valeurs du maître.
+    const res = await api.fetchGenericList(detailPanel.resourceKey, 0, 1000);
+    const filterSet = new Set(filterValues);
+    detailListItems.value = res.items.filter((item: any) => filterSet.has(item[filterField]));
+  } catch (err: any) {
+    showNotification('error', err.message || 'Erreur lors du chargement de la liste détaillée');
+    detailListItems.value = [];
+  } finally {
+    detailListLoading.value = false;
+  }
+}
+
+watch([selectedParentIds, genericItems, activeLeaf], loadDetailListItems);
+
+watch(activeLeaf, () => {
+  const detailPanel = getDetailPanel();
+  if (detailPanel) {
+    loadFkOptionsForModel(detailPanel.resourceKey);
+  }
+}, { immediate: true });
 
 // Configurations dynamiques de champs pour GenericForm
 function getFormFieldsConfig(resourceKey?: string) {

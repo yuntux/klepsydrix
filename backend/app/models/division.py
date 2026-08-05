@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, related_field
+from backend.app.models.base import Base, related_field, exposed
 
 class Division(Base):
     __tablename__ = "divisions"
@@ -37,6 +37,30 @@ class Division(Base):
     )
     partitions: Mapped[list["Partition"]] = relationship("Partition", back_populates="division", passive_deletes="all", info={"label": "Partitions"})
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all", info={"label": "Cours"})
+
+    # Raccourci en lecture seule vers les MEF liés (la gestion réelle du lien passe par mef_links/MefDivision)
+    mefs: Mapped[list["Mef"]] = relationship("Mef", secondary="mef_divisions", viewonly=True, info={"label": "MEF liés"})
+
+    # Raccourci en lecture seule vers tous les Service de tous les MEF liés à cette classe
+    # (traverse Division -> MefDivision -> Service en un seul saut, sans dépendre d'un seul MEF)
+    services: Mapped[list["Service"]] = relationship(
+        "Service",
+        secondary="mef_divisions",
+        primaryjoin="Division.id == MefDivision.division_id",
+        secondaryjoin="MefDivision.id == Service.mef_division_id",
+        viewonly=True,
+        info={"label": "Services (tous MEF)", "readOnly": True}
+    )
+
+    @exposed
+    @property
+    def total_forecast_student_count(self) -> int:
+        return sum((link.forecast_student_count or 0) for link in self.mef_links)
+
+    @exposed
+    @property
+    def total_computed_student_count(self) -> int:
+        return sum((link.computed_student_count or 0) for link in self.mef_links)
 
     # Déclaration déclarative et compacte des champs liés de contrainte (Spécifiques aux divisions)
     max_hours_per_day = related_field("constraint_record", "max_hours_per_day", info={"label": "Max Heures par Jour", "min": 0, "max": 12, "step": "0.5"})

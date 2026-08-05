@@ -145,7 +145,18 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
     extra_fields = list(getattr(model, "_fields", [])) + list(getattr(model, "_extra_fields", []))
     for field in extra_fields:
         field_type = getattr(model, "_extra_field_types", {}).get(field, Any)
-        fields[field] = (Optional[field_type], None)
+        field_kwargs = {}
+        descriptor = getattr(model, field, None)
+        info = getattr(descriptor, "info", None)
+        if info:
+            if "label" in info:
+                field_kwargs["title"] = info["label"]
+            json_schema_extra = {k: (v() if callable(v) else v) for k, v in info.items() if k not in ("label", "type")}
+            if "type" in info:
+                json_schema_extra["ui_type"] = info["type"]
+            if json_schema_extra:
+                field_kwargs["json_schema_extra"] = json_schema_extra
+        fields[field] = (Optional[field_type], Field(None, **field_kwargs))
         
     # Détecter et inclure automatiquement toutes les relations collection dans le schéma Pydantic
     from sqlalchemy.orm import Mapper

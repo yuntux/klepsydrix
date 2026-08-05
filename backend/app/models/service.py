@@ -49,6 +49,7 @@ class Service(Base):
     mef_service: Mapped[Optional["MefService"]] = relationship("MefService", back_populates="services")
     mef_division: Mapped[Optional["MefDivision"]] = relationship("MefDivision")
     division_id = related_field("mef_division", "division_id", info={"label": "Division", "readOnly": True})
+    mef_id = related_field("mef_division", "mef_id", info={"label": "MEF", "resource": "mefs", "readOnly": True})
     group: Mapped[Optional["Group"]] = relationship("Group")
     subject: Mapped[Optional["Subject"]] = relationship("Subject")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")

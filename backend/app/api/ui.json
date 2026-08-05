@@ -989,6 +989,62 @@
             "width": "40%"
           }
         ]
+      },
+      {
+        "id": "services_by_division_setting",
+        "icon": "users",
+        "title": "Services par classe",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "services_by_division_list",
+            "component": "GenericList",
+            "resourceKey": "divisions",
+            "width": "30%",
+            "listConfig": {
+              "editableInline": false,
+              "allowMultiSelect": false,
+              "disableAdd": true,
+              "disableEditModal": true,
+              "columns": {
+                "name": { "visibleByDefault": true, "overrideLabel": "Nom de la classe" },
+                "mef_ids": { "visibleByDefault": true, "overrideLabel": "MEF" },
+                "total_forecast_student_count": { "visibleByDefault": true, "overrideLabel": "Effectif prévisionnel" },
+                "total_computed_student_count": { "visibleByDefault": true, "overrideLabel": "Effectif calculé" }
+              }
+            }
+          },
+          {
+            "id": "services_by_division_detail",
+            "component": "GenericList",
+            "role": "detail",
+            "resourceKey": "services",
+            "width": "70%",
+            "placeholderText": "Veuillez choisir une classe dans la liste de gauche pour voir ses services.",
+            "listConfig": {
+              "filterFromMasterField": "service_ids",
+              "filterByField": "id",
+              "editableInline": false,
+              "allowMultiSelect": false,
+              "disableAdd": true,
+              "columns": {
+                "mef_id": { "visibleByDefault": true, "overrideLabel": "MEF" },
+                "subject_id": { "visibleByDefault": true, "overrideLabel": "Matière" },
+                "election_method_id": { "visibleByDefault": true, "overrideLabel": "Modalité d'élection" },
+                "discipline_id": { "visibleByDefault": true, "overrideLabel": "Discipline" },
+                "student_count": { "visibleByDefault": true, "overrideLabel": "Effectif" },
+                "weekly_duration_full_class_minutes": { "visibleByDefault": true, "overrideLabel": "Durée classe entière (min)" },
+                "weekly_duration_reduced_minutes": { "visibleByDefault": true, "overrideLabel": "Durée effectif réduit (min)" },
+                "weekly_duration_split_minutes": { "visibleByDefault": true, "overrideLabel": "Durée dédoublement (min)" },
+                "total_weekly_duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée totale (min)" },
+                "weighting_coefficient": { "visibleByDefault": true, "overrideLabel": "Pondération" },
+                "reduced_group_student_count": { "visibleByDefault": true, "overrideLabel": "Élèves en effectif réduit" },
+                "repartition_ids": { "visibleByDefault": true, "overrideLabel": "Répartitions" }
+              }
+            }
+          }
+        ]
       }
     ]
   },
