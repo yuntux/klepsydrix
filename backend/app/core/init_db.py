@@ -279,12 +279,12 @@ def seed_v2_data():
 
         for service_id in service_ids:
             db.execute(text(
-                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity) "
-                "VALUES (:service_id, 2, 60, 'WEEKLY')"
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, name) "
+                "VALUES (:service_id, 2, 60, 'WEEKLY', '2x1h(H)')"
             ), {"service_id": service_id})
             db.execute(text(
-                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity) "
-                "VALUES (:service_id, 1, 30, 'WEEKLY')"
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, name) "
+                "VALUES (:service_id, 1, 30, 'WEEKLY', '1x0h30(H)')"
             ), {"service_id": service_id})
             db.commit()
 

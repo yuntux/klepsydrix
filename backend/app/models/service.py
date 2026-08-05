@@ -125,6 +125,7 @@ class ServiceRepartition(Base):
     occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre d'occurrences", "min": 1, "max": 20})
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "select", "options": get_duration_options})
     periodicity: Mapped[Any] = mapped_column(Enum(RepartitionPeriodicity, name="repartition_periodicity_enum"), nullable=False, default=RepartitionPeriodicity.WEEKLY, info={"label": "Périodicité"})
+    name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Nom", "readOnly": True})
 
     # Relations de navigation
     service: Mapped[Optional["Service"]] = relationship("Service", back_populates="repartitions")
@@ -137,6 +138,14 @@ class ServiceRepartition(Base):
         duration = int(val)
         if self.duration_minutes % duration != 0:
             raise ValueError(f"La durée de la répartition ({self.duration_minutes} min) doit être un multiple exact du créneau standard ({duration} min).")
+
+    @constrains()
+    def _compute_name(self, db: Session):
+        """Recalcule et stocke le nom d'affichage, ex: 2x01h00(H) ou 1x01h30(Q)."""
+        from backend.app.core.time_utils import minutes_to_hours
+        _, hours_text = minutes_to_hours(self.duration_minutes)
+        periodicity_letter = "H" if self.periodicity == RepartitionPeriodicity.WEEKLY else "Q"
+        self.name = f"{self.occurrence_count}x{hours_text}({periodicity_letter})"
 
     @constrains()
     def _check_sibling_alignment_still_matches(self, db: Session):

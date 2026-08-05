@@ -308,6 +308,7 @@ interface FormField {
   label: string;
   type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
   required?: boolean;
+  readOnly?: boolean;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -423,6 +424,8 @@ function isColumnReadOnly(key: string, item?: any): boolean {
       console.error("Error evaluating readOnly expression in list", e);
     }
   }
+  // Repli sur le readOnly déclaré côté backend (ex: related_field readOnly=True)
+  if (getFieldDef(key)?.readOnly === true) return true;
   return false;
 }
 

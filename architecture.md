@@ -606,3 +606,21 @@ Afin d'éviter la prolifération de CSS dupliqué ou de couleurs en dur, l'appli
 - **Fichier de Tokens Centralisé (`main.css`)** : L'ensemble des couleurs (`--accent-primary`, `--bg-surface`, etc.), des espacements (`--spacing-md`) et des ombres (`--shadow-lg`) sont définis comme des variables natives (`:root`) dans `frontend/src/assets/main.css`. Il est strictement interdit d'utiliser des couleurs hexadécimales en dur ailleurs dans le projet.
 - **Composants `Base*`** : Toute interaction utilisateur passe par des composants mutualisés (ex: `BaseButton.vue`, `BaseInput.vue`, `BaseModal.vue`, `BaseToggle.vue`).
 - **Thème 100% CSS Variables** : Les couleurs et opacités sont construites de manière dynamique avec la fonction native CSS `color-mix()` (ex: `color-mix(in srgb, var(--accent-primary) 20%, transparent)`), garantissant qu'un changement de variable dans `main.css` se répercute uniformément dans toute l'application sans casser le design (ex: les halos de focus, les backgrounds de modales).
+
+### E. Panneaux Maître/Détail (`GenericList` avec `role: "detail"`)
+Pour afficher deux listes liées côte à côte dans un même onglet (ex: les classes à gauche, filtrées vers les services de la classe sélectionnée à droite), `App.vue` supporte un second type de panneau `GenericList`, entièrement piloté par `ui.json` — aucun composant Vue dédié n'est nécessaire pour un nouveau menu de cette forme.
+
+**Déclaration** : un panneau avec `"component": "GenericList"` et `"role": "detail"` devient automatiquement le panneau détail de l'onglet. Sa configuration porte deux clés supplémentaires dans `listConfig` :
+- `filterFromMasterField` : le champ de l'élément sélectionné dans la liste maître à utiliser comme filtre (accepte un scalaire ou un tableau de valeurs, ex: `service_ids`)
+- `filterByField` : le champ de la ressource détail à comparer à ces valeurs (ex: `id`)
+
+**Fonctionnement** (`App.vue`) : dès qu'une seule ligne est sélectionnée côté maître, `loadDetailListItems()` récupère la ressource détail dans son intégralité (`limit: 1000`, comme le reste de l'application) puis filtre **côté client** par appartenance (`Set.has`) — pas de filtre `IN` côté API générique. Ce choix évite de dépendre d'un seul filtre scalaire quand le champ maître est un tableau à plusieurs valeurs (ex: une classe liée à plusieurs MEF).
+
+**Édition en ligne** : contrairement au panneau maître (`GenericList` standard), le panneau détail n'a par défaut aucun gestionnaire d'événement câblé. Pour le rendre éditable, il faut à la fois `"editableInline": true` dans son `listConfig` et un handler `@update-item` explicite côté `App.vue` (`onUpdateDetailGenericInline`, calqué sur `onUpdateGenericInline` mais opérant sur `detailListItems` plutôt que `genericItems`).
+
+**Protection des champs structurants** : `isColumnReadOnly` (`GenericList.vue`) respecte désormais aussi le `readOnly` déclaré côté backend (via `info={"readOnly": True}` sur un `related_field`, propagé au schéma OpenAPI), en plus des surcharges `listConfig.columns[key].readOnly` de `ui.json`. Pour les champs sans déclaration backend (propriétés calculées, relations à cascade destructrice type `delete-orphan`), il reste nécessaire de forcer `"readOnly": true` explicitement dans `ui.json`.
+
+### F. Champs Calculés et Stockés (pattern `@constrains()` sans validation)
+Certains champs doivent être **recalculés à chaque création/modification et persistés** (contrairement aux propriétés `@exposed` classiques, calculées à la demande et jamais stockées) — ex: `ServiceRepartition.name` (`"2x1h(H)"`, dérivé de `occurrence_count`/`duration_minutes`/`periodicity`).
+
+Le `CRUDMixin` exécute un second `db.flush()` juste après la boucle des méthodes `@constrains`, ce qui permet de détourner ce mécanisme de validation pour du calcul-et-stockage : une méthode `@constrains()` (sans argument, donc toujours exécutée) qui se contente d'assigner `self.name = ...` au lieu de lever une exception voit sa valeur automatiquement persistée par ce flush, aussi bien en création qu'en modification. Toute donnée insérée en SQL brut (seed `init_db.py`) contourne ce mécanisme et doit donc porter la valeur calculée à la main.

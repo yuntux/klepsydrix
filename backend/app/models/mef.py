@@ -98,6 +98,12 @@ class MefDivision(Base):
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="division_links")
     division: Mapped[Optional["Division"]] = relationship("Division", back_populates="mef_links")
 
+    @property
+    def display_name(self) -> str:
+        mef_name = self.mef.name if self.mef else str(self.mef_id)
+        division_name = self.division.name if self.division else str(self.division_id)
+        return f"{mef_name} - {division_name}"
+
     @exposed
     @property
     def computed_student_count(self) -> int:

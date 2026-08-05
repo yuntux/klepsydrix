@@ -292,22 +292,25 @@ Représente une entité administrative scolaire autonome (un collège, un lycée
 > Pour assurer une flexibilité maximale, la base de données est initialisée avec des créneaux temporels (`Timeslot`) au pas le plus fin (15 minutes, soit des incréments de `0.25`h). Lors de l'exécution, le solveur filtre immédiatement les créneaux disponibles (ex: uniquement les multiples de `0.5`h si la durée globale est de 30 minutes) avant de lancer l'optimisation. Ainsi, la combinatoire reste strictement limitée sans impact sur la performance.
 
 ### 1. Course (Cours)
-Le conteneur logique de cours.
+Le conteneur logique de cours — l'entité effectivement placée par le solveur sur la grille. Contrairement à une ancienne version de ce document, les ressources (professeurs, classes, groupes) sont portées par de vraies relations N-à-N, pas par des clés étrangères singulières : un cours simple en porte typiquement une seule de chaque, mais un cours composé parent (voir `is_composed`) ou un cours en co-enseignement en porte plusieurs.
 *   `id` : Clé primaire (Entier)
-*   `subject_id` : Clé étrangère vers la **Matière** principale enseignée (Entier, relation N-à-1)
-*   `teacher_id` : Clé étrangère optionnelle vers le **Professeur** principal (Entier, relation N-à-1)
-*   `division_id` : Clé étrangère optionnelle vers la **Classe** principale visée (Entier, relation N-à-1)
-*   `group_id` : Clé étrangère optionnelle vers le **Groupe** visé (Entier, relation N-à-1)
+*   `parent_id` : Clé étrangère optionnelle vers un **Course** parent (Entier, relation N-à-1). Renseigné uniquement sur les cours enfants issus de la décomposition d'un cours composé.
+*   `subject_id` : Clé étrangère vers la **Matière** enseignée (Entier, relation N-à-1). Optionnelle uniquement pour un cours composé parent sans matière propre (ex: "Pôle Sciences").
+*   `timeslot_id` : Clé étrangère optionnelle vers le **Timeslot** de départ du placement (Entier, relation N-à-1). Le cours occupe ensuite ce créneau et les suivants de manière contiguë, sur une durée totale de `duration_minutes`.
+*   `parent_timeslot_offset` : Décalage en nombre de créneaux standard par rapport au créneau du cours parent (Entier, par défaut `0`), utilisé pour les cours enfants d'un cours composé dont le placement est décalé (ex: rotation de sous-groupes en barrette).
+*   `week_type` : Type d'alternance de semaine (Enum : `A`, `B` ou `W` pour Toutes les semaines, par défaut `W`)
 *   `period_type_id` : Clé étrangère optionnelle vers le **PeriodType** (Entier, relation N-à-1) définissant le type de période du cours
 *   `periods` : Relation N-à-N vers les **Périodes** scolaires sur lesquelles s'applique ce cours (les périodes associées doivent toutes être du type défini par `period_type_id`)
-*   `label` : Libellé textuel calculé de manière dynamique à partir des séances et ressources rattachées (ex : `"{matières} - {profs} - {classes}"`)
+*   `name` : Libellé du cours, saisi librement (Chaîne optionnelle, ex: "Pôle Sciences" pour un cours composé sans matière propre)
 *   `memo` : Texte libre (Chaîne optionnelle) pour les notes du planificateur
 *   `duration_minutes` : Durée du cours définie en amont du placement (Entier, exprimée en minutes, ex: `55` pour un cours standard d'une heure)
 *   `is_composed` : Indicateur s'il s'agit d'un cours composé (Booléen, par défaut `False`)
+*   `is_co_teaching` : Indicateur si le cours est dispensé en co-enseignement (Booléen, par défaut `False`)
 *   `lock_structure` : Si vrai, verrouille l'ordre ou la répartition des cours enfants à l'intérieur du cours composé (Booléen, par défaut `False`)
 *   `mission_id` : Clé étrangère optionnelle vers une **Mission** (Entier, ex: pour lier un cours à un rôle spécifique comme Professeur Principal)
 *   `election_method_id` : Clé étrangère optionnelle vers une **ElectionMethod** (Entier, ex: pour lier à un cours de type DNL)
 *   `family_id` : Clé étrangère optionnelle vers une **Family** de type `Course` (Entier, ex: pour regrouper des cours d'une même option ou spécialité)
+*   `school_id` : Clé étrangère vers la **School** de rattachement (Entier, relation N-à-1)
 *   `is_pinned` : Indicateur si le cours est verrouillé de manière permanente sur son créneau (et sa salle) par le planificateur, empêchant tout déplacement par le solveur (Booléen, par défaut `False`)
 *   `status` : État de planification du cours (simple ou composé) matérialisé en base de données, mis à jour lors de chaque modification (Chaîne, par défaut `UNPLACED`) :
     *   `UNPLACED` : Le cours n'est pas planifié (`timeslot_id = None`).
@@ -321,6 +324,8 @@ Le conteneur logique de cours.
 *   `has_conflict` : Indique si le cours présente un conflit de ressources (double réservation d'enseignant, salle, classe) ou le non-respect d'une indisponibilité stricte (`RED`). Cette information dynamique est séparée du statut matérialisé et calculée uniquement à la demande.
 *   `service_repartition_id` : Clé étrangère optionnelle vers la **ServiceRepartition** d'origine (Entier, relation N-à-1). Nul pour un cours créé ad-hoc, sans lien avec un service.
 *   `is_consistent_with_service` : Indicateur de dérive par rapport au service d'origine (Booléen, propriété calculée non stockée, réservée aux cours sans enfant). Compare `duration_minutes` et `week_type` à la `ServiceRepartition` liée ; permet de mesurer l'écart entre le volume théorique (TRMD/MEFService) et le volume réellement planifié au fil de l'évolution manuelle des cours.
+*   *Relations hiérarchiques* : `parent` (le **Course** composé parent, le cas échéant), `children` (Liste des **Course** enfants issus de la décomposition — suppression en cascade)
+*   *Relations (N-à-N)* : `teachers` (Professeur(s) affecté(s) — plusieurs en cas de co-enseignement), `divisions` (Classe(s) visée(s)), `groups` (Groupe(s) visé(s)), `class_parts` (Partie(s) de classe visée(s)), `classrooms` (Salle(s)), `materials` (Matériel(s)), `non_teaching_staffs` (Personnel(s) non-enseignant(s))
 
 
 ### 1bis. Session (Séance)
@@ -395,11 +400,11 @@ Le MEF est un concept structurant pour :
 
 *   `id` : Clé primaire (Entier)
 *   `school_id` : Clé étrangère vers la **School** concernée (Entier, relation N-à-1)
-*   `code` : Code national unique standardisé sur 11 caractères (Chaîne, e.g. "20310010110" pour une 3ème Générale)
+*   `code_national` : Code national unique standardisé sur 11 caractères (Chaîne, e.g. "20310010110" pour une 3ème Générale)
 *   `name` : Libellé complet de la formation (Chaîne, e.g. "Troisième Générale")
 *   `forecast_student_count` : Nombre prévisionnel d'élèves affectés à cette formation dans l'établissement (Entier)
 *   `max_students_per_class` : Limite conseillée ou réglementaire d'élèves par division (Entier, ex: `30` pour le collège, `35` pour le lycée)
-*   *Relations (1-à-N)* : `mef_services` (Liste des dotations d'heures réglementaires par matière pour ce niveau)
+*   *Relations (1-à-N)* : `mef_services` (Liste des dotations d'heures réglementaires par matière pour ce niveau), `division_links` (Liste des **MefDivision** rattachant ce MEF à une ou plusieurs classes)
 
 ### 4bis. MEFService (Service standard de formation)
 Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » pour générer un **Service** (opérationnel) par classe (`Division`) associée au MEF, évitant la saisie manuelle répétitive pour chaque classe. La propagation MEFService → Service se fait à sens unique : modifier un `Service` déjà généré n'impacte jamais son `MEFService` d'origine.
@@ -415,6 +420,7 @@ Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » po
 *   `weekly_duration_split_minutes` : Durée hebdomadaire en effectif dédoublé, en minutes (Entier, mêmes règles)
 *   `reduced_group_student_count` : Nombre d'élèves concernés par l'effectif réduit sur ce service (Entier)
 *   `total_weekly_duration_minutes` : Durée hebdomadaire totale (Entier, propriété calculée non stockée) = somme des trois durées précédentes
+*   *Relations (1-à-N)* : `services` (Liste des **Service** générés à partir de ce gabarit)
 
 > **Note historique** : `weekly_hours` (volume horaire unique) et `is_divided` (booléen) ont été remplacés par cette décomposition en trois types de comptage, un même volume horaire pouvant se répartir différemment entre classe entière, effectif réduit et effectif dédoublé (ex: 2h30 = 2h en classe entière + 30min en effectif dédoublé).
 
@@ -425,7 +431,11 @@ Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » po
 *   `name` : Libellé de la classe (Chaîne, e.g. "Troisième A")
 *   `student_count` : Nombre total d'élèves de la classe (Entier)
 *   `color` : Code couleur d'affichage (Chaîne)
-*   *Relations (1-à-N)* : `mef_links` (Liste des **MefDivision** rattachant cette classe à un ou plusieurs MEF — voir ci-dessous)
+*   *Relations (1-à-N)* : `mef_links` (Liste des **MefDivision** rattachant cette classe à un ou plusieurs MEF — voir ci-dessous), `partitions`, `courses`
+*   `mefs` : Raccourci en lecture seule vers les **MEF** liés (Relation N-à-N traversant `mef_links`, `viewonly`). La gestion réelle du lien passe par `mef_links`/`MefDivision`, pas par ce raccourci.
+*   `services` : Raccourci en lecture seule vers tous les **Service** de tous les MEF liés à cette classe (Relation N-à-N traversant `Division → MefDivision → Service` en un seul saut, `viewonly`). Permet d'afficher tous les services d'une classe indépendamment du nombre de MEF auxquels elle est rattachée.
+*   `total_forecast_student_count` : Effectif prévisionnel total de la classe (Entier, propriété calculée non stockée) = somme des `forecast_student_count` de tous les `mef_links`
+*   `total_computed_student_count` : Effectif calculé total de la classe (Entier, propriété calculée non stockée) = somme des `computed_student_count` de tous les `mef_links`
 
 ### 4quater. MefDivision (Effectif MEF / Division)
 Objet de liaison porté par la relation N-à-N entre **MEF** et **Division**. Une classe physique peut réunir des élèves de plusieurs MEF différents (ex: double-niveau, ou classe de 3ème réunissant des élèves de MEF Général et MEF SEGPA) ; chaque couple (MEF, Division) possède donc son propre effectif attendu.
@@ -434,6 +444,7 @@ Objet de liaison porté par la relation N-à-N entre **MEF** et **Division**. Un
 *   `division_id` : Clé étrangère vers la **Division** concernée (Entier, relation N-à-1)
 *   `forecast_student_count` : Effectif prévu pour ce couple MEF/Division, saisi manuellement par le planificateur (Entier)
 *   `computed_student_count` : Effectif réellement affecté, calculé automatiquement en comptant les **Student** partageant à la fois cette division (`division_id`) et ce MEF (`mef_id`) — propriété non stockée, toujours à jour. Sur une division composite (double-niveau), chaque `MefDivision` ne compte donc que les élèves de son propre MEF.
+*   `display_name` : Libellé d'affichage composite (Chaîne, ex: "6EME GENERALE - 6ème A") = `"{nom du MEF} - {nom de la Division}"`
 
 ### 4quinquies. Service (Service opérationnel)
 L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **Group**), un ou plusieurs professeurs, et une matière. Généré à partir d'un **MEFService** (un `Service` par Division associée au MEF), mais librement modifiable ensuite sans impact sur son gabarit d'origine — la propagation MEFService → Service est à sens unique.
@@ -441,13 +452,14 @@ L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **
 *   `mef_service_id` : Clé étrangère optionnelle vers le **MEFService** d'origine (Entier, relation N-à-1). Nul pour un service créé ad-hoc, sans gabarit réglementaire.
 *   `mef_division_id` : Clé étrangère optionnelle vers un **MefDivision** (Entier, relation N-à-1). Mutuellement exclusif avec `group_id` — un service cible soit une Division (via son lien MEF), soit un Groupe, jamais les deux, jamais aucun des deux.
 *   `division_id` : Division ciblée (Entier, propriété calculée non stockée, dérivée de `mef_division_id.division_id`)
+*   `mef_id` : MEF ciblé (Entier, propriété calculée non stockée, dérivée de `mef_division_id.mef_id`)
 *   `group_id` : Clé étrangère optionnelle vers un **Group** (Entier, relation N-à-1)
 *   `subject_id` : Clé étrangère vers la **Subject** enseignée (Entier, relation N-à-1). Copiée du MEFService à la génération, éditable ensuite.
 *   `discipline_id`, `election_method_id`, `student_count`, `weighting_coefficient`, `weekly_duration_full_class_minutes`, `weekly_duration_reduced_minutes`, `weekly_duration_split_minutes`, `reduced_group_student_count`, `total_weekly_duration_minutes` : mêmes définitions que sur **MEFService** (voir 4bis), copiées à la génération puis librement éditables.
 *   `alignment_id` : Clé étrangère optionnelle vers un **Alignment** (Entier, relation N-à-1)
 *   *Relations (N-à-N)* : `teacher_ids` (Professeur(s) affecté(s) à ce service — plusieurs en cas de co-enseignement)
 *   *Relations (1-à-N)* : `repartitions` (Liste des **ServiceRepartition** décomposant ce service — voir ci-dessous)
-*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id` et les trois durées hebdomadaires du service à son `MEFService` d'origine. Toujours vrai pour un service ad-hoc (sans `mef_service_id`).
+*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id`, les trois durées hebdomadaires et `reduced_group_student_count` du service à son `MEFService` d'origine. Toujours vrai pour un service ad-hoc (sans `mef_service_id`).
 
 > **Contraintes d'intégrité de Service :**
 > - **Exclusivité de structure :** `mef_division_id` et `group_id` ne peuvent pas être renseignés simultanément, et l'un des deux est obligatoire.
@@ -461,6 +473,7 @@ Décompose un `Service` en occurrences de créneaux hebdomadaires, servant de pa
 *   `occurrence_count` : Nombre d'occurrences hebdomadaires générées par cette ligne (Entier, ex: `2`)
 *   `duration_minutes` : Durée de chaque occurrence (Entier, doit être un multiple exact du créneau standard de l'établissement — même validation que `Course.duration_minutes`)
 *   `periodicity` : Périodicité (Enum : `WEEKLY` chaque semaine, `BIWEEKLY` une semaine sur deux). Une ligne `BIWEEKLY` ne précise pas encore si l'occurrence tombera en semaine A ou B — ce choix se fait à la génération du `Course` (`week_type`).
+*   `name` : Nom d'affichage calculé et stocké en base (Chaîne, ex: `2x1h(H)` ou `1x1h30(Q)`), recalculé automatiquement à chaque création/modification à partir de `occurrence_count`, de `duration_minutes` (converti en heures via l'utilitaire générique `minutes_to_hours` — heure non paddée, minutes omises si nombre exact d'heures) et de `periodicity` (`H` pour hebdomadaire, `Q` pour quinzaine)
 *   *Relations (1-à-N)* : `courses` (Les **Course** effectivement générés à partir de cette ligne)
 
 ### 4septies. Alignment (Alignement / Barrette)

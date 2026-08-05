@@ -79,6 +79,7 @@
             :fields="getFormFieldsConfig(panel.resourceKey)"
             :items="detailListItems"
             :listConfig="panel.listConfig"
+            @update-item="onUpdateDetailGenericInline"
           />
         </section>
 
@@ -1025,6 +1026,33 @@ watch(activeLeaf, () => {
   }
 }, { immediate: true });
 
+async function onUpdateDetailGenericInline(item: any) {
+  const detailPanel = getDetailPanel();
+  if (!detailPanel) return;
+
+  // Optimistic UI update: on applique la modif localement tout de suite
+  const idx = detailListItems.value.findIndex(x => x.id === item.id);
+  let oldItem = null;
+  if (idx !== -1) {
+    oldItem = { ...detailListItems.value[idx] };
+    detailListItems.value[idx] = item;
+  }
+
+  try {
+    await api.updateGenericItem(detailPanel.resourceKey, item.id, item);
+    invalidateFkCache(detailPanel.resourceKey);
+    showNotification('success', 'Élément mis à jour directement !');
+    window.dispatchEvent(new CustomEvent('resource:mutated', {
+      detail: { resource_name: detailPanel.resourceKey }
+    }));
+  } catch (err: any) {
+    showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
+    if (idx !== -1 && oldItem) {
+      detailListItems.value[idx] = oldItem;
+    }
+  }
+}
+
 // Configurations dynamiques de champs pour GenericForm
 function getFormFieldsConfig(resourceKey?: string) {
   const model = resourceKey || activeAdminModel.value;
@@ -1114,6 +1142,7 @@ function getFormFieldsConfig(resourceKey?: string) {
           type: fieldType,
           required: requiredFields.includes(key),
           requiredExpr: prop.requiredExpr,
+          readOnly: prop.readOnly,
           readOnlyExpr: prop.readOnlyExpr,
           invisibleExpr: prop.invisibleExpr,
           placeholder: prop.placeholder || '',

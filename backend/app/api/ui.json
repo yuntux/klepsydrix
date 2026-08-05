@@ -1025,11 +1025,11 @@
             "listConfig": {
               "filterFromMasterField": "service_ids",
               "filterByField": "id",
-              "editableInline": false,
+              "editableInline": true,
               "allowMultiSelect": false,
               "disableAdd": true,
               "columns": {
-                "mef_id": { "visibleByDefault": true, "overrideLabel": "MEF" },
+                "mef_division_id": { "visibleByDefault": true, "overrideLabel": "MEF / Division", "readOnly": true },
                 "subject_id": { "visibleByDefault": true, "overrideLabel": "Matière" },
                 "election_method_id": { "visibleByDefault": true, "overrideLabel": "Modalité d'élection" },
                 "discipline_id": { "visibleByDefault": true, "overrideLabel": "Discipline" },
@@ -1037,10 +1037,10 @@
                 "weekly_duration_full_class_minutes": { "visibleByDefault": true, "overrideLabel": "Durée classe entière (min)" },
                 "weekly_duration_reduced_minutes": { "visibleByDefault": true, "overrideLabel": "Durée effectif réduit (min)" },
                 "weekly_duration_split_minutes": { "visibleByDefault": true, "overrideLabel": "Durée dédoublement (min)" },
-                "total_weekly_duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée totale (min)" },
+                "total_weekly_duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée totale (min)", "readOnly": true },
                 "weighting_coefficient": { "visibleByDefault": true, "overrideLabel": "Pondération" },
                 "reduced_group_student_count": { "visibleByDefault": true, "overrideLabel": "Élèves en effectif réduit" },
-                "repartition_ids": { "visibleByDefault": true, "overrideLabel": "Répartitions" }
+                "repartition_ids": { "visibleByDefault": true, "overrideLabel": "Répartitions", "readOnly": true }
               }
             }
           }

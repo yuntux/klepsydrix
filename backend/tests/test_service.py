@@ -11,6 +11,7 @@ from backend.app.models import (
     Group, Service, ServiceRepartition, Alignment, Course, SystemSetting
 )
 from backend.app.models.service import RepartitionPeriodicity
+from backend.app.core.time_utils import minutes_to_hours
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
 test_engine = create_engine(TEST_DATABASE_URL, echo=False)
@@ -27,6 +28,24 @@ def db_session():
     finally:
         db.close()
         Base.metadata.drop_all(bind=test_engine)
+
+
+class TestMinutesToHours:
+    def test_whole_hour(self):
+        assert minutes_to_hours(60) == (1.0, "1h")
+
+    def test_half_hour(self):
+        assert minutes_to_hours(30) == (0.5, "0h30")
+
+    def test_hour_and_a_half(self):
+        assert minutes_to_hours(90) == (1.5, "1h30")
+
+    def test_zero(self):
+        assert minutes_to_hours(0) == (0.0, "0h")
+
+    def test_ten_hours_or_more_is_not_padded(self):
+        assert minutes_to_hours(600) == (10.0, "10h")
+        assert minutes_to_hours(630) == (10.5, "10h30")
 
 
 def _base_fixtures(db):
@@ -156,6 +175,25 @@ class TestServiceRepartition:
         r2 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
         assert r1.id is not None and r2.id is not None
         assert len(service.repartitions) == 2
+
+    def test_name_is_computed_and_stored_on_create(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+
+        r_weekly = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        assert r_weekly.name == "2x1h(H)"
+
+        r_biweekly = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 90, "periodicity": "BIWEEKLY"})
+        assert r_biweekly.name == "1x1h30(Q)"
+
+    def test_name_is_recomputed_on_update(self, db_session):
+        _, _, subject, mef, division, mef_division = _base_fixtures(db_session)
+        service = Service.create(db_session, {"subject_id": subject.id, "mef_division_id": mef_division.id})
+        r = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        assert r.name == "1x1h(H)"
+
+        r.update(db_session, {"occurrence_count": 3, "duration_minutes": 30})
+        assert r.name == "3x0h30(H)"
 
 
 class TestAlignment:
