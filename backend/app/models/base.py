@@ -1,6 +1,19 @@
 from sqlalchemy.orm import DeclarativeBase, Session
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.hybrid import hybrid_property
+from datetime import date, datetime
+
+
+class UnsupportedOperationError(Exception):
+    """
+    Levée par une opération CRUD volontairement non supportée par un modèle (ex:
+    TransientModel.create()/update()/delete() : une ressource virtuelle/calculée ne peut pas être
+    créée/modifiée/supprimée directement). Le moteur générique (generic.py) l'attrape
+    spécifiquement dans create_endpoint/update_endpoint/delete_endpoint pour répondre 405, plutôt
+    que le 400 générique réservé aux erreurs de validation métier (ValueError).
+    """
+    pass
+
 
 def constrains(*args):
     """
@@ -252,6 +265,24 @@ class CRUDMixin:
             raise e
 
     @classmethod
+    def _apply_domain(cls, query, domain: dict):
+        """
+        Applique un dict de filtres à une requête SQLAlchemy. Cas particulier : une valeur
+        liste/tuple/set sur la clé "id" devient un IN(...) plutôt qu'une égalité — utilisé par
+        l'endpoint liste générique pour le filtre ?ids=1,2,3 (voir generic.py, GenericListModal
+        et GenericPivot, architecture.md section 15.L), sans quoi ce cas nécessiterait une
+        branche dédiée dans generic.py plutôt qu'un simple domain["id"] = [...].
+        """
+        for key, value in domain.items():
+            if not hasattr(cls, key):
+                continue
+            if key == "id" and isinstance(value, (list, tuple, set)):
+                query = query.filter(cls.id.in_(value))
+            else:
+                query = query.filter(getattr(cls, key) == value)
+        return query
+
+    @classmethod
     def read(cls, db: Session, domain: dict = None, limit: int = None, offset: int = None):
         """
         Lit des enregistrements à partir de la base de données.
@@ -259,14 +290,65 @@ class CRUDMixin:
         """
         query = select(cls)
         if domain:
-            for key, value in domain.items():
-                if hasattr(cls, key):
-                    query = query.filter(getattr(cls, key) == value)
+            query = cls._apply_domain(query, domain)
         if offset is not None:
             query = query.offset(offset)
         if limit is not None:
             query = query.limit(limit)
         return db.execute(query).scalars().all()
+
+    @classmethod
+    def count(cls, db: Session, domain: dict = None) -> int:
+        """
+        Pendant de read() pour le total non paginé (utilisé par l'endpoint liste générique). Une
+        méthode dédiée plutôt qu'un simple len(read(...)) : éviter de charger tous les
+        enregistrements juste pour les compter.
+        """
+        query = select(func.count()).select_from(cls)
+        if domain:
+            query = cls._apply_domain(query, domain)
+        return db.scalar(query)
+
+    @classmethod
+    def clean_payload(cls, payload_dict: dict) -> dict:
+        """
+        Filtre et type-cast un payload brut (JSON) vers des valeurs Python acceptées par create()/
+        update() : ne garde que les clés qui correspondent à une vraie colonne, un champ dérivé
+        (_fields) ou une relation collection (_ids), et convertit les dates/datetimes ISO en
+        objets Python. Déplacé depuis generic.py (module-level clean_payload()) pour que
+        TransientModel puisse fournir sa propre version triviale (aucun typage SQL à faire) sans
+        que l'endpoint générique ait besoin de savoir de quel type de modèle il s'agit.
+        """
+        cleaned = {}
+        valid_keys = [c.name for c in cls.__table__.columns if c.name != "id"]
+        extra_fields = getattr(cls, "_fields", [])
+
+        relationship_keys = []
+        from sqlalchemy.orm import Mapper
+        if hasattr(cls, "__mapper__") and isinstance(cls.__mapper__, Mapper):
+            for rel in cls.__mapper__.relationships:
+                if rel.uselist:
+                    field_name = f"{rel.key}_ids"
+                    if rel.key.endswith("s"):
+                        field_name = f"{rel.key[:-1]}_ids"
+                    elif rel.key.endswith("ies"):
+                        field_name = f"{rel.key[:-3]}y_ids"
+                    relationship_keys.append(field_name)
+
+        all_keys = valid_keys + extra_fields + relationship_keys
+        for k, v in payload_dict.items():
+            if k in all_keys and v is not None:
+                if k in extra_fields or k in relationship_keys:
+                    cleaned[k] = v
+                    continue
+                column_type = cls.__table__.columns[k].type
+                if str(column_type) == "DATE" and v:
+                    cleaned[k] = date.fromisoformat(v) if isinstance(v, str) else v
+                elif str(column_type) == "DATETIME" and v:
+                    cleaned[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
+                else:
+                    cleaned[k] = v
+        return cleaned
 
 
     def update(self, db: Session, vals: dict):
@@ -521,6 +603,30 @@ class TransientModel:
     @classmethod
     def read(cls, db: Session, domain: dict = None, limit: int = None, offset: int = None):
         raise NotImplementedError("Les modèles transitoires doivent implémenter la méthode read().")
+
+    @classmethod
+    def count(cls, db: Session, domain: dict = None) -> int:
+        """
+        Pas de requête dédiée possible (pas de table) : read() porte déjà tout le calcul, donc
+        count() se contente d'en mesurer le résultat non paginé. Les sous-classes coûteuses à
+        calculer peuvent surcharger count() si nécessaire.
+        """
+        return len(cls.read(db, domain=domain))
+
+    @classmethod
+    def clean_payload(cls, payload_dict: dict) -> dict:
+        """Aucune colonne SQL à typer/filtrer pour une ressource virtuelle : payload accepté tel quel."""
+        return payload_dict
+
+    @classmethod
+    def create(cls, db: Session, vals: dict):
+        raise UnsupportedOperationError(f"La création n'est pas supportée pour la ressource transitoire {cls.__tablename__ or cls.__name__}.")
+
+    def update(self, db: Session, vals: dict):
+        raise UnsupportedOperationError(f"La mise à jour n'est pas supportée pour la ressource transitoire {self.__class__.__tablename__ or self.__class__.__name__}.")
+
+    def delete(self, db: Session):
+        raise UnsupportedOperationError(f"La suppression n'est pas supportée pour la ressource transitoire {self.__class__.__tablename__ or self.__class__.__name__}.")
 
 from sqlalchemy import event
 from sqlalchemy.orm import object_session

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
 from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 import importlib
@@ -18,7 +17,7 @@ for _, module_name, _ in pkgutil.iter_modules(models_package.__path__):
 
 router = APIRouter(prefix="/api/generic")
 
-from backend.app.models.base import TransientModel
+from backend.app.models.base import TransientModel, UnsupportedOperationError
 
 # Génération 100% automatique de la cartographie des modèles sur la base de leur table SQL
 MODEL_MAP = {
@@ -200,67 +199,46 @@ def make_list_endpoint(model):
         limit: int = Query(100, ge=1),
         db: Session = Depends(get_db)
     ):
+        # Un champ est "filtrable" s'il correspond à un attribut de classe réel (colonne, related_field,
+        # relation...) ou à un champ déclaré par un TransientModel (_fields) — une seule condition
+        # valable pour les deux types de modèle, pas besoin de savoir lequel on a en face.
+        def is_filterable(key: str) -> bool:
+            return hasattr(model, key) or key in getattr(model, "_fields", [])
+
         domain = {}
-        if school_id is not None:
-            if issubclass(model, TransientModel) and "school_id" in getattr(model, "_fields", []):
-                domain["school_id"] = school_id
-            elif hasattr(model, "school_id"):
-                domain["school_id"] = school_id
+        if school_id is not None and is_filterable("school_id"):
+            domain["school_id"] = school_id
 
         # Filtre par liste d'IDs explicite (ex: "ids=12,45,78") — nécessaire pour tout consommateur
         # qui veut filtrer sur un champ dérivé non-SQL (related_field, ex: division_id/mef_id sur
         # Service : une simple property Python, pas une colonne filtrable en SQL) : plutôt que
         # filtrer côté serveur sur ce champ, on calcule les IDs pertinents côté client puis on
         # filtre ici sur `id`, une vraie colonne, toujours filtrable. Voir GenericListModal (prop
-        # `ids`) et GenericPivot, architecture.md section 15.L.
+        # `ids`) et GenericPivot, architecture.md section 15.L. Passer une liste comme valeur du
+        # domaine "id" est reconnu génériquement par CRUDMixin._apply_domain comme un IN(...).
         ids_param = request.query_params.get("ids")
-        id_list: Optional[List[int]] = None
         if ids_param:
             try:
-                id_list = [int(v) for v in ids_param.split(",") if v.strip() != ""]
+                domain["id"] = [int(v) for v in ids_param.split(",") if v.strip() != ""]
             except ValueError:
                 raise HTTPException(status_code=400, detail="Le paramètre 'ids' doit être une liste d'entiers séparés par des virgules.")
 
         for key, value in request.query_params.items():
-            if key in ["skip", "limit", "school_id", "ids"]:
+            if key in ["skip", "limit", "school_id", "ids"] or not is_filterable(key):
                 continue
-            if issubclass(model, TransientModel):
-                if key in getattr(model, "_fields", []):
-                    domain[key] = value
-            elif hasattr(model, key):
+            # Cast du type Python de la colonne (ex: "true" -> bool, "3" -> int) quand c'est une
+            # vraie colonne SQL ; sinon (related_field, champ TransientModel...) valeur brute.
+            if hasattr(model, "__table__") and key in model.__table__.columns:
                 try:
                     column_type = model.__table__.columns[key].type.python_type
-                    if column_type == bool:
-                        converted_val = value.lower() in ("true", "1", "yes")
-                    else:
-                        converted_val = column_type(value)
-                    domain[key] = converted_val
+                    domain[key] = (value.lower() in ("true", "1", "yes")) if column_type == bool else column_type(value)
                 except Exception:
                     domain[key] = value
+            else:
+                domain[key] = value
 
-        if issubclass(model, TransientModel):
-            items = model.read(db, domain=domain, limit=limit, offset=skip)
-            return {
-                "total": len(items),
-                "items": [sqla_to_dict(item) for item in items]
-            }
-
-        query = select(model)
-        count_query = select(func.count()).select_from(model)
-        for k, v in domain.items():
-            query = query.filter(getattr(model, k) == v)
-            count_query = count_query.filter(getattr(model, k) == v)
-        if id_list is not None:
-            query = query.filter(model.id.in_(id_list))
-            count_query = count_query.filter(model.id.in_(id_list))
-        total = db.scalar(count_query)
-
-        if id_list is not None:
-            # model.read() ne sait filtrer que par égalité (voir CRUDMixin.read) ; l'appel direct
-            # ci-dessous évite de complexifier ce contrat partagé pour un seul cas d'usage (IN).
-            items = db.execute(query.offset(skip).limit(limit)).scalars().all()
-        else:
-            items = model.read(db, domain=domain, limit=limit, offset=skip)
+        total = model.count(db, domain)
+        items = model.read(db, domain=domain, limit=limit, offset=skip)
         return {
             "total": total,
             "items": [sqla_to_dict(item) for item in items]
@@ -269,61 +247,16 @@ def make_list_endpoint(model):
 
 def make_get_endpoint(model):
     def get_endpoint(item_id: int, db: Session = Depends(get_db)):
-        if issubclass(model, TransientModel):
-            # Pour un modèle virtuel, on tente de le lire via un filtre sur ID
-            items = model.read(db, domain={"id": item_id})
-            item = items[0] if items else None
-            if not item:
-                raise HTTPException(status_code=404, detail="Élément introuvable.")
-            return sqla_to_dict(item)
-
-        item = db.get(model, item_id)
+        items = model.read(db, domain={"id": item_id})
+        item = items[0] if items else None
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
         return sqla_to_dict(item)
     return get_endpoint
 
-def clean_payload(model, payload_dict: dict) -> dict:
-    if issubclass(model, TransientModel):
-        return payload_dict
-        
-    cleaned = {}
-    valid_keys = [c.name for c in model.__table__.columns if c.name != "id"]
-    extra_fields = getattr(model, "_fields", [])
-    
-    relationship_keys = []
-    from sqlalchemy.orm import Mapper
-    if hasattr(model, "__mapper__") and isinstance(model.__mapper__, Mapper):
-        for rel in model.__mapper__.relationships:
-            if rel.uselist:
-                field_name = f"{rel.key}_ids"
-                if rel.key.endswith("s"):
-                    field_name = f"{rel.key[:-1]}_ids"
-                elif rel.key.endswith("ies"):
-                    field_name = f"{rel.key[:-3]}y_ids"
-                relationship_keys.append(field_name)
-
-    all_keys = valid_keys + extra_fields + relationship_keys
-    for k, v in payload_dict.items():
-        if k in all_keys and v is not None:
-            if k in extra_fields or k in relationship_keys:
-                cleaned[k] = v
-                continue
-            column_type = model.__table__.columns[k].type
-            if str(column_type) == "DATE" and v:
-                cleaned[k] = date.fromisoformat(v) if isinstance(v, str) else v
-            elif str(column_type) == "DATETIME" and v:
-                cleaned[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
-            else:
-                cleaned[k] = v
-    return cleaned
-
 def make_create_endpoint(model, payload_schema):
     def create_endpoint(payload: payload_schema, db: Session = Depends(get_db)):
-        if issubclass(model, TransientModel):
-            raise HTTPException(status_code=405, detail="La création n'est pas supportée pour cette ressource transitoire.")
-
-        cleaned_payload = clean_payload(model, payload.model_dump())
+        cleaned_payload = model.clean_payload(payload.model_dump())
         try:
             new_item = model.create(db, cleaned_payload)
             if new_item is None:
@@ -331,26 +264,28 @@ def make_create_endpoint(model, payload_schema):
                 return JSONResponse(content={"id": 0, "status": "purged"})
             db.refresh(new_item)
             return sqla_to_dict(new_item)
+        except UnsupportedOperationError as e:
+            raise HTTPException(status_code=405, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Erreur de création : {e}")
     return create_endpoint
 
 def make_update_endpoint(model, payload_schema):
     def update_endpoint(item_id: int, payload: payload_schema, db: Session = Depends(get_db)):
-        if issubclass(model, TransientModel):
-            raise HTTPException(status_code=405, detail="La mise à jour n'est pas supportée pour cette ressource transitoire.")
-
-        item = db.get(model, item_id)
+        items = model.read(db, domain={"id": item_id})
+        item = items[0] if items else None
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
 
-        cleaned_vals = clean_payload(model, payload.model_dump(exclude_unset=True))
+        cleaned_vals = model.clean_payload(payload.model_dump(exclude_unset=True))
         try:
             updated_item = item.update(db, cleaned_vals)
             if updated_item is None:
                 return {"id": item_id, "status": "purged"}
             db.refresh(updated_item)
             return sqla_to_dict(updated_item)
+        except UnsupportedOperationError as e:
+            raise HTTPException(status_code=405, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     return update_endpoint
@@ -400,15 +335,15 @@ def make_defaults_endpoint(model):
 
 def make_delete_endpoint(model, resource_name: str):
     def delete_endpoint(item_id: int, db: Session = Depends(get_db)):
-        if issubclass(model, TransientModel):
-            raise HTTPException(status_code=405, detail="La suppression n'est pas supportée pour cette ressource transitoire.")
-
-        item = db.get(model, item_id)
+        items = model.read(db, domain={"id": item_id})
+        item = items[0] if items else None
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
         try:
             item.delete(db)
             return {"status": "success", "message": f"Élément {item_id} de {resource_name} supprimé avec succès."}
+        except UnsupportedOperationError as e:
+            raise HTTPException(status_code=405, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Impossible de supprimer l'élément : {e}")
     return delete_endpoint
@@ -467,12 +402,9 @@ def make_instance_call_endpoint(model):
         payload: CallPayload,
         db: Session = Depends(get_db)
     ):
-        if issubclass(model, TransientModel):
-            items = model.read(db, domain={"id": item_id})
-            instance = items[0] if items else None
-        else:
-            instance = db.get(model, item_id)
-            
+        items = model.read(db, domain={"id": item_id})
+        instance = items[0] if items else None
+
         if not instance:
             raise HTTPException(status_code=404, detail="Instance introuvable.")
             

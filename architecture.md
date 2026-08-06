@@ -125,6 +125,14 @@ Pour chaque ressource détectée dans `MODEL_MAP` :
 - Le moteur enregistre automatiquement auprès de FastAPI les 5 routes CRUD standards (`GET /api/generic/{resource_name}`, `GET /{id}`, `POST`, `PUT`, `DELETE`).
 - Les `TransientModel` sont intégrés de manière transparente pour les opérations de lecture (`GET`), mais lèvent automatiquement une exception `405 Method Not Allowed` pour les requêtes d'écriture.
 
+**Polymorphisme plutôt que branchement par type (`if issubclass(model, TransientModel)`)** : les endpoints génériques (`generic.py`) ne testent jamais le type concret du modèle pour décider quoi faire — ils appellent uniformément `model.read()`, `model.count()`, `model.clean_payload()`, `model.create()`/`instance.update()`/`instance.delete()`, et laissent chaque classe fournir sa propre implémentation :
+- `CRUDMixin` (modèles réels) implémente ces méthodes avec de vraies requêtes SQL.
+- `TransientModel` fournit ses propres versions : `count()` retombe sur `len(read(...))`, `clean_payload()` renvoie le payload tel quel (pas de colonne SQL à typer), et `create()`/`update()`/`delete()` lèvent `UnsupportedOperationError` — que `generic.py` traduit en `405` (à distinguer du `400` générique réservé aux erreurs de validation métier `ValueError`).
+- **Limite connue, acceptée** : `update`/`delete` sur un `TransientModel` dont `read()` exige un domaine précis (ex: `TrmdSynthesis`, qui exige `school_id`) renvoient `404` ("introuvable") plutôt que `405` ("non supporté") si l'enregistrement n'est pas trouvable sans ce domaine — l'endpoint cherche l'enregistrement par `id` seul avant d'appeler `update()`/`delete()`, qui ne sont donc jamais atteints pour lever `UnsupportedOperationError`. Non corrigé délibérément : `trmd_syntheses` est le seul `TransientModel` du projet et n'est appelé nulle part dans le frontend (aucun menu, aucun composant) — corriger un code HTTP sur un chemin inatteignable en pratique ne justifiait pas le code supplémentaire (une méthode `supports_write()` sur les deux classes + deux gardes dans `generic.py`, testée puis retirée après discussion).
+- Le filtre `?ids=1,2,3` (section 15.L) est lui aussi devenu générique à ce niveau : une valeur liste sur la clé `"id"` d'un `domain` est reconnue comme un `IN(...)` par `CRUDMixin._apply_domain`, au lieu d'une branche dédiée dans l'endpoint liste.
+
+Seul le point d'entrée `make_pydantic_model` (génération du schéma OpenAPI, section B) garde un test de type explicite : il n'a pas de colonnes SQL à introspecter pour un `TransientModel`, ce qui est une différence structurelle (schéma vs CRUD à l'exécution), pas la même préoccupation.
+
 ### C. Moteur RPC Générique (Appels de Méthodes)
 N'importe quelle méthode métier (de classe ou d'instance) déclarée sur un modèle peut être invoquée directement par le frontend via :
 - **Méthodes de classe** : `POST /api/generic/{resource_name}/call/{method_name}`
