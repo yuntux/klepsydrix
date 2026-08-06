@@ -145,6 +145,19 @@
                   {{ item[col.key] }}
                 </span>
 
+                <!-- Widget explicite (registre partagé avec GenericForm.vue, voir widgets/registry.ts)
+                     — toujours prioritaire sur le rendu par type, comme côté formulaire. -->
+                <component
+                  v-else-if="getWidgetComponent(col.key)"
+                  :is="getWidgetComponent(col.key)"
+                  :modelValue="item[col.key]"
+                  :field="getFieldDef(col.key)"
+                  :widgetParams="getFieldDef(col.key)?.widgetParams"
+                  :disabled="isColumnReadOnly(col.key, item)"
+                  :parentRecord="item"
+                  @update:modelValue="updateInline(item, col.key, $event)"
+                />
+
                 <!-- Booléen (Switch / Checkbox en ligne) -->
                 <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
                   <BaseToggle
@@ -175,17 +188,17 @@
 
                 <!-- Relation 1-à-N "possédée" (ex: repartition_ids) : jamais un simple picker
                      multiselect (les enregistrements ciblés n'existent pas indépendamment du
-                     parent) — résumé + bouton crayon ouvrant une popin CRUD générique. -->
-                <div v-else-if="getFieldDef(col.key)?.resource && getFieldDef(col.key)?.parentField" class="inline-related-list-wrapper">
-                  <span class="related-list-summary">{{ getDisplayValue(item, col.key) || '—' }}</span>
-                  <button
-                    class="btn-edit-related"
-                    :title="isColumnReadOnly(col.key, item) ? 'Consulter' : 'Modifier'"
-                    @click.stop="openRelatedListModal(item, col.key)"
-                  >
-                    {{ isColumnReadOnly(col.key, item) ? '👁' : '✏️' }}
-                  </button>
-                </div>
+                     parent) — tags + bouton crayon ouvrant une popin CRUD générique. Widget
+                     partagé avec GenericForm.vue (widgets/OwnedRelationField.vue), voir
+                     architecture.md. -->
+                <OwnedRelationField
+                  v-else-if="getFieldDef(col.key)?.resource && getFieldDef(col.key)?.parentField"
+                  :modelValue="item[col.key]"
+                  :field="getFieldDef(col.key)"
+                  :widgetParams="{ listConfig: listConfig?.columns?.[col.key]?.listConfig }"
+                  :disabled="isColumnReadOnly(col.key, item)"
+                  :parentRecord="item"
+                />
 
                 <SearchableMultiSelect
                   v-else-if="getFieldDef(col.key)?.type === 'multiselect'"
@@ -211,11 +224,24 @@
                   class="inline-input inline-number"
                 />
 
+                <!-- Date : même widget que GenericForm.vue (input natif type=date), pour ne pas
+                     éditer une date en texte libre ici alors que le formulaire propose un vrai
+                     sélecteur de date. -->
+                <input
+                  v-else-if="getFieldDef(col.key)?.type === 'date'"
+                  type="date"
+                  :value="item[col.key] || ''"
+                  :disabled="isColumnReadOnly(col.key, item)"
+                  :required="isColumnRequired(col.key)"
+                  @change="updateInline(item, col.key, $event.target.value)"
+                  class="inline-input"
+                />
+
                 <!-- Texte standard (ex: nom, code) -->
-                <input 
+                <input
                   v-else
-                  type="text" 
-                  :value="item[col.key] || ''" 
+                  type="text"
+                  :value="item[col.key] || ''"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value)"
@@ -298,17 +324,6 @@
         </div>
       </div>
     </div>
-
-    <GenericListModal
-      v-if="relatedListModal"
-      :resourceKey="relatedListModal.resourceKey"
-      :filterField="relatedListModal.filterField"
-      :filterValue="relatedListModal.filterValue"
-      :title="relatedListModal.title"
-      :readOnly="relatedListModal.readOnly"
-      :listConfig="relatedListModal.listConfig"
-      @close="relatedListModal = null"
-    />
   </div>
 </template>
 
@@ -319,7 +334,8 @@ import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
-import GenericListModal from './GenericListModal.vue';
+import OwnedRelationField from './widgets/OwnedRelationField.vue';
+import { getWidgetForContext } from './widgets/registry';
 
 interface ColumnDef {
   key: string;
@@ -343,6 +359,8 @@ interface FormField {
   help?: string;
   resource?: string;
   parentField?: string;
+  widget?: string;
+  widgetParams?: any;
 }
 
 interface ColumnConfig {
@@ -445,23 +463,6 @@ const totalTableWidth = computed(() => {
   const actionsWidth = 40;
   return colsWidth + checkboxWidth + actionsWidth;
 });
-
-// Popin CRUD générique pour une colonne "_ids" représentant une relation possédée (voir
-// GenericListModal.vue et generic.py::parentField).
-const relatedListModal = ref<{ resourceKey: string; filterField: string; filterValue: any; title: string; readOnly: boolean; listConfig?: ListConfig } | null>(null);
-
-function openRelatedListModal(item: any, key: string) {
-  const fieldDef = getFieldDef(key);
-  if (!fieldDef?.resource || !fieldDef?.parentField) return;
-  relatedListModal.value = {
-    resourceKey: fieldDef.resource,
-    filterField: fieldDef.parentField,
-    filterValue: item.id,
-    title: fieldDef.label || key,
-    readOnly: isColumnReadOnly(key, item),
-    listConfig: props.listConfig?.columns?.[key]?.listConfig,
-  };
-}
 
 function isColumnReadOnly(key: string, item?: any): boolean {
   if (!isEditableInline.value) return true;
@@ -593,6 +594,10 @@ function onRowClick(item: any, event: MouseEvent) {
 
 function getFieldDef(key: string): FormField | undefined {
   return props.fields?.find(f => f.key === key);
+}
+
+function getWidgetComponent(key: string): any {
+  return getWidgetForContext(getFieldDef(key)?.widget, 'list');
 }
 
 function getDisplayValue(item: any, key: string): string {
@@ -1564,40 +1569,6 @@ function onDrop(event: DragEvent, index: number) {
   font-weight: 600;
   font-size: 12px;
   padding: 4px 6px;
-}
-
-/* Relation possédée (popin CRUD) */
-.inline-related-list-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  min-width: 0;
-}
-
-.related-list-summary {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.btn-edit-related {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 2px 4px;
-  border-radius: var(--radius-md);
-  line-height: 1;
-}
-
-.btn-edit-related:hover {
-  background-color: var(--bg-surface);
 }
 
 /* Switch toggle en ligne */

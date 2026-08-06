@@ -48,19 +48,21 @@
             Annuler
           </BaseButton>
           <BaseButton v-if="isEditableForm" type="submit" variant="primary">
-            Enregistrer
+            {{ props.submitLabel || 'Enregistrer' }}
           </BaseButton>
         </div>
       </form>
     </div>
     
     <BaseModal v-model="showWizard" :title="activeActionTitle" maxWidth="1600px">
-      <component 
-        v-if="showWizard && activeWizard"
-        :is="componentsMap[activeWizard]"
-        :recordId="localModel.id" 
+      <component
+        v-if="showWizard && activeAction"
+        :is="activeAction.component ? componentsMap[activeAction.component] : GenericWizard"
+        :recordId="localModel.id"
         :model="localModel"
-        @cancel="showWizard = false" 
+        :resourceKey="resourceKey"
+        :steps="activeAction.steps"
+        @cancel="showWizard = false"
         @success="showWizard = false"
       />
     </BaseModal>
@@ -76,18 +78,21 @@ import BaseTooltip from './BaseTooltip.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
 import BaseModal from './BaseModal.vue';
-import Many2ManyOrderedList from './widgets/Many2ManyOrderedList.vue';
-import CourseCompositionWizard from './widgets/CourseCompositionWizard.vue';
+import GenericWizard from './widgets/GenericWizard.vue';
+import OwnedRelationField from './widgets/OwnedRelationField.vue';
+import { getWidgetForContext } from './widgets/registry';
 import * as api from '../services/api';
 
 const showWizard = ref(false);
 const modelActions = ref<any[]>([]);
-const activeWizard = ref<string | null>(null);
+const activeAction = ref<any | null>(null);
 const activeActionTitle = ref<string>('');
 
-const componentsMap: Record<string, any> = {
-  'CourseCompositionWizard': CourseCompositionWizard
-};
+// Table d'exception pour un wizard entièrement bespoke (déclare son propre component au lieu de
+// steps) — GenericWizard.vue (générique, piloté par steps) reste le cas par défaut, voir le
+// template ci-dessus. Vide aujourd'hui : le seul wizard du projet (décomposition de cours) est
+// entièrement passé au mécanisme générique.
+const componentsMap: Record<string, any> = {};
 
 function evaluateActionCondition(action: any, model: any) {
   if (!action.condition) return true;
@@ -101,7 +106,7 @@ function evaluateActionCondition(action: any, model: any) {
 
 function handleActionClick(action: any) {
   if (action.type === 'wizard') {
-    activeWizard.value = action.component;
+    activeAction.value = action;
     activeActionTitle.value = action.label || action.name || 'Assistant';
     showWizard.value = true;
   }
@@ -208,6 +213,10 @@ const props = defineProps<{
   formConfig?: FormConfig;
   selectedRecords?: any[];
   resourceKey?: string;
+  // Libellé du bouton de soumission (défaut "Enregistrer") — utilisé par GenericWizard.vue, qui
+  // réutilise GenericForm tel quel pour rendre chaque étape, avec un libellé propre à l'étape
+  // ("Suivant", "Générer l'aperçu", "Enregistrer définitivement"...).
+  submitLabel?: string;
 }>();
 
 const emit = defineEmits<{
@@ -556,9 +565,33 @@ const FormLayoutGrid: any = defineComponent({
 
             const isFk = !!field.resource;
 
-            if (elem.widget === 'many2many_ordered_list') {
-              inputElement = h(Many2ManyOrderedList, {
-                modelValue: Array.isArray(gridProps.localModel[key]) ? gridProps.localModel[key] : (gridProps.localModel[key] ? [gridProps.localModel[key]] : []),
+            const widgetComponent = getWidgetForContext(elem.widget, 'form');
+            if (widgetComponent) {
+              // Contrat commun à tout widget du registre (voir widgets/registry.ts) : la forme de
+              // modelValue dépend du widget (liste d'IDs pour many2many_ordered_list, objet
+              // composite pour un widget de wizard...) — chaque widget est responsable de sa
+              // propre valeur par défaut, pas de coercion générique ici.
+              inputElement = h(widgetComponent, {
+                modelValue: gridProps.localModel[key],
+                field: field,
+                widgetParams: elem.widgetParams,
+                disabled: disabled,
+                parentRecord: gridProps.localModel,
+                style: inputStyle,
+                'onUpdate:modelValue': (val: any) => {
+                  gridProps.localModel[key] = val;
+                }
+              });
+            } else if (field.resource && field.parentField) {
+              // Relation 1-à-N "possédée" (voir generic.py::parentField, architecture.md) : jamais
+              // un picker multiselect classique — les enregistrements ciblés n'existent pas
+              // indépendamment de ce record (ex: attacher une Partition d'une autre Division
+              // échouerait côté serveur, son modèle interdisant de réassigner sa FK parent).
+              // Vérifié avant "multiselect" ci-dessous car un champ _ids possédé porte le même
+              // ui_type que le multiselect dans le schéma — c'est resource+parentField qui les
+              // distingue, pas le type. Même widget partagé que GenericList.vue (tags + crayon).
+              inputElement = h(OwnedRelationField, {
+                modelValue: gridProps.localModel[key],
                 field: field,
                 widgetParams: elem.widgetParams,
                 disabled: disabled,

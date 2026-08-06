@@ -95,14 +95,39 @@ def get_duration_options():
 
 class Course(Base):
     __tablename__ = "courses"
+    # "component" absent : GenericForm.vue route par défaut vers GenericWizard.vue (mécanisme
+    # générique piloté par "steps", voir architecture.md) plutôt qu'un composant bespoke —
+    # componentsMap reste un échappatoire pour un futur wizard qui ne rentrerait pas dans ce moule.
     __actions__ = [
         {
             "id": "compose_course",
             "label": "Décomposer le cours",
             "type": "wizard",
-            "component": "CourseCompositionWizard",
             "icon": "fa-sitemap",
-            "condition": "record.is_composed === true && record.status !== 'COMPLETELY_PLACED'"
+            "condition": "record.is_composed === true && record.status !== 'COMPLETELY_PLACED'",
+            "steps": [
+                {
+                    "id": "mapping",
+                    "title": "1. Mapping et mode de répartition",
+                    "submitLabel": "Générer l'aperçu",
+                    "rpc": "rpc_preview_composition",
+                    "rpcParams": {"mode": "composition.mode", "mapping": "composition.mapping"},
+                    "fields": [
+                        {"key": "composition", "label": "Répartition", "type": "text", "widget": "course_composition_mapping", "fullWidth": True}
+                    ]
+                },
+                {
+                    "id": "preview",
+                    "title": "2. Aperçu des cours enfants (brouillon)",
+                    "submitLabel": "Enregistrer définitivement",
+                    "rpc": "rpc_save_composition",
+                    "rpcParams": {"children_vals": "children_vals"},
+                    "isLast": True,
+                    "fields": [
+                        {"key": "children_vals", "label": "Cours enfants", "type": "text", "widget": "course_composition_preview", "fullWidth": True}
+                    ]
+                }
+            ]
         }
     ]
 
