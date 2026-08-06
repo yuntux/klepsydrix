@@ -1,4 +1,5 @@
 import enum
+import random
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
 from sqlalchemy import Column, Integer, Float, String, ForeignKey, Table, Enum
@@ -28,6 +29,20 @@ class Service(Base):
     (propagation à sens unique). is_synced_with_mef_service permet de détecter la dérive.
     """
     __tablename__ = "services"
+    # Action groupée exposée par GenericPivot (architecture.md section 15.L) : type "bulk_api",
+    # nouvelle valeur (les seuls types préexistants — "api"/"wizard" — supposent un enregistrement
+    # unique). condition s'évalue sur un tableau `records` (la sélection courante), pas un `record`
+    # singulier. La vraie contrainte métier (répartition homogène) reste vérifiée côté serveur dans
+    # align_bulk — cette condition n'est qu'un filtre d'affichage, pas l'autorité.
+    __actions__ = [
+        {
+            "id": "align_bulk",
+            "label": "Aligner",
+            "type": "bulk_api",
+            "icon": "fa-link",
+            "condition": "records.length >= 2"
+        }
+    ]
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -60,8 +75,12 @@ class Service(Base):
     # Relations de navigation
     mef_service: Mapped[Optional["MefService"]] = relationship("MefService", back_populates="services")
     mef_division: Mapped[Optional["MefDivision"]] = relationship("MefDivision")
-    division_id = related_field("mef_division", "division_id", info={"label": "Division", "readOnly": True})
+    division_id = related_field("mef_division", "division_id", info={"label": "Division", "resource": "divisions", "readOnly": True})
     mef_id = related_field("mef_division", "mef_id", info={"label": "MEF", "resource": "mefs", "readOnly": True})
+    # Couleur de l'Alignment lié, à plat sur le Service — évite au frontend (ex: GenericPivot,
+    # section 15.L de architecture.md) d'avoir à résoudre un chemin imbriqué "alignment.color" ;
+    # même pattern que division_id/mef_id ci-dessus.
+    alignment_color = related_field("alignment", "color", info={"label": "Couleur alignement", "readOnly": True})
     group: Mapped[Optional["Group"]] = relationship("Group")
     subject: Mapped[Optional["Subject"]] = relationship("Subject")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
@@ -139,6 +158,34 @@ class Service(Base):
             vals[field] = getattr(mef_service, field)
         return cls.create(db, vals)
 
+    @classmethod
+    def align_bulk(cls, db: Session, ids: list[int]) -> dict:
+        """
+        Action groupée "Aligner" (voir __actions__ ci-dessus et architecture.md section 15.L) :
+        crée toujours un nouvel Alignment (jamais de fusion avec un Alignment existant — décision
+        confirmée) et y rattache tous les Service listés. La contrainte de répartition homogène est
+        vérifiée deux fois : ici en amont (message clair, aucun Alignment orphelin créé si ça
+        échoue) et de toute façon par _check_alignment_repartition_match à chaque Service.update().
+
+        Paramètre nommé `ids` (pas `service_ids`) : make_class_call_endpoint (generic.py) injecte
+        toujours `db` en kwarg quand la signature le porte, donc tout appel positionnel (`args`)
+        entrerait en collision avec lui dès que `db` précède le vrai paramètre métier — les actions
+        `bulk_api` doivent donc être appelées via `kwargs`, avec ce nom de paramètre générique
+        (réutilisable tel quel par une future action groupée sur une autre ressource).
+        """
+        services = db.query(cls).filter(cls.id.in_(ids)).all()
+        if len(services) < 2:
+            raise ValueError("Il faut sélectionner au moins 2 services pour créer un alignement.")
+        if len({_repartition_signature(s) for s in services}) > 1:
+            raise ValueError("Tous les services sélectionnés doivent partager le même modèle de répartition pour être alignés.")
+
+        import uuid
+        suffix = uuid.uuid4().hex[:8].upper()
+        alignment = Alignment.create(db, {"code": f"AL_AUTO_{suffix}", "name": f"Alignement auto {suffix}"})
+        for service in services:
+            service.update(db, {"alignment_id": alignment.id})
+        return {"alignment_id": alignment.id, "alignment_code": alignment.code}
+
 
 def _repartition_signature(service: "Service") -> frozenset:
     return frozenset(
@@ -203,9 +250,38 @@ class Alignment(Base):
     """
     __tablename__ = "alignments"
 
+    # Palette utilisée par create() ci-dessous pour l'affectation automatique de couleur — voir
+    # architecture.md section 15.L (couleur de cellule dans GenericPivot : deux Alignment
+    # visuellement indissociables rendraient ce mécanisme inutile).
+    _PASTEL_PALETTE = [
+        "#FFADAD", "#FFD6A5", "#FDFFB6", "#CAFFBF", "#9BF6FF",
+        "#A0C4FF", "#BDB2FF", "#FFC6FF", "#FFB4A2", "#B5EAD7",
+        "#C7CEEA", "#FFDAC1", "#E2F0CB", "#B5B9FF", "#FFCBF2", "#F1FFC4",
+    ]
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code", "placeholder": "ex: BARRETTE_LV2_3EME"})
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom", "placeholder": "ex: Barrette LV2 - Niveau 3ème"})
+    # nullable, SANS default SQL : un default de colonne serait repris tel quel par le schéma
+    # Pydantic (make_pydantic_model) et rendrait "couleur omise" indistinguable de "couleur =
+    # #CCCCCC" au moment où create() ci-dessous inspecte vals — cassant l'affectation automatique.
+    # En pratique jamais NULL en base : create() assigne toujours une couleur, fournie ou pastel.
+    color: Mapped[Optional[str]] = mapped_column(String(7), nullable=True, info={"label": "Couleur", "type": "color", "placeholder": "ex: #3498DB"})
 
     # Relations de navigation
     services: Mapped[list["Service"]] = relationship("Service", back_populates="alignment", info={"label": "Services alignés"})
+
+    @classmethod
+    def create(cls, db: Session, vals: dict):
+        """
+        Si aucune couleur n'est fournie, affecte automatiquement la première couleur de
+        _PASTEL_PALETTE pas encore utilisée par un autre Alignment (repli sur un tirage aléatoire
+        dans la palette si elle est entièrement épuisée) — plutôt que de laisser le défaut de
+        colonne #CCCCCC identique pour tous, ce qui rendrait plusieurs Alignment indistinguables
+        dans GenericPivot. S'applique aussi bien à une création via l'IHM qu'à Service.align_bulk.
+        """
+        if not vals.get("color"):
+            used_colors = {c for (c,) in db.query(cls.color).all()}
+            available = [c for c in cls._PASTEL_PALETTE if c not in used_colors]
+            vals["color"] = available[0] if available else random.choice(cls._PASTEL_PALETTE)
+        return super().create(db, vals)

@@ -267,6 +267,25 @@ export async function callInstanceMethod(
   return response.json();
 }
 
+export async function callClassMethod(
+  resourceName: string,
+  methodName: string,
+  payload: { args?: any[]; kwargs?: Record<string, any> } = {}
+): Promise<any> {
+  const response = await fetch(`/api/generic/${resourceName}/call/${methodName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Erreur d'appel de méthode ${methodName} sur la ressource ${resourceName}`);
+  }
+  return response.json();
+}
+
 export async function fetchGenericActions(resourceName: string): Promise<any[]> {
   const response = await fetch(`/api/generic/${resourceName}/actions`);
   if (!response.ok) {

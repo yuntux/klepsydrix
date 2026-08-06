@@ -258,7 +258,7 @@ def seed_v2_data():
         db.commit()
         mef_service_6_id = db.execute(text("SELECT id FROM mef_services WHERE mef_id = :mef_id AND subject_id = :subject_id"), {"mef_id": mef_6_id, "subject_id": maths_id}).scalar()
 
-        alignment_id = db.execute(text("INSERT INTO alignments (code, name) VALUES ('AL_MATHS_6EME', 'Maths - Alignement 6ème A/B')"))
+        alignment_id = db.execute(text("INSERT INTO alignments (code, name, color) VALUES ('AL_MATHS_6EME', 'Maths - Alignement 6ème A/B', '#3498DB')"))
         db.commit()
         alignment_id = db.execute(text("SELECT id FROM alignments WHERE code = 'AL_MATHS_6EME'")).scalar()
 
@@ -287,6 +287,22 @@ def seed_v2_data():
                 "VALUES (:service_id, 1, 30, 'WEEKLY', '1x0h30(H)')"
             ), {"service_id": service_id})
             db.commit()
+
+        # 11c. Rattachement de professeurs aux Services Maths 6ème (m2m service_teachers) : 6ème A
+        # en co-enseignement (2 profs), 6ème B avec 1 seul prof partagé avec 6ème A — donne des
+        # données non triviales pour la vue pivot "Services par prof" (GenericPivot, un prof lié à
+        # plusieurs services est crédité en entier de chacun, voir architecture.md section 15.L).
+        teacher_pool_clg = [t[0] for t in teachers if t[1] == clg_id]
+        service_teachers_map = {
+            service_ids[0]: teacher_pool_clg[:2],
+            service_ids[1]: [teacher_pool_clg[1]],
+        }
+        for s_id, t_ids in service_teachers_map.items():
+            for t_id in t_ids:
+                db.execute(text(
+                    "INSERT INTO service_teachers (service_id, teacher_id) VALUES (:service_id, :teacher_id)"
+                ), {"service_id": s_id, "teacher_id": t_id})
+        db.commit()
 
         # 12. Création des Salles de Classe (10 salles)
         classrooms = []

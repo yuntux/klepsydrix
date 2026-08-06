@@ -1057,6 +1057,112 @@
             }
           }
         ]
+      },
+      {
+        "id": "services_by_discipline_mef",
+        "icon": "target",
+        "title": "Heures par discipline / MEF",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "services_by_discipline_mef_pivot",
+            "component": "GenericPivot",
+            "resourceKey": "services",
+            "width": "100%",
+            "pivotConfig": {
+              "row": { "field": "discipline_id" },
+              "columns": [
+                { "key": "total_hours", "field": "total_weekly_duration_minutes", "agg": "sum", "overrideLabel": "Total heures (min)" }
+              ],
+              "matrix": {
+                "field": "mef_id",
+                "cell": { "type": "aggregate", "field": "total_weekly_duration_minutes", "agg": "sum" }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "services_by_teacher_division",
+        "icon": "users",
+        "title": "Heures par professeur / division",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "services_by_teacher_division_pivot",
+            "component": "GenericPivot",
+            "resourceKey": "services",
+            "width": "100%",
+            "pivotConfig": {
+              "row": [
+                { "field": "teacher_ids", "explode": true, "overrideLabel": "Professeur" },
+                { "field": "subject_id", "overrideLabel": "Matière" }
+              ],
+              "columns": [
+                { "key": "total_hours", "field": "total_weekly_duration_minutes", "agg": "sum", "overrideLabel": "Total heures (min)" }
+              ],
+              "matrix": {
+                "field": "division_id",
+                "cell": { "type": "aggregate", "field": "total_weekly_duration_minutes", "agg": "sum" }
+              },
+              "colorField": "alignment_color"
+            }
+          }
+        ]
+      },
+      {
+        "id": "services_by_discipline_division_teachers",
+        "icon": "teacher",
+        "title": "Professeurs par discipline / division",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "services_by_discipline_division_teachers_pivot",
+            "component": "GenericPivot",
+            "resourceKey": "services",
+            "width": "100%",
+            "pivotConfig": {
+              "row": { "field": "discipline_id" },
+              "columns": [
+                { "key": "total_hours", "field": "total_weekly_duration_minutes", "agg": "sum", "overrideLabel": "Total heures (min)" }
+              ],
+              "matrix": {
+                "field": "division_id",
+                "cell": { "type": "list", "field": "teacher_ids" }
+              },
+              "colorField": "alignment_color"
+            }
+          }
+        ]
+      },
+      {
+        "id": "services_by_discipline_division_repartitions",
+        "icon": "box",
+        "title": "Répartitions par discipline / division",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "services_by_discipline_division_repartitions_pivot",
+            "component": "GenericPivot",
+            "resourceKey": "services",
+            "width": "100%",
+            "pivotConfig": {
+              "row": { "field": "discipline_id" },
+              "columns": [
+                { "key": "total_hours", "field": "total_weekly_duration_minutes", "agg": "sum", "overrideLabel": "Total heures (min)" }
+              ],
+              "matrix": {
+                "field": "division_id",
+                "cell": { "type": "list", "field": "repartition_ids" }
+              },
+              "colorField": "alignment_color"
+            }
+          }
+        ]
       }
     ]
   },

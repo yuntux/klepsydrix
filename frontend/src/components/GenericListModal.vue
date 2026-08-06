@@ -40,8 +40,16 @@ import * as api from '../services/api';
 
 const props = defineProps<{
   resourceKey: string;
-  filterField: string;
-  filterValue: any;
+  // Deux modes de filtrage mutuellement exclusifs :
+  // - filterField/filterValue : popin "enfant possédé" (ex: repartition_ids) — filtre serveur sur
+  //   une seule FK réelle.
+  // - ids : liste d'IDs explicite, déjà résolue côté appelant (ex: GenericPivot — une cellule de
+  //   pivot peut regrouper plusieurs Service, et ses axes ligne/colonne peuvent être des champs
+  //   dérivés non filtrables en SQL comme division_id/mef_id, voir generic.py::related_field) —
+  //   voir GenericPivot.vue et le paramètre `ids` de l'endpoint liste générique.
+  filterField?: string;
+  filterValue?: any;
+  ids?: number[];
   title?: string;
   readOnly?: boolean;
   // listConfig complet (même structure que celui d'un panneau GenericList classique — columns,
@@ -135,7 +143,8 @@ const loading = ref(false);
 async function loadItems() {
   loading.value = true;
   try {
-    const res = await api.fetchGenericList(props.resourceKey, 0, 1000, undefined, { [props.filterField]: props.filterValue });
+    const filters = props.ids ? { ids: props.ids.join(',') } : { [props.filterField as string]: props.filterValue };
+    const res = await api.fetchGenericList(props.resourceKey, 0, 1000, undefined, filters);
     items.value = res.items || [];
   } finally {
     loading.value = false;
@@ -149,7 +158,7 @@ function notifyResourceMutated() {
 }
 
 function onAdd() {
-  const defaults: Record<string, any> = { [props.filterField]: props.filterValue };
+  const defaults: Record<string, any> = props.filterField ? { [props.filterField]: props.filterValue } : {};
   fields.value.forEach((f: any) => {
     if (f.default !== undefined) defaults[f.key] = f.default;
   });

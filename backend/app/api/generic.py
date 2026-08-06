@@ -206,9 +206,23 @@ def make_list_endpoint(model):
                 domain["school_id"] = school_id
             elif hasattr(model, "school_id"):
                 domain["school_id"] = school_id
-            
+
+        # Filtre par liste d'IDs explicite (ex: "ids=12,45,78") — nécessaire pour tout consommateur
+        # qui veut filtrer sur un champ dérivé non-SQL (related_field, ex: division_id/mef_id sur
+        # Service : une simple property Python, pas une colonne filtrable en SQL) : plutôt que
+        # filtrer côté serveur sur ce champ, on calcule les IDs pertinents côté client puis on
+        # filtre ici sur `id`, une vraie colonne, toujours filtrable. Voir GenericListModal (prop
+        # `ids`) et GenericPivot, architecture.md section 15.L.
+        ids_param = request.query_params.get("ids")
+        id_list: Optional[List[int]] = None
+        if ids_param:
+            try:
+                id_list = [int(v) for v in ids_param.split(",") if v.strip() != ""]
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Le paramètre 'ids' doit être une liste d'entiers séparés par des virgules.")
+
         for key, value in request.query_params.items():
-            if key in ["skip", "limit", "school_id"]:
+            if key in ["skip", "limit", "school_id", "ids"]:
                 continue
             if issubclass(model, TransientModel):
                 if key in getattr(model, "_fields", []):
@@ -236,9 +250,17 @@ def make_list_endpoint(model):
         for k, v in domain.items():
             query = query.filter(getattr(model, k) == v)
             count_query = count_query.filter(getattr(model, k) == v)
+        if id_list is not None:
+            query = query.filter(model.id.in_(id_list))
+            count_query = count_query.filter(model.id.in_(id_list))
         total = db.scalar(count_query)
-        
-        items = model.read(db, domain=domain, limit=limit, offset=skip)
+
+        if id_list is not None:
+            # model.read() ne sait filtrer que par égalité (voir CRUDMixin.read) ; l'appel direct
+            # ci-dessous évite de complexifier ce contrat partagé pour un seul cas d'usage (IN).
+            items = db.execute(query.offset(skip).limit(limit)).scalars().all()
+        else:
+            items = model.read(db, domain=domain, limit=limit, offset=skip)
         return {
             "total": total,
             "items": [sqla_to_dict(item) for item in items]

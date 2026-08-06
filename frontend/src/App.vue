@@ -115,6 +115,13 @@
           />
         </div>
 
+        <!-- 3ter. Vue Pivot Générique (architecture.md section 15.L) : entièrement pilotée par
+             resourceKey + pivotConfig, ne dépend d'aucun état global d'App.vue (mêmes principes
+             d'autonomie que GenericListModal). -->
+        <section v-else-if="panel.component === 'GenericPivot'" class="admin-main-content">
+          <GenericPivot :resourceKey="panel.resourceKey" :pivotConfig="panel.pivotConfig" />
+        </section>
+
         <!-- 4. Composant Formulaire Générique Inline -->
         <div v-else-if="panel.component === 'GenericForm'" class="panel-content-wrapper inline-form-panel">
           <div v-if="selectedParentIds.length === 0 && !isAddingInline" class="pref-placeholder">
@@ -219,6 +226,7 @@ const GenericList = defineAsyncComponent(() => import('./components/GenericList.
 const GenericForm = defineAsyncComponent(() => import('./components/GenericForm.vue'));
 const PreferenceGrid = defineAsyncComponent(() => import('./components/PreferenceGrid.vue'));
 const PeriodTransitionManager = defineAsyncComponent(() => import('./components/PeriodTransitionManager.vue'));
+const GenericPivot = defineAsyncComponent(() => import('./components/GenericPivot.vue'));
 const ImpactConfirmDialog = defineAsyncComponent(() => import('./components/ImpactConfirmDialog.vue'));
 const CoursePopin = defineAsyncComponent(() => import('./components/CoursePopin.vue'));
 
