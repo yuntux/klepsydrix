@@ -212,8 +212,8 @@ def seed_v2_data():
                 db.commit()
 
         # 11. Création des Divisions (Classes d'élèves) : 3 pour Collège, 3 pour Lycée
-        clg_divisions_data = ["6ème A", "6ème B", "5ème A"]
-        lyc_divisions_data = ["2nde A", "2nde B", "1ère A"]
+        clg_divisions_data = ["6A", "6B", "5A"]
+        lyc_divisions_data = ["2A", "2B", "1A"]
         divisions = []
         student_first_names = ["Léa", "Hugo", "Chloé"]
         student_last_names = ["Bernard", "Petit", "Robert"]
@@ -276,7 +276,7 @@ def seed_v2_data():
         alignment_id = db.execute(text("SELECT id FROM alignments WHERE code = 'AL_MATHS_6EME'")).scalar()
 
         service_ids = []
-        for code in ["6EME_A", "6EME_B"]:
+        for code in ["6A", "6B"]:
             mef_division_id = db.execute(text(
                 "SELECT md.id FROM mef_divisions md JOIN divisions d ON d.id = md.division_id WHERE d.code = :code"
             ), {"code": code}).scalar()
@@ -292,12 +292,12 @@ def seed_v2_data():
 
         for service_id in service_ids:
             db.execute(text(
-                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, name) "
-                "VALUES (:service_id, 2, 60, 'WEEKLY', '2x1h(H)')"
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, name) "
+                "VALUES (:service_id, 2, 60, 'WEEKLY', 'FULL_CLASS', '2x1h(H)')"
             ), {"service_id": service_id})
             db.execute(text(
-                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, name) "
-                "VALUES (:service_id, 1, 30, 'WEEKLY', '1x0h30(H)')"
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, name) "
+                "VALUES (:service_id, 1, 30, 'WEEKLY', 'SPLIT', '1x0h30(H)')"
             ), {"service_id": service_id})
             db.commit()
 

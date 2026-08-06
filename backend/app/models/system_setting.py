@@ -63,8 +63,8 @@ class SystemSetting(Base):
     def update(self, db, vals: dict):
         if self.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION and 'value' in vals and str(vals['value']) != str(self.value):
             new_val = str(vals['value'])
-            if not new_val.isdigit() or int(new_val) <= 0:
-                raise ValueError("La durée standard d'un créneau doit être un entier positif (en minutes).")
+            if not new_val.isdigit() or not (5 <= int(new_val) <= 60):
+                raise ValueError("La durée standard d'un créneau doit être un entier compris entre 5 et 60 minutes.")
                 
             old_duration = int(self.value) if self.value.isdigit() else 30
             new_duration = int(new_val)

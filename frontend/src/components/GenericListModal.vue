@@ -37,6 +37,9 @@ import { ref, computed, inject, onMounted } from 'vue';
 import BaseModal from './BaseModal.vue';
 import GenericList from './GenericList.vue';
 import * as api from '../services/api';
+import { useNotificationStore } from '../stores/notifications';
+
+const notificationStore = useNotificationStore();
 
 const props = defineProps<{
   resourceKey: string;
@@ -180,12 +183,13 @@ async function onUpdateItem(item: any) {
       await api.updateGenericItem(props.resourceKey, item.id, item);
     }
     notifyResourceMutated();
-  } catch (err) {
+  } catch (err: any) {
     if (idx !== -1 && oldItem && !String(item.id).startsWith('new_')) {
       items.value[idx] = oldItem;
     } else if (idx !== -1) {
       items.value.splice(idx, 1);
     }
+    notificationStore.showNotification('error', err.message || 'Échec de l\'enregistrement.');
   }
 }
 
@@ -194,8 +198,10 @@ async function onDelete(item: any) {
     await api.deleteGenericItem(props.resourceKey, item.id);
     items.value = items.value.filter((x: any) => x.id !== item.id);
     notifyResourceMutated();
-  } catch (err) {
-    // La ligne reste affichée : rien à faire, l'échec est silencieux côté état local.
+  } catch (err: any) {
+    // La ligne reste affichée : rien à faire côté état local, l'échec est déjà silencieux là —
+    // mais l'utilisateur doit être prévenu (voir onUpdateItem, même correctif).
+    notificationStore.showNotification('error', err.message || 'Échec de la suppression.');
   }
 }
 </script>

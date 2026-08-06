@@ -246,8 +246,8 @@ class TestCompositionModes:
         assert len(children_1[0].class_parts) == 1
         # Une seule partie de classe : rattachement direct, pas de groupe dédié généré.
         assert len(children_1[0].groups) == 0
-        # Nommée {code division}{séparateur}{code matière}{numéro} (matière de la LIGNE, pas celle du parent).
-        assert children_1[0].class_parts[0].name == f"{divisions[0].code}P{other_subject.code}1"
+        # Nommée {1re lettre code division}{code matière}{séparateur}{numéro} (matière de la LIGNE, pas celle du parent).
+        assert children_1[0].class_parts[0].name == f"{divisions[0].code[0]}{other_subject.code}P1"
         assert children_1[0].class_parts[0].subject_id == other_subject.id
         # La Partition porte la matière "chapeau" du parent (désignée), pas celle de la ligne.
         parent_subject = db_session.get(Subject, subject_id)

@@ -323,7 +323,7 @@ class TestAlignment:
         with pytest.raises(ValueError, match="même modèle de répartition"):
             s2.update(db_session, {"alignment_id": alignment.id})
 
-    def test_editing_repartition_after_alignment_is_blocked_if_it_breaks_homogeneity(self, db_session):
+    def test_editing_repartition_of_aligned_service_propagates_to_siblings(self, db_session):
         school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
         division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
         mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
@@ -338,8 +338,79 @@ class TestAlignment:
         s1.update(db_session, {"alignment_id": alignment.id})
         s2.update(db_session, {"alignment_id": alignment.id})
 
-        with pytest.raises(ValueError, match="homogénéité"):
-            r1.update(db_session, {"occurrence_count": 3})
+        r1.update(db_session, {"occurrence_count": 3})
+
+        db_session.refresh(s2)
+        s2_repartitions = list(s2.repartitions)
+        assert len(s2_repartitions) == 1
+        assert s2_repartitions[0].occurrence_count == 3
+        assert s2_repartitions[0].duration_minutes == 60
+
+    def test_deleting_repartition_of_aligned_service_propagates_to_siblings(self, db_session):
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
+
+        alignment = Alignment.create(db_session, {"code": "AL4", "name": "Alignement Test 4"})
+        r1_a = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        r1_b = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "BIWEEKLY"})
+        ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "BIWEEKLY"})
+        s1.update(db_session, {"alignment_id": alignment.id})
+        s2.update(db_session, {"alignment_id": alignment.id})
+
+        r1_b.delete(db_session)
+
+        db_session.refresh(s2)
+        s2_repartitions = list(s2.repartitions)
+        assert len(s2_repartitions) == 1
+        assert s2_repartitions[0].occurrence_count == 2
+        assert s2_repartitions[0].duration_minutes == 60
+
+    def test_editing_repartition_propagates_across_three_aligned_services(self, db_session):
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        division_c = Division.create(db_session, {"school_id": school.id, "code": "6C", "name": "6ème C"})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        mef_division_c = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_c.id})
+        s2 = db_session.query(Service).filter(Service.mef_service_id == mef_service.id, Service.mef_division_id == mef_division_b.id).one()
+        s3 = db_session.query(Service).filter(Service.mef_service_id == mef_service.id, Service.mef_division_id == mef_division_c.id).one()
+
+        alignment = Alignment.create(db_session, {"code": "AL5", "name": "Alignement Test 5"})
+        r1 = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        ServiceRepartition.create(db_session, {"service_id": s3.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        s1.update(db_session, {"alignment_id": alignment.id})
+        s2.update(db_session, {"alignment_id": alignment.id})
+        s3.update(db_session, {"alignment_id": alignment.id})
+
+        r1.update(db_session, {"duration_minutes": 30})
+
+        db_session.refresh(s2)
+        db_session.refresh(s3)
+        assert [r.duration_minutes for r in s2.repartitions] == [30]
+        assert [r.duration_minutes for r in s3.repartitions] == [30]
+
+    def test_editing_repartition_of_unaligned_service_does_not_touch_others(self, db_session):
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
+
+        r1 = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        r2 = ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+
+        r1.update(db_session, {"occurrence_count": 5})
+
+        db_session.refresh(s2)
+        assert [r.occurrence_count for r in s2.repartitions] == [2]
 
 
 class TestCourseServiceConsistency:

@@ -19,6 +19,12 @@ class RepartitionPeriodicity(str, enum.Enum):
     BIWEEKLY = "BIWEEKLY"
 
 
+class RepartitionGroupType(str, enum.Enum):
+    FULL_CLASS = "FULL_CLASS"
+    SPLIT = "SPLIT"
+    REDUCED = "REDUCED"
+
+
 class Service(Base):
     """
     Service opérationnel : affectation réelle qui lie une structure (Division via MefDivision,
@@ -194,6 +200,43 @@ def _repartition_signature(service: "Service") -> frozenset:
     )
 
 
+def _sync_aligned_repartitions(db: Session, service: "Service"):
+    """
+    Propage le modèle de répartition de `service` vers tous les autres Service du même Alignment,
+    en remplaçant entièrement leurs ServiceRepartition par des copies des siennes — pour qu'ils
+    partagent exactement la même _repartition_signature. Remplace l'ancien comportement qui
+    rejetait la modification avec une erreur ("casse l'homogénéité...") : modifier la répartition
+    d'un service aligné répercute désormais le changement sur les autres services alignés, plutôt
+    que de le bloquer.
+
+    Garde de réentrance (db._syncing_alignment_repartitions) : recréer les ServiceRepartition d'un
+    service voisin ci-dessous déclenche à son tour ce même mécanisme sur ses propres lignes — sans
+    cette garde, chaque voisin re-déclencherait une synchronisation complète des AUTRES voisins,
+    déjà couverte par la boucle en cours.
+    """
+    if not service.alignment_id or getattr(db, "_syncing_alignment_repartitions", False):
+        return
+    siblings = db.query(Service).filter(Service.alignment_id == service.alignment_id, Service.id != service.id).all()
+    target_signature = _repartition_signature(service)
+    mismatched = [s for s in siblings if _repartition_signature(s) != target_signature]
+    if not mismatched:
+        return
+
+    db._syncing_alignment_repartitions = True
+    try:
+        reference_rows = [
+            {"occurrence_count": r.occurrence_count, "duration_minutes": r.duration_minutes, "periodicity": r.periodicity.value}
+            for r in service.repartitions
+        ]
+        for sibling in mismatched:
+            for old_row in list(sibling.repartitions):
+                old_row.delete(db)
+            for vals in reference_rows:
+                ServiceRepartition.create(db, {**vals, "service_id": sibling.id})
+    finally:
+        db._syncing_alignment_repartitions = False
+
+
 class ServiceRepartition(Base):
     """
     Ligne de décomposition d'un Service : un nombre d'occurrences hebdomadaires, d'une durée
@@ -209,6 +252,14 @@ class ServiceRepartition(Base):
     periodicity: Mapped[Any] = mapped_column(Enum(RepartitionPeriodicity, name="repartition_periodicity_enum"), nullable=False, default=RepartitionPeriodicity.WEEKLY, info={
         "label": "Périodicité", "type": "select",
         "options": [{"value": "WEEKLY", "label": "Chaque semaine"}, {"value": "BIWEEKLY", "label": "Une semaine sur deux"}],
+    })
+    group_type: Mapped[Any] = mapped_column(Enum(RepartitionGroupType, name="repartition_group_type_enum"), nullable=False, default=RepartitionGroupType.FULL_CLASS, info={
+        "label": "Type de regroupement", "type": "select",
+        "options": [
+            {"value": "FULL_CLASS", "label": "Classe entière"},
+            {"value": "SPLIT", "label": "Dédoublement"},
+            {"value": "REDUCED", "label": "Effectif réduit"},
+        ],
     })
     name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Nom", "readOnly": True})
 
@@ -233,13 +284,23 @@ class ServiceRepartition(Base):
         self.name = f"{self.occurrence_count}x{hours_text}({periodicity_letter})"
 
     @constrains()
-    def _check_sibling_alignment_still_matches(self, db: Session):
-        if not self.service or not self.service.alignment_id:
-            return
-        siblings = db.query(Service).filter(Service.alignment_id == self.service.alignment_id, Service.id != self.service_id).all()
-        for sibling in siblings:
-            if _repartition_signature(sibling) != _repartition_signature(self.service):
-                raise ValueError("Cette modification casse l'homogénéité de répartition requise par l'alignement du service.")
+    def _sync_sibling_alignment_repartitions(self, db: Session):
+        if self.service:
+            _sync_aligned_repartitions(db, self.service)
+
+    def delete(self, db: Session):
+        # Capturé avant suppression : self.service devient inaccessible une fois la ligne supprimée.
+        # Contrairement à create()/update(), delete() ne déclenche pas les méthodes @constrains
+        # (voir CRUDMixin.delete()) — d'où cet appel explicite pour couvrir aussi ce cas.
+        service = self.service
+        result = super().delete(db)
+        if service:
+            # service.repartitions a pu être chargée (et mise en cache par la Session) avant cette
+            # suppression — sans l'expirer, elle continuerait de renvoyer la ligne qu'on vient de
+            # retirer, faussant _repartition_signature(service) juste en dessous.
+            db.expire(service)
+            _sync_aligned_repartitions(db, service)
+        return result
 
 
 class Alignment(Base):

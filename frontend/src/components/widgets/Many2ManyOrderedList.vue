@@ -60,9 +60,11 @@
 import { ref, computed, watch, inject } from 'vue';
 import { fetchAllGenericItems, createGenericItem, updateGenericItem, deleteGenericItem } from '../../services/api';
 import SearchableSelect from '../SearchableSelect.vue';
+import { useNotificationStore } from '../../stores/notifications';
 
 const fkOptionsCache = inject<any>('fkOptionsCache', ref({}));
 const openApiSpec = inject<any>('openApiSpec', ref(null));
+const notificationStore = useNotificationStore();
 
 const props = defineProps<{
   modelValue: any[];
@@ -252,8 +254,13 @@ async function removeItem(index: number) {
   const id = localModel.value[index];
 
   if (isAssociationMode.value) {
-    await deleteGenericItem(props.field.resource, id);
-    notifyResourceMutated();
+    try {
+      await deleteGenericItem(props.field.resource, id);
+      notifyResourceMutated();
+    } catch (err: any) {
+      notificationStore.showNotification('error', err.message || 'Échec de la suppression.');
+      return;
+    }
   }
 
   const newArr = [...localModel.value];
@@ -269,10 +276,16 @@ async function addItem() {
     if (!props.parentRecord?.id) return;
     const parentField = props.widgetParams.parentField;
     const pickField = props.widgetParams.pickField;
-    const created = await createGenericItem(props.field.resource, {
-      [parentField]: props.parentRecord.id,
-      [pickField]: selectedToAdd.value
-    });
+    let created;
+    try {
+      created = await createGenericItem(props.field.resource, {
+        [parentField]: props.parentRecord.id,
+        [pickField]: selectedToAdd.value
+      });
+    } catch (err: any) {
+      notificationStore.showNotification('error', err.message || 'Échec de l\'ajout.');
+      return;
+    }
     notifyResourceMutated();
     localRowData.value = { ...localRowData.value, [created.id]: created };
     localModel.value = [...localModel.value, created.id];
@@ -301,9 +314,15 @@ function onCellInput(id: number, col: any, event: Event) {
 
 async function onCellEdit(id: number, col: any, event: Event) {
   const value = Number((event.target as HTMLInputElement).value) || 0;
-  const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
-  notifyResourceMutated();
-  localRowData.value = { ...localRowData.value, [id]: updated };
+  try {
+    const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
+    notifyResourceMutated();
+    localRowData.value = { ...localRowData.value, [id]: updated };
+  } catch (err: any) {
+    notificationStore.showNotification('error', err.message || 'Échec de l\'enregistrement.');
+  }
+  // Dans les deux cas, la saisie en brouillon n'a plus lieu d'être affichée : succès -> getCellValue
+  // reflète déjà la nouvelle valeur ; échec -> on revient à la valeur serveur (rejeter la saisie).
   const { [id + '-' + col.key]: _discard, ...rest } = draftValues.value;
   draftValues.value = rest;
 }
@@ -321,9 +340,13 @@ function fkColumnOptions(col: any): { value: any; label: string }[] {
 }
 
 async function onFkCellEdit(id: number, col: any, value: any) {
-  const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
-  notifyResourceMutated();
-  localRowData.value = { ...localRowData.value, [id]: updated };
+  try {
+    const updated = await updateGenericItem(props.field.resource, id, { [col.key]: value });
+    notifyResourceMutated();
+    localRowData.value = { ...localRowData.value, [id]: updated };
+  } catch (err: any) {
+    notificationStore.showNotification('error', err.message || 'Échec de l\'enregistrement.');
+  }
 }
 </script>
 

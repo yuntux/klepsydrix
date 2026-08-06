@@ -214,9 +214,11 @@ import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
 import { useDataStore } from './stores/data';
+import { useNotificationStore } from './stores/notifications';
 import { useQueryClient } from '@tanstack/vue-query';
 
 const dataStore = useDataStore();
+const notificationStore = useNotificationStore();
 const queryClient = useQueryClient();
 
 // Chargement asynchrone (Lazy Loading) des gros composants métiers
@@ -377,27 +379,16 @@ const modelToResourceType: Record<string, string> = {
   courses: 'Course',
 };
 
-// Notifications
-interface Notification {
-  id: number;
-  type: 'success' | 'error' | 'info';
-  message: string;
-}
-const notifications = ref<Notification[]>([]);
-let notificationId = 0;
-
+// Notifications — état déplacé dans stores/notifications.ts (voir plus haut) pour qu'un composant
+// hors de l'arbre direct d'App.vue (ex: GenericListModal.vue) puisse aussi déclencher la boîte
+// rouge/verte ; ces deux fonctions ne font que déléguer, pour ne pas toucher aux ~30 appels
+// showNotification(...)/removeNotification(...) existants plus bas dans ce fichier.
+const notifications = computed(() => notificationStore.notifications);
 function removeNotification(id: number) {
-  notifications.value = notifications.value.filter(n => n.id !== id);
+  notificationStore.removeNotification(id);
 }
-
 function showNotification(type: 'success' | 'error' | 'info', message: string) {
-  const id = ++notificationId;
-  notifications.value.push({ id, type, message });
-  if (type !== 'error') {
-    setTimeout(() => {
-      removeNotification(id);
-    }, 4500);
-  }
+  notificationStore.showNotification(type, message);
 }
 
 const scoreData = ref<{ hard_score: number; soft_score: number; summary: string; matches: Record<string, { hard: number; soft: number; count: number }> } | null>(null);

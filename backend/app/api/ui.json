@@ -1075,7 +1075,8 @@
                     "columns": {
                       "occurrence_count": { "visibleByDefault": true, "overrideLabel": "Occurrences" },
                       "duration_minutes": { "visibleByDefault": true, "overrideLabel": "Durée" },
-                      "periodicity": { "visibleByDefault": true, "overrideLabel": "Périodicité" }
+                      "periodicity": { "visibleByDefault": true, "overrideLabel": "Périodicité" },
+                      "group_type": { "visibleByDefault": true, "overrideLabel": "Type de regroupement" }
                     }
                   }
                 }
