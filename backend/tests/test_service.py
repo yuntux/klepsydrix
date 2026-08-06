@@ -244,7 +244,7 @@ class TestServiceSyncIndicator:
         })
         service = db_session.query(Service).filter(Service.mef_service_id == mef_service.id).one()
 
-        service.update(db_session, {"weekly_duration_full_class_minutes": 999})
+        service.update(db_session, {"weekly_duration_full_class_minutes": 300})
         assert mef_service.weekly_duration_full_class_minutes == 120
 
 

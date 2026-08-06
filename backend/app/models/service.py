@@ -1,10 +1,15 @@
 import enum
 import random
+from functools import partial
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
 from sqlalchemy import Column, Integer, Float, String, ForeignKey, Table, Enum
 from backend.app.models.base import Base, constrains, exposed, related_field
-from backend.app.models.course import get_duration_options
+from backend.app.core.time_utils import get_duration_options
+
+# Les 3 champs weekly_duration_*_minutes de Service/MefService valent 0 par défaut ("modalité non
+# utilisée") : contrairement à Course/ServiceRepartition, leurs options doivent inclure 0.
+_weekly_duration_options = partial(get_duration_options, include_zero=True)
 
 service_teachers = Table(
     "service_teachers",
@@ -65,9 +70,9 @@ class Service(Base):
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif", "min": 0, "max": 50})
     weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
 
-    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "min": 0})
-    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "min": 0})
-    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "min": 0})
+    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "select", "options": _weekly_duration_options})
+    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "select", "options": _weekly_duration_options})
+    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "select", "options": _weekly_duration_options})
     reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
 
     # Champs mirroir du MefService d'origine : copiés à la génération, comparés par
@@ -123,6 +128,13 @@ class Service(Base):
         ).first()
         if duplicate:
             raise ValueError("Un Service existe déjà pour ce couple MefService/MefDivision (générés automatiquement à la création du MefService ou du MefDivision).")
+
+    @constrains('weekly_duration_full_class_minutes', 'weekly_duration_reduced_minutes', 'weekly_duration_split_minutes')
+    def validate_weekly_durations_multiple(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.weekly_duration_full_class_minutes, "La durée hebdomadaire classe entière du service")
+        validate_multiple_of_standard_timeslot(db, self.weekly_duration_reduced_minutes, "La durée hebdomadaire effectif réduit du service")
+        validate_multiple_of_standard_timeslot(db, self.weekly_duration_split_minutes, "La durée hebdomadaire effectif dédoublé du service")
 
     @constrains("alignment_id")
     def _check_alignment_repartition_match(self, db: Session):
@@ -269,11 +281,8 @@ class ServiceRepartition(Base):
 
     @constrains("duration_minutes")
     def validate_duration_multiple(self, db: Session):
-        from backend.app.models.system_setting import SystemSetting
-        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
-        duration = int(val)
-        if self.duration_minutes % duration != 0:
-            raise ValueError(f"La durée de la répartition ({self.duration_minutes} min) doit être un multiple exact du créneau standard ({duration} min).")
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la répartition")
 
     @constrains()
     def _compute_name(self, db: Session):

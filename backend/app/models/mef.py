@@ -1,9 +1,15 @@
 from datetime import date, datetime, time
+from functools import partial
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
-from sqlalchemy.orm import relationship
-from backend.app.models.base import Base, exposed
+from sqlalchemy.orm import relationship, Session
+from backend.app.models.base import Base, constrains, exposed
+from backend.app.core.time_utils import get_duration_options
+
+# Voir backend/app/models/service.py : mêmes 3 champs (miroir), même besoin d'inclure 0 ("modalité
+# non utilisée", valeur par défaut) dans les options du menu déroulant.
+_weekly_duration_options = partial(get_duration_options, include_zero=True)
 
 class Mef(Base):
     __tablename__ = "mefs"
@@ -62,9 +68,9 @@ class MefService(Base):
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif attendu par division", "min": 0, "max": 50})
     weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
 
-    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "min": 0})
-    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "min": 0})
-    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "min": 0})
+    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "select", "options": _weekly_duration_options})
+    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "select", "options": _weekly_duration_options})
+    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "select", "options": _weekly_duration_options})
     reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
 
     # Relations de navigation
@@ -80,6 +86,13 @@ class MefService(Base):
         return (self.weekly_duration_full_class_minutes or 0) \
             + (self.weekly_duration_reduced_minutes or 0) \
             + (self.weekly_duration_split_minutes or 0)
+
+    @constrains('weekly_duration_full_class_minutes', 'weekly_duration_reduced_minutes', 'weekly_duration_split_minutes')
+    def validate_weekly_durations_multiple(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.weekly_duration_full_class_minutes, "La durée hebdomadaire classe entière du gabarit")
+        validate_multiple_of_standard_timeslot(db, self.weekly_duration_reduced_minutes, "La durée hebdomadaire effectif réduit du gabarit")
+        validate_multiple_of_standard_timeslot(db, self.weekly_duration_split_minutes, "La durée hebdomadaire effectif dédoublé du gabarit")
 
     @classmethod
     def create(cls, db, vals: dict):

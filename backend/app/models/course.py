@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, exposed, constrains, onchange
 from backend.app.models.preference import WeekType
+from backend.app.core.time_utils import get_duration_options
 
 course_teachers = Table(
     "course_teachers",
@@ -70,28 +71,6 @@ course_periods = Table(
     Column("period_id", Integer, ForeignKey("periods.id", ondelete="CASCADE"), primary_key=True),
     extend_existing=True
 )
-
-def get_duration_options():
-    from backend.app.core.database import SessionLocal
-    from backend.app.models.system_setting import SystemSetting
-    db = SessionLocal()
-    try:
-        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
-        step = int(val)
-        
-        def format_duration(minutes):
-            if minutes >= 60:
-                h = minutes // 60
-                m = minutes % 60
-                return f"{h}h" if m == 0 else f"{h}h{m:02d}"
-            return f"{minutes} min"
-            
-        # Générer des options jusqu'à 8 heures (480 minutes)
-        max_duration_minutes = 480
-        num_slots = max_duration_minutes // step
-        return [{"value": step * i, "label": format_duration(step * i)} for i in range(1, num_slots + 1)]
-    finally:
-        db.close()
 
 class Course(Base):
     __tablename__ = "courses"
@@ -375,11 +354,8 @@ class Course(Base):
 
     @constrains('duration_minutes')
     def validate_duration_multiple(self, db):
-        from backend.app.models.system_setting import SystemSetting
-        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
-        duration = int(val)
-        if self.duration_minutes % duration != 0:
-            raise ValueError(f"La durée du cours ({self.duration_minutes} min) doit être un multiple exact du créneau standard ({duration} min).")
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée du cours")
 
     @constrains('duration_minutes', 'parent_id', 'timeslot_id')
     def validate_child_constraints(self, db):
