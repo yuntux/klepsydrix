@@ -253,17 +253,24 @@ class Course(Base):
         if not self.is_composed:
             self.decomposition_status = None
         else:
-            # Récupérer les enfants depuis la relation en mémoire ET les nouveaux objets dans la session
+            # Récupérer les enfants par requête directe (pas via self.children) ET les nouveaux
+            # objets pas encore flushés. self.children est une collection ORM back_populates :
+            # une fois chargée, elle reste en mémoire telle quelle pour le reste de la session,
+            # y compris après la suppression d'un frère faite "de l'autre côté" par une requête
+            # directe (voir Course.rpc_save_composition, qui boucle sur plusieurs child.delete()
+            # d'affilée) — un accès ultérieur à un enfant déjà supprimé-et-flushé dans cette même
+            # collection lève "Instance has been deleted". Une requête fraîche évite ce piège.
             children = set()
-            if self.children:
-                children.update(self.children)
             if db:
+                children.update(db.query(Course).filter(Course.parent_id == self.id).all())
                 for obj in db.new:
                     if isinstance(obj, Course) and obj.parent_id is not None and obj.parent_id == self.id:
                         children.add(obj)
                 for obj in db.deleted:
                     if isinstance(obj, Course) and obj in children:
                         children.remove(obj)
+            elif self.children:
+                children.update(self.children)
             
             # Appliquer l'exclusion si demandée
             if exclude_child_id:
@@ -322,8 +329,10 @@ class Course(Base):
         parent = db.get(self.__class__, self.parent_id)
         if not parent:
             return
-            
-        children = [c for c in parent.children if c.id != exclude_child_id]
+
+        # Requête directe plutôt que parent.children (voir recompute_status ci-dessus, même piège
+        # de collection ORM obsolète après une suppression faite "de l'autre côté").
+        children = [c for c in db.query(self.__class__).filter(self.__class__.parent_id == parent.id).all() if c.id != exclude_child_id]
         if not children:
             return
             
@@ -727,9 +736,16 @@ class Course(Base):
     def rpc_save_composition(self, db: Session, children_vals: list[dict]) -> dict:
         """Sauvegarde définitivement les enfants modifiés par l'utilisateur."""
         # 1. Supprimer les anciens enfants proprement sans déclencher de synchronisation intermédiaire sur le parent
+        # Pas de détachement préalable (child.parent_id = None) : ce serait une mutation directe
+        # hors CRUDMixin, or Course.delete() fait un premier db.flush() (nettoyage
+        # ResourcePreference) AVANT d'appeler super().delete() — donc avant que
+        # _via_crud_mixin_delete/_via_crud_mixin_update soient positionnés. Cet enfant resterait
+        # "sale" au moment de ce flush, et le before_update générique le rejetterait ("Mise à jour
+        # directe interdite"). Inutile de toute façon : l'enfant va être supprimé, nul besoin de
+        # vider sa FK avant. Garder parent_id intact permet aussi à Course.delete() de retrouver le
+        # parent pour recompute_status()/_sync_parent_week_type().
         children_to_delete = db.query(Course).filter(Course.parent_id == self.id).all()
         for child in children_to_delete:
-            child.parent_id = None  # On détache l'enfant avant sa suppression
             child.delete(db)
             
         # 2. Créer les nouveaux enfants de manière isolée pour éviter de perturber le parent prématurément
