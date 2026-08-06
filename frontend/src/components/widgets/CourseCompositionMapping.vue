@@ -6,6 +6,7 @@
         <thead>
           <tr>
             <th>Professeurs</th>
+            <th>Matière</th>
             <th>Groupes</th>
             <th>Parties de classe</th>
             <th>Classes</th>
@@ -21,6 +22,14 @@
                 :options="teacherOptions"
                 :disabled="disabled"
                 placeholder="Sélectionner"
+                @change="onTeacherChanged(row)" />
+            </td>
+            <td>
+              <SearchableSelect
+                v-model="row.subject_id"
+                :options="subjectOptions"
+                :disabled="disabled"
+                placeholder="Matière"
                 @change="onMappingChanged" />
             </td>
             <td>
@@ -104,6 +113,7 @@
 // {mapping, mode} ; voir CourseCompositionPreview.vue pour l'étape suivante.
 import { ref, computed, onMounted, watch } from 'vue';
 import BaseButton from '../BaseButton.vue';
+import SearchableSelect from '../SearchableSelect.vue';
 import SearchableMultiSelect from '../SearchableMultiSelect.vue';
 import * as api from '../../services/api';
 
@@ -120,15 +130,20 @@ const emit = defineEmits<{
 }>();
 
 const teacherOptions = ref<Array<{ value: number; label: string }>>([]);
+const subjectOptions = ref<Array<{ value: number; label: string }>>([]);
 const groupOptions = ref<Array<{ value: number; label: string }>>([]);
 const classPartOptions = ref<Array<{ value: number; label: string }>>([]);
 const divisionOptions = ref<Array<{ value: number; label: string }>>([]);
 const classroomOptions = ref<Array<{ value: number; label: string }>>([]);
+// teacher.id -> teacher.preferred_subject_id, pour pré-remplir la matière d'une ligne dès qu'on y
+// choisit un premier professeur (voir onTeacherChanged) — jamais recalculé de force ensuite, une
+// matière déjà choisie (par cette pré-saisie ou manuellement) n'est plus jamais écrasée.
+const teacherPreferredSubject = ref<Record<number, number>>({});
 
 const mapping = ref<Array<any>>(
   props.modelValue?.mapping?.length
     ? props.modelValue.mapping.map((r: any) => ({ ...r }))
-    : [{ teacher_ids: [], group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [] }]
+    : [{ teacher_ids: [], subject_id: null, group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [] }]
 );
 const selectedMode = ref<number | null>(props.modelValue?.mode ?? null);
 const availableModes = ref<number[]>([]);
@@ -162,17 +177,25 @@ let debounceTimeout: any = null;
 
 onMounted(async () => {
   const source = props.widgetParams?.sourceRecord || {};
-  const [teachersRes, groupsRes, classPartsRes, divisionsRes, classroomsRes] = await Promise.all([
-    api.fetchGenericList('teachers', 0, 1000),
-    api.fetchGenericList('groups', 0, 1000),
-    api.fetchGenericList('class_parts', 0, 1000),
-    api.fetchGenericList('divisions', 0, 1000),
-    api.fetchGenericList('classrooms', 0, 1000),
+  const [teachersRes, subjectsRes, groupsRes, classPartsRes, divisionsRes, classroomsRes] = await Promise.all([
+    api.fetchAllGenericItems('teachers'),
+    api.fetchAllGenericItems('subjects'),
+    api.fetchAllGenericItems('groups'),
+    api.fetchAllGenericItems('class_parts'),
+    api.fetchAllGenericItems('divisions'),
+    api.fetchAllGenericItems('classrooms'),
   ]);
 
   const filterByIds = (items: any[], ids: number[]) => (ids && ids.length > 0 ? items.filter((i: any) => ids.includes(i.id)) : items);
 
   teacherOptions.value = filterByIds(teachersRes.items, source.teacher_ids).map((i: any) => ({ value: i.id, label: `${i.first_name} ${i.last_name}` }));
+  // Pas de filtrage par matière du parent : un cours composé n'a souvent aucune matière propre
+  // (ex: "Pôle Sciences", subject_id NULL) — le mapping doit pouvoir choisir parmi TOUTES les
+  // matières, c'est justement ce qui permet à chaque enfant d'avoir la sienne.
+  subjectOptions.value = subjectsRes.items.map((i: any) => ({ value: i.id, label: i.name || `Matière ${i.id}` }));
+  teacherPreferredSubject.value = Object.fromEntries(
+    teachersRes.items.filter((t: any) => t.preferred_subject_id != null).map((t: any) => [t.id, t.preferred_subject_id])
+  );
   groupOptions.value = filterByIds(groupsRes.items, source.group_ids).map((i: any) => ({ value: i.id, label: i.name || `Groupe ${i.id}` }));
   classPartOptions.value = filterByIds(classPartsRes.items, source.class_part_ids).map((i: any) => ({ value: i.id, label: i.name || `Partie ${i.id}` }));
   divisionOptions.value = filterByIds(divisionsRes.items, source.division_ids).map((i: any) => ({ value: i.id, label: i.name || `Classe ${i.id}` }));
@@ -180,7 +203,9 @@ onMounted(async () => {
 
   if (!props.modelValue?.mapping?.length && source.teacher_ids?.length > 0) {
     mapping.value = source.teacher_ids.map((teacherId: number) => ({
-      teacher_ids: [teacherId], group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [],
+      teacher_ids: [teacherId],
+      subject_id: teacherPreferredSubject.value[teacherId] ?? null,
+      group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [],
     }));
   }
 
@@ -203,12 +228,23 @@ function getModeLabel(mode: number) {
 }
 
 function addMappingRow() {
-  mapping.value.push({ teacher_ids: [], group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [] });
+  mapping.value.push({ teacher_ids: [], subject_id: null, group_ids: [], class_part_ids: [], division_ids: [], classroom_ids: [] });
   onMappingChanged();
 }
 
 function removeMappingRow(index: number) {
   mapping.value.splice(index, 1);
+  onMappingChanged();
+}
+
+// Pré-remplit la matière de la ligne depuis la matière préférée du premier professeur ajouté —
+// seulement si la ligne n'a pas déjà de matière (jamais d'écrasement d'une valeur déjà choisie,
+// manuellement ou par une pré-saisie précédente).
+function onTeacherChanged(row: any) {
+  if ((row.subject_id === undefined || row.subject_id === null) && row.teacher_ids?.length > 0) {
+    const preferred = teacherPreferredSubject.value[row.teacher_ids[0]];
+    if (preferred != null) row.subject_id = preferred;
+  }
   onMappingChanged();
 }
 

@@ -79,7 +79,7 @@ function emitUpdate() {
 
 onMounted(async () => {
   const source = props.widgetParams?.sourceRecord || {};
-  const res = await api.fetchGenericList('periods', 0, 1000);
+  const res = await api.fetchAllGenericItems('periods');
   const items = source.period_ids?.length ? res.items.filter((i: any) => source.period_ids.includes(i.id)) : res.items;
   periodOptions.value = items.map((i: any) => ({ value: i.id, label: i.name || `Période ${i.id}` }));
 });

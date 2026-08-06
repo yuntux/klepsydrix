@@ -447,7 +447,7 @@ async function loadSchools() {
   try {
     const res = await queryClient.fetchQuery({
       queryKey: ['genericList', 'schools'],
-      queryFn: () => api.fetchGenericList('schools', 0, 1000)
+      queryFn: () => api.fetchAllGenericItems('schools')
     });
     schoolsList.value = res.items;
   } catch (e) {
@@ -459,7 +459,7 @@ async function loadPeriodTypes() {
   try {
     const res = await queryClient.fetchQuery({
       queryKey: ['genericList', 'period_types'],
-      queryFn: () => api.fetchGenericList('period_types', 0, 1000)
+      queryFn: () => api.fetchAllGenericItems('period_types')
     });
     periodTypesList.value = res.items;
   } catch (e) {
@@ -471,7 +471,7 @@ async function loadPeriods() {
   try {
     const res = await queryClient.fetchQuery({
       queryKey: ['genericList', 'periods'],
-      queryFn: () => api.fetchGenericList('periods', 0, 1000)
+      queryFn: () => api.fetchAllGenericItems('periods')
     });
     periodsList.value = res.items;
   } catch (e) {
@@ -487,7 +487,7 @@ async function loadGenericItems() {
     const filters = listPanel?.listConfig?.filters || {};
     const res = await queryClient.fetchQuery({
       queryKey: ['genericList', activeAdminModel.value, filters],
-      queryFn: () => api.fetchGenericList(activeAdminModel.value, 0, 1000, undefined, filters)
+      queryFn: () => api.fetchAllGenericItems(activeAdminModel.value, undefined, filters)
     });
     genericItems.value = res.items;
   } catch (err: any) {
@@ -508,7 +508,7 @@ async function refreshFkOptionsForResource(resourceName: string) {
   try {
     const res = await queryClient.fetchQuery({
       queryKey: ['genericList', resourceName],
-      queryFn: () => api.fetchGenericList(resourceName, 0, 1000)
+      queryFn: () => api.fetchAllGenericItems(resourceName)
     });
     fkOptionsCache.value[resourceName] = {
       items: (res.items || []).map((item: any) => ({
@@ -1012,7 +1012,7 @@ async function loadDetailListItems() {
     // d'une classe, pas seulement le premier) : le endpoint générique ne filtre que sur une valeur
     // scalaire, donc on récupère la liste complète puis on garde les lignes dont filterField
     // correspond à l'une des valeurs du maître.
-    const res = await api.fetchGenericList(detailPanel.resourceKey, 0, 1000);
+    const res = await api.fetchAllGenericItems(detailPanel.resourceKey);
     const filterSet = new Set(filterValues);
     detailListItems.value = res.items.filter((item: any) => filterSet.has(item[filterField]));
   } catch (err: any) {

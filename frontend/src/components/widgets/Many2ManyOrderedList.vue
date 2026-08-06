@@ -58,7 +58,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, inject } from 'vue';
-import { fetchGenericList, createGenericItem, updateGenericItem, deleteGenericItem } from '../../services/api';
+import { fetchAllGenericItems, createGenericItem, updateGenericItem, deleteGenericItem } from '../../services/api';
 import SearchableSelect from '../SearchableSelect.vue';
 
 const fkOptionsCache = inject<any>('fkOptionsCache', ref({}));
@@ -108,7 +108,7 @@ async function loadPickOptions() {
   if (!isAssociationMode.value) return;
   const resourceName = props.widgetParams.pickResource;
   const schoolId = props.parentRecord?.school_id;
-  const res = await fetchGenericList(resourceName, 0, 1000, schoolId);
+  const res = await fetchAllGenericItems(resourceName, schoolId);
   pickOptions.value = res.items;
 }
 
@@ -125,7 +125,7 @@ async function loadColumnResourceOptions() {
       .filter((r: string | undefined) => !!r)
   );
   await Promise.all(Array.from(resourceNames).map(async (resourceName) => {
-    const res = await fetchGenericList(resourceName, 0, 1000);
+    const res = await fetchAllGenericItems(resourceName);
     columnOptionsCache.value = { ...columnOptionsCache.value, [resourceName]: res.items };
   }));
 }

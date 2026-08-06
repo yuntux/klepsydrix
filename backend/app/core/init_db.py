@@ -304,6 +304,20 @@ def seed_v2_data():
                 ), {"service_id": s_id, "teacher_id": t_id})
         db.commit()
 
+        # 11d. Matière(s) enseignée(s) pour 2 profs du collège (m2m teacher_subjects) : chacun
+        # n'a que Maths -> preferred_subject_id calculé manuellement (le seed est en raw SQL, donc
+        # le @constrains de Teacher._sync_preferred_subject ne se déclenche jamais ici, comme pour
+        # tout autre champ calculé du seed, ex: ServiceRepartition.name). Sert à tester la
+        # pré-saisie automatique de la matière dans l'assistant de décomposition de cours.
+        for t_id in teacher_pool_clg[:2]:
+            db.execute(text(
+                "INSERT INTO teacher_subjects (teacher_id, subject_id) VALUES (:teacher_id, :subject_id)"
+            ), {"teacher_id": t_id, "subject_id": maths_id})
+            db.execute(text(
+                "UPDATE teachers SET preferred_subject_id = :subject_id WHERE id = :teacher_id"
+            ), {"teacher_id": t_id, "subject_id": maths_id})
+        db.commit()
+
         # 12. Création des Salles de Classe (10 salles)
         classrooms = []
         for i in range(1, 11):

@@ -24,7 +24,13 @@
       :submitLabel="currentStep.submitLabel"
       @submit="onStepSubmit"
       @cancel="$emit('cancel')"
-    />
+    >
+      <template #actions-start>
+        <BaseButton v-if="currentStepIndex > 0" type="button" variant="secondary" class="wizard-back-btn" @click="goBack">
+          Précédent
+        </BaseButton>
+      </template>
+    </GenericForm>
   </div>
 </template>
 
@@ -55,6 +61,7 @@
 //   lieu d'avancer à l'étape suivante.
 import { ref, computed, reactive } from 'vue';
 import GenericForm from '../GenericForm.vue';
+import BaseButton from '../BaseButton.vue';
 import * as api from '../../services/api';
 
 interface WizardStep {
@@ -141,6 +148,16 @@ function advanceOrFinish(step: WizardStep) {
     currentStepIndex.value++;
   }
 }
+
+// Navigation locale uniquement (pas de ré-appel RPC) : l'étape précédente se ré-affiche avec le
+// brouillon accumulé tel quel — un champ déjà rempli à cette étape (ex: la sélection de mapping)
+// reste visible, l'utilisateur peut le modifier puis ré-avancer, ce qui rappellera le RPC de
+// l'étape avec les valeurs à jour.
+function goBack() {
+  if (currentStepIndex.value > 0) {
+    currentStepIndex.value--;
+  }
+}
 </script>
 
 <style scoped>
@@ -149,6 +166,15 @@ function advanceOrFinish(step: WizardStep) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* GenericForm.vue (mode inline) a son propre .form-body en overflow-y:auto + max-height:80vh —
+   pertinent quand il est utilisé seul (ex: panneau latéral), mais le wizard est déjà hébergé dans
+   une modale qui défile elle-même (BaseModal.vue, .modal-body). Sans ça, deux ascenseurs
+   indépendants s'empilent. Neutralisé ici uniquement (via :deep, jamais dans GenericForm.vue
+   lui-même) pour que seule la modale défile. */
+.generic-wizard :deep(.generic-form-inline .form-body) {
+  max-height: none;
+  overflow-y: visible;
 }
 .wizard-loading {
   display: flex;
@@ -175,7 +201,11 @@ function advanceOrFinish(step: WizardStep) {
 }
 .wizard-steps-indicator {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+.wizard-back-btn {
+  margin-right: auto;
 }
 .wizard-step-pill {
   font-size: 12px;

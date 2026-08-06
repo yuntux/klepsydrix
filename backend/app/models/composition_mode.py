@@ -150,9 +150,17 @@ class CompositionModes:
 
     @staticmethod
     def _build_base_vals(course: Course, map_row: dict) -> dict:
-        """Fusionne les données communes du parent avec les ressources spécifiques du mapping."""
+        """
+        Fusionne les données communes du parent avec les ressources spécifiques du mapping.
+
+        subject_id vient en priorité de la ligne de mapping, avec repli sur celui du parent :
+        un cours composé parent a souvent subject_id=NULL (ex: un cours "Pôle Sciences" qui
+        regroupe SVT/Physique-Chimie/Techno, chaque enfant ayant sa propre matière) — sans ce
+        repli sur le mapping, tous les enfants générés hériteraient de ce NULL, alors que chaque
+        enfant est un cours "simple" pour lequel une matière est censée être obligatoire.
+        """
         return {
-            'subject_id': course.subject_id,
+            'subject_id': map_row.get('subject_id') or course.subject_id,
             'school_id': course.school_id,
             'duration_minutes': course.duration_minutes,
             'parent_id': course.id,

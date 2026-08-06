@@ -170,7 +170,7 @@ async function loadPeriods() {
     return;
   }
   try {
-    const res = await api.fetchGenericList('periods', 0, 1000, selectedSchoolId.value);
+    const res = await api.fetchAllGenericItems('periods', selectedSchoolId.value);
     console.log("[PeriodTransitionManager] fetched periods list:", res.items);
     localPeriods.value = res.items
       .filter((p: any) => Number(p.period_type_id) === Number(props.periodTypeId))

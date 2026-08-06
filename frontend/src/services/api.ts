@@ -118,6 +118,32 @@ export async function fetchGenericList(
   return response.json();
 }
 
+// Récupère TOUS les enregistrements d'une ressource, en paginant par appels successifs de
+// fetchGenericList plutôt qu'un unique appel avec une limite arbitraire (1000, 2000, 5000...)
+// codée en dur à chaque site d'appel — ce plafond tronquait silencieusement toute ressource qui
+// le dépasserait un jour (aucune erreur, aucun avertissement, juste des lignes manquantes). Ne
+// fait PAS de pagination serveur réelle (voir le mode `lazy` d'une bibliothèque de type
+// DataTable pour ça, hors périmètre ici) : charge tout en mémoire, comme le faisaient déjà tous
+// les appelants existants, juste sans plafond arbitraire et de façon homogène.
+export async function fetchAllGenericItems(
+  resourceName: string,
+  schoolId?: number,
+  filters?: Record<string, any>
+): Promise<{ total: number; items: any[] }> {
+  const pageSize = 500;
+  let skip = 0;
+  let items: any[] = [];
+  let total = Infinity;
+  while (skip < total) {
+    const res = await fetchGenericList(resourceName, skip, pageSize, schoolId, filters);
+    items = items.concat(res.items);
+    total = res.total;
+    skip += pageSize;
+    if (res.items.length === 0) break; // Garde-fou anti-boucle infinie si total est incohérent.
+  }
+  return { total, items };
+}
+
 export async function createGenericItem(resourceName: string, payload: any): Promise<any> {
   const response = await fetch(`/api/generic/${resourceName}`, {
     method: 'POST',

@@ -1,9 +1,16 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, related_field
+from backend.app.models.base import Base, related_field, constrains
+
+teacher_subjects = Table(
+    "teacher_subjects",
+    Base.metadata,
+    Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True),
+    Column("subject_id", Integer, ForeignKey("subjects.id", ondelete="CASCADE"), primary_key=True),
+)
 
 class Teacher(Base):
     __tablename__ = "teachers"
@@ -13,13 +20,32 @@ class Teacher(Base):
     first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Prénom", "placeholder": "ex: Marc"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
     max_weekly_hours: Mapped[float] = mapped_column(Float, nullable=False, default=18.0, info={"label": "Heures max hebdomadaires", "min": 1.0, "max": 40.0, "step": "0.5"})
-    
+
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement Principal"})
+    # Nullable : un prof peut ne déclarer aucune matière préférée, même s'il a des matières
+    # enseignées (subject_ids) — cf. _sync_preferred_subject ci-dessous pour le seul cas où ce
+    # champ est calculé automatiquement plutôt que saisi librement.
+    preferred_subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, info={"label": "Matière préférée"})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="teachers")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all", info={"label": "Cours"})
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)
+    subjects: Mapped[list["Subject"]] = relationship("Subject", secondary=teacher_subjects, info={"label": "Matières enseignées"})
+    preferred_subject: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[preferred_subject_id])
+
+    @constrains("subject_ids", "preferred_subject_id")
+    def _sync_preferred_subject(self, db: Session):
+        """
+        S'il n'y a qu'une seule matière enseignée, la matière préférée est nécessairement
+        celle-là — champ calculé et stocké dans ce cas précis (pattern déjà utilisé ailleurs,
+        ex: ServiceRepartition.name), pas une simple validation qui rejetterait la sauvegarde :
+        avec un seul choix possible, il n'y a rien à demander explicitement à l'utilisateur.
+        Dans tous les autres cas (0 ou plusieurs matières enseignées), preferred_subject_id reste
+        un champ librement éditable.
+        """
+        if len(self.subjects) == 1:
+            self.preferred_subject_id = self.subjects[0].id
 
     # Déclaration déclarative et compacte des champs liés (Style Odoo)
     max_hours_per_day = related_field("constraint_record", "max_hours_per_day", info={"label": "Max Heures par Jour", "min": 0, "max": 12, "step": "0.5"})

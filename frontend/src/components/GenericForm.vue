@@ -27,6 +27,10 @@
         />
 
         <div class="form-actions">
+          <!-- Point d'extension générique, tout à gauche de la ligne d'actions : GenericForm ne
+               sait pas ce qui s'y trouve (ex: GenericWizard.vue y place son bouton "Précédent"),
+               volontairement pour ne coupler ce composant à aucun besoin spécifique. -->
+          <slot name="actions-start"></slot>
           <BaseButton v-if="localModel && localModel.id && !isMultiEdit" type="button" variant="danger" class="btn-delete" @click="handleDelete">
             Supprimer
           </BaseButton>

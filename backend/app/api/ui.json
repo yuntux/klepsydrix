@@ -293,6 +293,32 @@
                       "type": "group",
                       "string": "Contrat & Rattachement",
                       "col": 2
+                    },
+                    {
+                      "type": "newline"
+                    },
+                    {
+                      "type": "separator",
+                      "string": "Matières"
+                    },
+                    {
+                      "children": [
+                        {
+                          "key": "subject_ids",
+                          "overrideLabel": "Matières enseignées",
+                          "readOnly": false
+                        },
+                        {
+                          "key": "preferred_subject_id",
+                          "overrideLabel": "Matière préférée",
+                          "readOnly": false,
+                          "readOnlyExpr": "model.subject_ids && model.subject_ids.length === 1",
+                          "help": "Calculée automatiquement s'il n'y a qu'une seule matière enseignée ; librement modifiable sinon."
+                        }
+                      ],
+                      "type": "group",
+                      "string": "Matières",
+                      "col": 2
                     }
                   ]
                 }

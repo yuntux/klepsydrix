@@ -368,7 +368,7 @@ const neededResources = computed(() => {
 
 async function loadOptionMaps() {
   const resources = neededResources.value;
-  const results = await Promise.all(resources.map(r => api.fetchGenericList(r, 0, 2000)));
+  const results = await Promise.all(resources.map(r => api.fetchAllGenericItems(r)));
   const maps: Record<string, Record<number, string>> = {};
   resources.forEach((r, i) => {
     maps[r] = Object.fromEntries((results[i].items || []).map((it: any) => [it.id, it.display_name || it.name || String(it.id)]));
@@ -377,7 +377,7 @@ async function loadOptionMaps() {
 }
 
 async function loadRecords() {
-  const res = await api.fetchGenericList(props.resourceKey, 0, 5000);
+  const res = await api.fetchAllGenericItems(props.resourceKey);
   records.value = res.items || [];
 }
 

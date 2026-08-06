@@ -144,7 +144,7 @@ async function loadItems() {
   loading.value = true;
   try {
     const filters = props.ids ? { ids: props.ids.join(',') } : { [props.filterField as string]: props.filterValue };
-    const res = await api.fetchGenericList(props.resourceKey, 0, 1000, undefined, filters);
+    const res = await api.fetchAllGenericItems(props.resourceKey, undefined, filters);
     items.value = res.items || [];
   } finally {
     loading.value = false;
