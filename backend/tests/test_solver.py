@@ -96,13 +96,13 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     partition1 = Partition.create(db_session, {"code": "PART_LANG", "name": "Partition Langues", "division_id": d1.id})
     partition2 = Partition.create(db_session, {"code": "PART_LV2", "name": "Partition LV2", "division_id": d1.id})
 
-    cp1 = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "code": "CP_ANG", "name": "Anglais"})
-    cp2 = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "code": "CP_ESP", "name": "Espagnol"})
+    cp1 = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "name": "Anglais"})
+    cp2 = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "name": "Espagnol"})
     link = db_session.query(ClassPartLink).filter_by(class_part_a_id=min(cp1.id, cp2.id), class_part_b_id=max(cp1.id, cp2.id)).first()
     assert link is not None
 
-    g1 = Group.create(db_session, {"code": "G1", "name": "Groupe 1", "class_part_ids": [cp1.id]})
-    g2 = Group.create(db_session, {"code": "G2", "name": "Groupe 2", "class_part_ids": [cp2.id]})
+    g1 = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id]})
+    g2 = Group.create(db_session, {"name": "Groupe 2", "class_part_ids": [cp2.id]})
 
     course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "group_ids": [g1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 30})
     course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "division_ids": [d1.id], "group_ids": [g2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 30})
@@ -549,8 +549,8 @@ def test_auto_create_class_part_links(db_session: Session):
     partition2 = Partition.create(db_session, {"code": "P_ART", "name": "Partition Arts", "division_id": d1.id})
 
     # Création des parties pour partition 1
-    cp1_a = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "code": "CP_ANG_TEST", "name": "Anglais"})
-    cp1_b = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "code": "CP_GER_TEST", "name": "Allemand"})
+    cp1_a = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "name": "Anglais"})
+    cp1_b = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition1.id, "name": "Allemand"})
 
     # À ce stade, pas de liens créés car pas d'autre partition contenant des parties
     links_before = db_session.query(ClassPartLink).all()
@@ -558,7 +558,7 @@ def test_auto_create_class_part_links(db_session: Session):
     assert len(links_test_before) == 0
 
     # Création des parties pour partition 2
-    cp2_a = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "code": "CP_ART_TEST", "name": "Arts Plastiques"})
+    cp2_a = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "name": "Arts Plastiques"})
     
     # cp2_a doit être liée automatiquement à cp1_a et cp1_b
     links = db_session.query(ClassPartLink).all()
@@ -570,7 +570,7 @@ def test_auto_create_class_part_links(db_session: Session):
     assert len(links_cp2_a_ger) == 1
 
     # Création de cp2_b
-    cp2_b = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "code": "CP_MUS_TEST", "name": "Musique"})
+    cp2_b = ClassPart.create(db_session, {"division_id": d1.id, "partition_id": partition2.id, "name": "Musique"})
 
     # cp2_b doit être liée à cp1_a et cp1_b
     links = db_session.query(ClassPartLink).all()
@@ -602,13 +602,13 @@ def test_student_and_link_constraints(db_session: Session):
     p2_id = p2.id
     
     # ClassParts
-    cp1_a = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p1_id, "code": "CP_1A", "name": "Part 1A"})
-    cp1_b = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p1_id, "code": "CP_1B", "name": "Part 1B"})
+    cp1_a = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p1_id, "name": "Part 1A"})
+    cp1_b = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p1_id, "name": "Part 1B"})
     cp1_a_id = cp1_a.id
     cp1_b_id = cp1_b.id
     
     # cp2_a est automatiquement liée à cp1_a et cp1_b via des liens d'exclusion système
-    cp2_a = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p2_id, "code": "CP_2A", "name": "Part 2A"})
+    cp2_a = ClassPart.create(db_session, {"division_id": d_id, "partition_id": p2_id, "name": "Part 2A"})
     cp2_a_id = cp2_a.id
     
     db_session.commit()
@@ -653,7 +653,7 @@ def test_student_and_link_constraints(db_session: Session):
     # Élève invalide : appartient à une partie d'une autre division (cohérence de division -> interdit)
     d2 = Division.create(db_session, {"code": "DIV_STUD_TEST_2", "name": "Div Stud Test 2", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
     p2_d2 = Partition.create(db_session, {"code": "P_STUD_D2", "name": "Partition D2", "division_id": d2.id})
-    cp_d2 = ClassPart.create(db_session, {"division_id": d2.id, "partition_id": p2_d2.id, "code": "CP_D2", "name": "Part D2"})
+    cp_d2 = ClassPart.create(db_session, {"division_id": d2.id, "partition_id": p2_d2.id, "name": "Part D2"})
     db_session.commit()
     
     with pytest.raises(ValueError, match="depend d'une autre division|another division"):
@@ -733,15 +733,15 @@ def test_get_linked_groups(db_session: Session):
     p1 = Partition.create(db_session, {"code": "P_GGRP_1", "name": "Partition GGrp 1", "division_id": d.id})
     p2 = Partition.create(db_session, {"code": "P_GGRP_2", "name": "Partition GGrp 2", "division_id": d.id})
     
-    cp_a = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p1.id, "code": "CP_GGRP_A", "name": "Part GGrp A"})
-    cp_b = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p1.id, "code": "CP_GGRP_B", "name": "Part GGrp B"})
+    cp_a = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p1.id, "name": "Part GGrp A"})
+    cp_b = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p1.id, "name": "Part GGrp B"})
     
     # cp_c est cree dans partition 2, ce qui declenche automatiquement la creation de liens ClassPartLink avec cp_a et cp_b
-    cp_c = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p2.id, "code": "CP_GGRP_C", "name": "Part GGrp C"})
+    cp_c = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p2.id, "name": "Part GGrp C"})
     
-    g_a = Group.create(db_session, {"code": "GRP_A", "name": "Groupe A", "class_part_ids": [cp_a.id]})
-    g_b = Group.create(db_session, {"code": "GRP_B", "name": "Groupe B", "class_part_ids": [cp_b.id]})
-    g_c = Group.create(db_session, {"code": "GRP_C", "name": "Groupe C", "class_part_ids": [cp_c.id]})
+    g_a = Group.create(db_session, {"name": "Groupe A", "class_part_ids": [cp_a.id]})
+    g_b = Group.create(db_session, {"name": "Groupe B", "class_part_ids": [cp_b.id]})
+    g_c = Group.create(db_session, {"name": "Groupe C", "class_part_ids": [cp_c.id]})
     
     db_session.commit()
     
@@ -1226,8 +1226,8 @@ def setup_group_course_order_scenario(db_session, enum_value, pin_c1_day, pin_c2
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
     
     part = Partition.create(db_session, {"division_id": div.id, "code": f"P_{uai_val}", "name": "PART"})
-    cp1 = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP1_{uai_val}", "name": "CP1"})
-    cp2 = ClassPart.create(db_session, {"partition_id": part.id, "code": f"CP2_{uai_val}", "name": "CP2"})
+    cp1 = ClassPart.create(db_session, {"partition_id": part.id, "name": "CP1"})
+    cp2 = ClassPart.create(db_session, {"partition_id": part.id, "name": "CP2"})
     
     # Create grid to avoid overflow and unique constraints
     timeslots = {}

@@ -23,7 +23,7 @@
       inline
       :submitLabel="currentStep.submitLabel"
       @submit="onStepSubmit"
-      @cancel="$emit('cancel')"
+      @cancel="onCancel"
     >
       <template #actions-start>
         <BaseButton v-if="currentStepIndex > 0" type="button" variant="secondary" class="wizard-back-btn" @click="goBack">
@@ -79,6 +79,7 @@ const props = defineProps<{
   model?: any;
   resourceKey: string;
   steps: WizardStep[];
+  cancelRpc?: string;
 }>();
 
 const emit = defineEmits<{
@@ -157,6 +158,21 @@ function goBack() {
   if (currentStepIndex.value > 0) {
     currentStepIndex.value--;
   }
+}
+
+// Nettoyage best-effort des ressources déjà créées en base par les étapes précédentes (ex:
+// parties de classe/groupes générés par "Générer l'aperçu", voir Course.rpc_cancel_composition) —
+// ne bloque jamais la fermeture du wizard, même si l'appel échoue.
+async function onCancel() {
+  if (props.cancelRpc) {
+    try {
+      await api.callInstanceMethod(props.resourceKey, props.recordId, props.cancelRpc, {});
+    } catch {
+      // Best-effort : une éventuelle ressource orpheline sera nettoyée à la prochaine mutation
+      // du cours (voir CompositionModes.gc_resources, appelée aussi depuis Course.update/delete).
+    }
+  }
+  emit('cancel');
 }
 </script>
 

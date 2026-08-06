@@ -1312,7 +1312,10 @@
             "id": "system_settings_list",
             "component": "GenericList",
             "resourceKey": "system_settings",
-            "width": "60%"
+            "width": "60%",
+            "listConfig": {
+              "allowMultiSelect": false
+            }
           },
           {
             "id": "system_settings_form",

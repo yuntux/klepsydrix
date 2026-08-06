@@ -66,6 +66,7 @@
         :model="localModel"
         :resourceKey="resourceKey"
         :steps="activeAction.steps"
+        :cancelRpc="activeAction.cancelRpc"
         @cancel="showWizard = false"
         @success="showWizard = false"
       />

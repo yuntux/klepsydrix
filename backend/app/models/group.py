@@ -20,6 +20,7 @@ class Partition(Base):
     code: Mapped[str] = mapped_column(String(20), nullable=False, info={"label": "Code de la partition", "placeholder": "ex: PART1"})
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom de la partition", "placeholder": "ex: Groupes de Langue"})
     division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
+    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Générée par le système"})
 
     # Relations de navigation
     division: Mapped[Optional["Division"]] = relationship("Division", back_populates="partitions")
@@ -41,13 +42,15 @@ class ClassPart(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
     division_id = related_field("partition", "division_id", info={"label": "Division", "readOnly": True})
-    code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code de la partie", "placeholder": "ex: LV2_ESP"})
     name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de la partie", "placeholder": "ex: Espagnol"})
+    subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, info={"label": "Matière"})
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #2ECC71"})
+    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Générée par le système"})
 
     # Relations de navigation
     partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
+    subject: Mapped[Optional["Subject"]] = relationship("Subject")
     groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts", info={"label": "Groupes"})
     students: Mapped[list["Student"]] = relationship("Student", secondary="student_class_parts", back_populates="class_parts", passive_deletes="all", info={"label": "Élèves"})
 
@@ -164,11 +167,11 @@ class Group(Base):
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False, info={"label": "Code du groupe", "placeholder": "ex: GRP_6A"})
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: Groupe 1"})
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #F59E0B"})
     is_variable_size: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Taille variable"})
+    is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Généré par le système"})
 
     # Relations de navigation
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups", info={"label": "Parties de classe"})
@@ -207,4 +210,101 @@ class Group(Base):
         ).distinct()
 
         return list(db.execute(stmt_groups).scalars().all())
+
+
+# ---------------------------------------------------------------------- #
+#   Nettoyage des ressources auto-générées devenues inutilisées          #
+#   (créées par CompositionModes lors de la composition de cours, voir   #
+#   composition_mode.py — colocalisé ici avec ClassPart/Group/Partition  #
+#   puisque ce nettoyage ne dépend que de leur propre état, pas des      #
+#   modes de composition eux-mêmes)                                      #
+# ---------------------------------------------------------------------- #
+
+def _class_part_in_use(db: Session, class_part: "ClassPart") -> bool:
+    """Utilisée par un cours "réel" (non composé) : directement, ou via un groupe."""
+    from backend.app.models.course import Course
+    direct = db.query(Course).filter(
+        Course.class_parts.any(ClassPart.id == class_part.id), Course.is_composed == False
+    ).first()
+    if direct:
+        return True
+    group_ids = [g.id for g in class_part.groups]
+    if not group_ids:
+        return False
+    via_group = db.query(Course).filter(
+        Course.groups.any(Group.id.in_(group_ids)), Course.is_composed == False
+    ).first()
+    return via_group is not None
+
+
+def cleanup_orphaned_class_part(db: Session, class_part_id: int):
+    """
+    Supprime une partie de classe auto-générée dès lors qu'elle n'a plus d'élève et n'est
+    utilisée par aucun cours (directement ou via un groupe) — et propage le nettoyage au
+    groupe/à la partition qui n'auraient alors plus rien à contenir.
+    """
+    class_part = db.get(ClassPart, class_part_id)
+    if not class_part or not class_part.is_system_generated:
+        return
+    if class_part.students:
+        return
+    if _class_part_in_use(db, class_part):
+        return
+
+    partition_id = class_part.partition_id
+    affected_group_ids = [g.id for g in class_part.groups]
+    class_part.delete(db)
+    # Un cours (typiquement le parent composé) peut encore référencer cette partie de classe dans
+    # sa collection ORM en mémoire (suppression faite "de l'autre côté", même piège que documenté
+    # sur Course._sync_parent_week_type) : sans ça, un session.add() ultérieur sur ce cours
+    # tenterait de re-rattacher un objet supprimé.
+    db.expire_all()
+
+    for group_id in affected_group_ids:
+        cleanup_orphaned_group(db, group_id)
+    cleanup_orphaned_partition(db, partition_id)
+
+
+def cleanup_orphaned_group(db: Session, group_id: int):
+    """Supprime un groupe auto-généré dès lors qu'il n'a plus aucune partie de classe liée."""
+    group = db.get(Group, group_id)
+    if not group or not group.is_system_generated:
+        return
+    if not group.class_parts:
+        group.delete(db)
+        db.expire_all()
+
+
+def cleanup_orphaned_partition(db: Session, partition_id: int):
+    """Supprime une partition auto-générée dès lors qu'elle n'a plus aucune partie de classe liée."""
+    partition = db.get(Partition, partition_id)
+    if not partition or not partition.is_system_generated:
+        return
+    if not partition.class_parts:
+        partition.delete(db)
+        db.expire_all()
+
+
+def cleanup_orphaned_resources(db: Session, class_part_ids: list = None, group_ids: list = None):
+    """
+    Point d'entrée du nettoyage : à appeler sur les parties de classe/groupes qu'un cours vient de
+    cesser de référencer (mise à jour, suppression, ou abandon d'un brouillon de composition — voir
+    Course.update/delete et Course.rpc_cancel_composition). Sans effet sur une ressource créée
+    manuellement (is_system_generated=False).
+
+    Un cours composé référence en général un groupe, pas ses parties de classe directement
+    (CompositionModes._resolve_dynamic_groups les retire de la ligne au profit du groupe) : sans
+    élargir aux parties de classe membres des groupes ci-dessous, elles resteraient injoignables
+    depuis ce point d'entrée alors qu'elles peuvent, elles aussi, être devenues inutilisées.
+    """
+    all_class_part_ids = set(class_part_ids or [])
+    for group_id in (group_ids or []):
+        group = db.get(Group, group_id)
+        if group:
+            all_class_part_ids.update(cp.id for cp in group.class_parts)
+
+    for class_part_id in all_class_part_ids:
+        cleanup_orphaned_class_part(db, class_part_id)
+    for group_id in (group_ids or []):
+        cleanup_orphaned_group(db, group_id)
 

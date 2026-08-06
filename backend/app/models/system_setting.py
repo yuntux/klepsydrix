@@ -7,10 +7,31 @@ from backend.app.models.base import Base
 
 class SystemSettingKey(str, enum.Enum):
     STANDARD_TIMESLOT_DURATION = "STANDARD_TIMESLOT_DURATION"
+    DIVISION_PART_NAME_HAS_DIV_CODE = "DIVISION_PART_NAME_HAS_DIV_CODE"
+    DIVISION_PART_NAME_HAS_SUBJECT_CODE = "DIVISION_PART_NAME_HAS_SUBJECT_CODE"
+    DIVISION_PART_NAME_SEPARATOR = "DIVISION_PART_NAME_SEPARATOR"
+    DIVISION_PART_NAME_NUMBER_FORMAT = "DIVISION_PART_NAME_NUMBER_FORMAT"
+    GROUP_NAME_HAS_DIV_CODE = "GROUP_NAME_HAS_DIV_CODE"
+    GROUP_NAME_HAS_SUBJECT_CODE = "GROUP_NAME_HAS_SUBJECT_CODE"
+    GROUP_NAME_SEPARATOR = "GROUP_NAME_SEPARATOR"
+    GROUP_NAME_NUMBER_FORMAT = "GROUP_NAME_NUMBER_FORMAT"
 
 SETTING_LABELS = {
-    SystemSettingKey.STANDARD_TIMESLOT_DURATION: "Durée minimale d'un créneau (en minutes)"
+    SystemSettingKey.STANDARD_TIMESLOT_DURATION: "Durée minimale d'un créneau (en minutes)",
+    SystemSettingKey.DIVISION_PART_NAME_HAS_DIV_CODE: "[Nommage parties de classe] : intégrer le code classe",
+    SystemSettingKey.DIVISION_PART_NAME_HAS_SUBJECT_CODE: "[Nommage parties de classe] : intégrer le code matière",
+    SystemSettingKey.DIVISION_PART_NAME_SEPARATOR: "[Nommage parties de classe] : séparateur",
+    SystemSettingKey.DIVISION_PART_NAME_NUMBER_FORMAT: "[Nommage parties de classe] : type numérotation",
+    SystemSettingKey.GROUP_NAME_HAS_DIV_CODE: "[Nommage groupe] : intégrer la première lettre du code classe",
+    SystemSettingKey.GROUP_NAME_HAS_SUBJECT_CODE: "[Nommage groupe] : intégrer le code matière",
+    SystemSettingKey.GROUP_NAME_SEPARATOR: "[Nommage groupe] : séparateur",
+    SystemSettingKey.GROUP_NAME_NUMBER_FORMAT: "[Nommage groupe] : type numérotation",
 }
+
+# Valeurs autorisées pour les paramètres de type "liste déroulante" (*_NUMBER_FORMAT)
+NUMBER_FORMAT_ALPHABETIC = "alphabetique"
+NUMBER_FORMAT_NUMERIC = "numerique"
+NUMBER_FORMAT_CHOICES = [NUMBER_FORMAT_ALPHABETIC, NUMBER_FORMAT_NUMERIC]
 
 class SystemSetting(Base):
     __tablename__ = "system_settings"
@@ -24,7 +45,7 @@ class SystemSetting(Base):
             for k in SystemSettingKey
         ]
     })
-    value: Mapped[str] = mapped_column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30"})
+    value: Mapped[str] = mapped_column(String(255), nullable=False, info={"label": "Valeur", "placeholder": "ex: 30", "widget": "system_setting_value"})
 
     @classmethod
     def get_system_setting_value(cls, db, key: str) -> str:

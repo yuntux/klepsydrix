@@ -27,6 +27,19 @@ def seed_v2_data():
 
         # Seed global system settings
         db.execute(text("INSERT INTO system_settings (key, value) VALUES ('STANDARD_TIMESLOT_DURATION', '30')"))
+        # Nommage automatique des parties de classe et des groupes générés lors de la composition
+        # de cours (voir CompositionModes._compute_class_part_name / _compute_group_name)
+        for setting_key, setting_value in [
+            ('DIVISION_PART_NAME_HAS_DIV_CODE', 'true'),
+            ('DIVISION_PART_NAME_HAS_SUBJECT_CODE', 'true'),
+            ('DIVISION_PART_NAME_SEPARATOR', 'P'),
+            ('DIVISION_PART_NAME_NUMBER_FORMAT', 'numerique'),
+            ('GROUP_NAME_HAS_DIV_CODE', 'true'),
+            ('GROUP_NAME_HAS_SUBJECT_CODE', 'true'),
+            ('GROUP_NAME_SEPARATOR', 'G'),
+            ('GROUP_NAME_NUMBER_FORMAT', 'numerique'),
+        ]:
+            db.execute(text("INSERT INTO system_settings (key, value) VALUES (:key, :value)"), {"key": setting_key, "value": setting_value})
         db.commit()
         
         clg_id = db.execute(text("SELECT id FROM schools WHERE uai = '0750001A'")).scalar()
@@ -378,23 +391,21 @@ def seed_v2_data():
 
             # --- Création des Groupes pour le Pôle Sciences ---
             # 1. Partition
-            db.execute(text("INSERT INTO partitions (code, name, division_id) VALUES ('SCI', 'Groupes Sciences', :division_id)"), {"division_id": d_id})
+            db.execute(text("INSERT INTO partitions (code, name, division_id, is_system_generated) VALUES ('SCI', 'Groupes Sciences', :division_id, 0)"), {"division_id": d_id})
             part_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-            
+
             # 2. ClassParts & Groups (3 groupes)
             div_groups = []
             for g_idx in range(1, 4):
-                cp_code = f"{d_id}_SCI_G{g_idx}"
                 db.execute(text(
-                    "INSERT INTO class_parts (partition_id, code, name, student_count, color) "
-                    "VALUES (:part_id, :code, :name, 10, '#CCCCCC')"
-                ), {"part_id": part_id, "code": cp_code, "name": f"Groupe {g_idx}"})
+                    "INSERT INTO class_parts (partition_id, name, student_count, color, is_system_generated) "
+                    "VALUES (:part_id, :name, 10, '#CCCCCC', 0)"
+                ), {"part_id": part_id, "name": f"Groupe {g_idx}"})
                 cp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-                
-                grp_code = f"GRP_{cp_code}"
+
                 db.execute(text(
-                    "INSERT INTO groups (code, name, student_count, color, is_variable_size) VALUES (:code, :name, 10, '#CCCCCC', 0)"
-                ), {"code": grp_code, "name": f"Groupe Sciences {g_idx}"})
+                    "INSERT INTO groups (name, student_count, color, is_variable_size, is_system_generated) VALUES (:name, 10, '#CCCCCC', 0, 0)"
+                ), {"name": f"Groupe Sciences {g_idx}"})
                 grp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
                 
                 db.execute(text("INSERT INTO group_class_parts (group_id, class_part_id) VALUES (:g_id, :cp_id)"), {"g_id": grp_id, "cp_id": cp_id})

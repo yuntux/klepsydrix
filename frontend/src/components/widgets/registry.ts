@@ -18,6 +18,7 @@
 import Many2ManyOrderedList from './Many2ManyOrderedList.vue';
 import CourseCompositionMapping from './CourseCompositionMapping.vue';
 import CourseCompositionPreview from './CourseCompositionPreview.vue';
+import SystemSettingValueField from './SystemSettingValueField.vue';
 
 export type WidgetContext = 'list' | 'form';
 
@@ -30,6 +31,7 @@ const REGISTRY: Record<string, WidgetRegistryEntry> = {
   many2many_ordered_list: { component: Many2ManyOrderedList, contexts: ['form'] },
   course_composition_mapping: { component: CourseCompositionMapping, contexts: ['form'] },
   course_composition_preview: { component: CourseCompositionPreview, contexts: ['form'] },
+  system_setting_value: { component: SystemSettingValueField, contexts: ['form', 'list'] },
 };
 
 export function getWidgetForContext(name: string | undefined, context: WidgetContext): any {

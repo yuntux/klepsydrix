@@ -105,6 +105,7 @@ class Course(Base):
             "type": "wizard",
             "icon": "fa-sitemap",
             "condition": "record.is_composed === true && record.status !== 'COMPLETELY_PLACED'",
+            "cancelRpc": "rpc_cancel_composition",
             "steps": [
                 {
                     "id": "mapping",
@@ -119,7 +120,7 @@ class Course(Base):
                 {
                     "id": "preview",
                     "title": "2. Aperçu des cours enfants (brouillon)",
-                    "submitLabel": "Enregistrer définitivement",
+                    "submitLabel": "Valider",
                     "rpc": "rpc_save_composition",
                     "rpcParams": {"children_vals": "children_vals"},
                     "isLast": True,
@@ -692,12 +693,24 @@ class Course(Base):
     def update(self, db: Session, vals: dict):
         # 1. Synchronisation avec le parent (si applicable)
         self.__class__._sync_vals_from_parent(db, vals, instance=self)
-        
+
         old_parent_id = self.parent_id
-        
+
+        # Capturé avant sauvegarde si la répartition change : une partie de classe/un groupe
+        # retiré ici peut devenir orphelin (voir backend/app/models/group.py, cleanup_orphaned_resources).
+        track_resource_cleanup = 'class_part_ids' in vals or 'group_ids' in vals
+        before_class_part_ids = {cp.id for cp in self.class_parts} if track_resource_cleanup else set()
+        before_group_ids = {g.id for g in self.groups} if track_resource_cleanup else set()
+
         # 3. Sauvegarde
         res = super().update(db, vals)
-        
+
+        if track_resource_cleanup:
+            from backend.app.models.group import cleanup_orphaned_resources
+            removed_class_part_ids = before_class_part_ids - {cp.id for cp in self.class_parts}
+            removed_group_ids = before_group_ids - {g.id for g in self.groups}
+            cleanup_orphaned_resources(db, list(removed_class_part_ids), list(removed_group_ids))
+
         # Propager week_type et period_id aux préférences associées
         from backend.app.models.preference import ResourcePreference
         from backend.app.models.period import Period
@@ -758,6 +771,18 @@ class Course(Base):
         children_vals = CompositionModes.apply(db, self, mode, mapping, preview=True)
         return {"status": "ok", "children_vals": children_vals}
 
+    def rpc_cancel_composition(self, db: Session) -> dict:
+        """
+        Appelée quand l'utilisateur quitte l'assistant sans valider. "Générer l'aperçu" a pu créer
+        pour de vrai des parties de classe/partitions/groupes (voir CompositionModes) : on nettoie
+        ici celles devenues orphelines (mêmes règles qu'après une suppression/modification de cours,
+        voir backend/app/models/group.py, cleanup_orphaned_resources — sans effet sur une ressource
+        créée manuellement).
+        """
+        from backend.app.models.group import cleanup_orphaned_resources
+        cleanup_orphaned_resources(db, [cp.id for cp in self.class_parts], [g.id for g in self.groups])
+        return {"status": "ok"}
+
     def rpc_save_composition(self, db: Session, children_vals: list[dict]) -> dict:
         """Sauvegarde définitivement les enfants modifiés par l'utilisateur."""
         # 1. Supprimer les anciens enfants proprement sans déclencher de synchronisation intermédiaire sur le parent
@@ -769,10 +794,17 @@ class Course(Base):
         # directe interdite"). Inutile de toute façon : l'enfant va être supprimé, nul besoin de
         # vider sa FK avant. Garder parent_id intact permet aussi à Course.delete() de retrouver le
         # parent pour recompute_status()/_sync_parent_week_type().
+        # _skip_resource_cleanup=True : voir CompositionModes.apply, même piège — le nettoyage est
+        # différé après la recréation des enfants (juste en dessous), pour ne pas supprimer pour de
+        # vrai une partie de classe/un groupe que children_vals s'apprête à réutiliser.
         children_to_delete = db.query(Course).filter(Course.parent_id == self.id).all()
+        former_class_part_ids = set()
+        former_group_ids = set()
         for child in children_to_delete:
-            child.delete(db)
-            
+            former_class_part_ids.update(cp.id for cp in child.class_parts)
+            former_group_ids.update(g.id for g in child.groups)
+            child.delete(db, _skip_resource_cleanup=True)
+
         # 2. Créer les nouveaux enfants de manière isolée pour éviter de perturber le parent prématurément
         children = []
         for vals in children_vals:
@@ -782,9 +814,12 @@ class Course(Base):
             # Mais il faut s'assurer qu'ils aient le bon school_id (et subject_id) qui seraient normalement copiés du parent
             vals_copy.setdefault('school_id', self.school_id)
             vals_copy.setdefault('subject_id', self.subject_id)
-            
+
             children.append(Course.create(db, vals_copy))
-            
+
+        from backend.app.models.group import cleanup_orphaned_resources
+        cleanup_orphaned_resources(db, list(former_class_part_ids), list(former_group_ids))
+
         # 3. Rattacher tous les enfants au parent via la méthode officielle update()
         # Cela déclenchera correctement les calculs métier (@onchange, etc)
         self.update(db, {'children_ids': [c.id for c in children]})
@@ -796,7 +831,15 @@ class Course(Base):
             "count": len(children),
         }
 
-    def delete(self, db: Session):
+    def delete(self, db: Session, _skip_resource_cleanup: bool = False):
+        """
+        _skip_resource_cleanup : à True quand l'appelant supprime ce cours pour le recréer aussitôt
+        avec (potentiellement) les mêmes ressources (voir CompositionModes.apply et
+        rpc_save_composition) — sans ça, le nettoyage réactif ci-dessous supprimerait pour de vrai
+        une partie de classe/un groupe encore réutilisé par le cours qui n'a pas encore été recréé
+        au moment de cet appel. L'appelant est alors responsable d'appeler lui-même
+        cleanup_orphaned_resources (voir backend/app/models/group.py) une fois la recréation terminée.
+        """
         from sqlalchemy import delete
         from backend.app.models.preference import ResourcePreference
         db.execute(delete(ResourcePreference).filter_by(
@@ -804,6 +847,11 @@ class Course(Base):
             resource_id=self.id
         ))
         db.flush()
+
+        # Capturé avant suppression : une fois le cours supprimé, ces parties de classe/groupes
+        # peuvent devenir orphelins (voir backend/app/models/group.py, cleanup_orphaned_resources).
+        former_class_part_ids = [cp.id for cp in self.class_parts]
+        former_group_ids = [g.id for g in self.groups]
 
         parent_id = self.parent_id
         res = super().delete(db)
@@ -813,4 +861,8 @@ class Course(Base):
                 parent._via_crud_mixin_update = True
                 parent.recompute_status(exclude_child_id=self.id)
             self._sync_parent_week_type(db, exclude_child_id=self.id)
+
+        if not _skip_resource_cleanup:
+            from backend.app.models.group import cleanup_orphaned_resources
+            cleanup_orphaned_resources(db, former_class_part_ids, former_group_ids)
         return res
