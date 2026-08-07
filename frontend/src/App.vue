@@ -1306,19 +1306,22 @@ async function refreshScoreAndNotify(oldScore: any, actionName: string = 'Modifi
 }
 
 // Actions de planification
-async function onMoveCourse(courseId: number, timeslotId: number) {
+async function onMoveCourse(courseId: number, timeslotId: number, weekType?: 'A' | 'B') {
   const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
   const oldScore = scoreData.value ? { ...scoreData.value } : null;
-  
+
   const courseIndex = courses.value.findIndex(c => c.id === courseId);
   const courseObj = courseIndex !== -1 ? courses.value[courseIndex] : null;
-  
+
   if (courseIndex !== -1) {
     courses.value[courseIndex].timeslot_id = timeslotId;
+    if (weekType) {
+      courses.value[courseIndex].week_type = weekType;
+    }
   }
 
   try {
-    const response = await api.updateCourse(courseId, timeslotId);
+    const response = await api.updateCourse(courseId, timeslotId, undefined, weekType);
     
     // Mettre à jour tous les cours impactés (le parent + les enfants)
     if (response.courses) {

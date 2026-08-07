@@ -326,13 +326,10 @@ body {
   background-color: var(--bg-surface);
 }
 
-/* Drag Over Animation */
-.grid-cell.drag-over {
-  background-color: rgba(99, 102, 241, 0.15) !important;
-  outline: 2px dashed var(--accent-primary);
-  outline-offset: -4px;
-  box-shadow: var(--shadow-glow);
-}
+/* L'ombre portée au survol pendant un glisser (ex-.grid-cell.drag-over, jamais atteignable : la
+   classe drag-over est posée sur .sub-cell, pas sur .grid-cell) vit désormais dans BaseGrid.vue
+   (styles scoped .sub-cell.drag-over / .split-half.drag-over), voir
+   attribution_week_type_auto.md. */
 
 /* Placed Cards now handled by CourseCard.vue */
 

@@ -45,9 +45,9 @@
                 'drag-over': dragOverCells[getCellKey(col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60))],
                 'pref-level-off-hashed': !isTimeslotActive(col.dayValue, hour, idx - 1)
               }"
-              @dragover.prevent="$emit('cell-dragover', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @dragleave="$emit('cell-dragleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
-              @drop="$emit('cell-drop', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @dragover.prevent="!shouldSplitCells && $emit('cell-dragover', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @dragleave="!shouldSplitCells && $emit('cell-dragleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
+              @drop="!shouldSplitCells && $emit('cell-drop', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
               @mousedown="$emit('cell-mousedown', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
               @mouseenter="$emit('cell-mouseenter', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
               @mouseleave="$emit('cell-mouseleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event)"
@@ -62,6 +62,39 @@
               <div class="layer-fg">
                 <slot name="cell-content" :day="col.dayValue" :time="hour + (idx - 1) * (currentStandardDuration / 60)" :resource="col.resource"></slot>
               </div>
+
+              <!-- Layer 3 : zones de dépose scindées Semaine A / Semaine B — uniquement pendant
+                   le glisser d'un cours dont la semaine reste à choisir (A/B/Q), en vue "Toutes
+                   les semaines" (voir shouldSplitCells, attribution_week_type_auto.md Phase B).
+                   Juste un contour (pas de fond ni de lettrage) pour ne pas masquer la coloration
+                   de poids/score de la cellule (layer-bg) ; l'ombre portée au survol (.drag-over,
+                   voir plus bas) indique où le cours va tomber. N'existent que pendant un drag
+                   actif : jamais de conflit avec le clic/la sélection d'un cours déjà placé dans
+                   cette cellule. dragover/dragleave/drop de .sub-cell lui-même sont désactivés
+                   pendant le split (voir plus haut, !shouldSplitCells) : ces événements REMONTENT
+                   (bubbling) depuis .split-half jusqu'à .sub-cell, qui sans cette garde émettrait
+                   AUSSI cell-dragover/cell-dragleave sans weekHalf — posant la clé de survol SANS
+                   suffixe -A/-B, faisant passer .sub-cell lui-même en .drag-over et teintant donc
+                   TOUTE la cellule (les deux moitiés, .sub-cell étant sous .split-half) en plus de
+                   la moitié réellement ciblée — d'où l'ombre parasite côté non-ciblé observée. -->
+              <template v-if="shouldSplitCells">
+                <div
+                  class="split-half split-half-a"
+                  :class="{ 'drag-over': dragOverCells[getCellKey(col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60)) + '-A'] }"
+                  title="Semaine A"
+                  @dragover.prevent="$emit('cell-dragover', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event, 'A')"
+                  @dragleave="$emit('cell-dragleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event, 'A')"
+                  @drop="$emit('cell-drop', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event, 'A')"
+                ></div>
+                <div
+                  class="split-half split-half-b"
+                  :class="{ 'drag-over': dragOverCells[getCellKey(col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60)) + '-B'] }"
+                  title="Semaine B"
+                  @dragover.prevent="$emit('cell-dragover', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event, 'B')"
+                  @dragleave="$emit('cell-dragleave', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event, 'B')"
+                  @drop="$emit('cell-drop', col.dayValue, hour + (idx - 1) * (currentStandardDuration / 60), $event, 'B')"
+                ></div>
+              </template>
             </div>
           </div>
         </template>
@@ -89,11 +122,24 @@ const props = withDefaults(defineProps<{
   layoutMode?: string;
   activeResources?: any[];
   isMini?: boolean;
+  // Filtre de semaine actif ("Toutes" = 'W') et week_type du cours en cours de glisser-déposer
+  // (voir TimetableGrid.vue) : pilotent le split de colonnes A/B (voir attribution_week_type_auto.md,
+  // Phase B). Un cours W n'est jamais scindable (il occupe intrinsèquement les deux semaines) ;
+  // le split n'a de sens que si on visualise déjà "Toutes les semaines" (sinon une seule semaine
+  // est affichée, aucune ambiguïté à résoudre).
+  weekType?: 'W' | 'A' | 'B';
+  draggedCourseWeekType?: string | null;
 }>(), {
   dragOverCells: () => ({}),
   layoutMode: 'merged',
   activeResources: () => [],
-  isMini: false
+  isMini: false,
+  weekType: 'W',
+  draggedCourseWeekType: null
+});
+
+const shouldSplitCells = computed(() => {
+  return props.weekType === 'W' && !!props.draggedCourseWeekType && props.draggedCourseWeekType !== 'W';
 });
 
 const { days, hours, currentStandardDuration, subCellCount, getCellKey, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
@@ -173,9 +219,9 @@ function stopResize() {
 
 
 defineEmits<{
-  (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;
-  (e: 'cell-dragleave', day: number, time: number, event: DragEvent): void;
-  (e: 'cell-drop', day: number, time: number, event: DragEvent): void;
+  (e: 'cell-dragover', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
+  (e: 'cell-dragleave', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
+  (e: 'cell-drop', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
   (e: 'cell-mousedown', day: number, time: number, event: MouseEvent): void;
   (e: 'cell-mouseenter', day: number, time: number, event: MouseEvent): void;
   (e: 'cell-mouseleave', day: number, time: number, event: MouseEvent): void;
@@ -219,6 +265,39 @@ onUnmounted(() => {
 
 .sub-cell:not(:last-child) {
   border-bottom: 1px dotted var(--border-color);
+}
+
+/* Zones de dépose scindées Semaine A / Semaine B (voir shouldSplitCells) — juste un contour,
+   aucun fond : la coloration de poids/score de la cellule (layer-bg) doit rester entièrement
+   visible, seule l'ombre .drag-over (au survol pendant le glisser) donne un retour visuel. */
+.split-half {
+  grid-area: stack;
+  position: relative;
+  height: 100%;
+  width: 50%;
+  z-index: 3;
+  pointer-events: auto;
+  transition: background-color 0.15s;
+}
+
+.split-half-a {
+  justify-self: start;
+  border-right: 1px dashed var(--border-color);
+}
+
+.split-half-b {
+  justify-self: end;
+}
+
+/* Ombre portée au survol pendant un glisser — indique où le cours va tomber au relâchement.
+   Grisé neutre et transparent (pas de teinte colorée) pour ne pas masquer la coloration de
+   poids/score déjà affichée par layer-bg en dessous. S'applique à .sub-cell (cours W, cellule
+   entière, non scindée) et à .split-half (cours A/B/Q, une moitié de cellule) de façon identique. */
+.sub-cell.drag-over,
+.split-half.drag-over {
+  background-color: rgba(100, 116, 139, 0.25);
+  outline: 1px dashed rgba(100, 116, 139, 0.6);
+  outline-offset: -2px;
 }
 
 .pref-level-off-hashed {

@@ -302,6 +302,8 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
     *   Un cours dont `timeslot_id` est renseigné ne peut jamais avoir `week_type = Q` — un placement (création ou mise à jour) tentant cette combinaison est rejeté.
     *   Un cours composé parent dont au moins un enfant est encore `Q` reste lui-même `Q` (prioritaire sur la règle habituelle tout-A/tout-B/mixte→W, voir `_sync_parent_week_type`).
     *   `Q` n'existe que sur **Course** — l'enum `WeekType` de **ResourcePreference** ne le contient pas. Une préférence de type Course n'hérite d'ailleurs plus du `week_type` (ni des `periods`) de son cours : elle s'applique toujours à toutes les semaines et à l'année entière, quel que soit l'état du cours (voir BR-002, "Cas particulier des préférences de Cours").
+    *   Un cours en semaine `A` ou `B` peut librement basculer vers l'autre lors d'un déplacement (placement manuel via glisser-déposer scindé, voir section « Structure du Composant Grille » ci-dessous, ou résolution automatique par le solveur).
+    *   Un cours en semaine `W` (Toutes) ne peut en revanche jamais basculer vers `A` ou `B` **lors d'un placement** (créneau posé en même temps que la semaine, dans le même appel) — garde dédiée, indépendante de la garde `Q` ci-dessus. Changer la semaine d'un cours `W` hors placement (sans toucher au créneau dans le même appel) reste libre.
 *   `period_type_id` : Clé étrangère optionnelle vers le **PeriodType** (Entier, relation N-à-1) définissant le type de période du cours
 *   `periods` : Relation N-à-N vers les **Périodes** scolaires sur lesquelles s'applique ce cours (les périodes associées doivent toutes être du type défini par `period_type_id`)
 *   `name` : Libellé du cours, saisi librement (Chaîne optionnelle, ex: "Pôle Sciences" pour un cours composé sans matière propre)
@@ -314,7 +316,7 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
 *   `election_method_id` : Clé étrangère optionnelle vers une **ElectionMethod** (Entier, ex: pour lier à un cours de type DNL)
 *   `family_id` : Clé étrangère optionnelle vers une **Family** de type `Course` (Entier, ex: pour regrouper des cours d'une même option ou spécialité)
 *   `school_id` : Clé étrangère vers la **School** de rattachement (Entier, relation N-à-1)
-*   `is_pinned` : Indicateur si le cours est verrouillé de manière permanente sur son créneau (et sa salle) par le planificateur, empêchant tout déplacement par le solveur (Booléen, par défaut `False`)
+*   `is_pinned` : Indicateur si le cours est verrouillé de manière permanente sur son créneau (et sa salle) par le planificateur, empêchant tout déplacement — aussi bien manuel (glisser-déposer sur la grille, désactivé côté IHM et rejeté côté serveur pour un cours qui reste épinglé après l'appel) qu'automatique (solveur, via `@PlanningPin`) — (Booléen, par défaut `False`)
 *   `status` : État de planification du cours (simple ou composé) matérialisé en base de données, mis à jour lors de chaque modification (Chaîne, par défaut `UNPLACED`) :
     *   `UNPLACED` : Le cours n'est pas planifié (`timeslot_id = None`).
     *   `PLACED` : Le cours est planifié (`timeslot_id` renseigné).
@@ -975,6 +977,7 @@ Afin d'assurer la convergence des besoins de planification (emploi du temps) et 
 Le composant de rendu physique de la grille horaire est purement présentational (Dumb). Sa structure s'adapte dynamiquement selon la mise en page (ex: "Une colonne par ressource" qui scinde chaque jour en sous-colonnes). Il est structuré en plusieurs couches superposées (Grid Stack) pour chaque sous-cellule :
 *   **Couche d'Arrière-plan (Background Layer)** : Dédiée à l'affichage des contraintes et préférences colorées (Vert, Orange, Rouge, Hachures). Dans le mode par ressource, cet arrière-plan est évalué spécifiquement pour la ressource de la sous-colonne.
 *   **Couche de Premier plan (Foreground Layer)** : Dédiée à l'affichage des cours assignés (Cartes de cours) et à l'interaction de déplacement (drag-and-drop). Dans le mode par ressource, seuls les cours de la ressource cible sont rendus dans sa sous-colonne.
+*   **Couche de Résolution de Semaine (Split A/B Layer)** : Uniquement lorsque le filtre de semaine actif est "Toutes" (`W`) **et** que le cours actuellement glissé n'est pas lui-même de type `W` (donc `A`, `B` ou `Q`, voir `Course.week_type`) — chaque sous-cellule se scinde alors en deux zones de dépose superposées (gauche = Semaine A, droite = Semaine B), délimitées par un simple contour (aucun fond coloré, pour ne jamais masquer la couche d'arrière-plan). Déposer le cours sur une moitié fixe sa semaine à `A` ou `B` en même temps que son créneau. Un cours `W` ne déclenche jamais ce split (il occupe intrinsèquement les deux semaines) et ne peut de toute façon jamais basculer vers `A`/`B` via un placement (voir la règle sur `Course.week_type` ci-dessus). Cette couche disparaît intégralement dès la fin du glisser (dépôt réussi, annulation, ou relâchement hors zone valide). Une ombre portée grisée et transparente (jamais colorée, même logique de non-superposition avec la couche d'arrière-plan) indique en survolant une zone de dépose — qu'elle soit une moitié scindée ou une cellule entière pour un cours `W` — où le cours atterrira au relâchement.
 
 ### 2. Paramétrage des Modes d'Interaction
 Le comportement de la grille est piloté par des axes de configuration orthogonaux :
@@ -1014,7 +1017,7 @@ graph TD
 
 ### 5. Filtres Cumulatifs (`GridFilterBar.vue`)
 L'IHM de filtrage est isolée et permet de filtrer simultanément la grille temporelle selon les axes suivants :
-*   **L'alternance de semaine (Semaine A / Semaine B / Toutes)** : Sélecteur simple.
+*   **L'alternance de semaine (Semaine A / Semaine B / Toutes)** : Sélecteur simple. En position "Toutes", déposer un cours non-`W` déclenche la Couche de Résolution de Semaine (voir section « Structure du Composant Grille » ci-dessus) ; en position "Semaine A" ou "Semaine B", aucune ambiguïté n'existe (une seule semaine affichée) et la cellule entière est le seul point de dépose.
 *   **La période scolaire active (Sélection dynamique)** : 
     *   Comportement : Sélection d'un type de période par menu déroulant, puis affichage de cases à cocher pour chaque période de ce type.
     *   *Règles fonctionnelles associées* : Sélection obligatoire d'au moins une période (voir détails dans l'US 4b).

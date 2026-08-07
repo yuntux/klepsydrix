@@ -37,6 +37,7 @@
       v-model:isDetailedView="isDetailedView"
       :activeResources="activeResources"
       :dragOverCells="activeDragCells"
+      :draggedCourseWeekType="draggedCourseWeekType"
       @cell-dragover="onDragOver"
       @cell-dragleave="onDragLeave"
       @cell-drop="onDrop"
@@ -82,6 +83,8 @@
           :selectedCourseIds="selectedCourseIds"
           :currentStandardDuration="currentStandardDuration"
           @selectCourse="(id, ev) => $emit('selectCourse', id, ev)"
+          @dragstart="onDragStart"
+          @dragend="onDragEnd"
         />
       </template>
 
@@ -101,6 +104,7 @@
           :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
           :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
           @dragstart="onDragStart"
+          @dragend="onDragEnd"
           @click="(id, ev) => $emit('selectCourse', id, ev)"
           @togglePin="$emit('togglePin', $event)"
           @unassign="$emit('unassign', $event)"
@@ -170,7 +174,7 @@ const props = defineProps<{
 const isDetailedView = ref(false);
 
 const emit = defineEmits<{
-  (e: 'move', courseId: number, timeslotId: number): void;
+  (e: 'move', courseId: number, timeslotId: number, weekType?: 'A' | 'B'): void;
   (e: 'unassign', courseId: number): void;
   (e: 'togglePin', courseId: number): void;
   (e: 'selectCourse', courseId: number, event: MouseEvent): void;
@@ -218,6 +222,14 @@ function getCourseHeight(course: Course) {
   return `calc(${span} * 100% - 8px + ${span - 1}px)`;
 }
 const activeDragCells = ref<Record<string, boolean>>({});
+
+// Cours en cours de glisser-déposer (défini au dragstart, effacé au dragend) — sa semaine pilote
+// le split de colonnes A/B de BaseGrid.vue (voir attribution_week_type_auto.md, Phase B), sa
+// durée pilote l'étendue de l'ombre portée (voir onDragOver/onDragLeave ci-dessous). Ne peut pas
+// être lu depuis dataTransfer pendant le survol (dragover) pour des raisons de sécurité
+// navigateur (getData n'est disponible qu'au drop) — d'où cet état local dédié.
+const draggedCourse = ref<Course | null>(null);
+const draggedCourseWeekType = computed(() => draggedCourse.value?.week_type || null);
 
 const heatmapData = ref<Record<string, any>>({});
 const isLoadingHeatmap = ref<boolean>(false);
@@ -277,12 +289,27 @@ function getHeatmapTooltip(scoreInfo: any) {
   return tooltip;
 }
 
-function onDragOver(day: number, hour: number, event: DragEvent) {
-  activeDragCells.value[getCellKey(day, hour)] = true;
+// Cases occupées par le cours glissé s'il était déposé en partant de (day, hour) — de son début
+// à sa fin, pas seulement le créneau survolé — pour que l'ombre portée prévisualise fidèlement
+// tout l'emplacement final, pas juste son point de départ.
+function occupiedCellSuffixes(day: number, hour: number, weekHalf?: 'A' | 'B'): string[] {
+  const stepHours = currentStandardDuration.value / 60;
+  const duration = draggedCourse.value?.duration_minutes || currentStandardDuration.value;
+  const steps = Math.max(1, Math.round(duration / currentStandardDuration.value));
+  const suffix = weekHalf ? `-${weekHalf}` : '';
+  const keys: string[] = [];
+  for (let i = 0; i < steps; i++) {
+    keys.push(getCellKey(day, hour + i * stepHours) + suffix);
+  }
+  return keys;
 }
 
-function onDragLeave(day: number, hour: number, event: DragEvent) {
-  activeDragCells.value[getCellKey(day, hour)] = false;
+function onDragOver(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B') {
+  occupiedCellSuffixes(day, hour, weekHalf).forEach(key => { activeDragCells.value[key] = true; });
+}
+
+function onDragLeave(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B') {
+  occupiedCellSuffixes(day, hour, weekHalf).forEach(key => { activeDragCells.value[key] = false; });
 }
 
 function getTimeslot(day: number, hour: number): Timeslot | undefined {
@@ -448,10 +475,29 @@ function getClassroomName(id: number | null) {
 
 function onDragStart(event: DragEvent, courseId: number) {
   onCourseDragStart(event, courseId);
+  draggedCourse.value = props.courses.find(c => c.id === courseId) || null;
 }
 
-function onDrop(day: number, hour: number, event: DragEvent) {
-  activeDragCells.value[getCellKey(day, hour)] = false;
+function onDragEnd() {
+  draggedCourse.value = null;
+  // Filet de sécurité : drop() ne déclenche jamais dragleave sur sa propre cible (l'un ou
+  // l'autre se produit, jamais les deux — voir la spec HTML5 Drag and Drop), donc la case sur
+  // laquelle le cours atterrit restait grisée indéfiniment sans ce nettoyage global. dragend se
+  // déclenche systématiquement en tout dernier, quelle que soit l'issue du glisser (drop réussi,
+  // annulé, relâché hors zone valide) — un seul point de nettoyage suffit, pas besoin de traquer
+  // précisément quelles cases éteindre au cas par cas.
+  activeDragCells.value = {};
+}
+
+function onDrop(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B') {
+  // Nettoyage synchrone ICI plutôt que de compter uniquement sur onDragEnd (dragend) : déplacer
+  // un cours déjà placé fait changer sa cellule de rendu (retiré de l'ancienne case, ajouté à la
+  // nouvelle — des blocs v-for différents, pas un simple réordonnancement), donc le nœud DOM
+  // source peut être détruit par la réactivité Vue avant que le navigateur n'ait dispatché
+  // dragend dessus — auquel cas dragend ne se déclenche jamais et le nettoyage n'arrivait pas.
+  // onDragEnd reste nécessaire pour le cas d'un glisser annulé (aucun drop, Échap, hors zone).
+  activeDragCells.value = {};
+
   const ts = getTimeslot(day, hour);
   if (!ts) return;
 
@@ -459,8 +505,11 @@ function onDrop(day: number, hour: number, event: DragEvent) {
   if (!courseIdStr) return;
 
   const courseId = Number(courseIdStr);
-  
-  emit('move', courseId, ts.id);
+
+  // weekHalf n'est fourni que si le cours glissé n'est pas W (zones de dépose scindées, voir
+  // BaseGrid.vue) — un cours W n'envoie jamais de week_type, il garde sa valeur (voir aussi la
+  // garde backend Course.update() qui refuse toute bascule W->A/B "lors du placement").
+  emit('move', courseId, ts.id, weekHalf);
 }
 
 // Les couleurs des cours proviennent maintenant directement de la base de données (champ subject.color)

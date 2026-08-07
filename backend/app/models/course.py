@@ -716,6 +716,21 @@ class Course(Base):
             if 'week_type' in vals and str(vals['week_type']) != str(self.week_type.value):
                 raise ValueError("Impossible de changer la semaine d'un cours épinglé : déverrouillez-le d'abord.")
 
+        # Ceinture et bretelles pour le split de colonnes A/B du placement manuel (voir
+        # attribution_week_type_auto.md, Échanges 3-4) : un cours de type W ne doit jamais
+        # basculer vers A/B "lors du placement" (cet appel posant un VRAI timeslot_id — pas le
+        # mettant à None — EN MÊME TEMPS que week_type) — le frontend ne doit déjà jamais envoyer
+        # ce cas de figure (les zones de dépose scindées sont désactivées pour un cours W), cette
+        # garde protège contre tout autre client de l'API (appel direct, futur multi-section).
+        # Dépositionner (timeslot_id=None) en changeant la semaine dans le même appel reste
+        # autorisé — ce n'est pas un placement (voir test_solver_group_link_and_week_alternation,
+        # qui dépositionne + résout la semaine avant de relancer le solveur).
+        if 'week_type' in vals and vals.get('timeslot_id') is not None:
+            old_week_type = self.week_type.value if hasattr(self.week_type, 'value') else self.week_type
+            new_week_type = str(vals['week_type'])
+            if old_week_type == 'W' and new_week_type in ('A', 'B'):
+                raise ValueError("Un cours en semaine 'Toutes les semaines' (W) ne peut pas devenir Semaine A ou B lors d'un placement.")
+
         # 1. Synchronisation avec le parent (si applicable)
         self.__class__._sync_vals_from_parent(db, vals, instance=self)
 

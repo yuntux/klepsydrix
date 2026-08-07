@@ -1060,6 +1060,57 @@ def test_course_preference_rejects_non_annual_period(db_session: Session):
         pref.update(db_session, {"period_ids": [period.id]})
 
 
+def test_course_week_type_w_cannot_become_a_or_b_via_placement(db_session: Session):
+    """
+    Ceinture et bretelles pour le split de colonnes A/B (Phase B, voir
+    attribution_week_type_auto.md) : un cours 'Toutes les semaines' (W) ne peut pas basculer
+    vers A/B au moment où on le place (timeslot_id + week_type dans le même appel) — mais reste
+    libre de changer de semaine hors placement, et un cours A/B peut toujours basculer vers
+    l'autre lors d'un déplacement.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts1._via_crud_mixin_create = True
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
+    ts2._via_crud_mixin_create = True
+    ts_end = Timeslot(day_of_week=1, minutes_from_midnight=600)
+    ts_end._via_crud_mixin_create = True
+    db_session.add_all([ts1, ts2, ts_end])
+    db_session.commit()
+
+    # Placer un cours W en tentant de le faire basculer en A dans le même appel -> refusé.
+    course = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60})
+    db_session.commit()
+    assert course.week_type.value == "W"
+
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts1.id, "week_type": "A"})
+    assert response.status_code == 409
+    assert "Toutes les semaines" in response.json()["detail"]
+    db_session.refresh(course)
+    assert course.timeslot_id is None
+    assert course.week_type.value == "W"
+
+    # Le même cours peut être placé normalement (W inchangé).
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts1.id})
+    assert response.status_code == 200
+
+    # Changer la semaine d'un cours W SANS toucher au créneau (hors placement) reste autorisé
+    # (via le CRUD générique, week_type n'étant pas exposé seul sur cet endpoint dédié).
+    other_course = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60})
+    db_session.commit()
+    response = client.patch(f"/api/generic/courses/{other_course.id}", json={"week_type": "A"})
+    assert response.status_code == 200
+
+    # Un cours déjà A peut basculer vers B en le déplaçant (A/B restent librement interchangeables).
+    response = client.put(f"/api/timetable/courses/{other_course.id}", json={"timeslot_id": ts2.id, "week_type": "B"})
+    assert response.status_code == 200
+    db_session.refresh(other_course)
+    assert other_course.week_type.value == "B"
+    assert other_course.timeslot_id == ts2.id
+
+
 def test_course_day_overflow_conflict(db_session: Session):
     """
     Vérifie qu'un cours ne peut pas déborder au-delà du dernier créneau de la journée.

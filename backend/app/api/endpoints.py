@@ -106,6 +106,7 @@ class CourseUpdate(BaseModel):
     timeslot_id: Optional[int] = None
     is_pinned: Optional[bool] = None
     classroom_ids: Optional[list[int]] = None
+    week_type: Optional[str] = None
 
 @router.put("/courses/{course_id}")
 def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(get_db)):

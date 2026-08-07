@@ -20,6 +20,7 @@
         :divisionsText="course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : ''"
         :classroomsText="course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : ''"
         @dragstart="onDragStart"
+        @dragend="$emit('dragend')"
         @click="(id, ev) => $emit('selectCourse', id, ev)"
       />
 
@@ -55,6 +56,8 @@ function getSidebarCourseHeight(course: Course) {
 
 const emit = defineEmits<{
   (e: 'selectCourse', courseId: number, event: MouseEvent): void;
+  (e: 'dragstart', event: DragEvent, courseId: number): void;
+  (e: 'dragend'): void;
 }>();
 
 const unassignedCourses = computed(() => {
@@ -84,5 +87,6 @@ function getClassroomName(id: number | null) {
 
 function onDragStart(event: DragEvent, courseId: number) {
   onCourseDragStart(event, courseId);
+  emit('dragstart', event, courseId);
 }
 </script>

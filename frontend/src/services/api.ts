@@ -70,7 +70,8 @@ export async function resetTimetable(): Promise<{ status: string }> {
 export async function updateCourse(
   courseId: number,
   timeslotId: number | null,
-  isPinned?: boolean
+  isPinned?: boolean,
+  weekType?: 'A' | 'B'
 ): Promise<{ status: string; courses: Course[] }> {
   const response = await fetch(`/api/timetable/courses/${courseId}`, {
     method: 'PUT',
@@ -80,6 +81,7 @@ export async function updateCourse(
     body: JSON.stringify({
       timeslot_id: timeslotId,
       is_pinned: isPinned,
+      week_type: weekType,
     }),
   });
   if (!response.ok) {

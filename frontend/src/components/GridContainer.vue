@@ -61,11 +61,13 @@
               <BaseGrid
                 :timeslots="timeslots"
                 :dragOverCells="dragOverCells"
+                :weekType="weekType"
+                :draggedCourseWeekType="draggedCourseWeekType"
                 layoutMode="merged"
                 :isMini="true"
-                @cell-dragover="(day, time, ev) => $emit('cell-dragover', day, time, ev)"
-                @cell-dragleave="(day, time, ev) => $emit('cell-dragleave', day, time, ev)"
-                @cell-drop="(day, time, ev) => $emit('cell-drop', day, time, ev)"
+                @cell-dragover="(day, time, ev, weekHalf) => $emit('cell-dragover', day, time, ev, weekHalf)"
+                @cell-dragleave="(day, time, ev, weekHalf) => $emit('cell-dragleave', day, time, ev, weekHalf)"
+                @cell-drop="(day, time, ev, weekHalf) => $emit('cell-drop', day, time, ev, weekHalf)"
                 @cell-mousedown="(day, time, ev) => $emit('cell-mousedown', day, time, ev)"
                 @cell-mouseenter="(day, time, ev) => $emit('cell-mouseenter', day, time, ev)"
                 @cell-mouseleave="(day, time, ev) => $emit('cell-mouseleave', day, time, ev)"
@@ -93,11 +95,13 @@
           <BaseGrid v-else
             :timeslots="timeslots"
             :dragOverCells="dragOverCells"
+            :weekType="weekType"
+            :draggedCourseWeekType="draggedCourseWeekType"
             :layoutMode="layoutMode"
             :activeResources="activeResources"
-            @cell-dragover="(day, time, ev) => $emit('cell-dragover', day, time, ev)"
-            @cell-dragleave="(day, time, ev) => $emit('cell-dragleave', day, time, ev)"
-            @cell-drop="(day, time, ev) => $emit('cell-drop', day, time, ev)"
+            @cell-dragover="(day, time, ev, weekHalf) => $emit('cell-dragover', day, time, ev, weekHalf)"
+            @cell-dragleave="(day, time, ev, weekHalf) => $emit('cell-dragleave', day, time, ev, weekHalf)"
+            @cell-drop="(day, time, ev, weekHalf) => $emit('cell-drop', day, time, ev, weekHalf)"
             @cell-mousedown="(day, time, ev) => $emit('cell-mousedown', day, time, ev)"
             @cell-mouseenter="(day, time, ev) => $emit('cell-mouseenter', day, time, ev)"
             @cell-mouseleave="(day, time, ev) => $emit('cell-mouseleave', day, time, ev)"
@@ -170,7 +174,10 @@ withDefaults(defineProps<{
   
   // Drag over state
   dragOverCells?: Record<string, boolean>;
-  
+  // week_type du cours en cours de glisser-déposer, transmis à BaseGrid pour le split de
+  // colonnes A/B (voir attribution_week_type_auto.md, Phase B).
+  draggedCourseWeekType?: string | null;
+
   // Forwarded Filter Bar Props
   schools?: any[];
   teachers?: any[];
@@ -202,6 +209,7 @@ withDefaults(defineProps<{
   showSidebar: false,
   brush: 'Unsuited',
   dragOverCells: () => ({}),
+  draggedCourseWeekType: null,
   schools: () => [],
   teachers: () => [],
   divisions: () => [],
@@ -237,9 +245,9 @@ defineEmits<{
   (e: 'update:periodIds', value: number[]): void;
   
   // Grid events
-  (e: 'cell-dragover', day: number, time: number, event: DragEvent): void;
-  (e: 'cell-dragleave', day: number, time: number, event: DragEvent): void;
-  (e: 'cell-drop', day: number, time: number, event: DragEvent): void;
+  (e: 'cell-dragover', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
+  (e: 'cell-dragleave', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
+  (e: 'cell-drop', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
   (e: 'cell-mousedown', day: number, time: number, event: MouseEvent): void;
   (e: 'cell-mouseenter', day: number, time: number, event: MouseEvent): void;
   (e: 'cell-mouseleave', day: number, time: number, event: MouseEvent): void;

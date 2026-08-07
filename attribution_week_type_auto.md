@@ -328,3 +328,158 @@ Vérifié : suite backend complète 130/130 (131 − 2 tests retirés + 1 test r
 Vérifié : suite backend complète 132/132 (130 + 2 nouveaux), reseed de la base de dev sans erreur.
 
 ---
+
+## Échange 10 — Implémentation Phase B : split de colonnes A/B pour le placement manuel
+
+### Message utilisateur
+
+> on passe à la phase B
+
+### Réponse (implémentation)
+
+**Backend** :
+- `backend/app/api/endpoints.py` (`CourseUpdate`) : ajout du champ optionnel `week_type` — l'endpoint de placement `PUT /courses/{id}` peut désormais transporter la semaine résolue en même temps que le créneau.
+- `backend/app/models/course.py` (`Course.update()`) : nouvelle garde ceinture-et-bretelles — un cours `W` ne peut jamais basculer vers `A`/`B` "lors du placement" (appel posant un VRAI `timeslot_id`, pas `None`, en même temps que `week_type`). Bug trouvé et corrigé en cours de route : la condition initiale (`'timeslot_id' in vals`) rejetait à tort `test_solver_group_link_and_week_alternation`, qui dépositionne (`timeslot_id: None`) + résout la semaine dans le même appel avant un nouveau solve — corrigée en `vals.get('timeslot_id') is not None`.
+- Test ajouté : `test_course_week_type_w_cannot_become_a_or_b_via_placement` (rejet du cas bloqué, autorisation du placement simple W, autorisation du changement de semaine hors placement, autorisation de la bascule A↔B lors d'un déplacement).
+
+**Frontend** — chaîne complète du glisser-déposer jusqu'au split visuel :
+- `CourseCard.vue` : ajout de l'emit `dragend`.
+- `Sidebar.vue` : forwarding `dragstart`/`dragend` vers le parent (jusqu'ici géré localement, invisible au reste de l'arbre de composants).
+- `TimetableGrid.vue` : nouvel état `draggedCourseWeekType` (ref), posé au `dragstart` (recherche du cours par id dans `props.courses`, `dataTransfer.getData()` n'étant pas lisible pendant le survol pour des raisons de sécurité navigateur — d'où cet état local plutôt qu'une lecture différée), effacé au `dragend`. `onDrop` accepte désormais un `weekHalf?: 'A'|'B'` et l'inclut dans l'emit `move`.
+- `GridContainer.vue` : nouvelle prop `draggedCourseWeekType`, transmise aux deux instances de `BaseGrid` (mode `resource_grids` et mode par défaut) avec `weekType`; forwarding de `cell-drop` étendu au `weekHalf`.
+- `BaseGrid.vue` (cœur du split) : nouvelles props `weekType`/`draggedCourseWeekType`, `shouldSplitCells` computed (actif seulement si filtre = "Toutes" ET cours glissé non-W). Quand actif, deux zones de dépose superposées (`.split-half-a`/`.split-half-b`, 50% de largeur chacune, mêmes teintes que les badges `week-A`/`week-B` de `CourseCard.vue`) apparaissent au-dessus du contenu existant de la cellule ; le `@drop` du `.sub-cell` parent est désactivé pendant le split pour éviter un double déclenchement par remontée (bubbling) de l'événement `drop`. N'existent que pendant un drag actif (`v-if`), jamais en dehors.
+- `App.vue` (`onMoveCourse`) et `services/api.ts` (`updateCourse`) : signature étendue au `weekType` optionnel, propagé jusqu'au payload `PUT`.
+
+Vérifié : suite backend complète 133/133 (132 + 1 nouveau, après correction du bug de condition ci-dessus), build frontend propre, comportement confirmé en direct via curl sur l'endpoint réel (`PUT /courses/1` avec `week_type=A` sur un cours W → 409 ; sans `week_type` → 200), reseed de la base de dev sans erreur.
+
+**Non vérifiable par mes soins** : le rendu visuel du split (positionnement, lisibilité, z-index par rapport aux cours déjà placés) — le test navigateur est exclu par la constitution du projet. Confirmation visuelle nécessaire de votre part avant de considérer la Phase B close.
+
+---
+
+## Échange 11 — Retour visuel : contour sans fond, ombre portée unifiée A/B/W
+
+### Message utilisateur
+
+> Graphiquement je trouve ça lourd de mettre A ou B dans chaque case. Et par ailleurs ça ne me va pas de mettre des couleurs car ça masque les couleurs liées au "poids" de chaque emplacement qui est déjà implémenté et qui pemet de savoir si un case améliore le score de l'EDT ou le basse.. Je pense que délimiter deux "zones" sur chaque case suffit (juste le contour de la zone, pas de fond)). On pourrait même ajouter un grisé transparent au dessus de la couleur de fond quand on approche un cours d'une des deux zone, un peu comme une ombre qui permet de savoir sur quelle case le cours va tomber lorsque l'on va relacher le clic. Cette logique d'ombre portée serait aussi valabel pour les cours de week_type=W. Dis-moi si ce n'est pas clarr. Par aillleurs, quand je drop le cours (ou si je le déselectionne), il faut que la "couche graphique" qui déssine les contours A/B disparaisse de la grille (question par curriosité : est-ce que ce mécanisme est implémenté avec le systèeme de couches générique comme pour les couleurs/poids ?)
+
+### Réponse (implémentation)
+
+C'était clair. Découverte utile en creusant : le mécanisme de surbrillance au survol existait déjà (`dragOverCells`, classe `.drag-over`) mais n'a **jamais fonctionné** — bug de sélecteur CSS préexistant (`.grid-cell.drag-over` dans `main.css`, alors que la classe est posée sur `.sub-cell`, jamais sur `.grid-cell` — règle totalement inatteignable). Corrigé au passage et réutilisé comme fondation pour l'ombre portée demandée.
+
+**Implémenté** (`BaseGrid.vue`) :
+- Suppression du lettrage "A"/"B" et de tout fond coloré sur les zones scindées — ne reste qu'un simple contour (trait pointillé au milieu de la cellule séparant les deux moitiés), la coloration de poids/score (`layer-bg`) reste entièrement visible.
+- Ombre portée unifiée : un grisé neutre et transparent (`rgba(100, 116, 139, 0.25)` + contour pointillé), appliqué de façon identique sur `.sub-cell.drag-over` (cours W, cellule entière) et `.split-half.drag-over` (cours A/B/Q, une moitié) — même mécanisme, granularité différente selon le contexte. Le suivi du survol par moitié utilise le même système de clés que l'existant (`dragOverCells`), simplement étendu avec un suffixe `-A`/`-B` — pas un système parallèle.
+- Chaîne de propagation étendue en conséquence : `cell-dragover`/`cell-dragleave` (`BaseGrid.vue` → `GridContainer.vue` → `TimetableGrid.vue`) transportent désormais le `weekHalf` optionnel, exactement comme `cell-drop` l'a fait à l'Échange 10.
+- Nettoyage : l'ancienne règle CSS morte (`main.css`) retirée, remplacée par un commentaire renvoyant vers la nouvelle implémentation.
+
+**Disparition au drop/désélection** : déjà correcte sans changement supplémentaire — `dragend` (natif HTML5) se déclenche systématiquement en fin de glisser, que le drop ait réussi, échoué, ou que le glisser ait été annulé (Échap, relâché hors zone valide) ; `onDragEnd` (`TimetableGrid.vue`, ajouté à l'Échange 10) remet `draggedCourseWeekType` à `null`, ce qui fait disparaître `shouldSplitCells` et donc tout le bloc `v-if` des zones scindées — pas de nouveau code nécessaire, le comportement demandé était déjà garanti par la façon dont `dragend` a été câblé.
+
+**Réponse à la question d'architecture** : non, ce n'est **pas** implémenté via le système de couches générique à slots (`#cell-background`/`#cell-content`, celui qui porte la heatmap et les cours). C'est un troisième bloc ("Layer 3") codé en dur directement dans le template de `BaseGrid.vue`, pas exposé comme slot personnalisable. Différence assumée, pas un oubli : les slots existent précisément parce que le contenu qu'ils portent **diffère** selon le consommateur (heatmap pour `TimetableGrid.vue`, peinture de vœux pour `PreferenceGrid.vue`) — alors que le split A/B et l'ombre de survol sont un comportement **générique du glisser-déposer de cours**, identique pour tout consommateur de `BaseGrid.vue` qui déplace des cours. Le coder en dur dans `BaseGrid.vue` plutôt que via un slot évite à chaque futur consommateur de devoir le réimplémenter — mais ça veut dire que `PreferenceGrid.vue` (qui n'a pas de notion de cours glissé) ignore simplement cette couche par construction (`draggedCourseWeekType` n'y est jamais renseigné, `shouldSplitCells` y reste toujours faux).
+
+Vérifié : build frontend propre, suite backend complète 133/133 (inchangée, ce tour ne touche que le rendu visuel).
+
+**Non vérifiable par mes soins** : le rendu visuel réel (contour, ombre, disparition au relâchement) — confirmation visuelle nécessaire de votre part.
+
+---
+
+## Échange 12 — Documentation : architecture.md et spec.md
+
+### Message utilisateur
+
+> tu peux alimenter respectivement architecture.md et spec.md en ce qui les concerne (et au bon endroit)
+
+### Réponse (documentation)
+
+**`specs/002-yearly-timetabling-core/spec.md`** :
+- `Course.week_type` (section entité) : deux règles ajoutées — bascule libre A↔B lors d'un déplacement, et interdiction dédiée pour W→A/B "lors d'un placement" (indépendante de la garde Q déjà documentée à l'Échange 6).
+- `Course.is_pinned` : précisé qu'il bloque désormais le déplacement manuel autant qu'automatique (Échange 5, jusqu'ici non documenté dans les specs).
+- Section « Structure du Composant Grille (`BaseGrid.vue`) » : nouvelle couche documentée aux côtés des couches Arrière-plan/Premier-plan déjà décrites — la « Couche de Résolution de Semaine (Split A/B Layer) », avec ses conditions d'activation, la règle du contour-sans-fond, et l'ombre portée.
+- Section « Filtres Cumulatifs » : note ajoutée sur le filtre de semaine, renvoyant vers la nouvelle couche.
+
+**`architecture.md`** :
+- Section 5.D (`CRUDMixin`/`@constrains`) : nouveau point sur le piège découvert à l'Échange 9 — un `create()` surchargé qui ne passe jamais par `CRUDMixin.create()` (`ResourcePreference.create()`) ne déclenche jamais `@constrains`, généralisé comme point de vigilance pour tout futur modèle avec une logique de création personnalisée.
+- Nouvelle section **15.O** : la couche de split A/B, avec la justification explicite de pourquoi elle n'utilise PAS le système de slots génériques (réponse à la question de l'Échange 11), le mécanisme technique (état local `draggedCourseWeekType`, `dragend` natif, réutilisation étendue de `dragOverCells`), et la mention du bug CSS préexistant corrigé au passage.
+
+Placé à chaque fois au plus près de la documentation déjà existante sur le sujet connexe (le bloc `week_type` déjà enrichi aux Échanges 6/9, la section grille déjà structurée en couches, la section `@constrains` déjà consacrée à ce mécanisme) plutôt qu'en fin de fichier.
+
+Vérifié : build frontend propre (changements doc-only, aucun risque fonctionnel, vérification par prudence).
+
+---
+
+## Échange 13 — Correctif : case grisée persistante + ombre étendue à toute la durée du cours
+
+### Message utilisateur
+
+> J'ai trouvé un bug : quand je drop le cours, la zone sur laquelle il a atteri reste grisée. Et j'ai une demande complémentaire : l'ombre ne doit pas être QUE sur le créneau de début, elle doit être sur tous les créneaux qui seront occupés par le cours (de son début à sa fin)
+
+### Réponse (implémentation)
+
+**Bug (case grisée persistante)** — cause : `drop` ne déclenche jamais `dragleave` sur sa propre cible (l'un ou l'autre se produit, jamais les deux, selon la spec HTML5 Drag and Drop) ; l'ancien `onDrop` n'effaçait que la clé de base (sans suffixe `-A`/`-B`), jamais les clés scindées effectivement utilisées. Corrigé à la racine plutôt qu'au cas par cas : `onDragEnd` (`TimetableGrid.vue`) vide maintenant entièrement `activeDragCells` (`activeDragCells.value = {}`) — `dragend` se déclenchant systématiquement en tout dernier quelle que soit l'issue du glisser (drop réussi, annulé, relâché hors zone), un seul point de nettoyage suffit, plus besoin de traquer précisément quelles clés éteindre.
+
+**Ombre étendue à toute la durée** : `TimetableGrid.vue` retenait déjà le cours glissé (`draggedCourse`, élargi depuis l'ancien `draggedCourseWeekType` pour exposer aussi `duration_minutes`). Nouvelle fonction `occupiedCellSuffixes(day, hour, weekHalf)` : calcule, à partir du créneau survolé et de la durée du cours, la liste de toutes les clés de cellules occupées (pas de `currentStandardDuration`), utilisée par `onDragOver`/`onDragLeave` pour marquer/démarquer l'ensemble de la plage plutôt qu'une seule case. Aucun changement nécessaire côté `BaseGrid.vue` : chaque sous-cellule/moitié scindée lit déjà `dragOverCells` indépendamment par sa propre clé — étendre l'ensemble des clés à `true` suffit à étendre visuellement l'ombre sur toutes les cellules concernées.
+
+Vérifié : build frontend propre. Backend non touché ce tour (aucun changement).
+
+**Non vérifiable par mes soins** : le rendu visuel réel — confirmation nécessaire de votre part.
+
+---
+
+## Échange 14 — Le bug de case grisée persistait : nettoyage rendu indépendant de `dragend`
+
+### Message utilisateur
+
+> J'ai toujours le bug "Case grisée persistante"
+
+### Réponse (implémentation)
+
+Le correctif de l'Échange 13 (nettoyage global dans `onDragEnd`) supposait que `dragend` se déclenche toujours de façon fiable — hypothèse remise en cause par ce retour. Cause plus probable : déplacer un cours **déjà placé** vers une nouvelle case fait changer sa cellule de rendu (retiré du bloc `v-for` de l'ancienne case, ajouté à celui de la nouvelle — des blocs différents, pas un simple réordonnancement au sein d'une même liste). La mise à jour réactive déclenchée par `emit('move', ...)` peut donc détruire le nœud DOM source avant que le navigateur n'ait dispatché `dragend` dessus — auquel cas l'événement ne se déclenche jamais, et le nettoyage prévu n'a pas lieu.
+
+**Correctif** : `activeDragCells.value = {}` déplacé en tête de `onDrop` (`TimetableGrid.vue`), avant même la résolution du créneau et l'émission de `move` — donc avant tout déclenchement de réactivité susceptible de détruire le nœud source. Le nettoyage du succès ne dépend plus de `dragend` du tout. `onDragEnd` reste en place comme filet de sécurité pour le cas d'un glisser annulé (aucun drop, Échap, relâché hors zone) — les deux mécanismes cohabitent, chacun couvrant un cas que l'autre ne couvre pas.
+
+Vérifié : build frontend propre. Backend non touché.
+
+**Non vérifiable par mes soins** : confirmation visuelle nécessaire de votre part.
+
+---
+
+## Échange 15 — Ombre portée : fond clair parasite côté non-ciblé, plus foncé côté ciblé
+
+### Message utilisateur
+
+> Quand on drag un cours A/B/Q, je veux revoir l'ombre : je ne veux pas d'ombre portée sur la partie (gauche ou droite) sur laquelle le cours ne va pas atterrir. Là on a du gris clair sur le côté ou ça ne va pas tomber et gris foncé sur le coté où ça va tomber. A la place je ne veux pas de fond gris sur le coté où ça ne va aps tomber, et du gros clair sur le coté ou ça va tomber (le même gris que l'ombre pour un cours de type W). Je pense qu'il ne changer que deux code couleur dans les css. On ne change pas les contour des zones
+
+### Réponse (implémentation)
+
+Diagnostic avant correction (pas une simple recoloration, malgré l'intuition initiale) : `.split-half` non survolé n'a déjà aucune couleur dans le code (transparent par défaut) — le gris clair perçu ne vient pas de cette règle. La vraie source : `.sub-cell:hover` (`main.css`, règle générique préexistante, sans rapport avec ce chantier) applique un fond clair (`var(--bg-surface)`) dès que la souris survole la cellule — y compris pendant un glisser natif (`:hover` reste actif sous le curseur même en plein drag). Cette teinte s'applique au **parent** `.sub-cell`, donc traverse les deux moitiés scindées (transparentes) de façon uniforme — d'où le gris clair des deux côtés. Le côté ciblé par `.drag-over` empile en plus sa propre teinte par-dessus, d'où l'aspect "plus foncé" : deux teintes identiques superposées d'un côté, une seule de l'autre — pas deux couleurs différentes comme l'hypothèse de départ le supposait.
+
+**Correctif** : neutralisation de `.sub-cell:hover` spécifiquement quand des zones scindées sont présentes (`'.sub-cell:has(.split-half):hover { background-color: transparent; }`) — la cellule scindée n'affiche alors plus que l'ombre `.drag-over` de la moitié réellement ciblée, rien côté non-ciblé. Contours des zones (`border-right` pointillé) inchangés, comme demandé. Ce n'est pas littéralement "deux couleurs changées" (une règle neuve, ciblée) mais la couleur de `.drag-over` elle-même reste exactement la même que l'ombre W (déjà partagée par les deux, aucun changement nécessaire là) — une fois la fuite supprimée, elle s'affiche seule et propre.
+
+Vérifié : build frontend propre. Backend non touché.
+
+**Non vérifiable par mes soins** : confirmation visuelle nécessaire de votre part — en particulier que `.sub-cell:hover` neutralisé pendant le split ne casse pas un autre usage de cette classe ailleurs (vérifié par lecture : son seul effet déclaré est ce fond clair, purement décoratif, sans autre rôle fonctionnel).
+
+---
+
+## Échange 16 — Le vrai correctif : `dragover`/`dragleave` de `.sub-cell` remontent (bubbling) et polluent la moitié non ciblée
+
+### Message utilisateur
+
+> non ça ne marhce pas : ça n'a rien changé
+
+Puis, en réponse à une demande de description précise étape par étape :
+> 1. [...] à gauche c'est gris foncé et à droite c'est gris clair ===> je voudrais du gris clair à gauche et pas de gris à droite (transparent)
+> 2. [...] à gauche c'est gris clair et à droite c'est gris foncé ===> je voudrais du gris clair à droite et pas de gris à gauche (transparent)
+
+### Réponse (implémentation)
+
+Le correctif de l'Échange 15 (`.sub-cell:hover` neutralisé) était basé sur une hypothèse fausse — CSS `:hover` ne s'applique pas forcément de façon fiable pendant un glisser natif, et ce n'était de toute façon pas le mécanisme réel. Plutôt que de retenter une troisième hypothèse à l'aveugle, questions ciblées pour isoler précisément le comportement avant de retoucher au code — la description obtenue (symétrique : le côté NON ciblé est systématiquement en gris clair, quel que soit celui des deux qui est réellement ciblé) a permis d'identifier la vraie cause.
+
+**Cause réelle** : `.sub-cell` conserve ses propres gestionnaires `dragover`/`dragleave` **inconditionnels** (seul son `@drop` avait été désactivé pendant le split, à l'Échange 10, pour éviter un double déclenchement). Or `dragover`/`dragleave` **remontent** (bubbling) : quand `.split-half` (l'enfant) déclenche son propre `dragover`, l'événement remonte ensuite jusqu'à `.sub-cell` (le parent), qui déclenche À SON TOUR son propre gestionnaire — émettant `cell-dragover` **sans** `weekHalf`. Ça pose la clé de survol SANS suffixe `-A`/`-B` dans `dragOverCells`, faisant passer `.sub-cell` lui-même en `.drag-over` — qui teinte alors **toute la cellule** (les deux moitiés, `.sub-cell` étant sous `.split-half` dans l'empilement) en plus de la moitié réellement ciblée, qui reçoit sa propre teinte par-dessus. D'où : côté ciblé = deux teintes identiques superposées (plus sombre), côté non ciblé = une seule (plus clair) — exactement la description obtenue, et le "gris clair côté non-ciblé" n'apparaît bien que pendant un survol actif (peu importe lequel des deux côtés), comme confirmé.
+
+**Correctif** : `dragover`/`dragleave` de `.sub-cell` reçoivent désormais la même garde `!shouldSplitCells &&` que son `@drop` (déjà en place) — pendant le split, seuls les gestionnaires propres à chaque `.split-half` s'exécutent, plus aucune remontée parasite vers le parent. Règle `.sub-cell:has(.split-half):hover` de l'Échange 15 retirée (ciblait un mécanisme qui n'était pas la cause réelle).
+
+Vérifié : build frontend propre, absence confirmée de la règle `:has()` retirée dans le CSS compilé. Backend non touché.
+
+**Non vérifiable par mes soins** : confirmation visuelle nécessaire de votre part.
+
+---
