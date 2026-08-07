@@ -903,6 +903,163 @@ def test_course_parent_week_type_cascade(db_session: Session):
     db_session.refresh(parent)
     assert parent.week_type == WeekType.A
 
+
+def test_course_parent_week_type_cascade_with_pending_q_child(db_session: Session):
+    """
+    Un parent avec au moins un enfant encore en Q (quinzaine à déterminer) reste lui-même Q,
+    même si un autre enfant est déjà résolu en A — sinon {A, Q} basculerait à tort en W (semaine
+    entière), qui a un sens différent (voir attribution_week_type_auto.md, Échange 6).
+    """
+    from backend.app.models.course import Course
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "A"
+
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "Q"
+
+
+def test_course_week_type_q_cannot_be_placed(db_session: Session):
+    """
+    Un cours en week_type=Q ne peut jamais être placé sur la grille (timeslot_id) — ni à la
+    création, ni en tentant de placer un cours déjà Q, ni en repassant en Q un cours déjà placé
+    (les deux sens sont couverts par le même @constrains, voir attribution_week_type_auto.md).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts._via_crud_mixin_create = True
+    ts_end = Timeslot(day_of_week=1, minutes_from_midnight=600)
+    ts_end._via_crud_mixin_create = True
+    db_session.add_all([ts, ts_end])
+    db_session.commit()
+
+    # Création directe avec Q + un créneau -> refusé.
+    with pytest.raises(ValueError, match="quinzaine"):
+        Course.create(db_session, {
+            "subject_id": subject.id, "school_id": school.id, "duration_minutes": 60,
+            "week_type": "Q", "timeslot_id": ts.id,
+        })
+
+    # Cours Q non placé -> autorisé.
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 60, "week_type": "Q",
+    })
+    db_session.commit()
+
+    # Tentative de placement manuel via l'API pendant qu'il est encore Q -> refusé.
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 409
+    assert "quinzaine" in response.json()["detail"]
+
+    # Une fois résolu en A, le placement fonctionne normalement.
+    course.update(db_session, {"week_type": "A"})
+    db_session.commit()
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 200
+
+    # Sens inverse : repasser en Q un cours déjà placé (sans toucher au créneau) est refusé —
+    # via le CRUD générique (PATCH), week_type n'étant pas exposé sur cet endpoint dédié.
+    response = client.patch(f"/api/generic/courses/{course.id}", json={"week_type": "Q"})
+    assert response.status_code == 400
+    assert "quinzaine" in response.json()["detail"]
+    db_session.refresh(course)
+    assert course.week_type.value == "A"
+    assert course.timeslot_id == ts.id
+
+
+def test_course_preference_rejects_non_w_week_type(db_session: Session):
+    """
+    Une préférence de type Course s'applique obligatoirement à toutes les semaines (W) — l'IHM
+    dédiée (courses_pref_grid) masque déjà le sélecteur de semaine pour ce type de ressource ;
+    ce test vérifie le garde-fou modèle pour toute autre voie d'écriture (voir
+    attribution_week_type_auto.md, Échange 9).
+    """
+    from backend.app.models.preference import ResourcePreference
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    course = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60})
+    db_session.commit()
+
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts._via_crud_mixin_create = True
+    db_session.add(ts)
+    db_session.commit()
+
+    # Création directe avec week_type='A' -> refusée.
+    with pytest.raises(ValueError, match="toutes les semaines"):
+        ResourcePreference.create(db_session, {
+            "resource_type": "Course", "resource_id": course.id, "timeslot_id": ts.id,
+            "preference_level": "Unsuited", "week_type": "A",
+        })
+
+    # Préférence valide (W par défaut), puis tentative de bascule vers 'B' en update -> refusée.
+    pref = ResourcePreference.create(db_session, {
+        "resource_type": "Course", "resource_id": course.id, "timeslot_id": ts.id,
+        "preference_level": "Unsuited",
+    })
+    db_session.commit()
+    with pytest.raises(ValueError, match="toutes les semaines"):
+        pref.update(db_session, {"week_type": "B"})
+
+
+def test_course_preference_rejects_non_annual_period(db_session: Session):
+    """
+    Une préférence de type Course s'applique obligatoirement à l'année entière (aucune période
+    associée) — même logique que le test précédent, pour la dimension période plutôt que semaine.
+    """
+    import datetime
+    from backend.app.models.preference import ResourcePreference
+    from backend.app.models.period_type import PeriodType
+    from backend.app.models.period import Period
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    course = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60})
+    db_session.commit()
+
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts._via_crud_mixin_create = True
+    db_session.add(ts)
+    db_session.commit()
+
+    pt = PeriodType.create(db_session, {"name": "Trimestre"})
+    period = Period.create(db_session, {
+        "period_type_id": pt.id, "school_id": school.id, "code": "T1", "name": "T1",
+        "start_date": datetime.date(2026, 9, 1), "end_date": datetime.date(2026, 12, 31),
+    })
+    db_session.commit()
+
+    # Création directe avec une période associée -> refusée.
+    with pytest.raises(ValueError, match="année entière"):
+        ResourcePreference.create(db_session, {
+            "resource_type": "Course", "resource_id": course.id, "timeslot_id": ts.id,
+            "preference_level": "Unsuited", "period_ids": [period.id],
+        })
+
+    # Préférence valide (annuelle par défaut), puis tentative d'associer une période en update
+    # -> refusée.
+    pref = ResourcePreference.create(db_session, {
+        "resource_type": "Course", "resource_id": course.id, "timeslot_id": ts.id,
+        "preference_level": "Unsuited",
+    })
+    db_session.commit()
+    with pytest.raises(ValueError, match="année entière"):
+        pref.update(db_session, {"period_ids": [period.id]})
+
+
 def test_course_day_overflow_conflict(db_session: Session):
     """
     Vérifie qu'un cours ne peut pas déborder au-delà du dernier créneau de la journée.

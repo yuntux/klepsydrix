@@ -5,7 +5,7 @@ from typing import List
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Table, Enum
 from sqlalchemy.orm import relationship
-from backend.app.models.base import Base
+from backend.app.models.base import Base, constrains
 
 class WeekType(str, enum.Enum):
     A = "A"
@@ -34,6 +34,30 @@ class ResourcePreference(Base):
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
     periods: Mapped[list["Period"]] = relationship("Period", secondary=preference_periods, info={"label": "Périodes"})
 
+    @staticmethod
+    def _validate_course_preference_scope(resource_type, week_type, has_periods: bool):
+        """
+        Une préférence de type Course s'applique obligatoirement à toutes les semaines et à
+        l'année entière (voir attribution_week_type_auto.md, Échange 9) : l'IHM dédiée
+        (panneau `courses_pref_grid`, ui.json) masque déjà les sélecteurs de semaine et de
+        période pour ce type de ressource. Ce garde-fou empêche toute autre voie d'écriture
+        (CRUD générique, script) de créer un état que plus rien dans l'application ne gère
+        depuis le retrait de la propagation Course -> ResourcePreference (Échange 8).
+        """
+        if resource_type != "Course":
+            return
+        wt = week_type.value if hasattr(week_type, "value") else week_type
+        if wt != "W":
+            raise ValueError("Une préférence de cours s'applique obligatoirement à toutes les semaines (W) : le type de semaine n'est pas modifiable pour ce type de ressource.")
+        if has_periods:
+            raise ValueError("Une préférence de cours s'applique obligatoirement à l'année entière : aucune période ne peut y être associée.")
+
+    @constrains('resource_type', 'week_type', 'period_ids')
+    def validate_course_preference_scope(self, db):
+        # Couvre le chemin update() (create() ne passe jamais par CRUDMixin.create() — voir
+        # _validate_course_preference_scope appelé explicitement en tête de create() ci-dessous).
+        self._validate_course_preference_scope(self.resource_type, self.week_type, bool(self.periods))
+
     @classmethod
     def create(cls, db: "Session", vals: dict):
         """
@@ -45,14 +69,11 @@ class ResourcePreference(Base):
         timeslot_id = vals.get("timeslot_id")
         week_type = vals.get("week_type", "W")
         period_ids = vals.get("period_ids", [])
-        if resource_type == "Course":
-            from backend.app.models.course import Course
-            from sqlalchemy import select
-            course = db.execute(select(Course).filter_by(id=resource_id)).scalars().first()
-            if course:
-                week_type = course.week_type
-                period_ids = [p.id for p in course.periods]
         is_annual = not period_ids
+
+        # create() ne passe jamais par CRUDMixin.create() (construction directe des instances
+        # plus bas) : @constrains ne s'y déclenche donc jamais, d'où cet appel explicite.
+        cls._validate_course_preference_scope(resource_type, week_type, bool(period_ids))
 
         # 1. Récupérer toutes les préférences existantes pour ce créneau/ressource
         existings = db.query(cls).filter(

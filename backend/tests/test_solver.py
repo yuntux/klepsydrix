@@ -295,49 +295,25 @@ def test_solver_prevents_day_overflow(db_session: Session):
 
 
 
-def test_course_preference_propagation(db_session: Session):
-    import datetime
+def test_course_preference_deleted_on_course_cascade(db_session: Session):
+    """
+    Suppression en cascade des ResourcePreference liées à un Course supprimé (Course.delete()) —
+    mécanisme distinct de l'héritage/propagation week_type/periods (retiré, voir
+    attribution_week_type_auto.md, Échange 8 : basé sur une mauvaise compréhension initiale).
+    """
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
-    
-    # 1. Création d'un cours
+
     course = Course.create(db_session, {
         "subject_id": subject.id,
         "school_id": school.id,
         "week_type": "A"
     })
     db_session.commit()
-    
-    # 2. Création de deux périodes
-    from backend.app.models.period_type import PeriodType
-    from backend.app.models.period import Period
-    pt = PeriodType.create(db_session, {"name": "Trimestre"})
-    per1 = Period.create(db_session, {
-        "period_type_id": pt.id,
-        "school_id": school.id,
-        "code": "T1",
-        "name": "T1",
-        "start_date": datetime.date(2026, 9, 1),
-        "end_date": datetime.date(2026, 12, 31)
-    })
-    per2 = Period.create(db_session, {
-        "period_type_id": pt.id,
-        "school_id": school.id,
-        "code": "T2",
-        "name": "T2",
-        "start_date": datetime.date(2027, 1, 1),
-        "end_date": datetime.date(2027, 3, 31)
-    })
-    db_session.commit()
-    
-    # Assigner la période au cours
-    course.update(db_session, {"periods": [per1], "period_type_id": pt.id})
-    db_session.commit()
-    
+
     ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
     db_session.commit()
-    
-    # 3. Créer une préférence pour ce cours
+
     pref = ResourcePreference.create(db_session, {
         "resource_type": "Course",
         "resource_id": course.id,
@@ -345,30 +321,13 @@ def test_course_preference_propagation(db_session: Session):
         "preference_level": "Unsuited"
     })
     db_session.commit()
-    
-    # Vérifier qu'elle a hérité de la semaine A et de la période T1 du cours
-    assert pref.week_type.value == "A"
-    assert len(pref.periods) == 1
-    assert pref.periods[0].id == per1.id
-    
-    # 4. Mettre à jour la semaine et la période du cours (vers per2)
-    course.update(db_session, {"week_type": "B", "periods": [per2]})
-    db_session.commit()
-    
-    # Recharger la préférence et vérifier la propagation
-    db_session.refresh(pref)
-    assert pref.week_type.value == "B"
-    assert len(pref.periods) == 1
-    assert pref.periods[0].id == per2.id
-    
-    # 5. Supprimer le cours et vérifier la suppression en cascade de la préférence
     pref_id = pref.id
+
     course.delete(db_session)
     db_session.commit()
-    
+
     deleted_pref = db_session.query(ResourcePreference).filter_by(id=pref_id).first()
     assert deleted_pref is None
-
 
 
 def test_solver_respects_course_preferences(db_session: Session):

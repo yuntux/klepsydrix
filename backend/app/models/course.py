@@ -1,12 +1,28 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
+import enum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, exposed, constrains, onchange
-from backend.app.models.preference import WeekType
 from backend.app.core.time_utils import get_duration_options
+
+
+class CourseWeekType(str, enum.Enum):
+    """
+    Alternance de semaine d'un Course — délibérément DISTINCTE de preference.WeekType (A/B/W)
+    plutôt qu'un simple ajout de Q à cette dernière : Q ("quinzaine à déterminer", voir
+    attribution_week_type_auto.md) n'a de sens que pour un Course en attente de résolution
+    A/B, jamais pour une préférence de ressource (ResourcePreference.week_type). Deux enums
+    Python séparés, adossés à deux enums SQL déjà distincts (course_week_type_enum vs
+    week_type_enum), rendent Q structurellement inatteignable côté préférences — y compris via
+    le moteur de formulaire générique, qui construit ses options à partir des membres de l'enum.
+    """
+    A = "A"
+    B = "B"
+    W = "W"
+    Q = "Q"
 
 course_teachers = Table(
     "course_teachers",
@@ -124,7 +140,7 @@ class Course(Base):
     # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au parent)
     parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Décalage par rapport au parent"})
     
-    week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="course_week_type_enum"), nullable=False, default=WeekType.W, info={"label": "Semaine", "placeholder": "ex: A, B, M"})
+    week_type: Mapped[Any] = mapped_column(Enum(CourseWeekType, name="course_week_type_enum"), nullable=False, default=CourseWeekType.W, info={"label": "Semaine", "placeholder": "ex: A, B, W, Q"})
     period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de période"})
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
@@ -192,9 +208,12 @@ class Course(Base):
         sr = self.service_repartition
         if self.duration_minutes != sr.duration_minutes:
             return False
-        if sr.periodicity == RepartitionPeriodicity.WEEKLY and self.week_type != WeekType.W:
+        if sr.periodicity == RepartitionPeriodicity.WEEKLY and self.week_type != CourseWeekType.W:
             return False
-        if sr.periodicity == RepartitionPeriodicity.BIWEEKLY and self.week_type not in (WeekType.A, WeekType.B):
+        # Q (quinzaine à déterminer) compte comme cohérent pour une répartition BIWEEKLY : c'est
+        # justement l'état attendu d'un cours fraîchement généré, avant résolution A/B manuelle
+        # ou automatique (voir attribution_week_type_auto.md) — pas une dérive à signaler.
+        if sr.periodicity == RepartitionPeriodicity.BIWEEKLY and self.week_type not in (CourseWeekType.A, CourseWeekType.B, CourseWeekType.Q):
             return False
         return True
 
@@ -341,15 +360,20 @@ class Course(Base):
         if not children:
             return
             
-        from backend.app.models.preference import WeekType
         types = {c.week_type.value for c in children if c.week_type}
-        
-        if types == {"A"}:
-            parent.week_type = WeekType.A
+
+        # Un parent avec au moins un enfant encore non résolu (Q) reste lui-même Q : il ne
+        # décrit pas encore une alternance figée tant que TOUS ses enfants n'ont pas choisi leur
+        # semaine (voir attribution_week_type_auto.md, Échange 1) — prioritaire sur la règle
+        # tout-A/tout-B/mixte, sinon un parent {A, Q} basculerait à tort en W (semaine entière).
+        if "Q" in types:
+            parent.week_type = CourseWeekType.Q
+        elif types == {"A"}:
+            parent.week_type = CourseWeekType.A
         elif types == {"B"}:
-            parent.week_type = WeekType.B
+            parent.week_type = CourseWeekType.B
         else:
-            parent.week_type = WeekType.W
+            parent.week_type = CourseWeekType.W
         db.add(parent)
 
     @constrains('duration_minutes')
@@ -516,6 +540,14 @@ class Course(Base):
         target_ts_id = self.timeslot_id
         if target_ts_id is None:
             return
+
+        # Un cours en semaine Q (quinzaine à déterminer) ne peut jamais être placé sur la grille
+        # — l'utilisateur (placement manuel) ou l'algorithme (placement automatique) doit d'abord
+        # avoir choisi A ou B (voir attribution_week_type_auto.md). Garantie structurelle : ce
+        # @constrains se déclenche sur tout create()/update() touchant timeslot_id OU week_type,
+        # donc couvre aussi bien "placer un cours déjà Q" que "repasser en Q un cours déjà placé".
+        if self.week_type == CourseWeekType.Q:
+            raise ValueError("Impossible de placer un cours dont la semaine (A ou B) n'a pas encore été déterminée (quinzaine Q).")
 
         from backend.app.models.timeslot import Timeslot
         from backend.app.models.teacher import Teacher
@@ -704,22 +736,6 @@ class Course(Base):
             removed_group_ids = before_group_ids - {g.id for g in self.groups}
             cleanup_orphaned_resources(db, list(removed_class_part_ids), list(removed_group_ids))
 
-        # Propager week_type et period_id aux préférences associées
-        from backend.app.models.preference import ResourcePreference
-        from backend.app.models.period import Period
-        
-        prefs = db.execute(select(ResourcePreference).filter_by(
-            resource_type="Course",
-            resource_id=self.id
-        )).scalars().all()
-        
-        if prefs:
-            for pref in prefs:
-                pref._via_crud_mixin_update = True
-                pref.week_type = self.week_type
-                pref.periods = list(self.periods)
-            db.flush()
-        
         # Recalculer son propre statut
         self.recompute_status()
         

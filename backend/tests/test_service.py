@@ -591,6 +591,21 @@ class TestCourseServiceConsistency:
         })
         assert course.is_consistent_with_service is True
 
+    def test_leaf_course_biweekly_pending_week_choice_is_consistent(self, db_session):
+        """
+        Un cours en week_type=Q (quinzaine à déterminer) lié à une répartition BIWEEKLY est
+        l'état ATTENDU juste après génération, avant résolution A/B — pas une dérive (voir
+        attribution_week_type_auto.md, Échange 5/6).
+        """
+        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
+
+        course = Course.create(db_session, {
+            "subject_id": subject.id, "school_id": school.id, "duration_minutes": 60,
+            "week_type": "Q", "service_repartition_id": repartition.id,
+        })
+        assert course.is_consistent_with_service is True
+
     def test_leaf_course_diverging_duration_is_inconsistent(self, db_session):
         school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})

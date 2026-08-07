@@ -232,9 +232,9 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 > - **Indisponibilité Stricte (Rouge) :** 🔴 **Hard Rule**. Le solveur n'a jamais le droit de placer un cours (ou une ressource impliquée) sur ce créneau.
 > - **Souhait d'Absence (Orange) :** 🟢 **Soft Rule (Pénalité)**. Le solveur doit faire le maximum pour éviter ce créneau. S'il est forcé de l'utiliser, le score global de qualité de l'emploi du temps diminue.
 > - **Souhait de Présence (Vert) :** 🟢 **Soft Rule (Bonus)**. Le solveur doit être encouragé à utiliser ce créneau préférentiellement aux autres créneaux neutres.
-> 
+>
 > **Cas particulier des préférences de Cours** :
-> Les préférences associées directement à un cours (`resource_type == 'Course'`) expriment des contraintes de créneau horaire sur le cours lui-même. Elles sont assujetties à une contrainte de cohérence temporelle stricte : les attributs `week_type`, `period_type_id` et la liste de `periods` du cours parent priment. Toute préférence de cours hérite obligatoirement de la semaine, du type de période et des périodes de ce cours, et la mise à jour d'un cours répercute ces changements sur ses préférences.
+> Une préférence associée directement à un cours (`resource_type == 'Course'`) s'applique obligatoirement à **toutes les semaines** (`week_type = 'W'`, non modifiable pour ce type de ressource) et à **l'année entière** (aucune `Period` associée — liste `periods` vide). Ce n'est plus une valeur héritée du `Course` référencé et resynchronisée à chaque modification de celui-ci (cette propagation automatique existait dans une version antérieure de ce document et a été retirée : elle reposait sur une incompréhension du besoin réel) — c'est une contrainte fixe sur ce type de ressource, imposée dès la création et à toute modification ultérieure.
 
 **BR-003: Respect des Limites de Travail et Logistiques (ResourceConstraints)**
 > **Nature : Majoritairement 🔴 Hard Rule (Stricte)**
@@ -298,7 +298,10 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
 *   `subject_id` : Clé étrangère vers la **Matière** enseignée (Entier, relation N-à-1). Optionnelle uniquement pour un cours composé parent sans matière propre (ex: "Pôle Sciences").
 *   `timeslot_id` : Clé étrangère optionnelle vers le **Timeslot** de départ du placement (Entier, relation N-à-1). Le cours occupe ensuite ce créneau et les suivants de manière contiguë, sur une durée totale de `duration_minutes`.
 *   `parent_timeslot_offset` : Décalage en nombre de créneaux standard par rapport au créneau du cours parent (Entier, par défaut `0`), utilisé pour les cours enfants d'un cours composé dont le placement est décalé (ex: rotation de sous-groupes en barrette).
-*   `week_type` : Type d'alternance de semaine (Enum : `A`, `B` ou `W` pour Toutes les semaines, par défaut `W`)
+*   `week_type` : Type d'alternance de semaine (Enum `CourseWeekType`, distincte de l'enum `WeekType` de **ResourcePreference** : `A`, `B`, `W` pour Toutes les semaines, ou `Q` pour Quinzaine à déterminer, par défaut `W`). `Q` matérialise qu'un cours aura lieu en quinzaine sans que la semaine A/B soit encore choisie (résolution différée au placement manuel ou automatique, voir section « Synchronisation Service ↔ ServiceRepartition » et `Q` ci-dessous) :
+    *   Un cours dont `timeslot_id` est renseigné ne peut jamais avoir `week_type = Q` — un placement (création ou mise à jour) tentant cette combinaison est rejeté.
+    *   Un cours composé parent dont au moins un enfant est encore `Q` reste lui-même `Q` (prioritaire sur la règle habituelle tout-A/tout-B/mixte→W, voir `_sync_parent_week_type`).
+    *   `Q` n'existe que sur **Course** — l'enum `WeekType` de **ResourcePreference** ne le contient pas. Une préférence de type Course n'hérite d'ailleurs plus du `week_type` (ni des `periods`) de son cours : elle s'applique toujours à toutes les semaines et à l'année entière, quel que soit l'état du cours (voir BR-002, "Cas particulier des préférences de Cours").
 *   `period_type_id` : Clé étrangère optionnelle vers le **PeriodType** (Entier, relation N-à-1) définissant le type de période du cours
 *   `periods` : Relation N-à-N vers les **Périodes** scolaires sur lesquelles s'applique ce cours (les périodes associées doivent toutes être du type défini par `period_type_id`)
 *   `name` : Libellé du cours, saisi librement (Chaîne optionnelle, ex: "Pôle Sciences" pour un cours composé sans matière propre)
@@ -680,8 +683,8 @@ Association polymorphique entre n'importe quel type de ressource, un créneau (T
 *   `resource_id` : Identifiant de la ressource concernée (Entier)
 *   `timeslot_id` : Clé étrangère vers le créneau **Timeslot** (Entier)
 *   `level` : Niveau de vœu (Enum : `RED` (Indisponibilité impérative / Rouge), `ORANGE` (Indisponibilité optionnelle / Orange), `GREEN` (Souhait de présence / Vert), `WHITE` (Disponible / Blanc))
-*   `week_type` : Type d'alternance de semaine (Chaîne: 'A', 'B' ou 'W' pour Toutes les semaines, par défaut 'W')
-*   *Relations (N-à-N)* : `periods` (Liaison vers **1 à N périodes** d'application de ce vœu ou indisponibilité)
+*   `week_type` : Type d'alternance de semaine (Chaîne: 'A', 'B' ou 'W' pour Toutes les semaines, par défaut 'W'). Pour `resource_type = 'Course'`, obligatoirement `'W'` (voir BR-002, "Cas particulier des préférences de Cours").
+*   *Relations (N-à-N)* : `periods` (Liaison vers **1 à N périodes** d'application de ce vœu ou indisponibilité). Pour `resource_type = 'Course'`, obligatoirement vide (préférence annuelle).
 
 ### 12. Mission
 Mission d'enseignement ou d'accompagnement rattachée à un cours (ex : Professeur Principal).

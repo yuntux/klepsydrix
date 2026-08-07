@@ -224,3 +224,107 @@ Correctif implémenté en trois couches ("ceinture et bretelles", cohérent avec
 Vérifié : suite backend complète 127/127 (126 existants + 1 nouveau), build frontend propre. Base de dev re-seedée après les vérifications manuelles via curl.
 
 ---
+
+## Échange 6 — Implémentation Phase A : modèle de données Q
+
+### Message utilisateur
+
+> ok on continue sur le reste du chantier
+
+### Réponse (implémentation)
+
+Séquencement proposé et suivi : **Phase A** (modèle de données, aucune question de design ouverte) maintenant ; **Phase B** (UX de placement manuel — split de colonnes A/B confirmé aux Échanges 3-4) ensuite ; **Phase C** (solveur, `week_type` en `@PlanningVariable`) après le spike déjà recommandé (Échange 2, risque n°1 non encore levé).
+
+**Phase A implémentée** :
+
+- **Scission des enums** (`backend/app/models/course.py`) : nouvel enum `CourseWeekType(A, B, W, Q)`, distinct de `preference.WeekType(A, B, W)` qui reste inchangé. `Course.week_type` utilise désormais `CourseWeekType` (colonne SQL `course_week_type_enum`, déjà nommée séparément — aucune migration nécessaire au-delà du reseed habituel). Vérifié via l'OpenAPI généré : `courses.week_type` expose bien `{A,B,W,Q}`, `resource_preferences.week_type` expose `{A,B,W}` — Q est structurellement inatteignable côté préférences, y compris via le moteur de formulaire générique.
+- **Règle dure "jamais Q placé"** (`Course.validate_placement_conflicts`) : toute création/mise à jour où `timeslot_id` est renseigné ET `week_type == Q` est rejetée (`ValueError`), qu'il s'agisse de placer un cours déjà Q ou de repasser en Q un cours déjà placé.
+- **`_sync_parent_week_type`** : un parent composé avec au moins un enfant encore Q reste lui-même Q (prioritaire sur la règle tout-A/tout-B/mixte→W).
+- **`is_consistent_with_service`** : Q compte désormais comme cohérent pour une `ServiceRepartition` BIWEEKLY (état attendu avant résolution, pas une dérive).
+- **Propagation vers `ResourcePreference`** (les deux sens — `Course.update()` → préférences liées, et `ResourcePreference.create()` héritant du cours) : un cours en Q propage `W` vers ses préférences, jamais `Q` littéralement (l'enum de `ResourcePreference` ne contient pas cette valeur).
+- **Frontend** (`CourseCompositionPreview.vue`) : `Q` ajouté comme 4ᵉ option additive dans le sélecteur par ligne ("Quinzaine à déterminer (Q)"), sans toucher au comportement par défaut des modes de composition 2/4/5/6 (décision de l'Échange 2).
+- **Documentation** (`spec.md`, section Course) : `week_type` documenté avec Q et ses trois règles associées.
+- **Tests ajoutés** : `test_course_week_type_q_cannot_be_placed`, `test_course_parent_week_type_cascade_with_pending_q_child`, `test_resource_preference_never_receives_q` (`test_api.py`), `test_leaf_course_biweekly_pending_week_choice_is_consistent` (`test_service.py`).
+
+Vérifié : suite backend complète 131/131 (127 + 4 nouveaux), build frontend propre, reseed de la base de dev sans erreur, schéma OpenAPI confirmé par requête directe.
+
+---
+
+## Échange 7 — Questions de compréhension : décorateur, propagation des préférences
+
+### Message utilisateur
+
+> J'ai plusieurs questions. Répodns moi mais ne change rien dans le code pour le moment :
+> - pourquoi il n'y a pas "week_type" dans la liste des champs du décorateur de Course.validate_placement_conflicts ? Qu'est-ce qu'il se passe si j'essaye de remettre le weeked_type à Q après l'avoir placé ? ==> Est-ce que cette règle est TOUJOURS vérifiée via les surcharges ORM : "Un cours dont `timeslot_id` est renseigné ne peut jamais avoir `week_type = Q` — un placement (création ou mise à jour) tentant cette combinaison est rejeté." ?
+> - peux-tu me rappler pourquoi l'on propage week_type et period_id aux préférences associées au cours (ligens 740/761 de course.py - fonction update)
+> - meme question, mais dans le sesn inverse : pourquoi on récupère le week_type du cours pour l'intégrer à sa préférence liée quand on la crée (lignes 48-58 de preferences.py)
+
+### Réponse
+
+**1. `week_type` est déjà dans le décorateur** (`course.py:539`) :
+```python
+@constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_ids', 'division_ids', 'non_teaching_staff_ids')
+def validate_placement_conflicts(self, db):
+```
+Présent avant même le travail sur Q (servait déjà à la règle "Orthogonalité Hebdomadaire" A/B).
+
+Vérifié empiriquement (test temporaire ajouté, exécuté, puis retiré — fichier restauré à l'identique, suite toujours 131/131) : `course.update(db, {"week_type": "Q"})` sur un cours déjà placé (sans toucher `timeslot_id`) lève bien `ValueError`. Ça fonctionne parce que `@constrains` se déclenche par présence de champ dans le décorateur (pas par diff de valeur), et relit l'état COURANT complet de l'instance (`self.timeslot_id` + `self.week_type` ensemble), peu importe lequel des deux a déclenché l'appel — donc "placer un cours Q" et "repasser en Q un cours placé" passent par le même code, sans logique dupliquée.
+
+**Trou identifié** : ce scénario précis (repasser à Q un cours déjà placé, sans toucher au créneau) n'est **pas couvert** par un test automatisé — `test_course_week_type_q_cannot_be_placed` ne teste que le sens "un cours Q ne peut pas être placé", pas l'inverse. Non corrigé sur ce tour (consigne "ne rien changer au code").
+
+**2 et 3. Propagation `week_type`/`periods` entre `Course` et ses `ResourcePreference` liées (les deux sens)**
+
+Règle déjà documentée dans `spec.md` (ligne 237) : une préférence `resource_type="Course"` n'a de sens que dans le cadre temporel du cours lui-même — `week_type`/`period_type_id`/`periods` de la préférence ne sont jamais des données saisies indépendamment, toujours dérivées du `Course` référencé. D'où les deux mécanismes symétriques : héritage à la création (`ResourcePreference.create()`, preference.py) et re-propagation à chaque mise à jour du cours (`Course.update()`, course.py) — pour qu'une préférence de cours ne devienne jamais une donnée fantôme désynchronisée de son cours.
+
+**Nouveau problème identifié pour la Phase C (pas encore implémentée)** : le solveur Timefold écrit aujourd'hui `timeslot_id`/`classrooms` par assignation directe d'attribut ORM (voir `architecture.md`, "Architecture de Validation Duale"), contournant `Course.update()` et donc tous ses effets de bord pour des raisons de performance. Si la Phase C écrit `week_type` de la même façon (comme esquissé à l'Échange 2), la propagation vers `ResourcePreference` ne se déclenchera pas. Impact limité PENDANT le solve (une préférence héritée de Q reste "W", qui reste un sur-ensemble valide via `weeks_overlap`), mais devient une donnée périmée en base APRÈS le solve (le cours affiche A/B, sa préférence reste bloquée à W) — pertinent pour l'affichage/édition ultérieure des vœux et pour un futur solve si une contrainte traitait A/B différemment de W. À trancher pour la Phase C : soit la boucle d'écriture du solveur touche aussi les préférences liées, soit c'est une limitation documentée et acceptée.
+
+---
+
+## Échange 8 — Retour sur la propagation Course↔ResourcePreference : suppression de la synchronisation
+
+### Message utilisateur
+
+> Concernant le point 1, oui ré-ajoute ce cas de test. Continue à nourrir l'historique de la conversation dans le fil rouge, j'ai l'impression qu'il manque ta denrière réponse. Conceernant le point 2, on ne va pas ajouter ce point à la phase C : on va simplifier la spécification. Je pense que c'était lié à une mauvaise compréhension de ma part.  Supprime le paragraphe suivant des specs et la logique de synchronisation dans les deux sens (préférence <---> cours) : "> **Cas particulier des préférences de Cours** :
+> Les préférences associées directement à un cours (`resource_type == 'Course'`) expriment des contraintes de créneau horaire sur le cours lui-même. Elles sont assujetties à une contrainte de cohérence temporelle stricte : les attributs `week_type`, `period_type_id` et la liste de `periods` du cours parent priment. Toute préférence de cours hérite obligatoirement de la semaine, du type de période et des périodes de ce cours, et la mise à jour d'un cours répercute ces changements sur ses préférences."
+
+### Réponse (implémentation)
+
+Vérification faite : l'Échange 7 était bel et bien complet dans ce fichier (message + réponse) — juste une impression, rien de manquant. Continuité confirmée avec cet Échange 8.
+
+**Implémenté** :
+
+- **`spec.md`** : suppression du paragraphe "Cas particulier des préférences de Cours" (BR-002).
+- **`backend/app/models/preference.py`** (`ResourcePreference.create()`) : suppression du bloc `if resource_type == "Course": ...` qui écrasait `week_type`/`period_ids` avec les valeurs du cours référencé — une préférence de cours accepte désormais telles quelles les valeurs fournies par l'appelant (comme toute autre préférence), sans dérivation forcée.
+- **`backend/app/models/course.py`** (`Course.update()`) : suppression du bloc de propagation vers les `ResourcePreference` liées (`pref.week_type = ...`, `pref.periods = ...`). Import `WeekType` devenu inutile, retiré.
+- **Tests** :
+  - `test_resource_preference_never_receives_q` (`test_api.py`, ajouté à l'Échange 6) supprimé — son hypothèse (Q pourrait fuiter par propagation) n'a plus lieu d'être, cette propagation n'existant plus.
+  - `test_course_preference_propagation` (`test_solver.py`) supprimé — testait exactement le mécanisme retiré. La seule partie encore valide (suppression en cascade d'une préférence quand son cours est supprimé — mécanisme distinct, toujours actif) a été conservée sous un nouveau nom, `test_course_preference_deleted_on_course_cascade`.
+  - Cas manquant du point 1 réintégré dans `test_course_week_type_q_cannot_be_placed` : repasser `week_type=Q` sur un cours déjà placé (sans toucher au créneau), via `PATCH /api/generic/courses/{id}` — refusé avec le message attendu, `timeslot_id`/`week_type` inchangés après l'échec.
+
+Vérifié : suite backend complète 130/130 (131 − 2 tests retirés + 1 test renommé/conservé + 1 cas ajouté à un test existant), reseed de la base de dev sans erreur, aucune trace résiduelle de l'ancienne logique (grep sur `priment`, `pref_week_type`, `Propager week_type`).
+
+---
+
+## Échange 9 — Garde-fous modèle : préférence de cours = toutes semaines + année entière
+
+### Message utilisateur
+
+> Est-ce qu'on est d'accords qu'un préférence de cours vaut pour toute l'année : d'un partquelque soit le type de semaine car le week_type par défaut d'une préférence est W et que l'IHM ne permet pas de la modifier (il faudrait peut-être vérifier dans le modèle qu'une préférence de ressource_type=course ne peut avoir un week_type différent de W) et d'autre part quelque soit la période (il faudrait peut-être vérifier dans le modèle qu'une préférence de ressource_type=course a forcément une période annuelle - je ne sais plus si ça corespond au fait d'être liée à une periode_id annuellle ou juste de le ne pas avoir de pariod_id liée à l'objetpreférence) + mettre à jour la spec exactement là où l'on a supprimé des choses juste avant + ajouter des cas de tests non-passant dédié dans tests_api.py ?
+
+### Réponse (investigation puis implémentation)
+
+**Vérification des deux prémisses avant d'implémenter** (`frontend/src/components/PreferenceGrid.vue`, `backend/app/api/ui.json`) :
+- Le panneau `courses_pref_grid` (ui.json) passe explicitement `gridConfig: {hideWeekSelector: true, hidePeriodSelector: true}` — les deux sélecteurs sont bien masqués spécifiquement pour `resourceTypeProp="Course"`, confirmé.
+- `selectedWeekType` est initialisé à `'W'` et `selectedPeriodIds` à `[]`, jamais modifiés puisque les sélecteurs correspondants sont cachés — confirmé, une préférence de cours créée via l'IHM est donc toujours `week_type='W'` et `periods=[]`.
+- Sur la seconde incertitude (periode annuelle = quoi exactement) : `ResourcePreference` n'a pas de colonne `period_type_id` du tout (contrairement à `Course`) — seulement la relation N-à-N `periods`. "Annuelle" correspond bien à la seconde lecture proposée : liste `periods` vide, pas un lien vers une `Period` spécifiquement marquée comme annuelle (ce concept n'existe pas à ce niveau).
+
+**Découverte en cours d'implémentation** : `ResourcePreference.create()` ne passe jamais par `CRUDMixin.create()` (construction directe des instances via `cls(...)` dans sa logique d'upsert/scission/fusion) — un simple `@constrains` n'y serait donc **jamais déclenché**. D'où une validation à deux entrées : un appel explicite en tête de `create()` (`_validate_course_preference_scope`, staticmethod partagée) + un `@constrains('resource_type', 'week_type', 'period_ids')` classique pour `update()` (qui, lui, passe bien par `super().update()`).
+
+**Implémenté** :
+- `backend/app/models/preference.py` : `ResourcePreference._validate_course_preference_scope()` (staticmethod) + `validate_course_preference_scope` (`@constrains`, couvre `update()`) + appel explicite en tête de `create()` (couvre le chemin qui contourne `@constrains`). Rejette toute préférence `resource_type="Course"` avec `week_type != "W"` ou `periods` non vide.
+- `spec.md` : paragraphe "Cas particulier des préférences de Cours" (BR-002) réintroduit à l'endroit exact où il avait été supprimé à l'Échange 8, avec la nouvelle sémantique (contrainte fixe, plus une valeur héritée/synchronisée) et une note explicite que l'ancienne propagation automatique reposait sur une incompréhension. Section "11. ResourcePreference" mise à jour en cohérence (`week_type`, `periods`).
+- Tests ajoutés (`test_api.py`) : `test_course_preference_rejects_non_w_week_type` et `test_course_preference_rejects_non_annual_period`, chacun couvrant le rejet à la création ET à la mise à jour.
+
+Vérifié : suite backend complète 132/132 (130 + 2 nouveaux), reseed de la base de dev sans erreur.
+
+---

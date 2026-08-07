@@ -30,6 +30,11 @@
                 <option value="W">Semaine Entière (W)</option>
                 <option value="A">Quinzaine A</option>
                 <option value="B">Quinzaine B</option>
+                <!-- Q : quinzaine confirmée mais A/B pas encore choisi — résolu plus tard par le
+                     placement manuel (split de colonne) ou automatique (solveur). Un cours en Q
+                     ne peut jamais être placé sur la grille tel quel (voir
+                     Course.validate_placement_conflicts, attribution_week_type_auto.md). -->
+                <option value="Q">Quinzaine à déterminer (Q)</option>
               </select>
             </td>
             <td>
