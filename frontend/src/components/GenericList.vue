@@ -176,12 +176,13 @@
                   />
                 </div>
 
-                <SearchableSelect 
+                <SearchableSelect
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
-                  :model-value="item[col.key]" 
+                  :model-value="item[col.key]"
                   :options="getFieldDef(col.key)?.options || []"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
+                  :nullable="getFieldDef(col.key)?.nullable"
                   :inline="true"
                   @update:model-value="updateInline(item, col.key, $event)"
                 />

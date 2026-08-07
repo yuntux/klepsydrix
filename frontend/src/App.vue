@@ -495,8 +495,15 @@ provide('fkOptionsCache', fkOptionsCache);
 // Récupère et (ré)écrit fkOptionsCache[resourceName] de façon atomique : jamais de suppression
 // préalable qui laisserait un trou vide le temps du fetch (voir invalidateFkCache) — remplacer
 // directement par les données fraîches, ou conserver les anciennes si le fetch échoue.
+//
+// Invalide TOUJOURS la query avant de la refetch : le QueryClient a un staleTime global de 1
+// minute (main.ts), donc un simple fetchQuery() sur une queryKey déjà en cache (ex: chargée au
+// montage de l'onglet) renvoie les données EN CACHE sans requête réseau, même juste après une
+// mutation côté serveur — bug réel observé (le libellé d'un ServiceRepartition nouvellement
+// recréé restait affiché sous forme d'ID brut malgré l'appel à ce refresh).
 async function refreshFkOptionsForResource(resourceName: string) {
   try {
+    queryClient.invalidateQueries({ queryKey: ['genericList', resourceName] });
     const res = await queryClient.fetchQuery({
       queryKey: ['genericList', resourceName],
       queryFn: () => api.fetchAllGenericItems(resourceName)
@@ -519,7 +526,6 @@ async function refreshFkOptionsForResource(resourceName: string) {
 // avec des données vides pendant la fenêtre entre la suppression et le prochain rechargement —
 // bug réel observé (ajouter une ligne "vidait" l'affichage des lignes existantes).
 async function invalidateFkCache(resourceName: string) {
-  queryClient.invalidateQueries({ queryKey: ['genericList', resourceName] });
   await refreshFkOptionsForResource(resourceName);
 }
 
@@ -703,6 +709,13 @@ async function onSubmitGeneric(value: Record<string, any>) {
         showNotification('info', 'Aucun champ modifié n\'a été détecté.');
         return;
       }
+      // Capture les réponses serveur (pas le payload envoyé) pour chaque ligne : même raison que
+      // pour l'édition simple plus bas dans cette fonction — un champ peut être recalculé côté
+      // backend en effet de bord (ex: Service.weekly_duration_split_minutes régénère ses
+      // ServiceRepartition liées), et s'y fier laissait l'affichage local périmé jusqu'à un F5.
+      // Reste vide pour la branche relationName ci-dessous : elle édite une ressource différente
+      // de activeAdminModel.value, donc le merge local qui suit est de toute façon ignoré.
+      let updatedItems: any[] = [];
       if (formPanel && formPanel.relationName) {
         await Promise.all(
           selectedParentIds.value.map(async (parentId) => {
@@ -715,36 +728,47 @@ async function onSubmitGeneric(value: Record<string, any>) {
           })
         );
       } else {
-        await Promise.all(
+        updatedItems = await Promise.all(
           selectedParentIds.value.map(id => api.updateGenericItem(targetResource, id, value))
         );
       }
       showNotification('success', 'Ressources modifiées en masse avec succès !');
-      
+      loadFkOptionsForModel(targetResource);
+
       // Update local state directly instead of full reload if we modified the main resource
       if (targetResource === activeAdminModel.value) {
-        selectedParentIds.value.forEach(id => {
+        selectedParentIds.value.forEach((id, index) => {
           const idx = genericItems.value.findIndex(x => x.id === id);
           if (idx !== -1) {
-            genericItems.value[idx] = { ...genericItems.value[idx], ...value };
+            genericItems.value[idx] = { ...genericItems.value[idx], ...(updatedItems[index] || value) };
           }
         });
       }
-      
+
       await onSelectionChangeGeneric([...selectedParentIds.value]);
     } else if (isEditing.value) {
-      await api.updateGenericItem(targetResource, value.id, value);
+      // Capture et réutilise la réponse serveur (pas le payload envoyé) : une mise à jour peut
+      // déclencher des effets de bord côté backend sur d'AUTRES champs que ceux soumis (ex:
+      // Service.weekly_duration_split_minutes régénère ses ServiceRepartition liées) — se fier au
+      // payload soumis pour rafraîchir l'affichage local laissait ces champs dérivés périmés à
+      // l'écran jusqu'à un F5.
+      const updated = await api.updateGenericItem(targetResource, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
-      invalidateFkCache(targetResource);;
-      
+      invalidateFkCache(targetResource);
+      // Rafraîchit aussi le cache des ressources référencées par les champs relation de
+      // targetResource lui-même (ex: repartition_ids -> service_repartitions) — sans quoi
+      // l'étiquette affiche l'ID brut au lieu du nom pour toute ligne enfant régénérée côté
+      // backend (voir loadFkOptionsForModel, déjà utilisé au changement d'onglet admin).
+      loadFkOptionsForModel(targetResource);
+
       // Update local state directly instead of full reload if we modified the main resource
       if (targetResource === activeAdminModel.value) {
         const idx = genericItems.value.findIndex(x => x.id === value.id);
         if (idx !== -1) {
-          genericItems.value[idx] = { ...genericItems.value[idx], ...value };
+          genericItems.value[idx] = { ...genericItems.value[idx], ...updated };
         }
       }
-      
+
       if (isInlineMode.value) {
         // En mode inline, on conserve l'élément sélectionné actif
         if (formPanel?.relationName && selectedParentIds.value.length === 1) {
@@ -757,11 +781,8 @@ async function onSubmitGeneric(value: Record<string, any>) {
             isEditing.value = true;
           }
         } else {
-          const updated = genericItems.value.find(x => x.id === value.id);
-          if (updated) {
-            formModel.value = { ...updated };
-            isEditing.value = true;
-          }
+          formModel.value = { ...updated };
+          isEditing.value = true;
         }
       } else {
         showFormModal.value = false;
@@ -772,7 +793,8 @@ async function onSubmitGeneric(value: Record<string, any>) {
       const created = await api.createGenericItem(targetResource, value);
       showNotification('success', 'Ressource créée avec succès !');
       invalidateFkCache(targetResource);
-      
+      loadFkOptionsForModel(targetResource);
+
       // Full reload on creation since there might be server-generated fields or ordering changes
       await loadGenericItems();
       
@@ -806,15 +828,29 @@ async function onUpdateGenericInline(item: any) {
         genericItems.value[idx] = created;
       }
       invalidateFkCache(activeAdminModel.value);
+      loadFkOptionsForModel(activeAdminModel.value);
       showNotification('success', 'Élément créé directement !');
     } else {
-      await api.updateGenericItem(activeAdminModel.value, item.id, item);
+      // Capture et réutilise la réponse serveur (pas le payload envoyé) : une mise à jour peut
+      // déclencher des effets de bord côté backend sur d'AUTRES champs que ceux soumis (ex:
+      // Service.weekly_duration_split_minutes régénère ses ServiceRepartition liées, dont les IDs
+      // changent) — s'en tenir au payload soumis laissait genericItems[idx] à jamais périmé.
+      const updated = await api.updateGenericItem(activeAdminModel.value, item.id, item);
+      if (idx !== -1) {
+        genericItems.value[idx] = updated;
+      }
       invalidateFkCache(activeAdminModel.value);
+      // invalidateFkCache ne rafraîchit que le cache de activeAdminModel.value lui-même — pas
+      // celui des ressources référencées par SES propres champs relation (ex: repartition_ids ->
+      // service_repartitions), d'où l'ID brut affiché dans l'étiquette au lieu du nom tant que ce
+      // cache-là n'est pas explicitement rafraîchi (voir loadFkOptionsForModel, déjà utilisé au
+      // changement d'onglet admin).
+      loadFkOptionsForModel(activeAdminModel.value);
       showNotification('success', 'Élément mis à jour directement !');
     }
-    
-    window.dispatchEvent(new CustomEvent('resource:mutated', { 
-      detail: { resource_name: activeAdminModel.value } 
+
+    window.dispatchEvent(new CustomEvent('resource:mutated', {
+      detail: { resource_name: activeAdminModel.value }
     }));
   } catch (err: any) {
     showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
@@ -1071,10 +1107,19 @@ async function onUpdateDetailGenericInline(item: any) {
         detailListItems.value[idx] = created;
       }
       invalidateFkCache(detailPanel.resourceKey);
+      loadFkOptionsForModel(detailPanel.resourceKey);
       showNotification('success', 'Élément créé directement !');
     } else {
-      await api.updateGenericItem(detailPanel.resourceKey, item.id, item);
+      // Capture et réutilise la réponse serveur (pas le payload envoyé) — voir même correctif dans
+      // onUpdateGenericInline juste au-dessus.
+      const updated = await api.updateGenericItem(detailPanel.resourceKey, item.id, item);
+      if (idx !== -1) {
+        detailListItems.value[idx] = updated;
+      }
       invalidateFkCache(detailPanel.resourceKey);
+      // Rafraîchit aussi le cache des ressources référencées par les champs relation de
+      // detailPanel.resourceKey lui-même (voir commentaire équivalent dans onUpdateGenericInline).
+      loadFkOptionsForModel(detailPanel.resourceKey);
       showNotification('success', 'Élément mis à jour directement !');
     }
     window.dispatchEvent(new CustomEvent('resource:mutated', {
@@ -1187,6 +1232,10 @@ function getFormFieldsConfig(resourceKey?: string) {
           options: options,
           resource: resourceName,
           parentField: prop.parentField,
+          // false uniquement si le backend l'affirme explicitement (colonne SQL nullable=False,
+          // voir generic.py::make_pydantic_model) — absent pour les champs virtuels/relations,
+          // qu'on continue de considérer effaçables comme avant cet ajout.
+          nullable: prop.nullable !== false,
           default: prop.default,
           help: prop.help,
           widget: prop.widget,

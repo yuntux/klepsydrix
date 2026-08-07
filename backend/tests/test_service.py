@@ -11,7 +11,7 @@ from backend.app.models import (
     School, Discipline, Subject, Mef, MefDivision, Division, ElectionMethod,
     Group, Service, ServiceRepartition, Alignment, Course, SystemSetting
 )
-from backend.app.models.service import RepartitionPeriodicity
+from backend.app.models.service import RepartitionPeriodicity, RepartitionGroupType
 from backend.app.core.time_utils import minutes_to_hours
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -272,18 +272,178 @@ class TestServiceRepartition:
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
 
         r_weekly = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
-        assert r_weekly.name == "2x1h(H)"
+        assert r_weekly.name == "2x1h(H/C)"
 
-        r_biweekly = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 90, "periodicity": "BIWEEKLY"})
-        assert r_biweekly.name == "1x1h30(Q)"
+        # occurrence_count=2 (plutôt que 1) : la somme des 2 lignes (120 + 90) doit rester un
+        # multiple du créneau standard (30 min), désormais vérifié par la synchro vers Service.
+        r_biweekly = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 90, "periodicity": "BIWEEKLY"})
+        assert r_biweekly.name == "2x1h30(Q/C)"
 
     def test_name_is_recomputed_on_update(self, db_session):
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         r = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
-        assert r.name == "1x1h(H)"
+        assert r.name == "1x1h(H/C)"
 
         r.update(db_session, {"occurrence_count": 3, "duration_minutes": 30})
-        assert r.name == "3x0h30(H)"
+        assert r.name == "3x0h30(H/C)"
+
+    def test_duplicate_service_periodicity_group_type_duration_is_rejected(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+
+        with pytest.raises(ValueError, match="existe déjà"):
+            ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
+
+    def test_duplicate_quadruple_via_update_is_rejected(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        r2 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
+
+        with pytest.raises(ValueError, match="existe déjà"):
+            r2.update(db_session, {"periodicity": "WEEKLY"})
+
+    def test_same_periodicity_group_type_different_duration_is_allowed(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        r1 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        r2 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "WEEKLY"})
+
+        assert r1.id is not None and r2.id is not None
+
+    def test_same_periodicity_different_group_type_is_allowed(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        r1 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "FULL_CLASS"})
+        # occurrence_count doit être un multiple de 2 pour SPLIT (voir _recompute_service_weekly_durations).
+        r2 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 30, "periodicity": "WEEKLY", "group_type": "SPLIT"})
+
+        assert r1.id is not None and r2.id is not None
+
+    def test_same_triple_on_different_services_is_allowed(self, db_session):
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
+
+        r1 = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        r2 = ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+
+        assert r1.id is not None and r2.id is not None
+
+
+class TestServiceWeeklyDurationSync:
+    """Synchronisation bidirectionnelle Service <-> ServiceRepartition (voir spec.md)."""
+
+    def test_full_class_duration_generates_hour_plus_remainder_blocks(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"weekly_duration_full_class_minutes": 150})
+
+        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS]
+        assert sorted(rows) == sorted([(90, 1), (60, 1)])
+        assert all(r.periodicity == RepartitionPeriodicity.WEEKLY for r in service.repartitions)
+
+    def test_full_class_duration_exact_hours_generates_single_block(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"weekly_duration_full_class_minutes": 120})
+
+        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS]
+        assert rows == [(60, 2)]
+
+    def test_split_duration_doubles_occurrence_count(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"weekly_duration_split_minutes": 60})
+
+        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.SPLIT]
+        assert rows == [(60, 2)]
+
+    def test_reduced_duration_multiplies_occurrence_by_groups_needed(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"student_count": 50, "reduced_group_student_count": 15, "weekly_duration_reduced_minutes": 60})
+
+        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED]
+        # ceil(50/15) = 4 groupes
+        assert rows == [(60, 4)]
+
+    def test_reduced_group_student_count_zero_defaults_to_one_group(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"student_count": 50, "weekly_duration_reduced_minutes": 60})
+
+        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED]
+        assert rows == [(60, 1)]
+
+    def test_zero_duration_clears_the_bucket(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"weekly_duration_full_class_minutes": 120})
+        assert len(service.repartitions) == 1
+
+        service.update(db_session, {"weekly_duration_full_class_minutes": 0})
+        assert len(service.repartitions) == 0
+
+    def test_mef_service_propagation_regenerates_repartitions(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        mef_service.update(db_session, {"weekly_duration_full_class_minutes": 90})
+
+        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS]
+        assert rows == [(90, 1)]
+
+    def test_manual_repartition_edit_updates_service_total_without_rewriting_other_rows(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        r1 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "SPLIT"})
+        r2 = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "FULL_CLASS"})
+        r1_id, r2_id = r1.id, r2.id
+
+        r2.update(db_session, {"duration_minutes": 90})
+
+        assert service.weekly_duration_full_class_minutes == 90
+        # r1 (SPLIT) n'a pas été touchée par la mise à jour de r2 (FULL_CLASS) : même ID, mêmes valeurs.
+        assert [r.id for r in service.repartitions if r.group_type == RepartitionGroupType.SPLIT] == [r1_id]
+        assert [r.id for r in service.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS] == [r2_id]
+
+    def test_deleting_last_repartition_zeroes_the_service_duration(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        r = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "FULL_CLASS"})
+        assert service.weekly_duration_full_class_minutes == 60
+
+        r.delete(db_session)
+        assert service.weekly_duration_full_class_minutes == 0
+
+    def test_split_repartition_with_odd_occurrence_count_is_rejected(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        with pytest.raises(ValueError, match="multiple de 2"):
+            ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "SPLIT"})
+
+    def test_reduced_repartition_occurrence_count_must_be_multiple_of_groups_needed(self, db_session):
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"student_count": 50, "reduced_group_student_count": 15})
+
+        with pytest.raises(ValueError, match="multiple du nombre de groupes"):
+            ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 3, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "REDUCED"})
+
+    def test_editing_aligned_service_duration_propagates_repartitions_and_totals_to_sibling(self, db_session):
+        # Interaction la plus fragile de cette synchro : régénérer les ServiceRepartition d'un
+        # service aligné déclenche le miroir vers son voisin (_sync_aligned_repartitions), qui doit
+        # à son tour recalculer les totaux du voisin (_recompute_service_weekly_durations) à partir
+        # de son état FINAL (pas d'un état intermédiaire du miroir, delete-puis-recreate).
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db_session)
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db_session.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
+        ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
+        alignment = Alignment.create(db_session, {"code": "AL6", "name": "Alignement Test 6"})
+        s1.update(db_session, {"alignment_id": alignment.id})
+        s2.update(db_session, {"alignment_id": alignment.id})
+
+        s1.update(db_session, {"weekly_duration_full_class_minutes": 150})
+
+        db_session.refresh(s2)
+        s2_full_class = sorted((r.duration_minutes, r.occurrence_count) for r in s2.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS)
+        assert s2_full_class == [(60, 1), (90, 1)]
+        assert s2.weekly_duration_full_class_minutes == 150
 
 
 class TestAlignment:
@@ -356,10 +516,12 @@ class TestAlignment:
         ).one()
 
         alignment = Alignment.create(db_session, {"code": "AL4", "name": "Alignement Test 4"})
+        # duration_minutes=60 (plutôt que 30) sur la ligne BIWEEKLY : la somme des 2 lignes FULL_CLASS
+        # (120 + 30) doit rester un multiple du créneau standard (voir _recompute_service_weekly_durations).
         r1_a = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
-        r1_b = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "BIWEEKLY"})
+        r1_b = ServiceRepartition.create(db_session, {"service_id": s1.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
         ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 2, "duration_minutes": 60, "periodicity": "WEEKLY"})
-        ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 1, "duration_minutes": 30, "periodicity": "BIWEEKLY"})
+        ServiceRepartition.create(db_session, {"service_id": s2.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
         s1.update(db_session, {"alignment_id": alignment.id})
         s2.update(db_session, {"alignment_id": alignment.id})
 

@@ -486,6 +486,73 @@ Décompose un `Service` en occurrences de créneaux hebdomadaires, servant de pa
 *   `name` : Nom d'affichage calculé et stocké en base (Chaîne, ex: `2x1h(H)` ou `1x1h30(Q)`), recalculé automatiquement à chaque création/modification à partir de `occurrence_count`, de `duration_minutes` (converti en heures via l'utilitaire générique `minutes_to_hours` — heure non paddée, minutes omises si nombre exact d'heures) et de `periodicity` (`H` pour hebdomadaire, `Q` pour quinzaine)
 *   *Relations (1-à-N)* : `courses` (Les **Course** effectivement générés à partir de cette ligne)
 
+### Synchronisation Service ↔ ServiceRepartition
+
+Je veux une synchronisation entre les objets Service et ServiceRepartition.
+
+
+Synchronisation dans le sens Service ==> ServiceRepartition :
+-------------------------------------------------------------
+Si je change la valeur de weekly_duration_full_class_minutes :
+	return generate_repartitionService(service_id, group_type='FULL_CLASS', target_weekly_duration=weekly_duration_full_class_minutes, occurrence_multiple=1)
+
+Si je change la valeur de weekly_duration_split_minutes :
+	return generate_repartitionService(service_id, group_type='SPLIT', target_weekly_duration=weekly_duration_split_minutes, occurrence_multiple=2)
+
+Si je change la valeur de weekly_duration_reduced_minutes ou student_count ou de reduced_group_student_count :
+	groups_need = math.ceil(student_count/reduced_group_student_count)
+	return generate_repartitionService(service_id, group_type='REDUCED', target_weekly_duration=weekly_duration_reduced_minutes, occurrence_multiple=groups_need)
+
+
+def generate_repartitionService(service_id, group_type, target_weekly_duration, occurrence_multiple):
+	- On supprime les ServiceRepartition de type group_type liés à ce service_id
+	- Si target_weekly_duration > 0 : # on regénère les ServcieRepartition
+		nombre_cours_heures_pleine = target_weekly_duration // 60
+		reste = weekly_duration_split_minutes %% 60
+		Si reste > 0 :
+			Si nombre_cours_heures_pleine > 0 :
+				créer un ServiceRepartition : service_id=service_id, group_type=group_type, de periodicity=WEEKLY, de duration_minutes=60+reste et occurrence_count=1*occurrence_multiple
+				nombre_cours_heures_pleine -= 1
+			Sinon :
+				créer un ServiceRepartition : service_id=service_id, group_type=group_type, de periodicity=WEEKLY, de duration_minutes=reste et occurrence_count=1*occurrence_multiple
+
+		Si nombre_cours_heures_pleine > 0 :
+			créer un ServiceRepartition : service_id=service_id, group_type=group_type, de periodicity=WEEKLY, de duration_minutes=60 et occurrence_count=nombre_cours_heures_pleine*occurrence_multiple
+
+
+Synchronisation dans le sens ServiceRepartition ==> Service :
+-------------------------------------------------------------
+Si je supprime, crée ou modifie un objet ServiceRepartition, on actualise les valeurs de l'objet Servcie lié :
+	tmp_weekly_duration_full_class_minutes = 0
+	tmp_weekly_duration_split_minutes = 0
+	tmp_weekly_duration_reduced_minutes = 0
+	
+	for repartition in ServiceRepartition_ids :
+		inverse_periodicity_multiple = 1
+		if periodicity==BIWEEKLY :
+			inverse_periodicity_multiple = 0.5
+			
+		if group_type == 'FULL_CLASS' :
+			inverse_occurence_multiple = 1
+			tmp_weekly_duration_full_class_minutes += duration_minutes * occurrence_count * inverse_periodicity_multiple * inverse_occurence_multiple
+
+		elif group_type == 'SPLIT' :
+			if occurrence_count % 2 != 0:
+				Lever une erreur : "Le nombre d'occurence doit être un multiple de 2 puisqu'il s'agit d'une répartition de type Dédoublement."
+			inverse_occurence_multiple = 1/2
+			tmp_weekly_duration_split_minutes += duration_minutes * occurrence_count * inverse_periodicity_multiple * inverse_occurence_multiple
+
+		elif group_type == 'REDUCED' :
+			groups_need = math.ceil(student_count/reduced_group_student_count)
+			if occurrence_count % groups_need != 0:
+				Lever une erreur : "Le nombre d'occurence doit être un multiple du nombre de groupes (%groups_need de maximum %reduced_group_student_count élèves) puisqu'il s'agit d'une répartition de type Groupes en effectifs réduits."
+			inverse_occurence_multiple = 1/groups_need
+			tmp_weekly_duration_reduced_minutes += duration_minutes * occurrence_count * inverse_periodicity_multiple * inverse_occurence_multiple
+			
+	Service.weekly_duration_full_class_minutes = tmp_weekly_duration_full_class_minutes
+	Service.weekly_duration_split_minutes = tmp_weekly_duration_split_minutes
+	Service.weekly_duration_reduced_minutes = tmp_weekly_duration_reduced_minutes
+
 ### 4septies. Alignment (Alignement / Barrette)
 Regroupe plusieurs **Service** devant avoir lieu strictement au même moment (ex: barrette de LV2, groupes de spécialités). Tous les services d'un même alignement doivent partager un modèle de répartition rigoureusement identique (même ensemble de lignes `ServiceRepartition`) pour être alignables. Lorsqu'un alignement est rempli, un `Course` composé (`is_composed=True`) est généré par occurrence de répartition, avec une ligne de mapping par service aligné — décomposé selon le Mode 1 de `composition_mode.py` (un cours enfant par professeur).
 *   `id` : Clé primaire (Entier)
@@ -983,4 +1050,3 @@ L'interaction de sélection sur les cartes de cours (`CourseCard`) obéit aux st
 - Les données de vœux et d'alternance sont persistées dans la base SQLite existante via des migrations adaptées.
 - Le solveur de base reste performant (recherche d'une solution stable et valide en < 10s) sous le volume cible de la structure pilote (jusqu'à 500 élèves, 40 enseignants, 30 salles, 20 classes / divisions).
 - Le thème visuel de l'application est unifié sous une apparence claire haut de gamme en gris/blanc cassé bg-gray-300 pour offrir une base de contraste soignée.
-

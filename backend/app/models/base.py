@@ -310,7 +310,7 @@ class CRUDMixin:
         return db.scalar(query)
 
     @classmethod
-    def clean_payload(cls, payload_dict: dict) -> dict:
+    def clean_payload(cls, payload_dict: dict, allow_null: bool = False) -> dict:
         """
         Filtre et type-cast un payload brut (JSON) vers des valeurs Python acceptées par create()/
         update() : ne garde que les clés qui correspondent à une vraie colonne, un champ dérivé
@@ -318,6 +318,17 @@ class CRUDMixin:
         objets Python. Déplacé depuis generic.py (module-level clean_payload()) pour que
         TransientModel puisse fournir sa propre version triviale (aucun typage SQL à faire) sans
         que l'endpoint générique ait besoin de savoir de quel type de modèle il s'agit.
+
+        allow_null : par défaut (create, et tout appel qui ne le précise pas), une valeur None est
+        systématiquement ignorée — utile en création pour laisser les defaults SQL s'appliquer.
+        make_update_endpoint passe allow_null=True : les éditeurs inline renvoient l'enregistrement
+        complet, donc un champ que l'utilisateur vient d'effacer arrive à None dans ce payload — le
+        filtrer silencieusement rendait le bouton "×" inopérant (voir architecture.md). On ne
+        laisse passer le None que pour une vraie colonne SQL (pas les _fields/relations _ids, dont
+        la sémantique de "null" n'est pas de simples colonnes nullable) ; une colonne NOT NULL
+        remontera alors une erreur explicite d'intégrité au lieu d'un silence trompeur — le
+        frontend ne doit de toute façon jamais proposer d'effacer un champ non-nullable (voir
+        `nullable` exposé par generic.py::make_pydantic_model).
         """
         cleaned = {}
         valid_keys = [c.name for c in cls.__table__.columns if c.name != "id"]
@@ -337,17 +348,22 @@ class CRUDMixin:
 
         all_keys = valid_keys + extra_fields + relationship_keys
         for k, v in payload_dict.items():
-            if k in all_keys and v is not None:
-                if k in extra_fields or k in relationship_keys:
-                    cleaned[k] = v
-                    continue
-                column_type = cls.__table__.columns[k].type
-                if str(column_type) == "DATE" and v:
-                    cleaned[k] = date.fromisoformat(v) if isinstance(v, str) else v
-                elif str(column_type) == "DATETIME" and v:
-                    cleaned[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
-                else:
-                    cleaned[k] = v
+            if k not in all_keys:
+                continue
+            if v is None:
+                if allow_null and k not in extra_fields and k not in relationship_keys:
+                    cleaned[k] = None
+                continue
+            if k in extra_fields or k in relationship_keys:
+                cleaned[k] = v
+                continue
+            column_type = cls.__table__.columns[k].type
+            if str(column_type) == "DATE" and v:
+                cleaned[k] = date.fromisoformat(v) if isinstance(v, str) else v
+            elif str(column_type) == "DATETIME" and v:
+                cleaned[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
+            else:
+                cleaned[k] = v
         return cleaned
 
 
@@ -614,7 +630,7 @@ class TransientModel:
         return len(cls.read(db, domain=domain))
 
     @classmethod
-    def clean_payload(cls, payload_dict: dict) -> dict:
+    def clean_payload(cls, payload_dict: dict, allow_null: bool = False) -> dict:
         """Aucune colonne SQL à typer/filtrer pour une ressource virtuelle : payload accepté tel quel."""
         return payload_dict
 

@@ -630,6 +630,7 @@ const FormLayoutGrid: any = defineComponent({
                 disabled: disabled,
                 placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : field.placeholder,
                 required: required && !gridProps.isMultiEdit,
+                nullable: field.nullable,
                 style: inputStyle,
                 'onUpdate:modelValue': (val: any) => {
                   gridProps.localModel[key] = val;
@@ -736,7 +737,12 @@ const FormLayoutGrid: any = defineComponent({
                   }
                 }
               }, [
-                h('option', { value: '' }, isDivergent(key) && !isModified(key) ? '-- Divergent (Modifier) --' : '-- Choisir --'),
+                // Pas d'option vide pour un champ non-nullable (voir SearchableSelect.vue) : la
+                // choisir enverrait null, silencieusement ignoré par clean_payload côté backend
+                // — seule une vraie option (déjà présente dans field.options, ex: "Aucune") l'est.
+                field.nullable !== false
+                  ? h('option', { value: '' }, isDivergent(key) && !isModified(key) ? '-- Divergent (Modifier) --' : '-- Choisir --')
+                  : null,
                 ...(field.options || []).map(opt =>
                   h('option', { value: opt.value }, opt.label)
                 )

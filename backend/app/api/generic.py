@@ -118,7 +118,13 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
             json_schema_extra = {k: (v() if callable(v) else v) for k, v in column.info.items() if k not in ("label", "type")}
             if "type" in column.info:
                 json_schema_extra["ui_type"] = column.info["type"]
-        
+
+        # Nullabilité RÉELLE de la colonne SQL (distincte du wrapping Optional[...] ci-dessous,
+        # qui ne reflète que "peut être omis d'un payload partiel" dès qu'une colonne a un default
+        # — voir clean_payload : un champ non-nullable ne doit jamais offrir de bouton "effacer"
+        # côté frontend, sans quoi le clic est un no-op silencieux).
+        json_schema_extra["nullable"] = column.nullable
+
         # Détection automatique de la ressource liée via la clé étrangère SQL
         if hasattr(column, "foreign_keys") and column.foreign_keys:
             fk_list = list(column.foreign_keys)
@@ -277,7 +283,7 @@ def make_update_endpoint(model, payload_schema):
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
 
-        cleaned_vals = model.clean_payload(payload.model_dump(exclude_unset=True))
+        cleaned_vals = model.clean_payload(payload.model_dump(exclude_unset=True), allow_null=True)
         try:
             updated_item = item.update(db, cleaned_vals)
             if updated_item is None:

@@ -293,11 +293,14 @@ def seed_v2_data():
         for service_id in service_ids:
             db.execute(text(
                 "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, name) "
-                "VALUES (:service_id, 2, 60, 'WEEKLY', 'FULL_CLASS', '2x1h(H)')"
+                "VALUES (:service_id, 2, 60, 'WEEKLY', 'FULL_CLASS', '2x1h(H/C)')"
             ), {"service_id": service_id})
+            # occurrence_count=2 (pas 1) : une répartition de type Dédoublement doit porter un
+            # nombre d'occurrences pair (chaque moitié de classe a la sienne, voir
+            # _recompute_service_weekly_durations).
             db.execute(text(
                 "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, name) "
-                "VALUES (:service_id, 1, 30, 'WEEKLY', 'SPLIT', '1x0h30(H)')"
+                "VALUES (:service_id, 2, 30, 'WEEKLY', 'SPLIT', '2x0h30(H/D)')"
             ), {"service_id": service_id})
             db.commit()
 

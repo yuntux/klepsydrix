@@ -133,6 +133,10 @@ Pour chaque ressource détectée dans `MODEL_MAP` :
 
 Seul le point d'entrée `make_pydantic_model` (génération du schéma OpenAPI, section B) garde un test de type explicite : il n'a pas de colonnes SQL à introspecter pour un `TransientModel`, ce qui est une différence structurelle (schéma vs CRUD à l'exécution), pas la même préoccupation.
 
+**Nullabilité réelle vs. "Optional" du schéma (piège du bouton "effacer")** : `make_pydantic_model` enveloppe en `Optional[type]` tout champ possédant un default Python (pour permettre son omission d'un payload de mise à jour partiel), y compris des colonnes SQL déclarées `nullable=False` avec `default=0` (ex: `Service.weekly_duration_split_minutes`). Le JSON Schema résultant (`anyOf: [type, null]`) ne dit donc **pas** si `null` est une valeur de domaine valide — seulement si le champ peut être omis. Pour cette information réelle, chaque propriété de colonne porte désormais un champ `nullable` distinct, copié directement depuis `column.nullable` (pas déduit du wrapping `Optional`). Le frontend (`App.vue::getFormFieldsConfig`) le propage sur chaque définition de champ et les widgets `SearchableSelect.vue`/le `<select>` natif de `GenericForm.vue` n'affichent leur option/bouton "effacer" (→ `null`) que si `field.nullable !== false` — un champ non-nullable n'expose que ses vraies options (ex: l'entrée "Aucune" à `0` injectée par `get_duration_options(include_zero=True)`), qui est sa véritable représentation d'"absence" au niveau métier.
+
+Côté écriture, `CRUDMixin.clean_payload(payload_dict, allow_null=False)` ignore par défaut toute valeur `None` du payload (utile en création : laisser les defaults SQL s'appliquer). `make_update_endpoint` appelle `clean_payload(..., allow_null=True)` : les éditeurs génériques (édition en ligne de `GenericList.vue`, formulaire de `GenericForm.vue`) renvoient l'enregistrement complet, donc un champ que l'utilisateur vient d'effacer arrive à `None` dans ce payload précis — le filtrer silencieusement rendait le bouton "×" inopérant sans aucun retour visible. Avec `allow_null=True`, ce `None` atteint réellement `instance.update()` ; s'il cible une colonne `NOT NULL`, l'`IntegrityError` SQL remonte normalement en `400` — un vrai message d'erreur plutôt qu'un silence trompeur, filet de sécurité pour tout champ dont le frontend aurait, par erreur, quand même proposé l'effacement.
+
 ### C. Moteur RPC Générique (Appels de Méthodes)
 N'importe quelle méthode métier (de classe ou d'instance) déclarée sur un modèle peut être invoquée directement par le frontend via :
 - **Méthodes de classe** : `POST /api/generic/{resource_name}/call/{method_name}`
@@ -249,6 +253,45 @@ L'interface `GenericForm.vue` prend en charge l'attribut optionnel `widget` (et 
         }
     }
     ```
+
+### G. Garde-fou de Réentrance sur Cascades ORM (drapeau ambiant sur `db`, pendant du contexte Odoo)
+Certains `@constrains` (section D) déclenchent, en cascade, des écritures sur d'AUTRES enregistrements du même modèle (ex: propager une modification vers des enregistrements liés). Or ces écritures repassent elles-mêmes par `create()`/`update()`/`delete()`, donc redéclenchent potentiellement le même `@constrains` — boucle infinie, ou pire, un calcul dérivé exécuté sur un état intermédiaire (incomplet) d'une cascade encore en cours plutôt que sur son état final.
+
+**1. Le mécanisme : un attribut dynamique posé sur l'objet `Session`**
+Python autorise à poser n'importe quel attribut sur n'importe quel objet — `db._nom_du_drapeau = True` fonctionne sans déclaration préalable, purement en mémoire. Puisque `db` (la `Session` SQLAlchemy) est déjà systématiquement passée en paramètre à chaque `create()`/`update()`/`delete()`/méthode `@constrains` de ce code, l'accrocher directement dessus évite d'introduire un second paramètre de contexte partout :
+```python
+def _fonction_sensible_a_la_reentrance(db: Session, ...):
+    if getattr(db, "_drapeau", False):
+        return  # une cascade équivalente est déjà en cours plus haut dans la pile
+    db._drapeau = True
+    try:
+        ...  # écritures qui peuvent redéclencher cette même fonction, en toute sécurité
+    finally:
+        db._drapeau = False
+```
+Le `try`/`finally` garantit que le drapeau retombe même si une exception interrompt la cascade.
+
+**2. Portée : la durée de vie de `db`, jamais partagée entre utilisateurs**
+`get_db()` (`backend/app/core/database.py`) crée une instance de `Session` **par requête HTTP** et la détruit à la fin (`finally: db.close()`). Le drapeau ne vit donc que le temps d'une requête, sur l'objet `db` de cette requête précise — deux utilisateurs (ou deux onglets) travaillant en parallèle ont chacun leur propre `db`, donc leur propre drapeau, sans aucune interférence possible. C'est l'équivalent fonctionnel du dictionnaire de contexte d'Odoo (`self.env.context`), lui-même scopé à l'`Environment`/transaction courante — la différence est le support : Odoo transporte un `context` explicite en paramètre de chaque appel ORM, alors qu'ici on réutilise `db`, déjà omniprésent, plutôt que d'ajouter un paramètre dédié partout.
+
+**3. Variante : identifiant plutôt que booléen, pour de la réentrance imbriquée mais distincte**
+Un simple booléen bloque *toute* réentrance, y compris légitime (ex: une cascade sur le service A qui doit normalement continuer à déclencher un traitement sur un service B différent). Quand il faut distinguer "je suis en train de traiter CET enregistrement précis" de "un traitement quelconque est en cours ailleurs", on stocke un identifiant plutôt qu'un booléen, avec sauvegarde/restauration de la valeur précédente (pile implicite via une variable locale) :
+```python
+if getattr(db, "_traitement_en_cours_pour_id", None) == self.id:
+    return
+precedent = getattr(db, "_traitement_en_cours_pour_id", None)
+db._traitement_en_cours_pour_id = self.id
+try:
+    ...
+finally:
+    db._traitement_en_cours_pour_id = precedent
+```
+Ceci autorise un traitement imbriqué sur un AUTRE enregistrement (id différent) à s'exécuter normalement, tout en bloquant la boucle immédiate sur le même enregistrement.
+
+**4. Piège associé : ne pas laisser un recalcul dérivé s'exécuter sur un état intermédiaire**
+Quand une cascade fait plusieurs écritures successives (ex: supprimer puis recréer plusieurs lignes liées) et qu'une fonction dérivée dépend de l'ENSEMBLE de ces lignes, la garder « auto-déclenchée » à chaque écriture individuelle expose des états transitoires incomplets (ex: 0 ligne juste après la suppression, 1 ligne sur 2 après la première recréation). La garde de réentrance suffit à éviter la boucle infinie, mais pas ce problème-là : il faut en plus **suspendre totalement** le recalcul dérivé pendant toute la durée de la cascade, puis l'appeler explicitement **une seule fois**, une fois la cascade stabilisée — plutôt que de compter sur ses déclenchements automatiques.
+
+**Implémentation de référence** : `_sync_aligned_repartitions` / `_recompute_service_weekly_durations` (`backend/app/models/service.py`) combinent les trois techniques ci-dessus — garde par identifiant (`db._weekly_duration_sync_service_id`) pour la réentrance directe, garde booléenne (`db._syncing_alignment_repartitions`) pour suspendre un recalcul dérivé pendant toute une cascade multi-écritures, puis appel explicite unique de ce recalcul une fois la cascade terminée.
 
 ---
 

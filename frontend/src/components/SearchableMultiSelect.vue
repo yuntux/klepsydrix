@@ -1,9 +1,15 @@
 <template>
-  <div class="searchable-multiselect-container" :class="{ 'is-inline': inline, 'is-disabled': disabled, 'is-open': isOpen }" ref="containerRef">
+  <!-- click.stop (sauf si disabled) : voir SearchableSelect.vue — un clic sur une option/tag
+       (pas de vrai <input>/<select>) remonterait sinon jusqu'à la ligne de GenericList.vue et
+       déclencherait une resélection/rechargement qui écrase l'édition locale avant son envoi au
+       backend. -->
+  <div class="searchable-multiselect-container" :class="{ 'is-inline': inline, 'is-disabled': disabled, 'is-open': isOpen }" ref="containerRef" @click="!disabled && $event.stopPropagation()">
     <div class="input-tags-wrapper" @click="focusInput">
       <div v-for="val in selectedOptions" :key="val.value" class="tag-badge">
         <span class="tag-label">{{ val.label }}</span>
-        <span v-if="!disabled" class="tag-remove" @click.stop="removeOption(val.value)">×</span>
+        <!-- mousedown.prevent (pas click) : voir SearchableSelect.vue, même piège avec le
+             focusout de ligne de GenericList.vue qui flush avant que le clic ne s'exécute. -->
+        <span v-if="!disabled" class="tag-remove" @mousedown.prevent.stop="removeOption(val.value)">×</span>
       </div>
 
       <input

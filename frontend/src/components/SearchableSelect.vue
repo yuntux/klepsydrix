@@ -1,5 +1,12 @@
 <template>
-  <div class="searchable-select-container" :class="{ 'is-inline': inline }" ref="containerRef">
+  <!-- click.stop (sauf si disabled) sur le conteneur : sans ça, un clic sur une option du
+       dropdown ou sur la croix "effacer" (qui ne sont pas de vrais <input>/<select>, donc pas
+       exclus par les closest() de GenericList.vue::onRowClick) remonte jusqu'à la ligne,
+       sélectionne la ligne et déclenche une recharge (selection-change -> re-fetch) qui écrase la
+       valeur locale tout juste posée avant même son envoi au backend au focusout — l'édition
+       semblait "ne rien faire". Le cas disabled reste propagé pour garder le même comportement
+       qu'un <input disabled> natif : cliquer une cellule en lecture seule sélectionne la ligne. -->
+  <div class="searchable-select-container" :class="{ 'is-inline': inline }" ref="containerRef" @click="!disabled && $event.stopPropagation()">
     <div class="input-wrapper">
       <input
         v-if="!disabled"
@@ -20,7 +27,11 @@
         {{ searchQuery || 'Aucun' }}
       </span>
 
-      <span v-if="modelValue !== null && modelValue !== '' && !disabled" class="clear-btn" @click.stop="clearSelection">
+      <!-- mousedown.prevent (pas click) : sur mousedown le navigateur retire déjà le focus de
+           l'input, ce qui déclenche le focusout de la ligne (GenericList.vue) et flush
+           pendingUpdates AVANT que le clic ne mette à jour la valeur — le clear passait donc
+           inaperçu en édition en ligne. preventDefault garde le focus le temps d'émettre. -->
+      <span v-if="modelValue !== null && modelValue !== '' && !disabled && nullable" class="clear-btn" @mousedown.prevent.stop="clearSelection">
         ×
       </span>
       <span v-if="!disabled" class="chevron-icon" @click.stop="toggleDropdown">
@@ -63,14 +74,20 @@ interface Option {
   label: string;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: any;
   options: Option[];
   disabled?: boolean;
   placeholder?: string;
   required?: boolean;
   inline?: boolean;
-}>();
+  // false uniquement pour une colonne SQL nullable=False (voir App.vue::getFormFieldsConfig) :
+  // effacer un tel champ vers null est un no-op silencieux côté backend (CRUDMixin.clean_payload),
+  // donc le bouton "×" ne doit pas être proposé — seule une vraie option (ex: "Aucune") est valide.
+  nullable?: boolean;
+}>(), {
+  nullable: true
+});
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: any): void;

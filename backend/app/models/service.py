@@ -1,4 +1,5 @@
 import enum
+import math
 import random
 from functools import partial
 from typing import Optional, Any
@@ -28,6 +29,14 @@ class RepartitionGroupType(str, enum.Enum):
     FULL_CLASS = "FULL_CLASS"
     SPLIT = "SPLIT"
     REDUCED = "REDUCED"
+
+
+# Lettre affichée dans ServiceRepartition.name (voir _compute_name), ex: 2x1h(H/C).
+_REPARTITION_GROUP_TYPE_LETTERS = {
+    RepartitionGroupType.FULL_CLASS: "C",
+    RepartitionGroupType.SPLIT: "D",
+    RepartitionGroupType.REDUCED: "P",
+}
 
 
 class Service(Base):
@@ -136,6 +145,19 @@ class Service(Base):
         validate_multiple_of_standard_timeslot(db, self.weekly_duration_reduced_minutes, "La durée hebdomadaire effectif réduit du service")
         validate_multiple_of_standard_timeslot(db, self.weekly_duration_split_minutes, "La durée hebdomadaire effectif dédoublé du service")
 
+    @constrains('weekly_duration_full_class_minutes')
+    def _sync_full_class_repartitions(self, db: Session):
+        _generate_repartition_service(db, self, RepartitionGroupType.FULL_CLASS, self.weekly_duration_full_class_minutes, 1)
+
+    @constrains('weekly_duration_split_minutes')
+    def _sync_split_repartitions(self, db: Session):
+        _generate_repartition_service(db, self, RepartitionGroupType.SPLIT, self.weekly_duration_split_minutes, 2)
+
+    @constrains('weekly_duration_reduced_minutes', 'student_count', 'reduced_group_student_count')
+    def _sync_reduced_repartitions(self, db: Session):
+        groups_need = _reduced_groups_need(self)
+        _generate_repartition_service(db, self, RepartitionGroupType.REDUCED, self.weekly_duration_reduced_minutes, groups_need)
+
     @constrains("alignment_id")
     def _check_alignment_repartition_match(self, db: Session):
         if not self.alignment_id:
@@ -207,7 +229,7 @@ class Service(Base):
 
 def _repartition_signature(service: "Service") -> frozenset:
     return frozenset(
-        (r.occurrence_count, r.duration_minutes, r.periodicity)
+        (r.occurrence_count, r.duration_minutes, r.periodicity, r.group_type)
         for r in service.repartitions
     )
 
@@ -228,7 +250,15 @@ def _sync_aligned_repartitions(db: Session, service: "Service"):
     """
     if not service.alignment_id or getattr(db, "_syncing_alignment_repartitions", False):
         return
+    # service.repartitions (et celle de chaque voisin) a pu être chargée plus tôt dans cette même
+    # opération, avant que d'autres ServiceRepartition ne soient créées/supprimées "de l'autre
+    # côté" (FK posée directement plutôt que via cette collection) — sans l'expirer, la comparaison
+    # de signature ci-dessous se ferait sur un état obsolète (un aller-retour supplémentaire aurait
+    # alors semblé inutile alors qu'il ne l'était pas).
+    db.expire(service, ["repartitions"])
     siblings = db.query(Service).filter(Service.alignment_id == service.alignment_id, Service.id != service.id).all()
+    for sibling in siblings:
+        db.expire(sibling, ["repartitions"])
     target_signature = _repartition_signature(service)
     mismatched = [s for s in siblings if _repartition_signature(s) != target_signature]
     if not mismatched:
@@ -237,7 +267,7 @@ def _sync_aligned_repartitions(db: Session, service: "Service"):
     db._syncing_alignment_repartitions = True
     try:
         reference_rows = [
-            {"occurrence_count": r.occurrence_count, "duration_minutes": r.duration_minutes, "periodicity": r.periodicity.value}
+            {"occurrence_count": r.occurrence_count, "duration_minutes": r.duration_minutes, "periodicity": r.periodicity.value, "group_type": r.group_type.value}
             for r in service.repartitions
         ]
         for sibling in mismatched:
@@ -247,6 +277,129 @@ def _sync_aligned_repartitions(db: Session, service: "Service"):
                 ServiceRepartition.create(db, {**vals, "service_id": sibling.id})
     finally:
         db._syncing_alignment_repartitions = False
+
+    # _recompute_service_weekly_durations (voir plus bas) ignore tout appel pendant que
+    # db._syncing_alignment_repartitions est vrai — le miroir ci-dessus supprime puis recrée toutes
+    # les lignes d'un voisin, et sans cette garde, chaque étape intermédiaire (incomplète) du miroir
+    # déclencherait un recalcul avec un état transitoire, écrasant le précédent. On recalcule donc
+    # explicitement, une seule fois, une fois le miroir stabilisé.
+    for sibling in mismatched:
+        db.expire(sibling)
+        _recompute_service_weekly_durations(db, sibling)
+
+
+def _reduced_groups_need(service: "Service") -> int:
+    """Nombre de groupes en effectif réduit — 1 par défaut tant que reduced_group_student_count
+    n'est pas renseigné (traité comme un unique groupe, pas une erreur bloquante)."""
+    if not service.reduced_group_student_count:
+        return 1
+    return math.ceil(service.student_count / service.reduced_group_student_count)
+
+
+def _generate_repartition_service(db: Session, service: "Service", group_type: "RepartitionGroupType", target_weekly_duration: int, occurrence_multiple: int):
+    """
+    Implémente generate_repartitionService (voir spec.md, section « Synchronisation Service ↔
+    ServiceRepartition ») : régénère les ServiceRepartition de type `group_type` de `service` à
+    partir d'une durée hebdomadaire cible, en blocs d'1h (+ un éventuel reliquat), toutes en
+    periodicity=WEEKLY. `occurrence_multiple` compense la définition du type (SPLIT double le
+    nombre de séances car chaque moitié de classe a la sienne ; REDUCED le multiplie par le nombre
+    de groupes) — voir _recompute_service_weekly_durations pour la réciproque.
+
+    Garde de réentrance (db._weekly_duration_sync_service_id) : les create()/delete() ci-dessous
+    déclenchent à leur tour _recompute_service_weekly_durations sur CE service — sans la garde, la
+    réciproque réécrirait aussitôt les mêmes champs, qui redéclencheraient cette fonction, etc.
+    """
+    if getattr(db, "_weekly_duration_sync_service_id", None) == service.id:
+        return
+
+    previous_sync_id = getattr(db, "_weekly_duration_sync_service_id", None)
+    db._weekly_duration_sync_service_id = service.id
+    try:
+        existing = db.query(ServiceRepartition).filter(
+            ServiceRepartition.service_id == service.id,
+            ServiceRepartition.group_type == group_type,
+        ).all()
+        for row in existing:
+            row.delete(db)
+
+        if target_weekly_duration > 0:
+            full_hours = target_weekly_duration // 60
+            remainder = target_weekly_duration % 60
+            if remainder > 0:
+                if full_hours > 0:
+                    ServiceRepartition.create(db, {
+                        "service_id": service.id, "group_type": group_type.value,
+                        "periodicity": RepartitionPeriodicity.WEEKLY.value,
+                        "duration_minutes": 60 + remainder, "occurrence_count": occurrence_multiple,
+                    })
+                    full_hours -= 1
+                else:
+                    ServiceRepartition.create(db, {
+                        "service_id": service.id, "group_type": group_type.value,
+                        "periodicity": RepartitionPeriodicity.WEEKLY.value,
+                        "duration_minutes": remainder, "occurrence_count": occurrence_multiple,
+                    })
+            if full_hours > 0:
+                ServiceRepartition.create(db, {
+                    "service_id": service.id, "group_type": group_type.value,
+                    "periodicity": RepartitionPeriodicity.WEEKLY.value,
+                    "duration_minutes": 60, "occurrence_count": full_hours * occurrence_multiple,
+                })
+    finally:
+        db._weekly_duration_sync_service_id = previous_sync_id
+
+
+def _recompute_service_weekly_durations(db: Session, service: "Service"):
+    """
+    Réciproque de _generate_repartition_service (voir spec.md) : recalcule les 3
+    weekly_duration_*_minutes de `service` à partir de l'ensemble de ses ServiceRepartition
+    actuelles, après toute création/modification/suppression de l'une d'elles.
+
+    Ne s'exécute PAS si ce service est déjà celui en cours de synchronisation
+    (db._weekly_duration_sync_service_id) : les create()/delete() de _generate_repartition_service
+    déclenchent cette fonction à leur tour, mais les valeurs qu'elle recalculerait sont déjà
+    exactement celles qui ont déclenché la régénération — un aller-retour inutile. Ce garde-fou a
+    aussi pour effet voulu qu'un édit manuel d'une seule ligne (hors synchro) met à jour les
+    totaux du service SANS réécrire les autres lignes de répartition.
+
+    Ne s'exécute pas non plus pendant un miroir d'alignement en cours (db._syncing_alignment_repartitions,
+    voir _sync_aligned_repartitions) : ce miroir supprime puis recrée toutes les lignes d'un voisin
+    d'un coup, et un recalcul déclenché sur un état intermédiaire (incomplet) écraserait le suivant —
+    _sync_aligned_repartitions se charge d'appeler cette fonction lui-même, une fois le miroir stable.
+    """
+    if getattr(db, "_weekly_duration_sync_service_id", None) == service.id:
+        return
+    if getattr(db, "_syncing_alignment_repartitions", False):
+        return
+
+    totals = {RepartitionGroupType.FULL_CLASS: 0.0, RepartitionGroupType.SPLIT: 0.0, RepartitionGroupType.REDUCED: 0.0}
+    for repartition in service.repartitions:
+        periodicity_multiple = 0.5 if repartition.periodicity == RepartitionPeriodicity.BIWEEKLY else 1
+
+        if repartition.group_type == RepartitionGroupType.FULL_CLASS:
+            totals[RepartitionGroupType.FULL_CLASS] += repartition.duration_minutes * repartition.occurrence_count * periodicity_multiple
+
+        elif repartition.group_type == RepartitionGroupType.SPLIT:
+            if repartition.occurrence_count % 2 != 0:
+                raise ValueError("Le nombre d'occurrences doit être un multiple de 2 puisqu'il s'agit d'une répartition de type Dédoublement.")
+            totals[RepartitionGroupType.SPLIT] += repartition.duration_minutes * (repartition.occurrence_count // 2) * periodicity_multiple
+
+        elif repartition.group_type == RepartitionGroupType.REDUCED:
+            groups_need = _reduced_groups_need(service)
+            if repartition.occurrence_count % groups_need != 0:
+                raise ValueError(f"Le nombre d'occurrences doit être un multiple du nombre de groupes ({groups_need}, de {service.reduced_group_student_count} élèves maximum) puisqu'il s'agit d'une répartition de type Effectif réduit.")
+            totals[RepartitionGroupType.REDUCED] += repartition.duration_minutes * (repartition.occurrence_count // groups_need) * periodicity_multiple
+
+    previous_sync_id = getattr(db, "_weekly_duration_sync_service_id", None)
+    db._weekly_duration_sync_service_id = service.id
+    try:
+        service.update(db, {
+            "weekly_duration_full_class_minutes": int(round(totals[RepartitionGroupType.FULL_CLASS])),
+            "weekly_duration_split_minutes": int(round(totals[RepartitionGroupType.SPLIT])),
+            "weekly_duration_reduced_minutes": int(round(totals[RepartitionGroupType.REDUCED])),
+        })
+    finally:
+        db._weekly_duration_sync_service_id = previous_sync_id
 
 
 class ServiceRepartition(Base):
@@ -285,30 +438,64 @@ class ServiceRepartition(Base):
         validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la répartition")
 
     @constrains()
+    def _check_unique_service_periodicity_group_type_duration(self, db: Session):
+        duplicate = db.query(ServiceRepartition).filter(
+            ServiceRepartition.service_id == self.service_id,
+            ServiceRepartition.periodicity == self.periodicity,
+            ServiceRepartition.group_type == self.group_type,
+            ServiceRepartition.duration_minutes == self.duration_minutes,
+            ServiceRepartition.id != self.id,
+        ).first()
+        if duplicate:
+            raise ValueError("Une répartition existe déjà pour ce service avec la même périodicité, le même type de regroupement et la même durée.")
+
+    @constrains()
     def _compute_name(self, db: Session):
-        """Recalcule et stocke le nom d'affichage, ex: 2x01h00(H) ou 1x01h30(Q)."""
+        """Recalcule et stocke le nom d'affichage, ex: 2x01h00(H/C) ou 1x01h30(Q/D)."""
         from backend.app.core.time_utils import minutes_to_hours
         _, hours_text = minutes_to_hours(self.duration_minutes)
         periodicity_letter = "H" if self.periodicity == RepartitionPeriodicity.WEEKLY else "Q"
-        self.name = f"{self.occurrence_count}x{hours_text}({periodicity_letter})"
+        group_type_letter = _REPARTITION_GROUP_TYPE_LETTERS[self.group_type]
+        self.name = f"{self.occurrence_count}x{hours_text}({periodicity_letter}/{group_type_letter})"
 
-    @constrains()
-    def _sync_sibling_alignment_repartitions(self, db: Session):
+    @classmethod
+    def create(cls, db: Session, vals: dict):
+        # _sync_aligned_repartitions et _recompute_service_weekly_durations appellent tous deux, en
+        # cascade, create()/update()/delete() sur d'autres ServiceRepartition — donc un flush avant
+        # la fin de CE create()-ci (CRUDMixin ne positionne _via_crud_mixin_update sur l'instance
+        # QU'À LA TOUTE FIN). Si ces deux fonctions tournaient comme de simples @constrains
+        # (dispatchées AVANT ce point), un tel flush prématuré retomberait sur cette instance avec
+        # son nom déjà recalculé par _compute_name mais pas encore flaggée — rejeté par le event
+        # listener before_update ("Mise à jour directe interdite"). D'où ces appels explicites
+        # APRÈS super().create(), une fois l'instance pleinement flushée/flaggée (même schéma que
+        # ClassPart.create()/_auto_generate_links).
+        instance = super().create(db, vals)
+        if instance.service:
+            _sync_aligned_repartitions(db, instance.service)
+            _recompute_service_weekly_durations(db, instance.service)
+        return instance
+
+    def update(self, db: Session, vals: dict):
+        result = super().update(db, vals)
         if self.service:
             _sync_aligned_repartitions(db, self.service)
+            _recompute_service_weekly_durations(db, self.service)
+        return result
 
     def delete(self, db: Session):
         # Capturé avant suppression : self.service devient inaccessible une fois la ligne supprimée.
         # Contrairement à create()/update(), delete() ne déclenche pas les méthodes @constrains
-        # (voir CRUDMixin.delete()) — d'où cet appel explicite pour couvrir aussi ce cas.
+        # (voir CRUDMixin.delete()) — d'où ces appels explicites pour couvrir aussi ce cas.
         service = self.service
         result = super().delete(db)
         if service:
             # service.repartitions a pu être chargée (et mise en cache par la Session) avant cette
             # suppression — sans l'expirer, elle continuerait de renvoyer la ligne qu'on vient de
-            # retirer, faussant _repartition_signature(service) juste en dessous.
+            # retirer, faussant _repartition_signature(service)/_recompute_service_weekly_durations
+            # juste en dessous.
             db.expire(service)
             _sync_aligned_repartitions(db, service)
+            _recompute_service_weekly_durations(db, service)
         return result
 
 
