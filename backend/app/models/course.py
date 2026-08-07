@@ -667,6 +667,23 @@ class Course(Base):
         return instance
 
     def update(self, db: Session, vals: dict):
+        # Un cours épinglé (is_pinned=True, et le restant après cet appel) ne peut pas être
+        # déplacé manuellement — créneau, salle ou semaine — miroir de la garde déjà appliquée
+        # par le solveur (@PlanningPin sur PlanningCourse.is_pinned, qui gèle déjà timeslot et
+        # classroom pour le placement automatique) : rien ne l'empêchait côté placement manuel
+        # jusqu'ici (voir attribution_week_type_auto.md, Échange 4). Déverrouiller ET déplacer
+        # dans le même appel reste autorisé (is_pinned=False dans les mêmes vals désactive la
+        # garde) ; seuls les VALEURS EFFECTIVEMENT CHANGÉES déclenchent le refus, pour ne pas
+        # bloquer le simple renvoi du timeslot_id courant (ex: bascule du pin via CourseCard.vue).
+        new_is_pinned = vals.get('is_pinned', self.is_pinned)
+        if self.is_pinned and new_is_pinned:
+            if 'timeslot_id' in vals and vals['timeslot_id'] != self.timeslot_id:
+                raise ValueError("Impossible de déplacer un cours épinglé : déverrouillez-le d'abord.")
+            if 'classroom_ids' in vals:
+                raise ValueError("Impossible de changer la salle d'un cours épinglé : déverrouillez-le d'abord.")
+            if 'week_type' in vals and str(vals['week_type']) != str(self.week_type.value):
+                raise ValueError("Impossible de changer la semaine d'un cours épinglé : déverrouillez-le d'abord.")
+
         # 1. Synchronisation avec le parent (si applicable)
         self.__class__._sync_vals_from_parent(db, vals, instance=self)
 

@@ -14,7 +14,7 @@
       left: isPlaced && overlapCount && overlapCount > 1 ? `calc(${(100 / overlapCount) * (overlapIndex || 0)}% + 4px)` : undefined,
       right: isPlaced && overlapCount && overlapCount > 1 ? 'auto' : undefined
     }"
-    draggable="true"
+    :draggable="!course.is_pinned"
     @dragstart="$emit('dragstart', $event, course.id)"
     @click.stop="$emit('click', course.id, $event)"
   >
@@ -111,6 +111,12 @@ const formattedDuration = computed(() => {
   border-left-width: 4px;
   border-left-style: solid;
   overflow: hidden;
+}
+
+/* Un cours épinglé n'est plus draggable (voir :draggable plus haut) : le curseur "grab" serait
+   trompeur, il resterait figé sur un premier mousedown sans jamais déclencher de dragstart. */
+.placed-course.is-pinned-card {
+  cursor: not-allowed;
 }
 
 .placed-course:hover {

@@ -591,6 +591,77 @@ def test_course_week_alternation_conflicts(db_session: Session):
     response = client.put(f"/api/timetable/courses/{c4.id}", json={"timeslot_id": ts.id})
     assert response.status_code == 200
 
+
+def test_pinned_course_cannot_be_moved_manually(db_session: Session):
+    """
+    Un cours épinglé (is_pinned=True) ne peut pas être déplacé manuellement (créneau, salle ou
+    semaine) — miroir de la garde déjà appliquée par le solveur (@PlanningPin), qui ne couvrait
+    jusqu'ici que le placement automatique (voir attribution_week_type_auto.md, Échange 4/5).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    classroom1 = Classroom(code="C1", name="Salle 1", school_id=school.id, capacity=30)
+    classroom1._via_crud_mixin_create = True
+    classroom2 = Classroom(code="C2", name="Salle 2", school_id=school.id, capacity=30)
+    classroom2._via_crud_mixin_create = True
+    db_session.add_all([classroom1, classroom2])
+    db_session.commit()
+
+    ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    ts1._via_crud_mixin_create = True
+    ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
+    ts2._via_crud_mixin_create = True
+    # Créneau de fin de journée supplémentaire : validate_placement_conflicts refuse tout
+    # placement qui déborderait de la grille (dernier minutes_from_midnight + pas standard) —
+    # sans lui, placer un cours de 60 min sur ts2 déborderait, indépendamment de l'épinglage.
+    ts_end = Timeslot(day_of_week=1, minutes_from_midnight=600)
+    ts_end._via_crud_mixin_create = True
+    db_session.add_all([ts1, ts2, ts_end])
+    db_session.commit()
+
+    course = Course(
+        subject_id=subject.id, school_id=school.id, week_type="A",
+        timeslot_id=ts1.id, classrooms=[classroom1], is_pinned=True,
+    )
+    course._via_crud_mixin_create = True
+    db_session.add(course)
+    db_session.commit()
+
+    # Créneau : refusé tant que le cours reste épinglé.
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts2.id})
+    assert response.status_code == 409
+    assert "épinglé" in response.json()["detail"]
+    db_session.refresh(course)
+    assert course.timeslot_id == ts1.id
+
+    # Salle : refusé tant que le cours reste épinglé.
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"classroom_ids": [classroom2.id]})
+    assert response.status_code == 409
+    db_session.refresh(course)
+    assert [c.id for c in course.classrooms] == [classroom1.id]
+
+    # Semaine (via le CRUD générique — PATCH, pas PUT — week_type n'est pas encore exposé sur
+    # l'endpoint de placement dédié /api/timetable/courses/{id}, voir
+    # attribution_week_type_auto.md) : refusé tant que le cours reste épinglé.
+    response = client.patch(f"/api/generic/courses/{course.id}", json={"week_type": "B"})
+    assert response.status_code == 400
+    assert "épinglé" in response.json()["detail"]
+    db_session.refresh(course)
+    assert course.week_type.value == "A"
+
+    # Renvoyer le MÊME créneau (cas de la simple bascule du pin via CourseCard.vue) reste autorisé.
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts1.id, "is_pinned": True})
+    assert response.status_code == 200
+
+    # Déverrouiller ET déplacer dans le même appel reste autorisé.
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts2.id, "is_pinned": False})
+    assert response.status_code == 200
+    db_session.refresh(course)
+    assert course.timeslot_id == ts2.id
+    assert course.is_pinned is False
+
+
 def test_course_complex_offset_propagation(db_session: Session):
     """
     Vérifie la propagation du décalage (offset) lors du déplacement d'un cours complexe
