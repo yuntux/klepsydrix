@@ -362,18 +362,20 @@ class Course(Base):
             
         types = {c.week_type.value for c in children if c.week_type}
 
-        # Un parent avec au moins un enfant encore non résolu (Q) reste lui-même Q : il ne
-        # décrit pas encore une alternance figée tant que TOUS ses enfants n'ont pas choisi leur
-        # semaine (voir attribution_week_type_auto.md, Échange 1) — prioritaire sur la règle
-        # tout-A/tout-B/mixte, sinon un parent {A, Q} basculerait à tort en W (semaine entière).
-        if "Q" in types:
-            parent.week_type = CourseWeekType.Q
+        # Un vrai conflit A/B (au moins un enfant W, ou à la fois un enfant A et un enfant B)
+        # remonte en W. Sinon, si tous les enfants partagent exactement A ou exactement B, le
+        # parent prend cette valeur. Dans tous les autres cas — tous Q, ou un mélange de A+Q,
+        # ou un mélange de B+Q — le parent est Q : le solveur pourra alors lui affecter A ou B,
+        # et cette lettre sera reportée à tous les enfants (y compris ceux déjà résolus dans
+        # l'autre sens) à l'issue de la résolution.
+        if "W" in types or ("A" in types and "B" in types):
+            parent.week_type = CourseWeekType.W
         elif types == {"A"}:
             parent.week_type = CourseWeekType.A
         elif types == {"B"}:
             parent.week_type = CourseWeekType.B
         else:
-            parent.week_type = CourseWeekType.W
+            parent.week_type = CourseWeekType.Q
         db.add(parent)
 
     @constrains('duration_minutes')

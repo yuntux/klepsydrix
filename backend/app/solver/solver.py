@@ -224,7 +224,32 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             is_pinned = True
             
         # Charger week_type et class_part_ids
-        week_type = c.week_type.value
+        # Phase C (voir attribution_week_type_auto.md, Échanges 17-19) : tout cours dont le
+        # week_type BDD (c.week_type — agrégat _sync_parent_week_type pour un cours composé)
+        # est A, B ou Q reçoit un vrai choix {A, B} au solveur ; W reste seul et intact
+        # (aucun cours W ne doit jamais devenir A/B, voir spec.md). Ceci s'applique aussi bien
+        # aux cours composés qu'aux cours simples : _sync_parent_week_type garantit qu'un
+        # parent composé n'affiche A/B/Q QUE si TOUS ses enfants partagent uniformément cette
+        # même valeur — la cascade au write-back ci-dessous peut donc reporter sans ambiguïté
+        # la lettre choisie par le solveur à tous les enfants.
+        # Valeur de départ : None pour un cours Q (un spike dédié a confirmé qu'une valeur hors
+        # du range déclaré, ex: laisser "Q" avec un range ["A","B"], n'est pas réévaluée par le
+        # solveur et peut y rester bloquée ; None est en revanche pris en charge nativement,
+        # comme timeslot/classroom, avec un résultat final identique quelle que soit la valeur
+        # de départ légale choisie — le pré-semage n'apporte donc rien et a été retiré). Pour un
+        # cours déjà résolu A/B, la valeur de départ reste sa valeur actuelle (point de départ
+        # naturel pour la recherche, comme pour classroom, § 12.B d'architecture.md) — rien
+        # n'empêche pour autant le solveur de la faire basculer si c'est meilleur.
+        original_week_type = c.week_type.value
+        if original_week_type == "W":
+            week_type = "W"
+            week_type_range = ["W"]
+        elif original_week_type == "Q":
+            week_type = None
+            week_type_range = ["A", "B"]
+        else:
+            week_type = original_week_type
+            week_type_range = ["A", "B"]
         class_part_ids = []
         division_ids = set([d.id for d in c.divisions]) if c.divisions else set()
             
@@ -277,6 +302,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             parent_id=getattr(c, 'parent_id', None),
             pedagogic_weight_total=pedagogic_weight * (c.duration_minutes / 60.0),
             week_type=week_type,
+            week_type_range=week_type_range,
             class_part_ids=class_part_ids,
             all_division_ids=list(division_ids),
             is_full_class=(len(c.divisions) > 0 and len(c.groups) == 0 and len(c.class_parts) == 0),
@@ -344,6 +370,15 @@ def _solve_timetable_job(db_session=None, school_id=None):
             if db_course:
                 db_course._via_crud_mixin_update = True
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
+                # week_type_before : capturé AVANT l'écriture ci-dessous, pour pouvoir détecter
+                # une résolution/permutation réelle (Q->A/B ou A<->B) et déclencher la cascade
+                # aux enfants d'un cours composé (voir plus bas) — sans quoi on écraserait la
+                # référence nécessaire à la comparaison. Pour un cours en W, pc.week_type_range
+                # n'a jamais eu qu'une seule valeur légale (voir _build_planning_problem), donc
+                # pc.week_type est structurellement resté égal à sa valeur d'entrée : l'écriture
+                # est un no-op sans risque dans ce cas.
+                week_type_before = db_course.week_type.value
+                db_course.week_type = pc.week_type
                 if not db_course.is_composed:
                     if pc.classroom:
                         db_classroom = db.get(Classroom, pc.classroom.id)
@@ -355,14 +390,26 @@ def _solve_timetable_job(db_session=None, school_id=None):
                     # Synchroniser le timeslot de chaque cours enfant par rapport au parent
                     from backend.app.models.timeslot import Timeslot
                     parent_ts = db.get(Timeslot, db_course.timeslot_id) if db_course.timeslot_id else None
+                    # Cascade du week_type aux enfants : seulement si le solveur a réellement
+                    # changé le week_type du parent pendant le solving (Q->A, Q->B, ou A<->B —
+                    # peu importe lequel, il suffit de comparer à la valeur d'avant solve) — pas
+                    # à chaque solve, sinon un cours composé stable (resté sur sa lettre) verrait
+                    # ses enfants réécrits sans raison. Sûr car _sync_parent_week_type garantit
+                    # qu'un parent affichant une valeur singleton (A/B/Q) avant résolution la
+                    # partageait avec 100% de ses enfants (voir attribution_week_type_auto.md,
+                    # Échange 18/19/20) : reporter la même lettre à tous, sans distinction, est
+                    # donc toujours correct ici.
+                    week_type_changed = pc.week_type != week_type_before
                     for child in db_course.children:
                         child._via_crud_mixin_update = True
                         if parent_ts:
                             child.timeslot_id = parent_ts.get_offset_timeslot(db, child.parent_timeslot_offset)
                         else:
                             child.timeslot_id = None
+                        if week_type_changed:
+                            child.week_type = pc.week_type
                         child.recompute_status()
-                
+
                 db_course.recompute_status()
 
         db.commit()

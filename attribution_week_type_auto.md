@@ -483,3 +483,165 @@ Vérifié : build frontend propre, absence confirmée de la règle `:has()` reti
 **Non vérifiable par mes soins** : confirmation visuelle nécessaire de votre part.
 
 ---
+
+## Échange 17 — Phase C : résolution du `Q` par le solveur (Timefold)
+
+### Message utilisateur
+
+> OK, passe à la phase C mais je veux que tu sois très méthodique, que tu aliment bien les fichiers architecture.md et spec.md et que tu crées des tests unitaire du solver très précis et couvrants
+
+### Réponse
+
+Phase C = faire de `week_type` une véritable variable de planification Timefold (`@PlanningVariable`) pour les cours nés `Q`, au lieu d'un simple fait fixe copié depuis la base. Avant de toucher au code de production, dérisquage méthodique du risque n°1 identifié depuis l'Échange 2 : Timefold supporte-t-il un espace de valeurs (`ValueRangeProvider`) propre à CHAQUE cours (un cours résolu en `A` ne doit avoir aucune raison de pouvoir redevenir `B`), alors que le seul pattern utilisé jusqu'ici dans le projet (`timeslotRange`, `classroomRange`) est un espace de valeurs global, partagé par tous les cours ?
+
+**Spikes (scripts autonomes exécutés directement contre le `timefold` 1.24.0b0 réel du projet, avant toute implémentation)** :
+1. Premier essai erroné : `@ValueRangeProvider(...)` utilisé comme décorateur de méthode → `TypeError: 'ValueRangeProvider' object is not callable`. `ValueRangeProvider` n'est pas un décorateur, c'est un marqueur de type utilisé via `Annotated[Type, ValueRangeProvider(id=...)]` sur un champ stocké — exactement le même pattern que `PlanningVariable`, déjà utilisé partout dans le code existant.
+2. Deuxième essai erroné : type non paramétré (`Annotated[list, ...]`) → `IllegalArgumentException` côté JVM ("has no generic parameters"). Corrigé en `Annotated[List[str], ...]`.
+3. Script final : `SPIKE_RESULT: SUCCESS` — un item à range fixe (`["A"]`) ne bouge jamais, un item à range libre (`["A","B"]`) s'optimise correctement.
+4. Second spike, `@PlanningPin` : `SPIKE_RESULT: SUCCESS` — un item épinglé avec un range LIBRE ne bouge quand même jamais. `@PlanningPin` gèle une variable à portée entité exactement comme une variable à portée globale, sans code additionnel.
+
+**Risque n°1 définitivement levé.**
+
+**Décision de conception nouvelle, prise en cours de route (jamais discutée dans les Échanges précédents)** : en relisant `_build_planning_problem` (le solveur ne construit une entité `PlanningCourse` QUE pour les cours de premier niveau, `parent_id IS NULL` — un cours composé enfant n'existe jamais côté solveur) et `Course._sync_parent_week_type` (le `week_type` d'un cours composé parent est un **agrégat dérivé** de ses enfants, pas une donnée indépendante), j'ai identifié un risque de désynchronisation : si le solveur résolvait directement le `Q` d'un cours composé parent via son écriture en Direct Attribute Assignment (*Architecture de Validation Duale*), cette écriture ne toucherait jamais les enfants — qui resteraient `Q` individuellement, sans que rien ne le répercute, créant un agrégat incohérent avec ses propres enfants.
+
+**J'ai donc restreint la résolution automatique aux seuls cours SIMPLES (non composés)** : seul un cours simple né `Q` reçoit un vrai choix `{A, B}` (`week_type_range`), pré-semé à `A`. Tout cours composé — même valant `Q` — garde un range singleton = sa valeur BDD actuelle, donc jamais résolu par le solveur, exactement comme avant cette phase. **Cette limite de portée est un choix que j'ai fait seul, à signaler explicitement** : un cours composé né `Q` continuera à nécessiter une résolution manuelle (glisser-déposer, Phase B) pour chacun de ses enfants — le solveur ne l'aidera jamais sur ce point.
+
+**Implémentation** :
+- `backend/app/solver/constraints.py` — `PlanningCourse` : remplacement du champ `week_type: str = "W"` par une paire `week_type_range` (`ValueRangeProvider` à portée entité) / `week_type` (`PlanningVariable` référençant ce range).
+- `backend/app/solver/solver.py` — `_build_planning_problem` : calcul de `week_type`/`week_type_range` selon la règle ci-dessus (`Q` + simple → `{A,B}` pré-semé `A` ; sinon → singleton = valeur actuelle) ; `_solve_timetable_job` : ajout de `db_course.week_type = pc.week_type` dans la boucle d'écriture (vérifié empiriquement que SQLAlchemy coerce correctement une chaîne Python brute vers la colonne `Enum(CourseWeekType, ...)`, testé en live puis base reseedée).
+- **7 tests solveur nouveaux** (`backend/tests/test_solver.py`), 3 niveau construction du problème (range `{A,B}` pour cours simple Q, range singleton pour cours déjà résolu, range singleton pour parent composé avec enfant Q) + 4 niveau résolution complète (Q jamais laissé irrésolu, cours déjà résolu jamais rebasculé spontanément, conflit professeur forçant une différenciation A/B, `@PlanningPin` gelant bien `week_type`). **140/140 tests passent** (133 préexistants + 7 nouveaux, aucune régression).
+- `architecture.md` § 12.D (nouvelle sous-section, juste après le modèle des cours composés — même section que la mécanique solveur existante) et `spec.md` (nouveau point sous `Course.week_type`, juste après la règle de bascule A↔B déjà présente) mis à jour avec le mécanisme, le résultat des spikes, et la limite de portée cours-composés.
+
+**Non vérifié par mes soins** : test bout-en-bout via l'API live (curl) sur la base de dev — les 7 tests solveur couvrent le comportement de façon plus précise et déterministe qu'un test manuel via API ne le permettrait ; à faire à la demande si vous le souhaitez.
+
+**À votre attention** : la restriction "cours composés jamais résolus automatiquement, même en Q" n'était pas discutée avant cet échange — c'est une décision de conception que j'ai prise seul en lisant le code existant. Dites-moi si ce n'est pas le comportement souhaité.
+
+---
+
+## Échange 18 — Trois remarques post-Phase C : révision de `_sync_parent_week_type`, `week_type_range` des cours déjà résolus, résolution des cours composés
+
+### Message utilisateur
+
+> J'ai 3 remarques/questions (ne change pas le code pour le moment, explique moi) :
+> - Point 1 : je pense qu'il faut changer la règle _sync_parent_week_type :
+> 	> if si tous les cours enfants sont A alors le parent est A
+> 	> elif si tous les cours enfants sont B alors le parent est B
+> 	> elif si tous les cours enfants sont Q alors le parent est Q
+> 	> else :
+> 		>> alors le parent est W
+> 		### c'est à dire
+> 		#			   	soit au moins un des enfants est W alors le parent est W
+> 		#				soit au moins un des engants est A ET au moins un des enfants est B
+> 		#				soit (il y a des enfants de typa A et des enfants de type Q)
+> 		#			   	soit (il y a des enfants de typa B et des enfants de type Q)
+> 		### TODO / idée pour le futur : pouvoir permuter les cours à l'intérieur du cours complexe pour optimiser l'EDT
+> - Point 2: je pense qu'il manque un cas lignes 241/243 de solver.py ===> si original_week_type==W alors effectivement week_type=W et week_type_range=[W]. En revanche si original_week_type in [A, B] alors  week_type=original_week_type et week_type_range=[A,B] (car le solver peut changer la semaine d'un cours A ou B).
+> - Point 3 : Si tu ne presseed pas en A les cours non-complexes en weektype=Q, qu'est-ce qu'il se passe pour ces cours ? Qui leur attribut le A/B ? Est-ce que ça sert à quelque chose de presseder les autres ? ===> je veux que le solver puisse attribuer A ou B à un cours complexe de type Q et dans ce cas, quand on réintègre ces données en base en sortie du solver, tous les cours enfants passsent de Q à la lettre du parent.
+
+### Réponse
+
+**Point 1** — table de vérité confirmée par comparaison ligne à ligne avec la règle actuelle (`course.py:363-376`) : le seul changement réel porte sur les ensembles `{A, Q}` et `{B, Q}` — actuellement remontés en `Q` (car "Q in types" matche en premier, dès qu'AU MOINS un enfant est encore Q), la nouvelle règle les remonte en `W` (seul un groupe **intégralement** Q remonte en `Q`). Rien n'est perdu au niveau des enfants (ils gardent individuellement leur vraie valeur) — seul le signal affiché au niveau de l'agrégat parent change pour les cas mixtes. Idée notée pour plus tard : permutation des enfants d'un cours composé, ajoutée au backlog d'idées différées (mémoire projet), avec le rappel que l'architecture actuelle évite délibérément ça pour ne pas faire exploser la combinatoire (§ 12.C d'`architecture.md`).
+
+**Point 2** — confirmé, et c'est plus qu'une amélioration : `spec.md` (ligne 305, texte pré-existant AVANT la Phase C) promettait déjà qu'un cours A/B "peut librement basculer vers l'autre... lors d'une résolution automatique par le solveur" — mon implémentation actuelle donne un range singleton à tout cours déjà résolu, contredisant ce texte. Mais appliquer ça tel quel à un cours COMPOSÉ déjà résolu réintroduirait le risque de désynchronisation parent/enfants exclu pour Q (le write-back ne touche que le parent) — sauf si on cascade aussi ce cas, ce qui rejoint le Point 3.
+
+**Point 3** — qui assigne A/B sans pré-semage : le même moteur en deux phases que pour `timeslot`/`classroom` (Construction Heuristic puis Local Search, `architecture.md` § 12.A). Le pré-semage à "A" n'est probablement pas nécessaire à la correction (par analogie avec le précédent documenté pour `classroom` § 12.B — une salle pré-remplie n'est pas figée automatiquement, il a fallu une contrainte `classroom_immobility` dédiée), mais **je n'ai pas vérifié ce point précis par un spike**, contrairement au mécanisme de range à portée entité. Pour résoudre un cours composé en Q : (1) retirer la garde `not c.is_composed`, mais SEULEMENT une fois la règle du Point 1 en place — sinon un parent affichant "Q" pourrait cacher des enfants déjà résolus (A + Q) qu'une cascade écraserait à tort ; avec la nouvelle règle, "Q" au niveau du parent garantit que TOUS les enfants sont uniformément Q, rendant la cascade sûre. (2) ajouter une cascade au write-back, sur le modèle exact du cascade déjà existant pour `timeslot_id` (`solver.py:381-384`, `for child in db_course.children: ...`).
+
+**Synthèse proposée** (à confirmer avant implémentation) : la distinction simple/composé pour `week_type` disparaîtrait presque entièrement — *si l'ensemble des valeurs des enfants (ou la valeur du cours lui-même s'il est simple) est un singleton parmi {A, B, Q} → range libre {A,B} + cascade à l'écriture ; sinon (hétérogène, ou singleton {W}) → range figé, comme aujourd'hui.*
+
+**Non fait à ce stade (explication demandée uniquement, "ne change pas le code")** : aucune implémentation, aucun spike de vérification pour le Point 3, journal non mis à jour avant la demande explicite de le faire.
+
+---
+
+## Échange 19 — Implémentation des points 1, 2, 3 : règle révisée, range unifié, cascade au write-back
+
+### Message utilisateur
+
+> 1 / intègre cet échange à attribution_week_type_auto.md 2/ vérifie que preseeder la week_tyoe n'est pas nécessaire, et si c'est le cas, supprime les inscrutions de pressedage 3/ implémente la modif du point 1 (et intre mon pseudo-code ainsi que ta table de véritée dans le spec.md) + tests unitaires API 4/ corrige le week_type_range coformément au pint 2 et 4/ implémente la cascade au write-back comme pour imeslot_id (mais ATTENTION : ne change les types des enfants uniquement si le noueau type du parent a permuté entre A et B).
+
+### Réponse
+
+**1/ Journal** — Échange 18 intégré avant de commencer l'implémentation.
+
+**2/ Spike de pré-semage** (`spike_preseed_irrelevant.py`, scratchpad) — trois valeurs de départ testées pour une variable libre {A,B} avec un optimum clair (B) : `None`, `"A"`, et `"Z"` (hors range). Résultat : `None` et `"A"` convergent identiquement vers `"B"` (le pré-semage à une valeur légale spécifique n'a AUCUN effet sur le résultat final) — **mais** `"Z"` (hors range) reste bloqué à `"Z"`, jamais repris en compte par le solveur. Conclusion nuancée : le pré-semage n'est pas nécessaire pour choisir une valeur *particulière*, mais la valeur de départ DOIT rester un membre légal du range déclaré — une découverte critique pour le Point 3 (un cours composé Q part de `"Q"`, qui n'est PAS membre du range `{A,B}` : le laisser tel quel l'aurait bloqué en `Q` pour toujours). **Instructions de pré-semage supprimées** : `week_type` part désormais de `None` pour un cours `Q` (`PlanningCourse.week_type` retypé `Optional[str]`, comme `timeslot`/`classroom`), et de sa valeur actuelle pour un cours déjà résolu A/B (point de départ naturel, pas un pré-semage à visée d'optimisation).
+
+**3/ Point 1** — `Course._sync_parent_week_type` (`course.py`) : nouvelle règle, seul un ensemble d'enfants strictement uniforme (`{A}`, `{B}` ou `{Q}`) donne cette valeur au parent ; tout mélange (y compris `{A,Q}`/`{B,Q}`, auparavant remontés en `Q`) donne `W`. Pseudo-code utilisateur + table de vérité ajoutés dans `spec.md` (section `Course.week_type`). Tests unitaires API ajoutés (`test_api.py`) : `test_course_parent_week_type_cascade_pure_q_stays_q` (tout-Q reste Q) et `test_course_parent_week_type_cascade_mixed_q_becomes_w` (mélange A+Q et B+Q → W, enfants inchangés individuellement) — remplace l'ancien test qui vérifiait l'ancien comportement.
+
+**4/ Point 2** — `_build_planning_problem` (`solver.py`) unifié : tout cours (simple OU composé) dont le `week_type` BDD vaut `A`, `B` ou `Q` reçoit `week_type_range = ["A", "B"]` ; seul `W` reste singleton `["W"]`. La distinction `is_composed` disparaît de ce calcul — rendue sûre par la règle révisée du Point 1 (un parent composé n'affiche une valeur singleton que si 100% de ses enfants la partagent).
+
+**5/ Cascade au write-back** (`_solve_timetable_job`, `solver.py`) — même boucle que la cascade `timeslot_id` déjà existante pour un cours composé (`for child in db_course.children: ...`), mais **conditionnelle** comme demandé : `week_type_before` capturé avant l'écriture du parent, cascade déclenchée uniquement si `pc.week_type in ("A","B") and pc.week_type != week_type_before` (résolution Q→A/B ou permutation A↔B réelle) — un cours composé stable (resté sur sa lettre) ne touche jamais ses enfants inutilement.
+
+**Tests** : 2 tests unitaires `_build_planning_problem` remplacés/ajoutés (range libre pour cours résolu A/B, singleton pour W), 2 nouveaux tests couvrant les cours composés (`test_build_planning_problem_gives_free_range_to_composed_parent_with_uniform_q_children`, `..._singleton_range_to_composed_parent_with_mixed_children`), 2 nouveaux tests d'intégration bout-en-bout (`test_solver_resolves_composed_course_with_uniform_q_children_and_cascades`, `test_solver_swaps_resolved_composed_course_under_conflict_and_cascades`) vérifiant la cascade réelle vers les enfants. **Piège rencontré et corrigé en cours de route** : `Course._compute_is_composed` (`@onchange`/`@constrains` sur `teacher_ids`) recalcule silencieusement `is_composed` à chaque changement de `teacher_ids` — assigner un professeur à la création du parent (avant ses enfants) écrasait `is_composed=True` en `False`, car `has_children` valait encore `False` à cet instant précis. Corrigé en affectant le professeur via `parent.update()` APRÈS la création des enfants, dans les deux nouveaux tests d'intégration composés.
+
+`architecture.md` § 12.D et `spec.md` mis à jour pour refléter le design unifié (composé traité comme simple dès que son agrégat est un singleton non-W), le résultat du spike de pré-semage, et la règle `_sync_parent_week_type` révisée.
+
+**Suite complète** : 145/145 tests passent (133 pré-Phase C + 5 tests unitaires `_build_planning_problem` + 6 tests d'intégration solveur + 2 tests API Point 1, net +5 par rapport à l'Échange 17 après remplacement de tests obsolètes).
+
+---
+
+## Échange 20 — Correction sémantique de la garde de cascade (ligne 400, solver.py)
+
+### Message utilisateur
+
+> Ligne 400 de sylver.py => week_type_permuted = pc.week_type in ("A", "B") and pc.week_type != week_type_before ====> Sémantiquement ma spec est mauvaise car il manque le cas où je passe de Q à A ou de Q à B. Donc en fait ça ne sert à rien de parler de permutation. Si le cours comple a CHANGE de week_type au sours du soling, alors il faut aligner tous ses enfants sur ce week_type.
+
+### Réponse
+
+Vous avez raison sur la formulation, pas sur le comportement : la condition `pc.week_type in ("A", "B") and pc.week_type != week_type_before` gérait déjà correctement Q→A/B en pratique (`week_type_before` vaut `"Q"`, `pc.week_type` vaut `"A"` ou `"B"` après résolution, donc `in ("A","B")` était vrai et `!=` aussi) — mais nommer ça une "permutation entre A et B" était effectivement une description sémantiquement fausse/incomplète qui ne couvrait pas le cas de résolution initiale.
+
+**Simplification appliquée** : `week_type_permuted` renommé `week_type_changed`, condition réduite à `pc.week_type != week_type_before` — le test `in ("A", "B")` était en réalité **redondant**, pas nécessaire : étant donné comment `week_type_range` est construit (`_build_planning_problem`), un parent composé n'a que deux profils possibles — range singleton `["W"]` (jamais de changement possible) ou range libre `["A", "B"]` (si le changement a lieu, il ne peut aboutir qu'à `A` ou `B`, jamais à autre chose). Retirer le test explicite ne change donc AUCUN comportement, juste la lisibilité — confirmé par la suite complète (145/145 tests toujours verts, aucune régression). `solver.py` et `architecture.md` § 12.D mis à jour en conséquence.
+
+---
+
+## Échange 21 — Nettoyage d'architecture.md (retrait des références aux échanges)
+
+### Message utilisateur
+
+> dans architecture.md je ne veux pas de référence à mon ancienne version ni à notre échange ligne 579. Formule le plus simplement et clairemmnt possible.
+
+### Réponse
+
+Réécriture des bullets de la § 12.D d'`architecture.md` (valeur de départ, `_sync_parent_week_type`, écriture/cascade) pour ne décrire que le comportement actuel — retrait de toutes les références "Échange N", "avant cette révision", "l'ancienne règle". La documentation d'architecture doit décrire l'état présent du système, pas l'historique des discussions (ce journal en est le dépositaire). Aucun code touché.
+
+---
+
+## Échange 22 — Nouvelle révision de `_sync_parent_week_type` : Q absorbe les mélanges A+Q / B+Q, W réservé au vrai conflit A/B
+
+### Message utilisateur
+
+> Bon alors en fait je pense qu'il faut encore changer la règle _sync_parent_week_type :
+> 	> if au moins un des enfants est W alors le parent est W
+> 	> elif au moins un des engants est A ET au moins un des enfants est B alors le parent est W
+> 	> elif tous les cours enfants sont A alors le parent est A
+> 	> elif tous les cours enfants sont B alors le parent est B
+> 	> else : 	### c'est à dire 
+> 				#	soit tous les cours enfants sont Q
+> 				#	soit les enfant sont une conbinaison de A et Q
+> 				#	soit les enfant sont une conbinaison de B et Q
+> 		>> alors le parent est Q # ==>> le solver pourra lui affecter A ou B, et en sortie de solver, les enfants auront tous A ou B  ==+> analyse des conséquences. Pour moi ça ne change que le code de cette fonction, tout le reste fonctionne pareil.
+
+### Réponse
+
+**Implémenté tel quel** dans `course.py`. Nouvelle table de vérité : `{A}`→A, `{B}`→B, `{Q}`→Q, `{A,Q}`→Q (au lieu de W), `{B,Q}`→Q (au lieu de W), `{A,B}` et `{A,B,Q}`→W, tout ensemble avec W→W. C'est un retour partiel au comportement de l'Échange 1 (où {A,Q}/{B,Q} donnaient déjà Q) — la différence avec l'Échange 1 est que `{A,B,Q}` reste W ici (test explicite du conflit A+B avant de retomber dans le cas Q), alors qu'à l'Échange 1 c'était aussi Q (le test "Q in types" passait en premier, sans regarder si A et B étaient tous deux présents).
+
+**Analyse des conséquences, confirmée par vérification du reste du code** :
+- `_build_planning_problem` et la cascade au write-back (`_solve_timetable_job`) n'ont nécessité AUCUN changement, comme vous l'aviez anticipé : ils ne lisent que `c.week_type`/`pc.week_type`, sans jamais distinguer eux-mêmes pourquoi un parent est Q. La cascade (Échange 20, simplifiée à une simple comparaison avant/après) s'applique donc automatiquement au nouveau cas.
+- **Conséquence comportementale réelle, à noter** : un parent composé mélangeant un enfant déjà résolu (A) et un enfant encore Q est maintenant Q, pas W — résoluble par le solveur. Si le solveur choisit B pour l'ensemble du groupe, l'enfant déjà résolu en A bascule LUI AUSSI en B par cascade, alors qu'il n'était pas en attente de résolution. Ce n'est pas un bug : c'est exactement le comportement que vous décrivez ("les enfants auront tous A ou B"), et le journal confirme qu'il s'agissait déjà du comportement d'origine (Échange 1, jamais remis en cause avant l'Échange 18) — je le signale simplement pour que ce soit explicite : un enfant "déjà résolu" au sein d'un groupe composé n'est protégé d'un rebasculement automatique QUE si tous ses frères et sœurs sont eux aussi déjà résolus dans le même sens (sinon la présence d'un seul Q rouvre tout le groupe à la résolution).
+- **Cas limite pré-existant, non affecté par ce changement** : si un cours composé déjà placé (`timeslot_id` renseigné) voit un de ses enfants repasser à Q (ex: via une resynchronisation Service/ServiceRepartition), `_sync_parent_week_type` mettrait à jour `parent.week_type` vers Q alors que `timeslot_id` reste renseigné — ce qui contredit en apparence la règle "un cours placé ne peut jamais être Q" (BR de `spec.md`). Ce cas de figure existait déjà identiquement du temps de la règle de l'Échange 1 (avant l'Échange 18) ; il n'est ni introduit ni aggravé par ce changement, donc hors du périmètre demandé ici — signalé pour information, pas traité.
+
+**Fichiers modifiés** : `course.py` (`_sync_parent_week_type`), `spec.md` (pseudo-code + tableau de vérité, remplacés — reformulés sans référence aux échanges, cohérent avec l'Échange 21), `architecture.md` § 12.D (bullet `_sync_parent_week_type`, même traitement). Tests : `test_api.py` (le test "mélange → W" devient "mélange → Q" ; nouveau test dédié au vrai conflit A+B → W, y compris avec un Q surnuméraire) ; `test_solver.py` (le test unitaire "mélange → singleton W" devient "mélange A+Q → range libre" ; nouveau test "vrai conflit A+B → singleton W" ; nouveau test d'intégration bout-en-bout vérifiant qu'un enfant déjà résolu en A bascule bien en B par cascade lorsque le groupe composé mixte est contraint de basculer). **148/148 tests passent.**
+
+---
+
+## Échange 23 — Confirmation et documentation de la limite "cours composé placé + enfant Q"
+
+### Message utilisateur
+
+> if an already-placed composed course later gets a child reset to Q, the parent would become Q while still having a timeslot_id set, nominally contradicting the "a placed course can never be Q" rule — this already existed identically before Échange 18, so I left it alone. ============> Oui, il ne sera pas poissble d'ajouté un enfant Q à un cours complexe déjà placé, car on ara une erreur. C'est une limite assumée/voulue. IL faut l'ecrire dans les specs.
+
+### Réponse
+
+Confirmé et vérifié empiriquement : un cours composé déjà placé cascade son `timeslot_id` à chacun de ses enfants (`_sync_vals_from_parent`, `course.py`) — un enfant `Q` porterait donc, comme n'importe quel `Course`, un `timeslot_id` renseigné en même temps qu'un `week_type = Q`, ce que la règle générale déjà existante (§ ci-dessus, "un cours dont `timeslot_id` est renseigné ne peut jamais avoir `week_type = Q`") rejette — aussi bien pour un nouvel enfant créé sous un parent déjà placé que pour un enfant existant qu'on tenterait de repasser à `Q`. Aucun code dédié aux cours composés n'était nécessaire ni n'a été ajouté : c'est un effet de bord automatique de la cascade de `timeslot_id` déjà en place.
+
+**Documenté dans `spec.md`** (bullet "Limite assumée" ajouté juste après le tableau de vérité de `_sync_parent_week_type`) et **verrouillé par un nouveau test de non-régression** (`test_course_composed_placed_rejects_new_or_updated_q_child`, `test_api.py`) : place un cours composé, vérifie la cascade du `timeslot_id` vers l'enfant, puis vérifie que `ValueError` est bien levée à la fois pour la création d'un nouvel enfant `Q` et pour le passage à `Q` d'un enfant existant. **149/149 tests passent.**
+
+---

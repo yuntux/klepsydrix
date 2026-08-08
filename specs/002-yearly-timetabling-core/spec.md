@@ -300,10 +300,34 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
 *   `parent_timeslot_offset` : Décalage en nombre de créneaux standard par rapport au créneau du cours parent (Entier, par défaut `0`), utilisé pour les cours enfants d'un cours composé dont le placement est décalé (ex: rotation de sous-groupes en barrette).
 *   `week_type` : Type d'alternance de semaine (Enum `CourseWeekType`, distincte de l'enum `WeekType` de **ResourcePreference** : `A`, `B`, `W` pour Toutes les semaines, ou `Q` pour Quinzaine à déterminer, par défaut `W`). `Q` matérialise qu'un cours aura lieu en quinzaine sans que la semaine A/B soit encore choisie (résolution différée au placement manuel ou automatique, voir section « Synchronisation Service ↔ ServiceRepartition » et `Q` ci-dessous) :
     *   Un cours dont `timeslot_id` est renseigné ne peut jamais avoir `week_type = Q` — un placement (création ou mise à jour) tentant cette combinaison est rejeté.
-    *   Un cours composé parent dont au moins un enfant est encore `Q` reste lui-même `Q` (prioritaire sur la règle habituelle tout-A/tout-B/mixte→W, voir `_sync_parent_week_type`).
+    *   **Agrégation d'un cours composé parent (`_sync_parent_week_type`)** — pseudo-code de référence :
+        ```
+        if au moins un enfant est W                    -> parent = W
+        elif au moins un enfant A ET au moins un enfant B -> parent = W
+        elif tous les enfants sont A                    -> parent = A
+        elif tous les enfants sont B                    -> parent = B
+        else                                             -> parent = Q
+        # c'est-à-dire :
+        #   soit tous les enfants sont Q
+        #   soit les enfants sont une combinaison de A et Q
+        #   soit les enfants sont une combinaison de B et Q
+        ```
+        | Ensemble des valeurs des enfants | `parent.week_type` |
+        |---|---|
+        | `{A}` | `A` |
+        | `{B}` | `B` |
+        | `{Q}` | `Q` |
+        | `{A, Q}` | `Q` |
+        | `{B, Q}` | `Q` |
+        | `{A, B}` (avec ou sans `Q`), `{W}`, ou tout ensemble contenant `W` | `W` |
+
+        Un parent affichant `Q` (que ses enfants soient tous Q, ou un mélange de A+Q / B+Q) peut être résolu par le solveur (§ ci-dessous) : la lettre choisie est alors reportée à TOUS ses enfants, y compris ceux déjà individuellement résolus dans l'état précédent — un enfant déjà `A`, mélangé à un enfant encore `Q`, peut donc se retrouver basculé en `B` si c'est le choix retenu pour l'ensemble du groupe. Seul un vrai conflit (`A` et `B` déjà tous deux présents parmi les enfants, ou un enfant `W`) bloque toute résolution automatique (`W`, jamais de choix).
+
+        **Limite assumée** : un cours composé déjà placé (son `timeslot_id`, cascadé à chacun de ses enfants) ne peut pas recevoir un nouvel enfant `Q`, ni voir un enfant existant repasser à `Q` — la règle ci-dessus ("un cours dont `timeslot_id` est renseigné ne peut jamais avoir `week_type = Q`") s'applique à CET enfant lui-même, qui porte déjà le `timeslot_id` cascadé de son parent placé, et rejette donc la tentative. Il faut d'abord déplacer/déposer le cours composé (`timeslot_id = None`) avant de pouvoir y ajouter ou y repasser un enfant en `Q`.
     *   `Q` n'existe que sur **Course** — l'enum `WeekType` de **ResourcePreference** ne le contient pas. Une préférence de type Course n'hérite d'ailleurs plus du `week_type` (ni des `periods`) de son cours : elle s'applique toujours à toutes les semaines et à l'année entière, quel que soit l'état du cours (voir BR-002, "Cas particulier des préférences de Cours").
     *   Un cours en semaine `A` ou `B` peut librement basculer vers l'autre lors d'un déplacement (placement manuel via glisser-déposer scindé, voir section « Structure du Composant Grille » ci-dessous, ou résolution automatique par le solveur).
     *   Un cours en semaine `W` (Toutes) ne peut en revanche jamais basculer vers `A` ou `B` **lors d'un placement** (créneau posé en même temps que la semaine, dans le même appel) — garde dédiée, indépendante de la garde `Q` ci-dessus. Changer la semaine d'un cours `W` hors placement (sans toucher au créneau dans le même appel) reste libre.
+    *   **Résolution automatique par le solveur** : tout cours — simple OU composé — dont le `week_type` (agrégat, pour un composé) vaut `A`, `B` ou `Q` se voit offrir un vrai choix `{A, B}` par Timefold ; seul `W` reste hors de portée du solveur (jamais de choix). Voir `architecture.md` § 12.D pour le mécanisme (`ValueRangeProvider` à portée entité) et la cascade de write-back qui reporte la lettre choisie par le solveur à tous les enfants d'un cours composé (sûr grâce à l'uniformité garantie par `_sync_parent_week_type` ci-dessus). Un cours déjà résolu (`A`/`B`) peut donc être rebasculé par le solveur si c'est meilleur — ce n'est plus réservé aux cours nés `Q`.
 *   `period_type_id` : Clé étrangère optionnelle vers le **PeriodType** (Entier, relation N-à-1) définissant le type de période du cours
 *   `periods` : Relation N-à-N vers les **Périodes** scolaires sur lesquelles s'applique ce cours (les périodes associées doivent toutes être du type défini par `period_type_id`)
 *   `name` : Libellé du cours, saisi librement (Chaîne optionnelle, ex: "Pôle Sciences" pour un cours composé sans matière propre)

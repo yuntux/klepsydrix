@@ -1333,3 +1333,441 @@ def test_solver_pedagogic_weight_limits(db_session: Session):
     db_session.commit()
     solution2 = _solve_timetable_job(db_session, sch.id)
     assert solution2.score.hard_score == 0
+
+
+# =====================================================================================
+# Phase C (week_type Q -> A/B résolu par le solveur) — voir attribution_week_type_auto.md,
+# Échanges 17-19. week_type devient une @PlanningVariable Timefold à portée ENTITÉ (pas un
+# simple fait fixe copié depuis la base comme avant cette phase). Design unifié depuis
+# l'Échange 18/19 : TOUT cours (simple ou composé) dont le week_type BDD — l'agrégat
+# _sync_parent_week_type pour un composé — vaut A, B ou Q reçoit un vrai choix {A, B} ; seul W
+# reste singleton, jamais résolu. Valeur de départ = None pour un cours Q (jamais la valeur
+# hors-range elle-même, voir le spike de pré-semage), = sa valeur actuelle pour un cours A/B.
+# Sûr pour les cours composés car _sync_parent_week_type garantit qu'un parent affichant une
+# valeur singleton (A/B/Q) la partage à 100% de ses enfants — la cascade au write-back peut donc
+# reporter sans ambiguïté la lettre choisie. Deux niveaux de tests : construction du problème
+# (_build_planning_problem, rapide, sans lancer de résolution) pour vérifier le calcul du
+# range/valeur initiale, et résolution complète (_solve_timetable_job) pour vérifier le
+# comportement réel du solveur, y compris la cascade aux enfants d'un cours composé.
+# =====================================================================================
+
+def test_build_planning_problem_gives_ab_range_to_simple_q_course(db_session: Session):
+    """
+    Un cours simple (non composé) en week_type=Q reçoit un vrai choix {A, B} côté solveur,
+    valeur de départ None (voir le spike de pré-semage, attribution_week_type_auto.md Échange 19 :
+    laisser "Q" comme valeur de départ — hors du range {A,B} — bloquerait le solveur dessus).
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "week_type": "Q",
+    })
+    db_session.commit()
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc = next(c for c in problem.courses if c.id == course.id)
+
+    assert pc.week_type_range == ["A", "B"]
+    assert pc.week_type is None
+
+
+def test_build_planning_problem_gives_free_range_to_resolved_ab_course(db_session: Session):
+    """
+    Un cours déjà résolu en A ou B reçoit désormais aussi un range libre {A, B} (Point 2,
+    attribution_week_type_auto.md Échange 18/19 — corrige un écart avec spec.md qui promettait
+    déjà cette liberté avant la Phase C) : le solveur peut le faire basculer si c'est meilleur.
+    Sa valeur de départ reste sa valeur actuelle (point de départ naturel pour la recherche,
+    comme pour classroom), PAS None — seul un cours né Q démarre à None.
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    course_b = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "week_type": "B"})
+    db_session.commit()
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc_b = next(c for c in problem.courses if c.id == course_b.id)
+
+    assert pc_b.week_type_range == ["A", "B"]
+    assert pc_b.week_type == "B"
+
+
+def test_build_planning_problem_gives_singleton_range_to_w_course(db_session: Session):
+    """
+    Seul un cours en W (Toutes les semaines) reste totalement hors de portée du solveur pour
+    week_type : range singleton ["W"], jamais de choix — spec.md interdit explicitement à un
+    cours W de basculer vers A/B.
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    course_w = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "week_type": "W"})
+    db_session.commit()
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc_w = next(c for c in problem.courses if c.id == course_w.id)
+
+    assert pc_w.week_type_range == ["W"]
+    assert pc_w.week_type == "W"
+
+
+def test_build_planning_problem_gives_free_range_to_composed_parent_with_uniform_q_children(db_session: Session):
+    """
+    Un cours composé (parent) dont TOUS les enfants sont Q (agrégat uniforme, voir la règle
+    _sync_parent_week_type révisée à l'Échange 18/19) reçoit désormais lui aussi un vrai choix
+    {A, B} — ce n'est plus une limite de portée exclue comme à l'Échange 17 : la résolution
+    du parent sera reportée à ses enfants par cascade au write-back (voir tests d'intégration).
+    Le solveur ne construit toujours une PlanningCourse QUE pour le cours de premier niveau —
+    les enfants n'apparaissent jamais comme entités indépendantes.
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+    child1 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    child2 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "Q"
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc_parent = next(c for c in problem.courses if c.id == parent.id)
+
+    assert pc_parent.week_type_range == ["A", "B"]
+    assert pc_parent.week_type is None
+    assert all(c.id not in (child1.id, child2.id) for c in problem.courses)
+
+
+def test_build_planning_problem_gives_free_range_to_composed_parent_with_mixed_a_and_q_children(db_session: Session):
+    """
+    Un cours composé mélangeant un enfant déjà résolu (A) et un enfant encore Q (agrégat parent
+    -> Q, pas un conflit) reçoit lui aussi un vrai choix {A, B} côté solveur — exactement comme
+    un parent uniformément Q : la résolution du groupe entier (y compris l'enfant déjà résolu)
+    reste possible, voir les tests d'intégration de cascade.
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "Q"
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc_parent = next(c for c in problem.courses if c.id == parent.id)
+
+    assert pc_parent.week_type_range == ["A", "B"]
+    assert pc_parent.week_type is None
+
+
+def test_build_planning_problem_gives_singleton_range_to_composed_parent_with_real_ab_conflict(db_session: Session):
+    """
+    Un cours composé avec un vrai conflit A/B (un enfant A ET un enfant B déjà tous deux
+    présents) remonte en W et reste hors de portée du solveur : range singleton ["W"].
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "B"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "W"
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc_parent = next(c for c in problem.courses if c.id == parent.id)
+
+    assert pc_parent.week_type_range == ["W"]
+    assert pc_parent.week_type == "W"
+
+
+def test_solver_resolves_simple_q_course_to_a_or_b_never_leaves_q(db_session: Session):
+    """
+    Bout en bout : un cours simple né Q, sans aucune pression de conflit, doit ressortir résolu
+    en A ou B après résolution — jamais laissé à Q — et cette résolution doit être persistée en
+    base (écriture directe du solveur, voir solver.py).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_Q1", "first_name": "Prof", "last_name": "Q1", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_Q1", "name": "Room Q1", "capacity": 30, "quantity": 1, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 510})
+
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "Q", "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(course)
+
+    assert course.week_type.value in ("A", "B")
+
+
+def test_solver_never_changes_week_type_of_already_resolved_unpinned_course(db_session: Session):
+    """
+    Un cours déjà résolu (jamais passé par Q) doit rester sur sa semaine d'origine après
+    résolution, même non épinglé — son range n'a qu'une seule valeur légale, la recherche
+    locale n'a donc structurellement aucune bascule à disposition pour ce cours.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_STABLE", "first_name": "Prof", "last_name": "Stable", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_STABLE", "name": "Room Stable", "capacity": 30, "quantity": 1, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 510})
+
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "A", "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(course)
+
+    assert course.week_type.value == "A"
+
+
+def test_solver_resolves_teacher_conflict_between_q_and_resolved_course_via_week_differentiation(db_session: Session):
+    """
+    Un seul créneau disponible, un même professeur sur deux cours : l'un déjà résolu et placé en
+    semaine A sur ce créneau, l'autre né Q. Le solveur doit produire une solution sans conflit
+    dur (hard_score == 0) ET résoudre le Q — la façon la plus directe d'y parvenir avec un seul
+    créneau disponible est de placer le second cours en semaine B (weeks_overlap(A,B) = False),
+    vérifié explicitement s'il finit sur le même créneau.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_CONFLICT", "first_name": "Prof", "last_name": "Conflict", "school_id": school.id})
+    room = Classroom.create(db_session, {"code": "ROOM_CONFLICT", "name": "Room Conflict", "capacity": 30, "quantity": 1, "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+
+    course_a = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "A", "teacher_ids": [teacher.id], "timeslot_id": ts1.id,
+        "classroom_ids": [room.id], "is_pinned": True,
+    })
+    course_q = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "Q", "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    solution = _solve_timetable_job(db_session)
+    db_session.refresh(course_a)
+    db_session.refresh(course_q)
+
+    assert solution.score.hard_score == 0
+    assert course_a.week_type.value == "A"  # épinglé : jamais touché
+    assert course_q.week_type.value in ("A", "B")  # résolu, plus jamais Q
+    if course_q.timeslot_id == ts1.id:
+        # Même créneau que le cours épinglé : la seule façon d'éviter le conflit dur est B.
+        assert course_q.week_type.value == "B"
+
+
+def test_solver_respects_pin_for_week_type_forcing_other_course_to_resolve(db_session: Session):
+    """
+    @PlanningPin gèle TOUTES les variables de planification d'une entité (déjà vérifié pour
+    timeslot/classroom, voir architecture.md section 5.G) — ce test vérifie que week_type en
+    fait bien partie depuis la Phase C. Cours A épinglé sur l'unique créneau disponible : le
+    cours Q partageant le même professeur ne peut structurellement pas le faire bouger, donc
+    s'il se retrouve sur ce même créneau, il ne peut avoir été résolu qu'en B.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_PIN", "first_name": "Prof", "last_name": "Pin", "school_id": school.id})
+    room = Classroom.create(db_session, {"code": "ROOM_PIN", "name": "Room Pin", "capacity": 30, "quantity": 1, "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+
+    course_pinned = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "A", "teacher_ids": [teacher.id], "timeslot_id": ts1.id,
+        "classroom_ids": [room.id], "is_pinned": True,
+    })
+    course_q = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "Q", "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(course_pinned)
+    db_session.refresh(course_q)
+
+    assert course_pinned.timeslot_id == ts1.id
+    assert course_pinned.week_type.value == "A"
+    assert course_q.week_type.value in ("A", "B")
+    if course_q.timeslot_id == ts1.id:
+        assert course_q.week_type.value == "B"
+
+
+def test_solver_resolves_composed_course_with_uniform_q_children_and_cascades(db_session: Session):
+    """
+    Point 3 (attribution_week_type_auto.md, Échange 18/19) : un cours composé dont TOUS les
+    enfants sont Q (agrégat parent uniforme) est désormais résolu par le solveur comme un cours
+    simple — et la lettre choisie doit être reportée par cascade à CHAQUE enfant, sinon ils
+    resteraient Q individuellement malgré un parent résolu.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_COMP_Q", "first_name": "Prof", "last_name": "CompQ", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_COMP_Q", "name": "Room Comp Q", "capacity": 30, "quantity": 1, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 510})
+
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "is_composed": True,
+    })
+    db_session.commit()
+    child1 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    child2 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    # Affectation du professeur APRÈS la création des enfants : Course._compute_is_composed
+    # (@onchange/@constrains sur teacher_ids) recalcule is_composed à chaque changement de
+    # teacher_ids — si assigné à la création (avant les enfants), has_children vaut encore
+    # False à ce moment précis et écraserait silencieusement is_composed=True en False.
+    parent.update(db_session, {"teacher_ids": [teacher.id]})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.is_composed is True
+    assert parent.week_type.value == "Q"
+
+    _solve_timetable_job(db_session)
+    db_session.refresh(parent)
+    db_session.refresh(child1)
+    db_session.refresh(child2)
+
+    assert parent.week_type.value in ("A", "B")
+    # Cascade : les deux enfants doivent porter EXACTEMENT la même lettre que le parent résolu.
+    assert child1.week_type.value == parent.week_type.value
+    assert child2.week_type.value == parent.week_type.value
+
+
+def test_solver_swaps_resolved_composed_course_under_conflict_and_cascades(db_session: Session):
+    """
+    Point 2 + cascade (Échange 18/19) : un cours composé déjà résolu en A (tous enfants A
+    uniformément) doit pouvoir être basculé en B par le solveur si nécessaire pour résoudre un
+    conflit professeur — et ce basculement doit se répercuter sur ses deux enfants, qui
+    partageaient tous deux la valeur A de départ (garanti par _sync_parent_week_type).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_COMP_SWAP", "first_name": "Prof", "last_name": "CompSwap", "school_id": school.id})
+    room = Classroom.create(db_session, {"code": "ROOM_COMP_SWAP_P", "name": "Room Comp Swap P", "capacity": 30, "quantity": 1, "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+
+    # Un autre cours simple, épinglé, qui occupe le même professeur sur le même créneau en A —
+    # seule échappatoire pour le composé (aussi en A au départ) : basculer en B. Le composé
+    # lui-même n'est PAS épinglé (is_pinned gèlerait aussi son week_type, contredisant le test) :
+    # un seul créneau existe au total, donc il finira nécessairement sur ts1 lui aussi.
+    other = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "A", "teacher_ids": [teacher.id], "timeslot_id": ts1.id,
+        "classroom_ids": [room.id], "is_pinned": True,
+    })
+
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "is_composed": True,
+    })
+    db_session.commit()
+    child1 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    child2 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+    # Affectation du professeur APRÈS la création des enfants (voir test précédent : sinon
+    # is_composed serait recalculé à False, has_children valant encore False à ce moment).
+    parent.update(db_session, {"teacher_ids": [teacher.id]})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.is_composed is True
+    assert parent.week_type.value == "A"
+
+    solution = _solve_timetable_job(db_session)
+    db_session.refresh(parent)
+    db_session.refresh(child1)
+    db_session.refresh(child2)
+    db_session.refresh(other)
+
+    assert solution.score.hard_score == 0
+    assert other.week_type.value == "A"  # épinglé : jamais touché
+    if parent.timeslot_id == ts1.id:
+        # Même créneau que le cours épinglé (seul créneau existant) : la seule façon d'éviter
+        # le conflit dur est de basculer en B — reporté par cascade aux deux enfants.
+        assert parent.week_type.value == "B"
+        assert child1.week_type.value == "B"
+        assert child2.week_type.value == "B"
+
+
+def test_solver_resolves_mixed_composed_course_and_can_flip_already_resolved_child(db_session: Session):
+    """
+    Un cours composé mélangeant un enfant déjà résolu (A) et un enfant encore Q (agrégat parent
+    -> Q, pas un conflit) est résolu par le solveur comme n'importe quel autre parent Q — la
+    cascade reporte la lettre choisie à TOUS les enfants, y compris celui déjà résolu en A : si
+    le groupe entier doit basculer en B pour éviter un conflit, l'enfant A déjà résolu bascule
+    lui aussi, il n'est plus protégé du seul fait d'avoir déjà une lettre.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_COMP_MIX", "first_name": "Prof", "last_name": "CompMix", "school_id": school.id})
+    room = Classroom.create(db_session, {"code": "ROOM_COMP_MIX", "name": "Room Comp Mix", "capacity": 30, "quantity": 1, "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+
+    other = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "week_type": "A", "teacher_ids": [teacher.id], "timeslot_id": ts1.id,
+        "classroom_ids": [room.id], "is_pinned": True,
+    })
+
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "is_composed": True,
+    })
+    db_session.commit()
+    child_a = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    child_q = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    parent.update(db_session, {"teacher_ids": [teacher.id]})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.is_composed is True
+    assert parent.week_type.value == "Q"
+
+    solution = _solve_timetable_job(db_session)
+    db_session.refresh(parent)
+    db_session.refresh(child_a)
+    db_session.refresh(child_q)
+    db_session.refresh(other)
+
+    assert solution.score.hard_score == 0
+    assert other.week_type.value == "A"  # épinglé : jamais touché
+    assert parent.week_type.value in ("A", "B")
+    # Cascade : les deux enfants portent EXACTEMENT la même lettre que le parent résolu — y
+    # compris child_a, qui était pourtant déjà résolu en A avant le solve.
+    assert child_a.week_type.value == parent.week_type.value
+    assert child_q.week_type.value == parent.week_type.value
+    if parent.timeslot_id == ts1.id:
+        # Même créneau que le cours épinglé : la seule échappatoire est B pour tout le groupe.
+        assert parent.week_type.value == "B"
+        assert child_a.week_type.value == "B"

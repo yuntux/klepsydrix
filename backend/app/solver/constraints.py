@@ -166,7 +166,28 @@ class PlanningCourse:
     pedagogic_weight_total: float = 0.0
     
     # Alternance et parties de classe (US2)
-    week_type: str = "W"
+    # week_type_range/week_type : voir Phase C, attribution_week_type_auto.md (Échanges 17-19).
+    # Range scopé à l'ENTITÉ (contrairement à timeslotRange/classroomRange, scopés au problème
+    # global) — vérifié possible par un spike dédié avant implémentation (Timefold 1.24.0b0 le
+    # supporte nativement via un champ list[str] stocké, PAS une méthode calculée).
+    # {"A","B"} pour tout cours dont le week_type BDD (c.week_type — pour un cours composé,
+    # c'est l'agrégat _sync_parent_week_type de ses enfants) est A, B ou Q ; singleton = "W"
+    # sinon. Grâce à la règle _sync_parent_week_type (un parent composé n'affiche A/B/Q QUE si
+    # TOUS ses enfants partagent uniformément cette même valeur), un range libre est sûr même
+    # pour un cours composé : la cascade au write-back (_solve_timetable_job) peut alors
+    # reporter sans ambiguïté la lettre choisie à tous les enfants (voir Échange 18/19).
+    # week_type=None pour un cours né Q : un spike dédié a confirmé qu'une valeur de départ hors
+    # du range déclaré (ex: laisser "Q" alors que le range est ["A","B"]) n'est PAS réévaluée par
+    # le solveur et peut rester bloquée telle quelle — None (comme timeslot/classroom ci-dessus)
+    # est en revanche correctement pris en charge par la Construction Heuristic, avec un résultat
+    # final identique, quelle que soit la valeur de départ légale choisie (même spike). Pour un
+    # cours déjà résolu A/B, la valeur de départ reste sa valeur actuelle (point de départ naturel
+    # pour la recherche, comme pour classroom — voir § 12.B d'architecture.md), pas None : rien
+    # n'empêche le solveur de la faire quand même basculer si c'est meilleur.
+    # @PlanningPin (is_pinned, ci-dessus) gèle cette variable exactement comme timeslot et
+    # classroom, sans code dédié (vérifié par le même spike).
+    week_type_range: Annotated[List[str], ValueRangeProvider(id='weekTypeRange')] = field(default_factory=lambda: ["W"])
+    week_type: Annotated[typing.Optional[str], PlanningVariable(value_range_provider_refs=['weekTypeRange'])] = None
     class_part_ids: List[int] = field(default_factory=list)
     period_ids: List[int] = field(default_factory=list)
     period_mask: int = 0

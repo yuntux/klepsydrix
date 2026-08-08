@@ -904,11 +904,12 @@ def test_course_parent_week_type_cascade(db_session: Session):
     assert parent.week_type == WeekType.A
 
 
-def test_course_parent_week_type_cascade_with_pending_q_child(db_session: Session):
+def test_course_parent_week_type_cascade_pure_q_stays_q(db_session: Session):
     """
-    Un parent avec au moins un enfant encore en Q (quinzaine à déterminer) reste lui-même Q,
-    même si un autre enfant est déjà résolu en A — sinon {A, Q} basculerait à tort en W (semaine
-    entière), qui a un sens différent (voir attribution_week_type_auto.md, Échange 6).
+    Un parent dont TOUS les enfants sont Q (quinzaine à déterminer) reste lui-même Q — révisé à
+    l'Échange 18/19 (voir attribution_week_type_auto.md) : auparavant, UN SEUL enfant encore Q
+    suffisait à faire remonter le parent en Q, même mélangé à des enfants déjà résolus. Désormais
+    seul un groupe intégralement Q remonte en Q (voir le test suivant pour le cas mixte).
     """
     from backend.app.models.course import Course
 
@@ -918,15 +919,124 @@ def test_course_parent_week_type_cascade_with_pending_q_child(db_session: Sessio
     parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
     db_session.commit()
 
-    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
-    db_session.commit()
-    db_session.refresh(parent)
-    assert parent.week_type.value == "A"
-
     Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
     db_session.commit()
     db_session.refresh(parent)
     assert parent.week_type.value == "Q"
+
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "Q"  # toujours 100% Q -> reste Q
+
+
+def test_course_parent_week_type_cascade_mixed_with_q_becomes_q(db_session: Session):
+    """
+    Un parent avec un enfant déjà résolu (A) et un autre encore Q reste Q, pas W : ce mélange
+    est traité comme "en attente de résolution" au niveau du parent, pas comme un conflit — le
+    solveur (ou un placement manuel) pourra alors choisir A ou B pour tout le groupe et reporter
+    ce choix à tous les enfants, y compris ceux déjà résolus dans l'état précédent.
+    Chaque enfant garde individuellement sa vraie valeur (A et Q) tant que rien ne le résout.
+    """
+    from backend.app.models.course import Course
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+
+    child_a = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "A"
+
+    child_q = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "Q"  # mélange A+Q -> Q, pas un conflit
+
+    # Les enfants gardent individuellement leur propre valeur tant que le parent n'est pas résolu.
+    db_session.refresh(child_a)
+    db_session.refresh(child_q)
+    assert child_a.week_type.value == "A"
+    assert child_q.week_type.value == "Q"
+
+    # Symétrique : un enfant B mélangé à un enfant Q donne aussi Q.
+    parent2 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent2.id, "week_type": "B"})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent2.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent2)
+    assert parent2.week_type.value == "Q"
+
+
+def test_course_parent_week_type_cascade_real_ab_conflict_becomes_w(db_session: Session):
+    """
+    Seul un vrai conflit — un enfant A ET un enfant B déjà tous deux présents — remonte le
+    parent en W, que ce mélange inclue ou non des enfants encore Q : contrairement au mélange
+    A+Q ou B+Q (test précédent), il n'y a ici plus une seule lettre vers laquelle le groupe
+    pourrait converger, donc aucune résolution automatique n'est possible.
+    """
+    from backend.app.models.course import Course
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    parent = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "is_composed": True})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "B"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "W"
+
+    # Ajouter un enfant Q par-dessus un conflit A/B déjà présent ne change rien : toujours W.
+    Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.commit()
+    db_session.refresh(parent)
+    assert parent.week_type.value == "W"
+
+
+def test_course_composed_placed_rejects_new_or_updated_q_child(db_session: Session):
+    """
+    Limite assumée (voir spec.md, Course.week_type) : un cours composé déjà placé ne peut pas
+    recevoir un nouvel enfant Q, ni voir un enfant existant repasser à Q. Le parent placé
+    cascade son timeslot_id à chacun de ses enfants (_sync_vals_from_parent) — un enfant Q
+    porterait donc, comme n'importe quel autre cours, un timeslot_id renseigné en même temps
+    qu'un week_type=Q, ce que la règle générale (BR ci-dessus) rejette déjà pour tout Course,
+    sans code dédié aux cours composés.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    db_session.commit()
+
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "is_composed": True,
+    })
+    db_session.commit()
+    child = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "parent_id": parent.id, "week_type": "A"})
+    db_session.commit()
+
+    parent.update(db_session, {"timeslot_id": ts.id})
+    db_session.commit()
+    db_session.refresh(child)
+    assert child.timeslot_id == ts.id  # cascadé depuis le parent placé
+
+    # Ajouter un nouvel enfant Q au parent déjà placé est rejeté.
+    with pytest.raises(ValueError):
+        Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
+    db_session.rollback()
+
+    # Repasser l'enfant existant à Q est également rejeté (il porte déjà le timeslot cascadé).
+    child = db_session.get(Course, child.id)
+    with pytest.raises(ValueError):
+        child.update(db_session, {"week_type": "Q"})
+    db_session.rollback()
 
 
 def test_course_week_type_q_cannot_be_placed(db_session: Session):
