@@ -125,9 +125,9 @@ sequenceDiagram
 
 **Méthode de vérification** (pas de fichier dédié dans ce repo — script de spike autonome, exécuté contre le `timefold` réel du projet) : une contrainte dont le filtre incrémente un compteur Python global (`CALL_COUNTER["n"] += 1`, un objet Python bien réel, hors de toute classe `@planning_entity`) a été soumise à un solve de 5 secondes sur 30 entités à choix libre. Résultat : `CALL_COUNTER` reste à `0` après le solve — la preuve directe qu'aucune évaluation de contrainte n'exécute réellement du code côté CPython, malgré des milliers de mouvements essayés.
 
-### 5.1 Piste d'optimisation non implémentée : mettre en cache le SolverFactory
+### 5.1 SolverFactory mis en cache pour le process (implémenté)
 
-Conséquence directe du schéma ci-dessus : l'étape [1] (traduction bytecode, indépendante des données) est **actuellement refaite à chaque appel** — `_get_solver_factory()` (`backend/app/solver/solver.py`) appelle `SolverFactory.create(solver_config)` sans aucun cache, à chaque `_solve_timetable_job()` et à chaque `calculate_course_heatmap()`. Le code source de `constraints.py` ne changeant pas entre deux requêtes dans le même process, cette retraduction est un travail redondant.
+Conséquence directe du schéma ci-dessus : l'étape [1] (traduction bytecode, indépendante des données) était **refaite à chaque appel** — `_get_solver_factory()` (`backend/app/solver/solver.py`) appelait `SolverFactory.create(solver_config)` sans aucun cache, à chaque `_solve_timetable_job()` et à chaque `calculate_course_heatmap()`. Le code source de `constraints.py` ne changeant pas entre deux requêtes dans le même process, cette retraduction était un travail redondant.
 
 ```mermaid
 sequenceDiagram
@@ -136,20 +136,20 @@ sequenceDiagram
     participant JVM as JVM
 
     rect rgb(255, 225, 225)
-    Note over R1,JVM: Aujourd'hui : traduction refaite à chaque requête
+    Note over R1,JVM: Avant : traduction refaite à chaque requête
     R1->>JVM: SolverFactory.create() — traduction complète
     R2->>JVM: SolverFactory.create() — traduction complète (IDENTIQUE à celle de R1)
     end
 
     rect rgb(225, 245, 225)
-    Note over R1,JVM: Piste : un seul SolverFactory, construit une fois au démarrage du process
-    Note over JVM: SolverFactory.create() — une seule fois, au démarrage FastAPI
+    Note over R1,JVM: Après : un seul SolverFactory, construit au premier appel du process
+    Note over JVM: SolverFactory.create() — une seule fois (double-checked locking)
     R1->>JVM: Réutilise le SolverFactory déjà traduit
     R2->>JVM: Réutilise le SolverFactory déjà traduit
     end
 ```
 
-**Mesuré directement sur le vrai `constraints.py`** (isolé, `_get_solver_factory()` appelé plusieurs fois dans le même process) :
+**Mesuré directement sur le vrai `constraints.py`** (isolé, `_get_solver_factory()` appelé plusieurs fois dans le même process, avant le cache) :
 
 | Appel | Temps |
 |---|---|
@@ -157,9 +157,9 @@ sequenceDiagram
 | 2e appel | 0.61s |
 | 3e appel | 0.68s |
 
-**Confirmé par une mesure bout-en-bout réelle**, sur la base de démo fraîchement réinitialisée (`init_db`, jeu d'essai V2 : 2 établissements, 36 cours de premier niveau, 40 profs, 216 créneaux), en appelant directement `calculate_course_heatmap()` — pas un modèle jouet :
+**Confirmé par une mesure bout-en-bout réelle avant correctif**, sur la base de démo fraîchement réinitialisée (`init_db`, jeu d'essai V2 : 2 établissements, ~36 cours de premier niveau, 40 profs, 216 créneaux), en appelant directement `calculate_course_heatmap()` — pas un modèle jouet :
 
-| Phase (appel réel, régime stationnaire) | Temps |
+| Phase (appel réel, régime stationnaire, AVANT le cache) | Temps |
 |---|---|
 | `_build_planning_problem` (Python pur, requêtes DB) | ~0.06-0.10s |
 | `SolverFactory.create()` (traduction bytecode) | **~0.6-0.9s** |
@@ -167,11 +167,21 @@ sequenceDiagram
 | Boucle Java (120 créneaux, isofonctionnelle) | ~0.01-0.05s |
 | **Total bout-en-bout `calculate_course_heatmap()`** | **~0.6-1.2s** |
 
-Sur ce jeu de données réel, `SolverFactory.create()` domine largement — **5 à 10 fois plus cher que la conversion des données**, pas comparable comme je l'estimais plus haut à partir de la seule mesure isolée. C'est de loin le plus gros poste de la Heatmap une fois la boucle Java en place. Le mettre en cache (le construire une seule fois au démarrage du process FastAPI plutôt qu'à chaque requête) diviserait potentiellement le temps de réponse de la Heatmap par 2 à 5. Aucun changement de code n'a été fait pour cette piste — proposée pour discussion, pas implémentée.
+`SolverFactory.create()` dominait largement — 5 à 10 fois plus cher que la conversion des données, le plus gros poste de la Heatmap une fois la boucle Java en place.
 
-*Nuance* : `SolverFactory.create()` dépend de la taille du CODE (constraintes + domaine), pas du volume de données — son coût est donc à peu près constant quel que soit le nombre de cours. `convert_to_java_python_like_object`, lui, dépend du volume de DONNÉES et grossira avec le nombre de cours/ressources. Sur un établissement bien plus grand que ce jeu de démo, l'écart mesuré ici pourrait se resserrer, voire s'inverser — cette mesure est un point de référence sur les données actuelles, pas une loi universelle.
+**Implémentation** (`_get_solver_factory()`, `solver.py`) : `SolverFactory.create()` n'embarque plus `termination_config` — construit une seule fois par process, mis en cache dans une variable module (`_SOLVER_FACTORY_CACHE`, protégée par un verrou pour la construction concurrente). Les limites de temps du solveur (`settings.SOLVER_TIME_LIMIT_SECONDS`/`SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS`), qui doivent rester dynamiques (overrides de test notamment), sont désormais passées à `build_solver(solver_config_override=SolverConfigOverride(termination_config=...))` — une API Timefold dédiée à ce cas précis, qui permet de faire varier la terminaison sans jamais retraduire le bytecode. `calculate_course_heatmap`/`explain_timetable_score` n'appellent jamais `build_solver()` (ils n'ont besoin que du `ScoreDirectorFactory`), donc aucun changement supplémentaire n'y était nécessaire.
 
-*Bug découvert en cours de mesure (non corrigé ici, hors périmètre)* : `calculate_course_heatmap()` avec un `school_id` explicite échoue silencieusement (retourne un résultat vide, sans erreur visible) dès qu'une AUTRE école possède un cours sans salle assignée — le mécanisme multi-établissement force ces cours en `is_pinned=True`, un état illégal pour Timefold quand la salle n'est jamais renseignée (`classroom` n'autorise pas l'absence de valeur, contrairement à `timeslot`). Reproduit sur le jeu de démo (15 cours sur 18 sans salle, dans chacune des 2 écoles). Signalé séparément pour correction.
+**Mesuré après correctif** (même jeu de données) :
+
+| Phase (appel réel, régime stationnaire, APRÈS le cache) | Temps |
+|---|---|
+| `_get_solver_factory()` (2e appel et suivants) | **0.000s** |
+| `calculate_course_heatmap()` bout-en-bout, 1er appel du process | ~0.5s |
+| `calculate_course_heatmap()` bout-en-bout, régime stationnaire | **~0.25-0.5s** (contre ~0.6-1.2s avant) |
+
+Confirmé également sur l'API réelle (`curl`, serveur redémarré) : 2.5s au premier appel du process (échauffement JVM inclus), puis 0.37s et 0.24s — gain d'un facteur ~2 à 5, conforme à l'estimation initiale. Effet de bord positif mesuré sur la suite de tests complète (qui appelle le solveur des dizaines de fois dans le même process) : temps total passé de ~80s à ~55s.
+
+*Nuance conservée* : `SolverFactory.create()` dépend de la taille du CODE (constraintes + domaine), pas du volume de données — son coût est à peu près constant quel que soit le nombre de cours, donc entièrement amorti par la mise en cache. `convert_to_java_python_like_object`, lui, dépend du volume de DONNÉES et grossira avec le nombre de cours/ressources — sur un établissement bien plus grand que ce jeu de démo, il redeviendra proportionnellement le poste dominant, cache ou non.
 
 ### Pourquoi ne pas écrire les contraintes directement en Java ?
 

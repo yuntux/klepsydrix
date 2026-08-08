@@ -2,7 +2,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from timefold.solver import SolverFactory
-from timefold.solver.config import SolverConfig, TerminationConfig, ScoreDirectorFactoryConfig, Duration, EnvironmentMode
+from timefold.solver.config import SolverConfig, SolverConfigOverride, TerminationConfig, ScoreDirectorFactoryConfig, Duration, EnvironmentMode
 from timefold.solver import SolutionManager
 from backend.app.core.config import settings
 from backend.app.models.teacher import Teacher
@@ -359,29 +359,50 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         score=None,
     )
 
+# Cache process-vie du SolverFactory (voir backend/experimental_java_heatmap/README.md § 5.1) :
+# SolverFactory.create() traduit le bytecode Python de constraints.py/PlanningCourse en classes
+# JVM — un coût mesuré ~0.6-0.9s, indépendant des données, qui ne dépend QUE du code source
+# (constraints.py, domain.py), jamais rebuilt tant que le process tourne. Aucun termination_config
+# n'est baké ici : les limites de temps du solveur (settings.SOLVER_*, y compris les overrides de
+# test) doivent rester dynamiques — passées via solver_config_override à build_solver() (voir
+# _solve_timetable_job), sans jamais retraduire le bytecode. Double-checked locking : plusieurs
+# threads peuvent appeler _get_solver_factory() concurremment (solve async + heatmap), on ne veut
+# construire qu'une seule fois.
+_SOLVER_FACTORY_CACHE = None
+_SOLVER_FACTORY_LOCK = threading.Lock()
+
 def _get_solver_factory():
-    limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
-    unimproved_limit_seconds = settings.SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS
-    solver_config = SolverConfig(
-        environment_mode=EnvironmentMode.NO_ASSERT,
-        solution_class=PlanningTimetable,
-        entity_class_list=[PlanningCourse],
-        score_director_factory_config=ScoreDirectorFactoryConfig(
-            constraint_provider_function=define_constraints
-        ),
-        termination_config=TerminationConfig(
-            spent_limit=Duration(seconds=limit_seconds),
-            unimproved_spent_limit=Duration(seconds=unimproved_limit_seconds)
-        ),
-    )
-    return SolverFactory.create(solver_config)
+    global _SOLVER_FACTORY_CACHE
+    if _SOLVER_FACTORY_CACHE is None:
+        with _SOLVER_FACTORY_LOCK:
+            if _SOLVER_FACTORY_CACHE is None:
+                solver_config = SolverConfig(
+                    environment_mode=EnvironmentMode.NO_ASSERT,
+                    solution_class=PlanningTimetable,
+                    entity_class_list=[PlanningCourse],
+                    score_director_factory_config=ScoreDirectorFactoryConfig(
+                        constraint_provider_function=define_constraints
+                    ),
+                )
+                _SOLVER_FACTORY_CACHE = SolverFactory.create(solver_config)
+    return _SOLVER_FACTORY_CACHE
 
 def _solve_timetable_job(db_session=None, school_id=None):
     db = db_session if db_session else SessionLocal()
     try:
         problem = _build_planning_problem(db, school_id)
         solver_factory = _get_solver_factory()
-        solver = solver_factory.build_solver()
+        # Limites de temps appliquées ICI, pas à la construction du SolverFactory (mise en cache
+        # ci-dessus) : lues à chaque appel, donc toujours à jour (settings.SOLVER_*, y compris
+        # les overrides de test qui les modifient au runtime).
+        limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
+        unimproved_limit_seconds = settings.SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS
+        solver = solver_factory.build_solver(solver_config_override=SolverConfigOverride(
+            termination_config=TerminationConfig(
+                spent_limit=Duration(seconds=limit_seconds),
+                unimproved_spent_limit=Duration(seconds=unimproved_limit_seconds)
+            ),
+        ))
 
         # Enregistrer le solveur actif
         SolverState.set_solving(solver)

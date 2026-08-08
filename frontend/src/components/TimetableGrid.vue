@@ -233,15 +233,28 @@ const draggedCourseWeekType = computed(() => draggedCourse.value?.week_type || n
 
 const heatmapData = ref<Record<string, any>>({});
 const isLoadingHeatmap = ref<boolean>(false);
+// Depuis la mise en cache du SolverFactory (voir backend/experimental_java_heatmap/README.md
+// § 5.1), la Heatmap répond typiquement en 100-500ms — trop court pour afficher un sablier sans
+// qu'il ne "clignote" (apparaît et disparaît quasi instantanément, plus perturbant qu'utile).
+// On ne montre donc le spinner que si la requête dépasse ce délai ; en dessous, la mise à jour
+// de la grille paraît instantanée. Pattern standard (GitHub, Gmail...) pour ce cas précis.
+const HEATMAP_SPINNER_DELAY_MS = 300;
+let heatmapSpinnerTimer: ReturnType<typeof setTimeout> | null = null;
 
 import { watch } from 'vue';
 import { useDataStore } from '../stores/data';
 const dataStore = useDataStore();
 // Watcher pour le heatmap
 watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([isActive, courseIds]) => {
+  if (heatmapSpinnerTimer) {
+    clearTimeout(heatmapSpinnerTimer);
+    heatmapSpinnerTimer = null;
+  }
   if (isActive && courseIds && (courseIds as number[]).length === 1) {
     const courseId = (courseIds as number[])[0];
-    isLoadingHeatmap.value = true;
+    heatmapSpinnerTimer = setTimeout(() => {
+      isLoadingHeatmap.value = true;
+    }, HEATMAP_SPINNER_DELAY_MS);
     try {
       const response = await fetch(`/api/timetable/courses/${courseId}/heatmap`);
       if (response.ok) {
@@ -259,6 +272,10 @@ watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([i
     } catch (e) {
       console.error("Erreur Heatmap", e);
     } finally {
+      if (heatmapSpinnerTimer) {
+        clearTimeout(heatmapSpinnerTimer);
+        heatmapSpinnerTimer = null;
+      }
       isLoadingHeatmap.value = false;
     }
   } else {

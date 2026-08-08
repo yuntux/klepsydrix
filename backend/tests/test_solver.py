@@ -2023,3 +2023,59 @@ def test_solver_ignores_locally_pinned_course_without_classroom(db_session: Sess
 
     assert course.timeslot_id == ts.id  # épinglé : jamais déplacé
     assert course.classrooms == []  # jamais corrompu par la salle virtuelle interne
+
+
+def test_get_solver_factory_is_cached_across_calls(db_session: Session):
+    """
+    _get_solver_factory() (voir backend/experimental_java_heatmap/README.md § 5.1) ne doit
+    traduire le bytecode de constraints.py/PlanningCourse qu'une seule fois par process : appels
+    répétés doivent retourner EXACTEMENT le même objet, pas une nouvelle traduction à chaque fois.
+    """
+    from backend.app.solver.solver import _get_solver_factory
+
+    factory1 = _get_solver_factory()
+    factory2 = _get_solver_factory()
+    factory3 = _get_solver_factory()
+
+    assert factory1 is factory2
+    assert factory2 is factory3
+
+
+def test_solver_time_limit_stays_dynamic_despite_cached_factory(db_session: Session, monkeypatch):
+    """
+    Le SolverFactory est mis en cache SANS termination_config (voir § 5.1 du README) : les
+    limites de temps doivent rester lues à chaque appel de _solve_timetable_job, pas figées à la
+    première construction du factory. La fixture de session (conftest.py) fixe déjà
+    SOLVER_TIME_LIMIT_SECONDS=2 pour toute la suite ; ce test le resserre encore à 1s pour UN
+    seul appel et vérifie, via le temps réellement écoulé, que cette limite plus stricte est
+    bien appliquée — si le factory (déjà construit par un test précédent) avait figé la limite
+    de 2s à sa première construction, ce test durerait sensiblement plus longtemps que la
+    nouvelle limite demandée.
+    """
+    import time
+    from backend.app.core.config import settings
+    from backend.app.solver.solver import _get_solver_factory
+
+    _get_solver_factory()  # garantit que le factory est déjà construit/caché avant ce test
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_TIMELIMIT", "first_name": "Prof", "last_name": "TimeLimit", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_TIMELIMIT", "name": "Room TimeLimit", "capacity": 30, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    monkeypatch.setattr(settings, "SOLVER_TIME_LIMIT_SECONDS", 1)
+    monkeypatch.setattr(settings, "SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS", 1)
+
+    t0 = time.time()
+    _solve_timetable_job(db_session)
+    elapsed = time.time() - t0
+
+    # Largement en dessous des 2s fixées par conftest.py pour le reste de la suite : preuve que
+    # la limite de 1s demandée ICI a bien été appliquée, pas une valeur figée dans le factory
+    # mis en cache. Marge généreuse pour absorber l'overhead machine.
+    assert elapsed < 1.8
