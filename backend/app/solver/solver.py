@@ -215,13 +215,34 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     for c in db_courses:
         ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
         cr_planning = classrooms_map.get(c.classrooms[0].id) if c.classrooms else None
-        
+
         # Gestion multi-établissement (US2) :
-        # Si school_id est spécifié et que ce cours appartient à une AUTRE école,
-        # il est forcé à is_pinned = True pour ne pas être déplacé par le solveur
+        # Si school_id est spécifié et que ce cours appartient à une AUTRE école, il est forcé à
+        # is_pinned = True pour ne pas être déplacé par le solveur — inconditionnellement, placé
+        # ou non. Exempter les cours étrangers non placés semblait cohérent avec la règle modèle
+        # (Course.validate_pinned_requires_timeslot) mais réintroduit le coût de recherche
+        # inutile (CH/LS explorant des cours jamais réécrits en base, voir plus bas) pour la
+        # portion — potentiellement significative — d'une autre école qui n'est pas encore
+        # placée. Epingler un cours non placé reste parfaitement légal côté Timefold (timeslot
+        # autorise déjà l'absence de valeur) ; seul restait le risque déjà couvert plus bas pour
+        # classroom ET week_type (voir juste après).
         is_pinned = c.is_pinned
         if school_id is not None and c.school_id != school_id:
             is_pinned = True
+
+        # Un cours épinglé sans salle (classroom=None) est un état illégal pour Timefold
+        # ("pinned to null, even though unassigned values are not allowed" — classroom n'autorise
+        # pas l'absence de valeur, contrairement à timeslot). Le cas le plus courant : un cours
+        # d'une autre école forcé en is_pinned ci-dessus mais jamais affecté d'une salle. On lui
+        # fabrique alors une salle VIRTUELLE, avec un id négatif garanti disjoint des vrais id de
+        # Classroom (toujours positifs, auto-incrémentés) — jamais ajoutée à classroomRange
+        # (aucun autre cours ne peut donc jamais s'y voir assigné), donc jamais de conflit
+        # fantôme. Comme le cours est épinglé, cette salle ne bouge jamais pendant le solving, et
+        # au retour (_solve_timetable_job) db.get(Classroom, id_négatif) ne trouve aucune ligne
+        # réelle : le write-back existant range déjà proprement ce cas en classrooms=[] — l'état
+        # d'origine, sans code supplémentaire nécessaire là-bas.
+        if is_pinned and cr_planning is None:
+            cr_planning = PlanningClassroom(id=-c.id, name="(salle virtuelle — sans salle réelle)", capacity=0)
             
         # Charger week_type et class_part_ids
         # Phase C (voir attribution_week_type_auto.md, Échanges 17-19) : tout cours dont le
@@ -250,6 +271,18 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         else:
             week_type = original_week_type
             week_type_range = ["A", "B"]
+
+        # Même risque que pour classroom ci-dessus, pour la même raison : week_type n'autorise
+        # pas non plus l'absence de valeur ("pinned to null..."). None est sans risque pour un
+        # cours Q non épinglé (CH le réévalue), mais un cours épinglé n'est JAMAIS réévalué — y
+        # laisser None le bloquerait dans un état illégal. Contrairement à classroom, pas besoin
+        # d'une valeur virtuelle hors range : week_type_range[0] (A ou B, un simple label sans
+        # notion d'unicité globale comme un id de salle) ne peut jamais créer de conflit fantôme
+        # — la comparaison de semaine ne compte de toute façon que pour des cours qui se
+        # chevauchent réellement en temps (_courses_overlap_in_time exclut déjà tout cours non
+        # placé, timeslot=None y compris).
+        if is_pinned and week_type is None:
+            week_type = week_type_range[0]
         class_part_ids = []
         division_ids = set([d.id for d in c.divisions]) if c.divisions else set()
             
@@ -367,6 +400,15 @@ def _solve_timetable_job(db_session=None, school_id=None):
         # dans `constraints.py`, sinon l'IA contournera la sécurité lors de la sauvegarde.
         for pc in solution.courses:
             db_course = db.get(Course, pc.id)
+            if not db_course:
+                continue
+            # Filet de sécurité (US2, multi-établissement) : un cours d'une autre école que
+            # celle demandée est déjà épinglé (donc jamais réellement déplacé, voir
+            # _build_planning_problem) — mais on n'écrit quand même jamais son résultat en
+            # retour, pour ne dépendre d'aucune garantie interne au solveur pour protéger les
+            # données d'une école qu'on n'est pas censé modifier.
+            if school_id is not None and db_course.school_id != school_id:
+                continue
             if db_course:
                 db_course._via_crud_mixin_update = True
                 db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None

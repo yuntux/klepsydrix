@@ -456,6 +456,63 @@ def test_course_heatmap_with_indisponibility(db_session: Session):
     assert "Resource unavailability (strict)" in reasons
 
 
+def test_course_heatmap_detects_conflicts_for_course_and_others_without_classroom(db_session: Session):
+    """
+    Régression (ancienne, signalée en usage réel — pas liée aux salles virtuelles introduites
+    aujourd'hui pour is_pinned) : calculate_course_heatmap ne fait JAMAIS tourner le CH du
+    solveur (elle appelle directement setWorkingSolution()/calculateScore() sur les données
+    telles quelles) — un cours dont classroom vaut encore None (cas très courant : aucune salle
+    n'a encore été assignée) reste "non initialisé" pour toute la durée du calcul. Or Timefold
+    exclut purement une entité non initialisée de tout for_each()/for_each_unique_pair()
+    ordinaire — pas seulement pour les contraintes regardant classroom, pour TOUTES
+    (teacher_conflict, resource_preference_*, division_conflict...). Résultat observé : heatmap
+    entièrement "verte", aucun impact des préférences ni des cours déjà placés. Ce test couvre
+    les DEUX dimensions signalées : ni le cours cible ni un AUTRE cours déjà placé (partageant
+    une ressource) n'ont de salle assignée.
+    """
+    from backend.app.solver.solver import calculate_course_heatmap
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    teacher = Teacher.create(db_session, {"code": "PROF_NOROOM", "first_name": "Prof", "last_name": "NoRoom", "school_id": school.id})
+    division = Division.create(db_session, {"code": "DIV_NOROOM", "name": "Div NoRoom", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+
+    # Préférence "Indisponible" sur la division, pour ts2 — AUCUNE salle assignée nulle part.
+    ResourcePreference.create(db_session, {
+        "resource_type": "Division", "resource_id": division.id, "timeslot_id": ts2.id,
+        "preference_level": "Unsuited", "week_type": "W",
+    })
+
+    # Cours DÉJÀ PLACÉ à ts1, partageant le même enseignant — SANS salle assignée (le cas
+    # fréquent en pratique : cours planifié avant que la salle ne soit décidée).
+    other_course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "teacher_ids": [teacher.id], "timeslot_id": ts1.id,
+    })
+    assert other_course.classrooms == []
+
+    # Cours cible, non placé, lui non plus sans salle assignée.
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "teacher_ids": [teacher.id], "division_ids": [division.id],
+    })
+    db_session.commit()
+
+    heatmap = calculate_course_heatmap(db_session, course.id, school.id)
+
+    # ts1 : même enseignant que other_course, déjà placé là — conflit réel, malgré l'absence de
+    # salle des deux côtés.
+    assert heatmap[str(ts1.id)]["hard"] == -1
+    assert "Teacher conflict" in [r["name"] for r in heatmap[str(ts1.id)]["reasons"]]
+
+    # ts2 : préférence "Indisponible" sur la division du cours cible.
+    assert heatmap[str(ts2.id)]["hard"] == -1
+    assert "Resource unavailability (strict)" in [r["name"] for r in heatmap[str(ts2.id)]["reasons"]]
+
+
 def test_solver_leaves_unplaceable_course_unassigned(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
@@ -1055,8 +1112,8 @@ def test_solver_subject_constraint_optionality(db_session: Session):
     _solve_timetable_job(db_session)
     db_session.refresh(c_a)
     db_session.refresh(c_b)
-    
-    # Mandatory constraint: they cannot be on the same day. Since we only have Monday timeslots, 
+
+    # Mandatory constraint: they cannot be on the same day. Since we only have Monday timeslots,
     # one must remain unplaced!
     assert None in [c_a.timeslot_id, c_b.timeslot_id]
 
@@ -1771,3 +1828,198 @@ def test_solver_resolves_mixed_composed_course_and_can_flip_already_resolved_chi
         # Même créneau que le cours épinglé : la seule échappatoire est B pour tout le groupe.
         assert parent.week_type.value == "B"
         assert child_a.week_type.value == "B"
+
+
+# =====================================================================================
+# US2 multi-établissement — un cours d'une AUTRE école que celle résolue (school_id explicite)
+# ne doit jamais faire planter le solveur/la heatmap, même sans salle assignée. Régression :
+# l'ancien mécanisme forçait is_pinned=True sur ces cours, gelant TOUTES leurs variables — un
+# cours étranger sans salle en base se retrouvait alors épinglé avec classroom=None, un état
+# illégal pour Timefold ("pinned to null, even though unassigned values are not allowed"), qui
+# faisait planter aussi bien _solve_timetable_job que calculate_course_heatmap dès qu'un
+# school_id explicite était passé. Remplacé par foreign_school_timeslot_immobility
+# (constraints.py) : ne protège que le créneau, laisse classroom totalement libre pour ces
+# cours, jamais écrit en retour (garde school_id dans _solve_timetable_job).
+# =====================================================================================
+
+def _create_second_school_with_foreign_course(db_session, teacher_code="T_FOREIGN"):
+    """Crée une 2e école avec un cours placé (créneau) mais SANS salle — le cas qui plantait."""
+    import uuid
+    uai = str(uuid.uuid4())[:8]
+    other_school = School.create(db_session, {"uai": uai, "name": "Autre Ecole"})
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": teacher_code, "first_name": "Prof", "last_name": "Foreign", "school_id": other_school.id})
+    ts = Timeslot.create(db_session, {"day_of_week": 2, "minutes_from_midnight": 480})
+    foreign_course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": other_school.id, "duration_minutes": 30,
+        "teacher_ids": [teacher.id], "timeslot_id": ts.id,
+    })
+    db_session.commit()
+    assert foreign_course.classrooms == []  # bien sans salle : c'est le cas qui plantait
+    return other_school, teacher, ts, foreign_course
+
+
+def test_solver_ignores_foreign_school_course_without_classroom(db_session: Session):
+    """
+    _solve_timetable_job(db, school_id) ne doit pas planter à cause d'un cours d'une autre école
+    sans salle assignée — ni corrompre les données de cette autre école.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    other_school, foreign_teacher, foreign_ts, foreign_course = _create_second_school_with_foreign_course(db_session)
+
+    teacher = Teacher.create(db_session, {"code": "T_LOCAL", "first_name": "Prof", "last_name": "Local", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_LOCAL", "name": "Room Local", "capacity": 30, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    local_course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    solution = _solve_timetable_job(db_session, school.id)  # ne doit pas lever d'exception
+    db_session.refresh(local_course)
+    db_session.refresh(foreign_course)
+
+    assert local_course.timeslot_id is not None
+    # Le cours étranger n'est jamais écrit en retour : ni son créneau ni sa salle ne changent.
+    assert foreign_course.timeslot_id == foreign_ts.id
+    assert foreign_course.classrooms == []
+
+
+def test_heatmap_ignores_foreign_school_course_without_classroom(db_session: Session):
+    """
+    Le cas concrètement rapporté : calculate_course_heatmap(db, course_id, school_id) échouait
+    silencieusement (exception Java avalée) dès qu'une autre école avait un cours sans salle.
+    """
+    from backend.app.solver.solver import calculate_course_heatmap
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    _create_second_school_with_foreign_course(db_session)
+
+    teacher = Teacher.create(db_session, {"code": "T_HEATMAP", "first_name": "Prof", "last_name": "Heatmap", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_HEATMAP", "name": "Room Heatmap", "capacity": 30, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    heatmap = calculate_course_heatmap(db_session, course.id, school.id)
+
+    assert "error" not in heatmap
+    assert len(heatmap) > 0
+
+
+def test_calculate_heatmap_java_propagates_errors_instead_of_swallowing_them(db_session: Session, monkeypatch):
+    """
+    Régression distincte du crash "pinned to null" : calculate_heatmap_java (heatmap_proxy.py)
+    avalait TOUTE exception et retournait {} — un résultat indiscernable d'une heatmap
+    légitimement vide, invisible pour l'appelant (seule une trace apparaissait sur stderr).
+    Force une panne (indépendante de tout scénario de crash réel, pour ne pas dépendre d'un bug
+    qui pourrait être corrigé un jour) et vérifie qu'elle remonte bien jusqu'à
+    calculate_course_heatmap sous la forme {"error": ...}, exploitable par l'appelant.
+    """
+    import _jpyinterpreter
+    from backend.app.solver.solver import calculate_course_heatmap
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_ERR", "first_name": "Prof", "last_name": "Err", "school_id": school.id})
+    Classroom.create(db_session, {"code": "ROOM_ERR", "name": "Room Err", "capacity": 30, "school_id": school.id})
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30, "teacher_ids": [teacher.id],
+    })
+    db_session.commit()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("Panne simulée pour le test")
+
+    monkeypatch.setattr(_jpyinterpreter, "convert_to_java_python_like_object", boom)
+
+    result = calculate_course_heatmap(db_session, course.id, school.id)
+
+    assert "error" in result
+    assert "Panne simulée pour le test" in result["error"]
+    assert "traceback" in result
+
+
+def test_build_planning_problem_gives_virtual_classroom_to_pinned_roomless_course(db_session: Session):
+    """
+    Un cours forcé épinglé (US2, autre école) sans salle réelle reçoit une salle VIRTUELLE
+    (id négatif, jamais dans classroomRange) purement pour que le pin reste légal côté
+    Timefold — pas une vraie salle assignable par le solveur : is_pinned=True reste vrai, donc
+    ce cours est structurellement exclu de la recherche (CH/LS), contrairement à une variable
+    simplement protégée par une contrainte. Vérifie aussi que cette salle virtuelle ne peut
+    jamais entrer en conflit avec une vraie salle (id absent de classroomRange).
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    other_school, foreign_teacher, foreign_ts, foreign_course = _create_second_school_with_foreign_course(db_session)
+    db_session.commit()
+
+    problem = _build_planning_problem(db_session, school.id)
+    pc_foreign = next(c for c in problem.courses if c.id == foreign_course.id)
+
+    assert pc_foreign.is_pinned is True
+    assert pc_foreign.classroom is not None
+    assert pc_foreign.classroom.id < 0  # virtuelle, jamais un vrai id de Classroom (positif)
+    real_classroom_ids = {cr.id for cr in problem.classrooms}
+    assert pc_foreign.classroom.id not in real_classroom_ids
+
+
+def test_solver_force_pins_unplaced_foreign_school_course(db_session: Session):
+    """
+    Le forçage multi-établissement pince désormais TOUS les cours d'une autre école,
+    y compris non placés (exclusion structurelle de CH/LS, pour éviter de gaspiller du temps de
+    recherche sur des cours jamais réécrits en base) — voir _build_planning_problem. Un cours
+    non placé étant potentiellement encore en Q (rien ne l'interdit pour un cours étranger : la
+    règle Course.validate_pinned_requires_timeslot ne s'applique qu'à SA PROPRE école, pas au
+    forçage du solveur), week_type doit recevoir une valeur légale (A ou B, membre de son propre
+    range) plutôt que None pour rester épinglable sans planter.
+    """
+    from backend.app.solver.solver import _build_planning_problem
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    import uuid
+    other_school = School.create(db_session, {"uai": str(uuid.uuid4())[:8], "name": "Autre Ecole Q"})
+    foreign_course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": other_school.id, "duration_minutes": 30, "week_type": "Q",
+    })
+    db_session.commit()
+    assert foreign_course.timeslot_id is None  # non placé, comme toute Q (règle existante)
+
+    problem = _build_planning_problem(db_session, school.id)  # ne doit pas lever d'exception
+    pc_foreign = next(c for c in problem.courses if c.id == foreign_course.id)
+
+    assert pc_foreign.is_pinned is True
+    assert pc_foreign.week_type in ("A", "B")  # jamais None malgré Q en base
+    assert pc_foreign.week_type_range == ["A", "B"]
+
+
+def test_solver_ignores_locally_pinned_course_without_classroom(db_session: Session):
+    """
+    Même correctif, cas plus général que le multi-établissement : un cours de LA MÊME école,
+    épinglé manuellement (is_pinned=True, ex: via l'IHM) avant même qu'une salle lui soit
+    assignée, aurait heurté exactement le même état illégal ("pinned to null"). La salle
+    virtuelle s'applique à tout cours épinglé sans salle, pas seulement aux cours étrangers.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_PIN_NOROOM", "first_name": "Prof", "last_name": "PinNoRoom", "school_id": school.id})
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "teacher_ids": [teacher.id], "timeslot_id": ts.id, "is_pinned": True,
+    })
+    db_session.commit()
+    assert course.classrooms == []
+
+    _solve_timetable_job(db_session)  # ne doit pas lever d'exception
+    db_session.refresh(course)
+
+    assert course.timeslot_id == ts.id  # épinglé : jamais déplacé
+    assert course.classrooms == []  # jamais corrompu par la salle virtuelle interne

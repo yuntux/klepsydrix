@@ -537,6 +537,18 @@ class Course(Base):
 
 
 
+    @constrains('is_pinned', 'timeslot_id')
+    def validate_pinned_requires_timeslot(self, db):
+        """
+        Un cours épinglé (is_pinned=True) doit être placé (timeslot_id renseigné) : sinon, rien
+        de concret n'est protégé, et — combiné à la garde de validate_placement_conflicts qui
+        interdit timeslot_id + week_type=Q — cette règle garantit qu'un cours épinglé n'est
+        jamais Q (voir attribution_week_type_auto.md). Couvre aussi bien le fait d'épingler un
+        cours non placé que de retirer le créneau d'un cours qui reste épinglé.
+        """
+        if self.is_pinned and self.timeslot_id is None:
+            raise ValueError("Impossible d'épingler un cours qui n'est pas placé sur un créneau.")
+
     @constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_ids', 'division_ids', 'non_teaching_staff_ids')
     def validate_placement_conflicts(self, db):
         target_ts_id = self.timeslot_id
