@@ -12,6 +12,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.group import Partition, ClassPart, Group
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -1326,3 +1327,110 @@ def test_course_periods_and_type_validation(db_session: Session):
     })
     db_session.commit()
     assert course.periods[0].id == p_sem1.id
+
+
+def _make_division_class_parts(db_session, count=2):
+    school = db_session.query(School).first()
+    division = Division.create(db_session, {"code": "D6E", "name": "6ème", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    partition = Partition.create(db_session, {"code": "PART", "name": "Partition", "division_id": division.id})
+    return [ClassPart.create(db_session, {"partition_id": partition.id, "name": f"CP{i}"}) for i in range(count)]
+
+
+def test_course_group_added_cascades_its_class_parts(db_session: Session):
+    """
+    Un Group "est composé de" ClassPart : l'ajout d'un Group à un Course doit y ajouter
+    automatiquement toutes ses ClassPart (Course._apply_group_class_part_cascade, règle 1).
+    """
+    subject = db_session.query(Subject).first()
+    school = db_session.query(School).first()
+    cp1, cp2 = _make_division_class_parts(db_session)
+    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
+
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group.id]})
+
+    assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
+    assert {g.id for g in course.groups} == {group.id}
+
+
+def test_course_class_part_added_does_not_cascade_to_groups(db_session: Session):
+    """L'ajout d'une ClassPart au cours n'a aucun effet sur ses groupes (règle 2, pas de cascade inverse)."""
+    subject = db_session.query(Subject).first()
+    school = db_session.query(School).first()
+    cp1, cp2 = _make_division_class_parts(db_session)
+    Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id]})
+
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "class_part_ids": [cp1.id]})
+
+    assert {cp.id for cp in course.class_parts} == {cp1.id}
+    assert course.groups == []
+
+
+def test_course_group_removed_cascades_removal_of_its_class_parts(db_session: Session):
+    """Le retrait d'un Group du cours retire également toutes ses ClassPart (règle 3)."""
+    subject = db_session.query(Subject).first()
+    school = db_session.query(School).first()
+    cp1, cp2 = _make_division_class_parts(db_session)
+    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group.id]})
+    assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
+
+    course.update(db_session, {"group_ids": []})
+
+    assert course.class_parts == []
+    assert course.groups == []
+
+
+def test_course_group_removal_does_not_strip_class_part_still_required_by_remaining_group(db_session: Session):
+    """
+    Si une ClassPart est partagée par 2 Group, retirer l'un des Group ne doit pas la retirer
+    du cours tant que l'autre Group (toujours présent) en a encore besoin.
+    """
+    subject = db_session.query(Subject).first()
+    school = db_session.query(School).first()
+    cp1, cp2 = _make_division_class_parts(db_session)
+    group_a = Group.create(db_session, {"name": "Groupe A", "class_part_ids": [cp1.id]})
+    group_b = Group.create(db_session, {"name": "Groupe B", "class_part_ids": [cp1.id, cp2.id]})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group_a.id, group_b.id]})
+    assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
+
+    course.update(db_session, {"group_ids": [group_b.id]})
+
+    # cp1 reste car Groupe B (toujours présent) en a besoin, malgré le retrait de Groupe A
+    assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
+    assert {g.id for g in course.groups} == {group_b.id}
+
+
+def test_course_class_part_removed_cascades_removal_of_composed_group_without_further_cascade(db_session: Session):
+    """
+    Le retrait d'une ClassPart retire tout Group qui en est composé (règle 4), mais SANS
+    retirer à son tour les AUTRES ClassPart de ce Group (pas de réaction en chaîne).
+    """
+    subject = db_session.query(Subject).first()
+    school = db_session.query(School).first()
+    cp1, cp2 = _make_division_class_parts(db_session)
+    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group.id]})
+    assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
+
+    # On retire seulement cp1 (pas group_ids dans les vals) : le Groupe 1, composé de cp1,
+    # doit être retiré du cours -- mais sans retirer à son tour cp2.
+    course.update(db_session, {"class_part_ids": [cp2.id]})
+
+    assert {cp.id for cp in course.class_parts} == {cp2.id}
+    assert course.groups == []
+
+
+def test_course_group_and_extra_class_part_added_together_on_update(db_session: Session):
+    """Un ajout simultané de group_ids et class_part_ids cumule les deux (règles 1 + 2)."""
+    subject = db_session.query(Subject).first()
+    school = db_session.query(School).first()
+    cp1, cp2 = _make_division_class_parts(db_session)
+    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id]})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30})
+    assert course.class_parts == []
+    assert course.groups == []
+
+    course.update(db_session, {"group_ids": [group.id], "class_part_ids": [cp2.id]})
+
+    assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
+    assert {g.id for g in course.groups} == {group.id}

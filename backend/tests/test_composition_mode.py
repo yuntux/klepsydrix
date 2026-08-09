@@ -217,8 +217,10 @@ class TestCompositionModes:
         children = CompositionModes.apply(db_session, parent, 1, mapping_dynamic)
         
         assert len(children) == 1
-        # Le cours enfant ne doit pas avoir de class_parts en direct (vidé par le resolveur)
-        assert len(children[0].class_parts) == 0
+        # Le resolveur vide class_part_ids (le groupe englobe ces parties), mais la cascade
+        # Group -> ClassPart (Course._apply_group_class_part_cascade, voir spec.md section
+        # Course) les réinjecte automatiquement dès que le groupe est ajouté au cours enfant.
+        assert {cp.id for cp in children[0].class_parts} == {cp1.id, cp2.id}
         # Mais il doit avoir un groupe auto-généré, nommé {1re lettre code division}{séparateur}{code matière}{numéro}
         assert len(children[0].groups) == 1
         subject = db_session.get(Subject, parent.subject_id)
@@ -324,9 +326,10 @@ class TestCompositionModes:
 
     def test_cleanup_cascades_through_group_and_partitions_when_child_deleted(self, db_session):
         # Une ligne à 2 divisions génère 2 parties de classe (1 par division, donc 2 partitions
-        # distinctes) regroupées dans un groupe auto (_resolve_dynamic_groups) : l'enfant ne
-        # référence donc que le groupe, pas les parties de classe directement. Supprimer cet
-        # enfant doit malgré tout nettoyer les 2 parties, le groupe, et les 2 partitions.
+        # distinctes) regroupées dans un groupe auto (_resolve_dynamic_groups). La cascade Group
+        # -> ClassPart (Course._apply_group_class_part_cascade) réinjecte automatiquement ces 2
+        # parties en direct sur l'enfant dès que le groupe lui est ajouté. Supprimer cet enfant
+        # doit malgré tout nettoyer les 2 parties, le groupe, et les 2 partitions.
         from backend.app.models.group import ClassPart, Group, Partition
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_divisions=1)
 
@@ -339,7 +342,7 @@ class TestCompositionModes:
         children = CompositionModes.apply(db_session, parent, 1, mapping_multi_division)
         assert len(children) == 1
         child = children[0]
-        assert len(child.class_parts) == 0
+        assert len(child.class_parts) == 2
         assert len(child.groups) == 1
 
         group = child.groups[0]

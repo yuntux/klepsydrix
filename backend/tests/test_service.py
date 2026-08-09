@@ -1,6 +1,6 @@
 """
 Tests pour le modèle Service / ServiceRepartition / Alignment et leur articulation
-avec MefService (gabarit réglementaire) et Course (entité plaçable).
+avec MefService (gabarit réglementaire).
 """
 import pytest
 from sqlalchemy import create_engine
@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
     School, Discipline, Subject, Mef, MefDivision, Division, ElectionMethod,
-    Group, Service, ServiceRepartition, Alignment, Course, SystemSetting
+    Group, Service, ServiceRepartition, Alignment, SystemSetting
 )
 from backend.app.models.service import RepartitionPeriodicity, RepartitionGroupType
 from backend.app.core.time_utils import minutes_to_hours
@@ -573,56 +573,3 @@ class TestAlignment:
 
         db_session.refresh(s2)
         assert [r.occurrence_count for r in s2.repartitions] == [2]
-
-
-class TestCourseServiceConsistency:
-    def test_leaf_course_without_service_is_consistent(self, db_session):
-        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        course = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60})
-        assert course.is_consistent_with_service is True
-
-    def test_leaf_course_matching_repartition_is_consistent(self, db_session):
-        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
-
-        course = Course.create(db_session, {
-            "subject_id": subject.id, "school_id": school.id, "duration_minutes": 60,
-            "week_type": "W", "service_repartition_id": repartition.id,
-        })
-        assert course.is_consistent_with_service is True
-
-    def test_leaf_course_biweekly_pending_week_choice_is_consistent(self, db_session):
-        """
-        Un cours en week_type=Q (quinzaine à déterminer) lié à une répartition BIWEEKLY est
-        l'état ATTENDU juste après génération, avant résolution A/B — pas une dérive (voir
-        attribution_week_type_auto.md, Échange 5/6).
-        """
-        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "BIWEEKLY"})
-
-        course = Course.create(db_session, {
-            "subject_id": subject.id, "school_id": school.id, "duration_minutes": 60,
-            "week_type": "Q", "service_repartition_id": repartition.id,
-        })
-        assert course.is_consistent_with_service is True
-
-    def test_leaf_course_diverging_duration_is_inconsistent(self, db_session):
-        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
-
-        course = Course.create(db_session, {
-            "subject_id": subject.id, "school_id": school.id, "duration_minutes": 90,
-            "week_type": "W", "service_repartition_id": repartition.id,
-        })
-        assert course.is_consistent_with_service is False
-
-    def test_composed_course_with_children_is_always_consistent(self, db_session):
-        school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        repartition = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY"})
-
-        parent = Course.create(db_session, {
-            "subject_id": subject.id, "school_id": school.id, "duration_minutes": 90,
-            "is_composed": True, "service_repartition_id": repartition.id,
-        })
-        Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "duration_minutes": 60, "parent_id": parent.id})
-        assert parent.is_consistent_with_service is True

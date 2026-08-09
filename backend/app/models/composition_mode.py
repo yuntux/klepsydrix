@@ -72,6 +72,7 @@ class CompositionModes:
     @staticmethod
     def _resolve_dynamic_groups(db: Session, course: Course, mapping: list[dict]):
         from backend.app.models.group import Group, ClassPart
+        CompositionModes._resolve_dynamic_part_class(db, course, mapping)
         for row in mapping:
             cp_ids = set(row.get('class_part_ids', []))
             if len(cp_ids) > 1 and not row.get('group_ids'):
@@ -100,7 +101,9 @@ class CompositionModes:
                     course.update(db, {"group_ids": [g.id for g in course.groups] + [new_group.id]})
 
                 db.flush()
-                # On vide class_part_ids car le groupe englobe ces parties
+                # On vide class_part_ids : le groupe englobe ces parties, et
+                # Course._apply_group_class_part_cascade les réinjecte de toute façon
+                # automatiquement sur l'enfant dès que group_ids est appliqué (règle 1).
                 row['class_part_ids'] = []
 
     @staticmethod
@@ -285,7 +288,6 @@ class CompositionModes:
         if mode not in available_modes:
             raise CompositionError(f"Le mode {mode} n'est pas applicable avec la répartition actuelle (ex: pas assez de lignes, groupes ou périodes). Modes possibles: {available_modes}")
 
-        CompositionModes._resolve_dynamic_part_class(db, course, mapping)
         CompositionModes._resolve_dynamic_groups(db, course, mapping)
 
         former_class_part_ids: set = set()

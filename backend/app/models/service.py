@@ -430,7 +430,6 @@ class ServiceRepartition(Base):
 
     # Relations de navigation
     service: Mapped[Optional["Service"]] = relationship("Service", back_populates="repartitions")
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="service_repartition", info={"label": "Cours générés"})
 
     @constrains("duration_minutes")
     def validate_duration_multiple(self, db: Session):

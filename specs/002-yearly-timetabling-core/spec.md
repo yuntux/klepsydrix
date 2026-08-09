@@ -351,10 +351,14 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
     *   `FULLY_VENTILATED` : Toutes les ressources du cours composé ont été ventilées dans des cours enfants, et tous les cours enfants sont planifiés.
 
 *   `has_conflict` : Indique si le cours présente un conflit de ressources (double réservation d'enseignant, salle, classe) ou le non-respect d'une indisponibilité stricte (`RED`). Cette information dynamique est séparée du statut matérialisé et calculée uniquement à la demande.
-*   `service_repartition_id` : Clé étrangère optionnelle vers la **ServiceRepartition** d'origine (Entier, relation N-à-1). Nul pour un cours créé ad-hoc, sans lien avec un service.
-*   `is_consistent_with_service` : Indicateur de dérive par rapport au service d'origine (Booléen, propriété calculée non stockée, réservée aux cours sans enfant). Compare `duration_minutes` et `week_type` à la `ServiceRepartition` liée ; permet de mesurer l'écart entre le volume théorique (TRMD/MEFService) et le volume réellement planifié au fil de l'évolution manuelle des cours.
 *   *Relations hiérarchiques* : `parent` (le **Course** composé parent, le cas échéant), `children` (Liste des **Course** enfants issus de la décomposition — suppression en cascade)
 *   *Relations (N-à-N)* : `teachers` (Professeur(s) affecté(s) — plusieurs en cas de co-enseignement), `divisions` (Classe(s) visée(s)), `groups` (Groupe(s) visé(s)), `class_parts` (Partie(s) de classe visée(s)), `classrooms` (Salle(s)), `materials` (Matériel(s)), `non_teaching_staffs` (Personnel(s) non-enseignant(s))
+
+    **Cascade de membership `groups` ↔ `class_parts`** — un **Group** « est composé de » une ou plusieurs **ClassPart** (voir section 6). Cette composition impose une propagation à sens unique lors de tout ajout/retrait sur un **Course**, appliquée en un seul passage atomique avant écriture (`Course._apply_group_class_part_cascade`) :
+    1. **Ajout d'un `Group` au cours** → ajoute automatiquement toutes ses `ClassPart` au cours.
+    2. **Ajout d'une `ClassPart` au cours** → **aucun effet** sur les `groups` du cours (pas de cascade inverse : posséder une des parties d'un groupe ne signifie pas posséder le groupe entier).
+    3. **Retrait d'un `Group` du cours** → retire du cours toutes ses `ClassPart`, **sauf** celles encore requises par un autre `Group` demeurant sur le cours (un `Group` présent doit toujours voir la totalité de ses `ClassPart` présentes, invariant posé par la règle 1).
+    4. **Retrait d'une `ClassPart` du cours** → retire du cours tout `Group` composé de cette `ClassPart` — mais **sans réaction en chaîne** : ce retrait de `Group` ne provoque pas à son tour le retrait de ses AUTRES `ClassPart` (la règle 3 ne s'applique qu'à un retrait de `Group` explicitement demandé par l'appelant, jamais à un retrait de `Group` déclenché par la règle 4 elle-même).
 
 
 ### 1bis. Session (Séance)
@@ -513,7 +517,6 @@ Décompose un `Service` en occurrences de créneaux hebdomadaires, servant de pa
 *   `duration_minutes` : Durée de chaque occurrence (Entier, doit être un multiple exact du créneau standard de l'établissement — même validation que `Course.duration_minutes`)
 *   `periodicity` : Périodicité (Enum : `WEEKLY` chaque semaine, `BIWEEKLY` une semaine sur deux). Une ligne `BIWEEKLY` ne précise pas encore si l'occurrence tombera en semaine A ou B — ce choix se fait à la génération du `Course` (`week_type`).
 *   `name` : Nom d'affichage calculé et stocké en base (Chaîne, ex: `2x1h(H)` ou `1x1h30(Q)`), recalculé automatiquement à chaque création/modification à partir de `occurrence_count`, de `duration_minutes` (converti en heures via l'utilitaire générique `minutes_to_hours` — heure non paddée, minutes omises si nombre exact d'heures) et de `periodicity` (`H` pour hebdomadaire, `Q` pour quinzaine)
-*   *Relations (1-à-N)* : `courses` (Les **Course** effectivement générés à partir de cette ligne)
 
 ### Synchronisation Service ↔ ServiceRepartition
 
@@ -612,6 +615,8 @@ Regroupement d'élèves (éventuellement à effectif variable) constitué par l'
 *   `student_count` : Nombre total d'élèves participant au groupe (Entier)
 *   `is_variable_size` : Indicateur si le groupe est à effectif variable en cours d'année (Booléen, par défaut `False`)
 *   *Relations (N-à-N)* : `class_parts` (Les parties de classe composant ce groupe)
+
+> Voir section **1. Course**, « Cascade de membership `groups` ↔ `class_parts` » pour la propagation de cette composition lors de l'ajout/retrait d'un `Group` sur un `Course`.
 
 > **Méthodes et logique métier de Group :**
 > - **Recherche des groupes liés (`get_linked_groups`) :** Retourne tous les autres groupes qui possèdent une partie de classe incompatible avec l'une des parties du groupe actuel.

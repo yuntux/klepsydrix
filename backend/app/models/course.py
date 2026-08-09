@@ -156,7 +156,6 @@ class Course(Base):
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
-    service_repartition_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("service_repartitions.id", ondelete="SET NULL"), nullable=True, info={"label": "Répartition de service d'origine", "readOnly": True})
 
     # Relations de navigation hiérarchique
     parent: Mapped[Optional["Course"]] = relationship("Course", back_populates="children", remote_side=[id])
@@ -170,7 +169,6 @@ class Course(Base):
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["Mission"]] = relationship("Mission", back_populates="courses")
-    service_repartition: Mapped[Optional["ServiceRepartition"]] = relationship("ServiceRepartition", back_populates="courses")
     election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod", back_populates="courses")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
@@ -184,38 +182,6 @@ class Course(Base):
     periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods, info={"label": "Périodes"})
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts, info={"label": "Groupes de classe"})
     groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses", info={"label": "Groupes"})
-
-    @exposed
-    @property
-    def is_consistent_with_service(self) -> bool:
-        """
-        Indicateur de dérive par rapport au service d'origine (calculé à la demande, réservé
-        aux cours sans enfant). Permet de repérer les cours dont la durée ou la périodicité a
-        divergé de la ServiceRepartition qui les a générés, pour mesurer l'écart avec le TRMD.
-        """
-        from sqlalchemy.orm import object_session
-        db = object_session(self)
-        has_children = bool(self.children) or (
-            db is not None and self.id is not None and
-            db.query(Course).filter(Course.parent_id == self.id).count() > 0
-        )
-        if has_children:
-            return True
-        if not self.service_repartition_id or not self.service_repartition:
-            return True
-
-        from backend.app.models.service import RepartitionPeriodicity
-        sr = self.service_repartition
-        if self.duration_minutes != sr.duration_minutes:
-            return False
-        if sr.periodicity == RepartitionPeriodicity.WEEKLY and self.week_type != CourseWeekType.W:
-            return False
-        # Q (quinzaine à déterminer) compte comme cohérent pour une répartition BIWEEKLY : c'est
-        # justement l'état attendu d'un cours fraîchement généré, avant résolution A/B manuelle
-        # ou automatique (voir attribution_week_type_auto.md) — pas une dérive à signaler.
-        if sr.periodicity == RepartitionPeriodicity.BIWEEKLY and self.week_type not in (CourseWeekType.A, CourseWeekType.B, CourseWeekType.Q):
-            return False
-        return True
 
     @property
     def has_conflict(self) -> bool:
@@ -694,11 +660,73 @@ class Course(Base):
                 if parent_ts := db.get(Timeslot, parent.timeslot_id):
                     vals['timeslot_id'] = parent_ts.get_offset_timeslot(db, offset)
 
+    @staticmethod
+    def _apply_group_class_part_cascade(db: Session, vals: dict, current_group_ids: set[int], current_class_part_ids: set[int]) -> None:
+        """
+        Un Group "est composé de" ClassPart : l'ajout d'un Group à un Course doit donc y
+        ajouter toutes ses ClassPart (mais l'inverse est faux, ajouter une ClassPart n'a
+        aucun effet sur les Group) ; le retrait d'un Group retire ses ClassPart du cours ;
+        le retrait d'une ClassPart retire tout Group qui en est composé, SANS que ce
+        retrait de Group ne retire à son tour ses AUTRES ClassPart (un seul niveau de
+        cascade, jamais de réaction en chaîne — voir spec.md, section Group/ClassPart).
+        Mute `vals` en place ('group_ids'/'class_part_ids') avant l'appel à
+        super().create()/update(), pour que le remplacement de collection (base.py) fasse
+        le travail en un seul passage atomique.
+        """
+        touches_groups = 'group_ids' in vals
+        touches_class_parts = 'class_part_ids' in vals
+        if not touches_groups and not touches_class_parts:
+            return
+
+        from backend.app.models.group import Group
+
+        requested_group_ids = set(vals['group_ids']) if touches_groups else set(current_group_ids)
+        requested_class_part_ids = set(vals['class_part_ids']) if touches_class_parts else set(current_class_part_ids)
+
+        explicitly_added_groups = (requested_group_ids - current_group_ids) if touches_groups else set()
+        explicitly_removed_groups = (current_group_ids - requested_group_ids) if touches_groups else set()
+        explicitly_removed_class_parts = (current_class_part_ids - requested_class_part_ids) if touches_class_parts else set()
+
+        relevant_group_ids = requested_group_ids | explicitly_removed_groups
+        groups_class_parts: dict[int, set[int]] = {}
+        if relevant_group_ids:
+            groups = db.execute(select(Group).filter(Group.id.in_(relevant_group_ids))).scalars().all()
+            groups_class_parts = {g.id: {cp.id for cp in g.class_parts} for g in groups}
+
+        # Règle 1 (ajout) / règle 3 (retrait), avec une protection : une ClassPart n'est
+        # retirée par le retrait de son Group que si aucun AUTRE Group restant sur le cours
+        # n'en a encore besoin (un Group présent doit toujours voir toutes ses ClassPart
+        # présentes, invariant posé par la règle 1).
+        surviving_group_ids = requested_group_ids
+        protected_class_part_ids = set().union(*(groups_class_parts.get(gid, set()) for gid in surviving_group_ids))
+        added_via_groups = set().union(*(groups_class_parts.get(gid, set()) for gid in explicitly_added_groups))
+        removed_via_groups = set().union(*(groups_class_parts.get(gid, set()) for gid in explicitly_removed_groups))
+        removed_via_groups -= protected_class_part_ids
+
+        final_class_part_ids = (requested_class_part_ids | added_via_groups) - removed_via_groups
+
+        # Règle 4 : ClassPart retirée -> retire tout Group composé de cette ClassPart. On
+        # cascade uniquement depuis le retrait explicitement demandé par l'appelant (jamais
+        # depuis une ClassPart retirée ci-dessus via la règle 3), pour ne pas déclencher de
+        # réaction en chaîne.
+        groups_removed_via_rule4 = {
+            gid for gid in surviving_group_ids
+            if groups_class_parts.get(gid, set()) & explicitly_removed_class_parts
+        }
+        final_group_ids = surviving_group_ids - groups_removed_via_rule4
+
+        vals['group_ids'] = list(final_group_ids)
+        vals['class_part_ids'] = list(final_class_part_ids)
+
     @classmethod
     def create(cls, db: Session, vals: dict):
         # 1. Synchronisation avec le parent (si applicable)
         cls._sync_vals_from_parent(db, vals)
-        
+
+        # Cascade Group <-> ClassPart (voir _apply_group_class_part_cascade) : un Course
+        # créé avec group_ids doit recevoir les class_part_ids de ces Group dès la création.
+        cls._apply_group_class_part_cascade(db, vals, set(), set())
+
         # 2. Sauvegarde
         instance = super().create(db, vals)
         
@@ -755,6 +783,11 @@ class Course(Base):
         track_resource_cleanup = 'class_part_ids' in vals or 'group_ids' in vals
         before_class_part_ids = {cp.id for cp in self.class_parts} if track_resource_cleanup else set()
         before_group_ids = {g.id for g in self.groups} if track_resource_cleanup else set()
+
+        # Cascade Group <-> ClassPart (voir _apply_group_class_part_cascade) : mute vals
+        # avant l'appel à super().update() pour que le remplacement de collection ci-dessous
+        # applique déjà le résultat cascadé en un seul passage.
+        self.__class__._apply_group_class_part_cascade(db, vals, before_group_ids, before_class_part_ids)
 
         # 3. Sauvegarde
         res = super().update(db, vals)
