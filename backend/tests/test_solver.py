@@ -1703,10 +1703,6 @@ def test_solver_resolves_composed_course_with_uniform_q_children_and_cascades(db
     child1 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
     child2 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "Q"})
     db_session.commit()
-    # Affectation du professeur APRÈS la création des enfants : Course._compute_is_composed
-    # (@onchange/@constrains sur teacher_ids) recalcule is_composed à chaque changement de
-    # teacher_ids — si assigné à la création (avant les enfants), has_children vaut encore
-    # False à ce moment précis et écraserait silencieusement is_composed=True en False.
     parent.update(db_session, {"teacher_ids": [teacher.id]})
     db_session.commit()
     db_session.refresh(parent)
@@ -1754,8 +1750,6 @@ def test_solver_swaps_resolved_composed_course_under_conflict_and_cascades(db_se
     child1 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
     child2 = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "week_type": "A"})
     db_session.commit()
-    # Affectation du professeur APRÈS la création des enfants (voir test précédent : sinon
-    # is_composed serait recalculé à False, has_children valant encore False à ce moment).
     parent.update(db_session, {"teacher_ids": [teacher.id]})
     db_session.commit()
     db_session.refresh(parent)

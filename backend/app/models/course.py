@@ -99,7 +99,7 @@ class Course(Base):
             "label": "Décomposer le cours",
             "type": "wizard",
             "icon": "fa-sitemap",
-            "condition": "record.is_composed === true && record.status !== 'COMPLETELY_PLACED'",
+            "condition": "record.status !== 'PLACED'",
             "cancelRpc": "rpc_cancel_composition",
             "steps": [
                 {
@@ -269,9 +269,12 @@ class Course(Base):
             if not children:
                 self.decomposition_status = "UNVENTILATED"
             else:
-                # 4. Calcul de la ventilation
-                child_statuses = [c.status for c in children]
-                if all(s == "PLACED" for s in child_statuses) and self.resources_fully_ventilated_list(children):
+                # 4. Calcul de la ventilation — uniquement l'affectation des ressources du
+                # parent aux enfants, indépendamment de leur état de placement sur la grille
+                # (status). Un cours composé peut donc être FULLY_VENTILATED avec des enfants
+                # encore UNPLACED : ce sont deux diagnostics distincts (répartition structurelle
+                # vs. planification), volontairement découplés.
+                if self.resources_fully_ventilated_list(children):
                     self.decomposition_status = "FULLY_VENTILATED"
                 else:
                     self.decomposition_status = "PARTIALLY_VENTILATED"
@@ -298,24 +301,20 @@ class Course(Base):
                         f"au type de période '{self.period_type_id}' du cours."
                     )
 
-    @onchange('teacher_ids', 'is_co_teaching', 'children_ids')
-    @constrains('teacher_ids', 'is_co_teaching', 'children_ids')
+    @onchange('children_ids')
+    @constrains('children_ids')
     def _compute_is_composed(self, db=None):
-        """Marque automatiquement le cours comme composé s'il y a plusieurs profs sans co-enseignement, ou s'il a des enfants."""
-        has_multiple_teachers = getattr(self, 'teachers', None) and len(self.teachers) > 1 and not getattr(self, 'is_co_teaching', False)
-        has_children = getattr(self, 'children', None) and len(self.children) > 0
-        
-        if has_multiple_teachers or has_children:
-            self.is_composed = True
-        else:
-            self.is_composed = False
+        """Marque automatiquement le cours comme composé s'il a des cours enfants — indépendamment
+        des ressources qui lui sont liées (nombre de profs ou autre) : un cours multi-ressource
+        n'est pas nécessairement composé, et un cours composé ne l'est jamais par ses ressources."""
+        self.is_composed = bool(getattr(self, 'children', None))
 
     @constrains('week_type', 'parent_id')
     def _sync_parent_week_type(self, db, exclude_child_id=None):
         """Si un enfant change d'alternance ou est supprimé, on recalcule celle de son parent."""
         if not self.parent_id:
             return
-            
+
         parent = db.get(self.__class__, self.parent_id)
         if not parent:
             return
@@ -388,20 +387,29 @@ class Course(Base):
             if child_end > parent_end:
                 raise ValueError("La fin d'un cours enfant ne peut pas être ultérieure à la fin du cours parent.")
 
-        # 2. Contraintes de ressources (l'enfant ne peut pas avoir une ressource non présente dans le parent)
-        def _check_resources(child_resources, parent_resources, name):
-            parent_ids = {r.id for r in parent_resources}
-            for cr in child_resources:
-                if cr.id not in parent_ids:
-                    raise ValueError(f"La ressource {name} (ID: {cr.id}) de l'enfant est absente du cours parent.")
+        # La contrainte de confinement (l'enfant ne peut pas avoir une ressource absente du
+        # parent) n'est plus une rejection : elle est maintenue automatiquement par la cascade
+        # ressources enfant -> parent, voir Course._cascade_resources_to_parent.
 
-        _check_resources(self.teachers, self.parent.teachers, "Enseignant")
-        _check_resources(self.non_teaching_staffs, self.parent.non_teaching_staffs, "Personnel non enseignant")
-        _check_resources(self.classrooms, self.parent.classrooms, "Salle")
-        _check_resources(self.divisions, self.parent.divisions, "Division")
-        _check_resources(self.groups, self.parent.groups, "Groupe")
-        _check_resources(self.materials, self.parent.materials, "Matériel")
-        _check_resources(self.class_parts, self.parent.class_parts, "Partie de classe")
+    @constrains('parent_id', 'subject_id')
+    def validate_child_requires_subject(self, db):
+        """Un cours qui a un parent doit obligatoirement avoir sa propre matière — contrairement
+        au parent lui-même, qui peut rester sans matière propre (ex: "Pôle Sciences")."""
+        if self.parent_id is not None and self.subject_id is None:
+            raise ValueError("Un cours enfant doit obligatoirement avoir une matière.")
+
+    @constrains('teacher_ids', 'non_teaching_staff_ids', 'classroom_ids', 'division_ids', 'group_ids', 'material_ids', 'class_part_ids')
+    def validate_has_at_least_one_resource(self, db):
+        """
+        Un cours doit toujours conserver au moins une ressource, tous types confondus (profs,
+        personnel, salles, classes, groupes, matériel, parties de classe) — ne se déclenche que
+        si l'appelant touche explicitement l'un de ces champs (voir @constrains), donc sans
+        effet rétroactif sur un cours existant modifié sans toucher à ses ressources, ni sur une
+        création qui ne fixe aucun de ces champs (cours "coquille" avant première affectation).
+        """
+        total = sum(len(getattr(self, rel)) for rel in self._RESOURCE_RELATIONS)
+        if total == 0:
+            raise ValueError("Impossible de retirer la dernière ressource d'un cours : au moins un professeur, personnel non enseignant, salle, classe, groupe, matériel ou partie de classe doit rester.")
 
     @constrains('subject_id', 'teacher_ids', 'division_ids', 'group_ids', 'class_part_ids', 'is_composed')
     def compute_name(self, db):
@@ -446,7 +454,7 @@ class Course(Base):
     def transform_to_simple_courses(self, db):
         """Transforme ce cours complexe en N cours simples en libérant ses enfants et en se supprimant."""
         if not self.is_composed:
-            raise ValueError("Ce cours n'est pas complexe.")
+            raise ValueError("Ce cours n'est pas composé.")
         
         for child in self.children:
             child.update(db, {'parent_id': None})
@@ -660,6 +668,79 @@ class Course(Base):
                 if parent_ts := db.get(Timeslot, parent.timeslot_id):
                     vals['timeslot_id'] = parent_ts.get_offset_timeslot(db, offset)
 
+    # Ressources (hors matière, qui suit ses propres règles) partagées entre un cours et son
+    # parent — voir _cascade_resources_to_parent / _cascade_resource_removal_to_children.
+    _RESOURCE_RELATIONS = ('teachers', 'non_teaching_staffs', 'classrooms', 'divisions', 'groups', 'materials', 'class_parts')
+    _RESOURCE_FIELD_BY_RELATION = {
+        'teachers': 'teacher_ids',
+        'non_teaching_staffs': 'non_teaching_staff_ids',
+        'classrooms': 'classroom_ids',
+        'divisions': 'division_ids',
+        'groups': 'group_ids',
+        'materials': 'material_ids',
+        'class_parts': 'class_part_ids',
+    }
+
+    def _resource_ids_snapshot(self) -> dict:
+        return {rel: {r.id for r in getattr(self, rel)} for rel in self._RESOURCE_RELATIONS}
+
+    def _cascade_resources_to_parent(self, db: Session) -> None:
+        """
+        Ajouter une ressource (hors matière) à un cours qui a un parent l'ajoute aussi au
+        parent si celui-ci ne l'avait pas déjà — jamais l'inverse (ajouter une ressource au
+        parent n'a pas d'impact sur les enfants, voir spec.md). Idempotent et basé sur l'état
+        COURANT de `self` (pas un diff avant/après) : couvre aussi bien l'ajout d'une nouvelle
+        ressource que le rattachement de `self` à un nouveau parent (ses ressources existantes
+        doivent alors rejoindre ce parent).
+        """
+        if not self.parent_id:
+            return
+        parent = db.get(self.__class__, self.parent_id)
+        if not parent:
+            return
+
+        self_snapshot = self._resource_ids_snapshot()
+        parent_vals = {}
+        for rel, self_ids in self_snapshot.items():
+            parent_ids = {r.id for r in getattr(parent, rel)}
+            missing = self_ids - parent_ids
+            if missing:
+                parent_vals[self._RESOURCE_FIELD_BY_RELATION[rel]] = list(parent_ids | missing)
+        if parent_vals:
+            parent.update(db, parent_vals)
+
+    def _cascade_resource_removal_to_children(self, db: Session, before: dict) -> None:
+        """
+        Retirer une ressource d'un cours la retire de TOUS ses enfants — jamais l'inverse
+        (retirer une ressource d'un enfant n'a pas d'impact sur le parent, voir spec.md).
+        `before` est l'état de `self` juste avant l'appel à super().update() ; seules les
+        ressources RÉELLEMENT retirées par cet appel sont propagées.
+        """
+        # Requête directe plutôt que self.children (voir recompute_status/_sync_parent_week_type,
+        # même piège de collection ORM obsolète après une suppression faite "de l'autre côté").
+        children = db.query(self.__class__).filter(self.__class__.parent_id == self.id).all()
+        if not children:
+            return
+
+        after_snapshot = self._resource_ids_snapshot()
+        removed_by_relation = {
+            rel: before[rel] - after_snapshot[rel]
+            for rel in self._RESOURCE_RELATIONS
+            if before[rel] - after_snapshot[rel]
+        }
+        if not removed_by_relation:
+            return
+
+        for child in children:
+            child_vals = {}
+            for rel, removed_ids in removed_by_relation.items():
+                child_ids = {r.id for r in getattr(child, rel)}
+                remaining = child_ids - removed_ids
+                if remaining != child_ids:
+                    child_vals[self._RESOURCE_FIELD_BY_RELATION[rel]] = list(remaining)
+            if child_vals:
+                child.update(db, child_vals)
+
     @staticmethod
     def _apply_group_class_part_cascade(db: Session, vals: dict, current_group_ids: set[int], current_class_part_ids: set[int]) -> None:
         """
@@ -729,15 +810,19 @@ class Course(Base):
 
         # 2. Sauvegarde
         instance = super().create(db, vals)
-        
+
         # Recalculer le statut du nouveau cours
         instance.recompute_status()
-        
+
+        # Cascade ressources -> parent (voir _cascade_resources_to_parent) : les ressources du
+        # nouvel enfant doivent déjà toutes être présentes sur le parent.
+        instance._cascade_resources_to_parent(db)
+
         if instance.parent_id:
             parent = db.get(cls, instance.parent_id)
             if parent:
                 parent.recompute_status()
-                
+
         return instance
 
     def update(self, db: Session, vals: dict):
@@ -789,6 +874,12 @@ class Course(Base):
         # applique déjà le résultat cascadé en un seul passage.
         self.__class__._apply_group_class_part_cascade(db, vals, before_group_ids, before_class_part_ids)
 
+        # Capturé avant sauvegarde pour la cascade ressources <-> parent/enfants ci-dessous
+        # (voir _cascade_resources_to_parent / _cascade_resource_removal_to_children).
+        touches_any_resource = any(f in vals for f in self._RESOURCE_FIELD_BY_RELATION.values())
+        before_resources = self._resource_ids_snapshot() if touches_any_resource else None
+        parent_id_changed = 'parent_id' in vals and vals['parent_id'] != old_parent_id
+
         # 3. Sauvegarde
         res = super().update(db, vals)
 
@@ -798,9 +889,16 @@ class Course(Base):
             removed_group_ids = before_group_ids - {g.id for g in self.groups}
             cleanup_orphaned_resources(db, list(removed_class_part_ids), list(removed_group_ids))
 
+        # Cascade ressources -> parent (ajout) et parent -> enfants (retrait) — voir spec.md,
+        # section Course, « Cascade de membership des ressources parent/enfant ».
+        if self.parent_id and (touches_any_resource or parent_id_changed):
+            self._cascade_resources_to_parent(db)
+        if touches_any_resource:
+            self._cascade_resource_removal_to_children(db, before_resources)
+
         # Recalculer son propre statut
         self.recompute_status()
-        
+
         # Faire remonter au parent
         if old_parent_id and old_parent_id != self.parent_id:
             old_parent = db.get(self.__class__, old_parent_id)

@@ -248,6 +248,14 @@ class CRUDMixin:
 
             db.flush()
 
+            # Autorise les mutations directes faites par les @constrains ci-dessous (ex:
+            # compute_name qui fait self.name = ...) — posé AVANT la boucle, pas après : un
+            # @constrains qui accède à une relation encore jamais chargée (lazy load) déclenche
+            # un autoflush SQLAlchemy qui persisterait alors une mutation antérieure de CETTE
+            # même boucle hors de toute protection (voir receive_before_update), symétrique avec
+            # update() ci-dessous qui pose ce flag avant sa propre boucle de contraintes.
+            instance._via_crud_mixin_update = True
+
             # 6. Exécuter les contraintes métier
             for attr_name in dir(instance):
                 method = getattr(instance, attr_name)
@@ -256,7 +264,6 @@ class CRUDMixin:
                     if not constrained_fields or any(f in original_vals_keys for f in constrained_fields):
                         method(db)
 
-            instance._via_crud_mixin_update = True
             db.flush()
             db.refresh(instance)
             return instance

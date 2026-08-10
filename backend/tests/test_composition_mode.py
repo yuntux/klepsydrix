@@ -171,8 +171,9 @@ class TestCompositionModes:
         # Vérification de l'ordre ou de la présence des IDs
         child_teacher_ids = {t.id for t in children[0].teachers}
         assert child_teacher_ids == {teachers[0].id, teachers[1].id}
-        # Plusieurs profs sur la ligne => enfant marqué en co-enseignement, ce qui doit
-        # empêcher _compute_is_composed de le marquer à tort comme composé (voir course.py).
+        # Plusieurs profs sur la ligne => enfant marqué en co-enseignement, mais is_composed
+        # reste False : cette notion est purement dérivée de la présence d'enfants (voir
+        # course.py, _compute_is_composed), jamais du nombre de ressources liées.
         assert children[0].is_co_teaching is True
         assert children[0].is_composed is False
 

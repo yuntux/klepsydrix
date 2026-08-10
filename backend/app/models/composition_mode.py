@@ -192,6 +192,7 @@ class CompositionModes:
                     resolved_class_part = existing
                 else:
                     partition = partitions_by_division.get(division_id)
+                    
                     if partition is None:
                         label = CompositionModes._compute_partition_label(db, course, subjects_by_division[division_id])
                         partition = Partition.create(db, {"code": label, "name": label, "division_id": division_id, "is_system_generated": True})
@@ -255,8 +256,11 @@ class CompositionModes:
 
     @staticmethod
     def apply(db: Session, course: Course, mode: int, mapping: list[dict] = None, preview: bool = False) -> list:
-        if not course.is_composed:
-            raise CompositionError("Le cours doit être un cours composé (is_composed=True).")
+        # is_composed est désormais purement dérivé de la présence d'enfants (Course._compute_is_composed) :
+        # n'importe quel cours peut être décomposé, y compris un cours simple pas encore composé — la
+        # décomposition elle-même est ce qui va lui créer des enfants et donc le rendre is_composed=True.
+        if course.status == "PLACED":
+            raise CompositionError("Un cours déjà placé sur la grille ne peut pas être décomposé, veuillez le dépositionner d'abord.")
 
         mapping = mapping or []
         if not mapping:
@@ -344,8 +348,8 @@ class CompositionModes:
             'is_composed': False,
             'week_type': course.week_type.value,
             'period_type_id': course.period_type_id,
-            'material_ids': [r.id for r in course.materials],
-            'non_teaching_staff_ids': [r.id for r in course.non_teaching_staffs],
+            'material_ids': [],
+            'non_teaching_staff_ids': [],
             # Ressources spatiales fournies par le mapping (ou liste vide si omis)
             'teacher_ids': map_row.get('teacher_ids', []),
             'classroom_ids': map_row.get('classroom_ids', []),

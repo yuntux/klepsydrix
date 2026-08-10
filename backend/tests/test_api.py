@@ -854,6 +854,32 @@ def test_course_status_calculation(db_session: Session):
     assert parent.decomposition_status == "FULLY_VENTILATED"
 
 
+def test_course_decomposition_status_ignores_children_placement(db_session: Session):
+    """
+    decomposition_status ne mesure que la ventilation des ressources (répartition parent ->
+    enfants), pas le placement des enfants sur la grille : un cours composé peut donc être
+    FULLY_VENTILATED alors qu'aucun de ses enfants n'a de timeslot_id (deux diagnostics
+    volontairement découplés, voir Course.recompute_status).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    # is_composed est purement dérivé de la présence d'enfants (_compute_is_composed, déclenché
+    # sur 'children_ids') : le forcer explicitement dans les vals de création stocke la valeur
+    # sans être recalculé, puisque 'children_ids' n'est pas une clé touchée par cette création.
+    teacher1 = Teacher.create(db_session, {"code": "T_DECOMP1", "first_name": "Prof", "last_name": "Decomp1", "school_id": school.id})
+
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "is_composed": True, "teacher_ids": [teacher1.id],
+    })
+    assert parent.is_composed is True
+    child = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "teacher_ids": [teacher1.id],
+    })
+
+    assert child.status == "UNPLACED"
+    assert parent.decomposition_status == "FULLY_VENTILATED"
+
+
 def test_course_parent_week_type_cascade(db_session: Session):
     """
     Vérifie que le week_type du cours parent se synchronise automatiquement 
@@ -1369,9 +1395,13 @@ def test_course_group_removed_cascades_removal_of_its_class_parts(db_session: Se
     """Le retrait d'un Group du cours retire également toutes ses ClassPart (règle 3)."""
     subject = db_session.query(Subject).first()
     school = db_session.query(School).first()
+    # Un prof est ajouté pour que le retrait du groupe ne retire pas la dernière ressource du
+    # cours (voir validate_has_at_least_one_resource) : non pertinent pour CE test, qui vérifie
+    # uniquement la cascade Group -> ClassPart.
+    teacher = Teacher.create(db_session, {"code": "T_GRP_RM", "first_name": "Prof", "last_name": "GrpRm", "school_id": school.id})
     cp1, cp2 = _make_division_class_parts(db_session)
     group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
-    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group.id]})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id], "group_ids": [group.id]})
     assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
 
     course.update(db_session, {"group_ids": []})
@@ -1434,3 +1464,116 @@ def test_course_group_and_extra_class_part_added_together_on_update(db_session: 
 
     assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
     assert {g.id for g in course.groups} == {group.id}
+
+
+def test_course_child_requires_subject(db_session: Session):
+    """Un cours qui a un parent doit obligatoirement avoir sa propre matière."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_REQSUBJ", "first_name": "Prof", "last_name": "ReqSubj", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "is_composed": True, "teacher_ids": [teacher.id]})
+
+    with pytest.raises(ValueError, match="matière"):
+        Course.create(db_session, {"school_id": school.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [teacher.id]})
+    db_session.rollback()
+
+
+def test_course_resource_added_to_child_cascades_to_parent(db_session: Session):
+    """Ajouter une ressource à un enfant l'ajoute aussi au parent si elle n'y était pas déjà."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_UP1", "first_name": "Prof", "last_name": "Up1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_UP2", "first_name": "Prof", "last_name": "Up2", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    child.update(db_session, {"teacher_ids": [t1.id, t2.id]})
+
+    assert {t.id for t in parent.teachers} == {t1.id, t2.id}
+
+
+def test_course_resource_added_to_parent_does_not_cascade_to_children(db_session: Session):
+    """Ajouter une ressource au parent n'a aucun effet sur ses enfants (pas de cascade inverse)."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_NODOWN1", "first_name": "Prof", "last_name": "NoDown1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_NODOWN2", "first_name": "Prof", "last_name": "NoDown2", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    parent.update(db_session, {"teacher_ids": [t1.id, t2.id]})
+
+    assert {t.id for t in child.teachers} == {t1.id}
+
+
+def test_course_resource_removed_from_child_does_not_affect_parent(db_session: Session):
+    """Retirer une ressource d'un enfant n'a aucun effet sur les ressources du parent."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_NOUP1", "first_name": "Prof", "last_name": "NoUp1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_NOUP2", "first_name": "Prof", "last_name": "NoUp2", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+
+    child.update(db_session, {"teacher_ids": [t1.id]})
+
+    assert {t.id for t in parent.teachers} == {t1.id, t2.id}
+
+
+def test_course_resource_removed_from_parent_cascades_to_children(db_session: Session):
+    """Retirer une ressource du parent la retire de TOUS ses enfants."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_DOWN1", "first_name": "Prof", "last_name": "Down1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_DOWN2", "first_name": "Prof", "last_name": "Down2", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+
+    parent.update(db_session, {"teacher_ids": [t1.id]})
+
+    assert {t.id for t in child.teachers} == {t1.id}
+
+
+def test_course_reparenting_cascades_its_full_resource_set_to_new_parent(db_session: Session):
+    """Rattacher un cours existant à un parent y fait remonter TOUTES ses ressources déjà en place, pas seulement celles ajoutées dans le même appel."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_REPARENT1", "first_name": "Prof", "last_name": "Reparent1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_REPARENT2", "first_name": "Prof", "last_name": "Reparent2", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+    standalone = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t2.id]})
+
+    standalone.update(db_session, {"parent_id": parent.id})
+
+    assert {t.id for t in parent.teachers} == {t1.id, t2.id}
+
+
+def test_course_cannot_remove_last_resource(db_session: Session):
+    """Impossible de retirer la dernière ressource d'un cours, tous types confondus."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_LASTRES", "first_name": "Prof", "last_name": "LastRes", "school_id": school.id})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id]})
+
+    with pytest.raises(ValueError, match="dernière ressource"):
+        course.update(db_session, {"teacher_ids": []})
+    db_session.rollback()
+
+
+def test_course_resource_removal_from_parent_blocked_if_it_would_empty_a_child(db_session: Session):
+    """
+    Le retrait en cascade (parent -> enfants) est bloqué si il viderait complètement un enfant
+    de toute ressource -- même règle "dernière ressource" que pour un retrait direct.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_BLOCK1", "first_name": "Prof", "last_name": "Block1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_BLOCK2", "first_name": "Prof", "last_name": "Block2", "school_id": school.id})
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    # L'enfant n'a QUE t1 : le retirer du parent le retirerait aussi de l'enfant, qui se
+    # retrouverait sans aucune ressource.
+    Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    with pytest.raises(ValueError, match="dernière ressource"):
+        parent.update(db_session, {"teacher_ids": [t2.id]})
+    db_session.rollback()

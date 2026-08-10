@@ -292,10 +292,10 @@ Représente une entité administrative scolaire autonome (un collège, un lycée
 > Pour assurer une flexibilité maximale, la base de données est initialisée avec des créneaux temporels (`Timeslot`) au pas le plus fin (15 minutes, soit des incréments de `0.25`h). Lors de l'exécution, le solveur filtre immédiatement les créneaux disponibles (ex: uniquement les multiples de `0.5`h si la durée globale est de 30 minutes) avant de lancer l'optimisation. Ainsi, la combinatoire reste strictement limitée sans impact sur la performance.
 
 ### 1. Course (Cours)
-Le conteneur logique de cours — l'entité effectivement placée par le solveur sur la grille. Contrairement à une ancienne version de ce document, les ressources (professeurs, classes, groupes) sont portées par de vraies relations N-à-N, pas par des clés étrangères singulières : un cours simple en porte typiquement une seule de chaque, mais un cours composé parent (voir `is_composed`) ou un cours en co-enseignement en porte plusieurs.
+Le conteneur logique de cours — l'entité effectivement placée par le solveur sur la grille. Contrairement à une ancienne version de ce document, les ressources (professeurs, classes, groupes) sont portées par de vraies relations N-à-N, pas par des clés étrangères singulières : un cours simple en porte typiquement une seule de chaque, mais un cours composé parent ou un cours en co-enseignement peut en porter plusieurs. **Ces deux notions sont indépendantes** : `is_composed` (voir ci-dessous) ne dépend que de la présence de cours enfants, jamais du nombre de ressources liées — un cours multi-ressource (ex: co-enseignement à 2 profs) n'est pas nécessairement composé, et réciproquement.
 *   `id` : Clé primaire (Entier)
 *   `parent_id` : Clé étrangère optionnelle vers un **Course** parent (Entier, relation N-à-1). Renseigné uniquement sur les cours enfants issus de la décomposition d'un cours composé.
-*   `subject_id` : Clé étrangère vers la **Matière** enseignée (Entier, relation N-à-1). Optionnelle uniquement pour un cours composé parent sans matière propre (ex: "Pôle Sciences").
+*   `subject_id` : Clé étrangère vers la **Matière** enseignée (Entier, relation N-à-1). Optionnelle uniquement pour un cours composé parent sans matière propre (ex: "Pôle Sciences") — **obligatoire dès que `parent_id` est renseigné** : un cours enfant doit toujours porter sa propre matière (`validate_child_requires_subject`).
 *   `timeslot_id` : Clé étrangère optionnelle vers le **Timeslot** de départ du placement (Entier, relation N-à-1). Le cours occupe ensuite ce créneau et les suivants de manière contiguë, sur une durée totale de `duration_minutes`.
 *   `parent_timeslot_offset` : Décalage en nombre de créneaux standard par rapport au créneau du cours parent (Entier, par défaut `0`), utilisé pour les cours enfants d'un cours composé dont le placement est décalé (ex: rotation de sous-groupes en barrette).
 *   `week_type` : Type d'alternance de semaine (Enum `CourseWeekType`, distincte de l'enum `WeekType` de **ResourcePreference** : `A`, `B`, `W` pour Toutes les semaines, ou `Q` pour Quinzaine à déterminer, par défaut `W`). `Q` matérialise qu'un cours aura lieu en quinzaine sans que la semaine A/B soit encore choisie (résolution différée au placement manuel ou automatique, voir section « Synchronisation Service ↔ ServiceRepartition » et `Q` ci-dessous) :
@@ -345,10 +345,10 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
     *   `UNPLACED` : Le cours n'est pas planifié (`timeslot_id = None`).
     *   `PLACED` : Le cours est planifié (`timeslot_id` renseigné).
 
-*   `decomposition_status` : État structurel et de ventilation de ressources d'un cours composé (`is_composed = True`) matérialisé ou calculé en base (Chaîne, par défaut `UNVENTILATED`) :
+*   `decomposition_status` : État structurel de ventilation des ressources d'un cours composé (`is_composed = True`) matérialisé ou calculé en base (Chaîne, par défaut `UNVENTILATED`) — mesure uniquement la répartition des ressources du parent vers ses enfants, indépendamment de leur état de placement sur la grille (voir `status` ci-dessus, un diagnostic distinct) :
     *   `UNVENTILATED` : Le cours composé ne possède aucun cours enfant.
-    *   `PARTIALLY_VENTILATED` : Le cours composé possède des cours enfants, mais certaines ressources du cours composé n'ont pas encore été ventilées ou seulement une partie des enfants est planifiée.
-    *   `FULLY_VENTILATED` : Toutes les ressources du cours composé ont été ventilées dans des cours enfants, et tous les cours enfants sont planifiés.
+    *   `PARTIALLY_VENTILATED` : Le cours composé possède des cours enfants, mais certaines ressources du cours composé n'ont pas encore été ventilées vers au moins un enfant.
+    *   `FULLY_VENTILATED` : Toutes les ressources du cours composé ont été ventilées dans des cours enfants — que ces enfants soient ou non déjà placés sur la grille (`status`).
 
 *   `has_conflict` : Indique si le cours présente un conflit de ressources (double réservation d'enseignant, salle, classe) ou le non-respect d'une indisponibilité stricte (`RED`). Cette information dynamique est séparée du statut matérialisé et calculée uniquement à la demande.
 *   *Relations hiérarchiques* : `parent` (le **Course** composé parent, le cas échéant), `children` (Liste des **Course** enfants issus de la décomposition — suppression en cascade)
@@ -359,6 +359,18 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
     2. **Ajout d'une `ClassPart` au cours** → **aucun effet** sur les `groups` du cours (pas de cascade inverse : posséder une des parties d'un groupe ne signifie pas posséder le groupe entier).
     3. **Retrait d'un `Group` du cours** → retire du cours toutes ses `ClassPart`, **sauf** celles encore requises par un autre `Group` demeurant sur le cours (un `Group` présent doit toujours voir la totalité de ses `ClassPart` présentes, invariant posé par la règle 1).
     4. **Retrait d'une `ClassPart` du cours** → retire du cours tout `Group` composé de cette `ClassPart` — mais **sans réaction en chaîne** : ce retrait de `Group` ne provoque pas à son tour le retrait de ses AUTRES `ClassPart` (la règle 3 ne s'applique qu'à un retrait de `Group` explicitement demandé par l'appelant, jamais à un retrait de `Group` déclenché par la règle 4 elle-même).
+
+    **Contraintes structurelles parent/enfant (`validate_child_constraints`)** — appliquées à tout `Course` portant un `parent_id` :
+    *   **Profondeur** : un enfant ne peut pas lui-même avoir des enfants, et ne peut pas avoir pour parent un cours qui est lui-même un enfant — 2 niveaux maximum (parent composé + enfants simples, jamais de petit-enfant).
+    *   **Fenêtre temporelle** : le créneau effectif de l'enfant (`parent.timeslot` décalé de `parent_timeslot_offset`) doit tomber le même jour que le parent, ne peut pas commencer avant le début du parent, ni finir après la fin du parent (`parent.timeslot.minutes_from_midnight + parent.duration_minutes`).
+
+    **Cascade de membership des ressources parent/enfant** — s'applique à `teachers`, `non_teaching_staffs`, `classrooms`, `divisions`, `groups`, `materials` et `class_parts` (**pas** à `subject_id`, qui suit sa propre règle ci-dessus, indépendante et non cascadée) :
+    1. **Ajout d'une ressource à un enfant** → ajoutée aussi au parent si celui-ci ne l'avait pas déjà (`Course._cascade_resources_to_parent`). Rattacher un cours déjà pourvu de ressources à un nouveau parent (`parent_id` posé après coup) fait remonter la TOTALITÉ de ses ressources existantes, pas seulement celles ajoutées dans le même appel.
+    2. **Ajout d'une ressource au parent** → **aucun effet** sur les enfants (pas de cascade inverse, symétrique à la règle 2 de la cascade Group/ClassPart ci-dessus).
+    3. **Retrait d'une ressource sur un enfant** → **aucun effet** sur le parent (les autres enfants, ou le parent lui-même, peuvent toujours en avoir besoin).
+    4. **Retrait d'une ressource sur le parent** → retire cette ressource de TOUS ses enfants (`Course._cascade_resource_removal_to_children`). Si ce retrait en cascade viderait complètement un enfant de toute ressource, l'opération entière est rejetée (voir règle « dernière ressource » ci-dessous) — le retrait sur le parent doit alors être précédé d'un retrait manuel sur l'enfant concerné.
+
+    **Règle de la dernière ressource (`validate_has_at_least_one_resource`)** : un `Course` (parent, enfant, ou simple) doit toujours conserver au moins une ressource, tous types confondus (`teachers` + `non_teaching_staffs` + `classrooms` + `divisions` + `groups` + `materials` + `class_parts`) — un retrait qui viderait complètement ces 7 relations est rejeté. Cette règle ne se déclenche que si l'appelant touche explicitement l'un de ces champs : elle n'a donc aucun effet rétroactif sur un cours existant modifié sans toucher ses ressources, ni sur la création d'un cours « coquille » sans aucune ressource (avant sa première affectation).
 
 
 ### 1bis. Session (Séance)
