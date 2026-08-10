@@ -164,6 +164,10 @@ interface NotebookNode {
   children?: NotebookNode[];
   layout?: 'VERTICAL' | 'HORIZONTAL';
   panels?: Panel[];
+  // Feuille "action pure" (pas de navigation) : au lieu de devenir la feuille active et de changer
+  // le contenu affiché, un clic déclenche uniquement trigger-action — le contenu déjà à l'écran
+  // reste inchangé derrière la popin ouverte par cette action (voir App.vue, onTriggerAction).
+  action?: { resourceKey: string; actionId: string };
 }
 
 const config = shallowRef<NotebookNode[]>([]);
@@ -181,6 +185,7 @@ const currentThemeIndex = ref(0);
 
 const emit = defineEmits<{
   (e: 'change-leaf', leaf: NotebookNode): void;
+  (e: 'trigger-action', action: { resourceKey: string; actionId: string }): void;
 }>();
 
 function toggleSidebar() {
@@ -230,6 +235,14 @@ function isGroupOpen(id: string) {
 }
 
 function selectLeaf(leaf: NotebookNode, parent?: NotebookNode | null, grandParent?: NotebookNode | null) {
+  if (leaf.action) {
+    // Ne touche ni activeLeafId ni activeLeafNode : le contenu déjà affiché reste tel quel
+    // derrière la popin que ce déclenchement va ouvrir (voir App.vue, onTriggerAction).
+    activePopupNode.value = null;
+    emit('trigger-action', leaf.action);
+    return;
+  }
+
   activeLeafId.value = leaf.id;
   activeLeafNode.value = leaf;
   

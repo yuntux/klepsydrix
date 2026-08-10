@@ -22,6 +22,7 @@
       :modelValue="draft"
       inline
       :submitLabel="currentStep.submitLabel"
+      :formConfig="{ deletable: false }"
       @submit="onStepSubmit"
       @cancel="onCancel"
     >
@@ -58,7 +59,12 @@
 //   peuplé sans code de "plomberie" supplémentaire (ex: rpc_preview_composition renvoie
 //   children_vals, lu directement par l'étape suivante qui porte un champ de cette même clé).
 // - isLast (ou la dernière étape déclarée) : après l'appel RPC, ferme le wizard (`success`) au
-//   lieu d'avancer à l'étape suivante.
+//   lieu d'avancer à l'étape suivante — dispatch alors un événement `resource:mutated` pour la
+//   ressource propre du wizard (props.resourceKey, écouté par App.vue pour invalider les caches/
+//   recharger les données globales), PLUS un par entrée de `mutated_resources` (clé optionnelle
+//   du résultat RPC d'une étape quelconque, accumulée dans le brouillon comme les autres) — pour
+//   un wizard dont la ressource propre (ex: un TransientModel singleton) diffère de ce qu'il mute
+//   réellement en base (ex: rpc_generate_courses mute "courses", pas "wizard_course_generations").
 import { ref, computed, reactive } from 'vue';
 import GenericForm from '../GenericForm.vue';
 import BaseButton from '../BaseButton.vue';
@@ -90,7 +96,12 @@ const emit = defineEmits<{
 const currentStepIndex = ref(0);
 const loading = ref(false);
 const errorMessage = ref('');
-const draft = reactive<Record<string, any>>({});
+// Pré-rempli avec l'enregistrement déjà chargé par le formulaire parent (props.model) : sans ça,
+// un champ de la toute première étape ne peut rien afficher tant qu'aucun RPC n'a tourné (le
+// draft ne se remplit normalement qu'à partir du résultat JSON de chaque étape, voir onStepSubmit
+// ci-dessous) — utile pour une étape d'introduction/confirmation qui reprend un champ déjà connu
+// de l'enregistrement (ex: un texte d'avertissement calculé par read()).
+const draft = reactive<Record<string, any>>({ ...(props.model || {}) });
 
 const currentStep = computed<WizardStep | undefined>(() => props.steps[currentStepIndex.value]);
 
@@ -144,6 +155,11 @@ function advanceOrFinish(step: WizardStep) {
   const isLastStep = step.isLast || currentStepIndex.value === props.steps.length - 1;
   if (isLastStep) {
     window.dispatchEvent(new CustomEvent('resource:mutated', { detail: { resource_name: props.resourceKey } }));
+    if (Array.isArray(draft.mutated_resources)) {
+      for (const resourceName of draft.mutated_resources) {
+        window.dispatchEvent(new CustomEvent('resource:mutated', { detail: { resource_name: resourceName } }));
+      }
+    }
     emit('success');
   } else {
     currentStepIndex.value++;

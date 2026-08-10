@@ -1,5 +1,8 @@
 <template>
-  <div :class="inline ? 'inline-form-container' : 'modal-overlay'">
+  <!-- headless : rend uniquement la popin du wizard (BaseModal ci-dessous, hors de ce bloc), sans
+       le formulaire/l'en-tête/les boutons — pour un déclenchement direct d'une action de menu (voir
+       formConfig.autoOpenActionId) qui ne doit rien afficher tant que le wizard n'est pas ouvert. -->
+  <div v-if="!headless" :class="inline ? 'inline-form-container' : 'modal-overlay'">
     <div :class="inline ? 'generic-form-inline' : 'generic-form-modal glass-morphism'">
       <div class="form-header">
         <h3 class="form-title">{{ isMultiEdit ? 'Modification groupée' : title }}</h3>
@@ -31,17 +34,17 @@
                sait pas ce qui s'y trouve (ex: GenericWizard.vue y place son bouton "Précédent"),
                volontairement pour ne coupler ce composant à aucun besoin spécifique. -->
           <slot name="actions-start"></slot>
-          <BaseButton v-if="localModel && localModel.id && !isMultiEdit" type="button" variant="danger" class="btn-delete" @click="handleDelete">
+          <BaseButton v-if="localModel && localModel.id && !isMultiEdit && isDeletableForm" type="button" variant="danger" class="btn-delete" @click="handleDelete">
             Supprimer
           </BaseButton>
-          
+
           <!-- Actions dynamiques métier du modèle -->
           <template v-if="localModel && localModel.id && !isMultiEdit">
-            <BaseButton 
-              v-for="action in modelActions.filter(a => evaluateActionCondition(a, localModel))" 
+            <BaseButton
+              v-for="action in modelActions.filter(a => evaluateActionCondition(a, localModel))"
               :key="action.id"
-              type="button" 
-              variant="success" 
+              type="button"
+              variant="success"
               @click="handleActionClick(action)"
             >
               {{ action.label || action.name }}
@@ -57,21 +60,21 @@
         </div>
       </form>
     </div>
-    
-    <BaseModal v-model="showWizard" :title="activeActionTitle" maxWidth="1600px">
-      <component
-        v-if="showWizard && activeAction"
-        :is="activeAction.component ? componentsMap[activeAction.component] : GenericWizard"
-        :recordId="localModel.id"
-        :model="localModel"
-        :resourceKey="resourceKey"
-        :steps="activeAction.steps"
-        :cancelRpc="activeAction.cancelRpc"
-        @cancel="showWizard = false"
-        @success="showWizard = false"
-      />
-    </BaseModal>
   </div>
+
+  <BaseModal v-model="showWizard" :title="activeActionTitle" maxWidth="1600px">
+    <component
+      v-if="showWizard && activeAction"
+      :is="activeAction.component ? componentsMap[activeAction.component] : GenericWizard"
+      :recordId="localModel.id"
+      :model="localModel"
+      :resourceKey="resourceKey"
+      :steps="activeAction.steps"
+      :cancelRpc="activeAction.cancelRpc"
+      @cancel="showWizard = false"
+      @success="showWizard = false"
+    />
+  </BaseModal>
 </template>
 
 <script setup lang="ts">
@@ -120,7 +123,7 @@ function handleActionClick(action: any) {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'html';
   required?: boolean;
   requiredExpr?: string;
   invisibleExpr?: string;
@@ -207,7 +210,13 @@ function renderMarkdown(md: string | undefined): string {
 
 interface FormConfig {
   editableForm?: boolean;
+  deletable?: boolean;
   fields?: any[];
+  // Ouvre automatiquement ce wizard (id d'une entrée de __actions__) dès que l'enregistrement et
+  // la liste des actions sont chargés — pour une feuille de menu "action" pure (ex: un wizard
+  // TransientModel singleton) où l'écran intermédiaire du formulaire n'a pas d'intérêt propre :
+  // voir autoOpenActionId ci-dessous.
+  autoOpenActionId?: string;
 }
 
 const props = defineProps<{
@@ -222,6 +231,10 @@ const props = defineProps<{
   // réutilise GenericForm tel quel pour rendre chaque étape, avec un libellé propre à l'étape
   // ("Suivant", "Générer l'aperçu", "Enregistrer définitivement"...).
   submitLabel?: string;
+  // N'affiche ni le formulaire ni son en-tête/boutons — seule la popin du wizard (déclenchée par
+  // formConfig.autoOpenActionId) reste visible. Pour une action de menu pure qui ne doit rien
+  // changer à l'écran tant que le wizard n'est pas ouvert (voir App.vue, onTriggerAction).
+  headless?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -230,6 +243,24 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
   (e: 'delete', value: Record<string, any>): void;
 }>();
+
+// Ouverture automatique du wizard désigné par formConfig.autoOpenActionId (voir FormConfig) —
+// déclenchée une seule fois par enregistrement chargé (identité de props.modelValue : App.vue
+// assigne un nouvel objet à chaque visite de la feuille, ce qui permet de rouvrir le wizard si
+// l'utilisateur revient sur cette feuille après l'avoir annulé/fermé).
+let autoOpenedForModel: any = null;
+watch(
+  () => [props.formConfig?.autoOpenActionId, props.modelValue, modelActions.value] as const,
+  ([actionId, model, actions]) => {
+    if (!actionId || !model?.id || autoOpenedForModel === model) return;
+    const action = (actions || []).find((a: any) => a.id === actionId);
+    if (action) {
+      autoOpenedForModel = model;
+      handleActionClick(action);
+    }
+  },
+  { immediate: true }
+);
 
 watch(() => props.resourceKey, async (newKey) => {
   if (newKey) {
@@ -246,6 +277,10 @@ watch(() => props.resourceKey, async (newKey) => {
 
 const isEditableForm = computed(() => {
   return props.formConfig?.editableForm !== false;
+});
+
+const isDeletableForm = computed(() => {
+  return props.formConfig?.deletable !== false;
 });
 
 function parseLayoutElement(elem: any): LayoutElement | null {
@@ -767,6 +802,14 @@ const FormLayoutGrid: any = defineComponent({
                   ? h('span', { class: 'color-divergent-text' }, 'Divergent (cliquez pour choisir)')
                   : null
               ]);
+            } else if (field.type === 'html') {
+              // Contenu HTML formaté en lecture seule (ex: message d'info/de confirmation d'un
+              // wizard) — jamais un input, aucune valeur remontée dans localModel.
+              inputElement = h('div', {
+                class: 'form-html-content',
+                style: inputStyle,
+                innerHTML: gridProps.localModel[key] || ''
+              });
             }
 
             const labelElement = h('label', {
@@ -1087,6 +1130,20 @@ function handleDelete() {
 /* Sélecteur de couleur formulaire — identique à la vue liste */
 .form-color-swatch-wrapper {
   width: 100%;
+}
+
+.form-html-content {
+  width: 100%;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.form-html-content :deep(p) {
+  margin: 0 0 8px 0;
+}
+
+.form-html-content :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .readonly-swatch {

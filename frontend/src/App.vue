@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <!-- Vue interactive principale orchestrée par NotebooksTree (T032) -->
-    <NotebooksTree @change-leaf="onLeafChange">
+    <NotebooksTree @change-leaf="onLeafChange" @trigger-action="onTriggerAction">
       <template #panel="{ panel }">
         <!-- 1. Grille interactive de l'Emploi du Temps -->
         <!-- 1. Grille interactive de l'Emploi du Temps -->
@@ -147,6 +147,20 @@
         </div>
       </template>
     </NotebooksTree>
+
+    <!-- Déclenchement direct d'une action de menu (voir NotebooksTree.vue, feuille "action" et
+         onTriggerAction ci-dessous) : instance headless de GenericForm, invisible tant que son
+         wizard n'est pas ouvert — ne touche à aucun état de la vue affichée derrière. -->
+    <GenericForm
+      v-if="actionWizardResourceKey"
+      :key="actionWizardNonce"
+      headless
+      title=""
+      :fields="[]"
+      :modelValue="actionWizardModel"
+      :resourceKey="actionWizardResourceKey"
+      :formConfig="{ editableForm: false, deletable: false, autoOpenActionId: actionWizardActionId }"
+    />
 
     <!-- Modal Formulaire Générique Fallback -->
     <GenericForm
@@ -329,9 +343,9 @@ const inlineFormTitle = computed(() => {
   return isEditing.value ? `Modifier l'élément` : `Ajouter un élément`;
 });
 
-function onLeafChange(leaf: any) {
+async function onLeafChange(leaf: any) {
   activeLeaf.value = leaf;
-  
+
   if (leaf.id === 'timetable_root') {
     activeTab.value = 'timetable';
   } else {
@@ -343,12 +357,63 @@ function onLeafChange(leaf: any) {
     const listPanel = leaf.panels.find((p: any) => p.component === 'GenericList');
     if (listPanel && listPanel.resourceKey) {
       activeAdminModel.value = listPanel.resourceKey;
-      
+
       // Réinitialiser le formulaire inline et la sélection
       formModel.value = {};
       isEditing.value = false;
       selectedParentIds.value = [];
+      return;
     }
+
+    // Feuille "formulaire singleton" : un panel GenericForm SANS GenericList sœur (ex: un
+    // wizard TransientModel à enregistrement fixe, voir wizard_course_generations) — charge et
+    // sélectionne directement son unique enregistrement, sans passer par une liste préalable.
+    const formPanel = leaf.panels.find((p: any) => p.component === 'GenericForm');
+    if (formPanel && formPanel.resourceKey) {
+      activeAdminModel.value = formPanel.resourceKey;
+      isAddingInline.value = false;
+      try {
+        const res = await api.fetchAllGenericItems(formPanel.resourceKey);
+        const record = res.items?.[0];
+        formModel.value = record ? { ...record } : {};
+        selectedParentIds.value = record ? [record.id] : [];
+        isEditing.value = !!record;
+      } catch (e) {
+        console.error('Échec du chargement de l\'enregistrement singleton', e);
+        formModel.value = {};
+        selectedParentIds.value = [];
+      }
+    }
+  }
+}
+
+// Déclenchement d'une feuille "action" (voir NotebooksTree.vue) : charge l'enregistrement
+// singleton de la ressource visée et le confie à une instance headless de GenericForm (voir
+// template), qui ouvre aussitôt son wizard — sans toucher à activeLeaf/activeAdminModel/formModel,
+// donc sans changer ce qui est déjà affiché derrière la popin.
+const actionWizardResourceKey = ref<string | null>(null);
+const actionWizardActionId = ref<string | null>(null);
+const actionWizardModel = ref<any>(null);
+const actionWizardNonce = ref(0);
+
+async function onTriggerAction(action: { resourceKey: string; actionId: string }) {
+  try {
+    const res = await api.fetchAllGenericItems(action.resourceKey);
+    const record = res.items?.[0];
+    if (!record) {
+      console.error(`Aucun enregistrement pour la ressource singleton ${action.resourceKey}`);
+      return;
+    }
+    actionWizardModel.value = { ...record };
+    actionWizardResourceKey.value = action.resourceKey;
+    actionWizardActionId.value = action.actionId;
+    // Force le remontage de l'instance headless à chaque déclenchement (même resourceKey/actionId
+    // possible sur deux clics successifs) : l'auto-ouverture du wizard dans GenericForm.vue ne se
+    // déclenche qu'une fois par enregistrement chargé, un nouvel enregistrement { ...record } ne
+    // suffit pas à lui seul à le garantir si Vue réutilise l'instance existante.
+    actionWizardNonce.value++;
+  } catch (e) {
+    console.error('Échec du déclenchement de l\'action de menu', e);
   }
 }
 

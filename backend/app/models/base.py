@@ -622,6 +622,11 @@ class TransientModel:
     """
     __tablename__ = None
     _fields = []
+    # Métadonnées par champ (label/type/readOnly/...), pendant de column.info pour un modèle SQL
+    # réel — lu par make_pydantic_model (generic.py) pour exposer ui_type/title au frontend, ex:
+    # {"info_html": {"type": "html", "label": "", "readOnly": True}}. Vide par défaut : aucun
+    # changement de comportement pour un TransientModel qui ne le déclare pas.
+    _field_info: dict = {}
 
     @classmethod
     def read(cls, db: Session, domain: dict = None, limit: int = None, offset: int = None):

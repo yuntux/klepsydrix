@@ -93,8 +93,19 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
     if issubclass(model, TransientModel):
         if include_id:
             fields["id"] = (int, ...)
+        field_info = getattr(model, "_field_info", {})
         for field in getattr(model, "_fields", []):
-            fields[field] = (Optional[Any], None)
+            info = field_info.get(field, {})
+            field_kwargs = {}
+            if info:
+                if "label" in info:
+                    field_kwargs["title"] = info["label"]
+                json_schema_extra = {k: v for k, v in info.items() if k not in ("label", "type")}
+                if "type" in info:
+                    json_schema_extra["ui_type"] = info["type"]
+                if json_schema_extra:
+                    field_kwargs["json_schema_extra"] = json_schema_extra
+            fields[field] = (Optional[Any], Field(None, **field_kwargs) if field_kwargs else None)
         suffix = "_ReadPayload" if include_id else ("_UpdatePayload" if all_optional else "_CreatePayload")
         base_name = getattr(model, "__tablename__", model.__name__)
         return create_model(f"{base_name}{suffix}", **fields)
