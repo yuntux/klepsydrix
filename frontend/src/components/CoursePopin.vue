@@ -110,6 +110,7 @@
 import { ref, computed, onMounted } from 'vue';
 import ConsolidatedChip from './ConsolidatedChip.vue';
 import { Course, Teacher, NonTeachingStaff, Division, Classroom, Timeslot } from '../types';
+import { getTeacherName, getDivisionName, getClassroomName, getNonTeachingStaffName } from '../utils/resourceFormatters';
 
 const props = defineProps<{
   show: boolean;
@@ -204,44 +205,28 @@ const consolidatedSubjects = computed(() => {
 const consolidatedTeachers = computed(() => {
   return consolidate(c => {
     if (!c.teacher_ids || c.teacher_ids.length === 0) return 'Sans Enseignant';
-    const ts = c.teacher_ids.map(id => {
-      const t = props.teachers.find(item => item.id === id);
-      return t ? t.name : '';
-    }).filter(Boolean);
-    return ts.join(', ') || 'Sans Enseignant';
+    return c.teacher_ids.map(id => getTeacherName(props.teachers, id)).join(', ');
   });
 });
 
 const consolidatedNonTeachingStaffs = computed(() => {
   return consolidate(c => {
     if (!c.non_teaching_staff_ids || c.non_teaching_staff_ids.length === 0) return 'Sans Personnel';
-    const ts = c.non_teaching_staff_ids.map(id => {
-      const t = props.nonTeachingStaffs.find(item => item.id === id);
-      return t ? t.first_name + ' ' + t.last_name : '';
-    }).filter(Boolean);
-    return ts.join(', ') || 'Sans Personnel';
+    return c.non_teaching_staff_ids.map(id => getNonTeachingStaffName(props.nonTeachingStaffs, id)).join(', ');
   });
 });
 
 const consolidatedClassrooms = computed(() => {
   return consolidate(c => {
     if (!c.classroom_ids || c.classroom_ids.length === 0) return 'Sans Salle';
-    const rms = c.classroom_ids.map(id => {
-      const rm = props.classrooms.find(item => item.id === id);
-      return rm ? rm.name : '';
-    }).filter(Boolean);
-    return rms.join(', ') || 'Sans Salle';
+    return c.classroom_ids.map(id => getClassroomName(props.classrooms, id)).join(', ');
   });
 });
 
 const consolidatedDivisions = computed(() => {
   return consolidate(c => {
     if (!c.division_ids || c.division_ids.length === 0) return 'Sans Division';
-    const divs = c.division_ids.map(id => {
-      const d = props.divisions.find(item => item.id === id);
-      return d ? d.name : '';
-    }).filter(Boolean);
-    return divs.join(', ') || 'Sans Division';
+    return c.division_ids.map(id => getDivisionName(props.divisions, id)).join(', ');
   });
 });
 
