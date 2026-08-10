@@ -24,113 +24,22 @@ class CompositionModes:
         return (course.duration_minutes // 2) // duration
 
     @staticmethod
-    def _next_number_suffix(db: Session, existing_count: int, setting_key: str) -> str:
-        from backend.app.models.system_setting import SystemSetting, NUMBER_FORMAT_ALPHABETIC
-        number_format = SystemSetting.get_system_setting_value(db, setting_key) or "numerique"
-        n = existing_count + 1
-        if number_format != NUMBER_FORMAT_ALPHABETIC:
-            return str(n)
-        # 1 -> A, 2 -> B, ..., 26 -> Z, 27 -> AA, ... (comme la numérotation des colonnes d'un tableur)
-        letters = ""
-        while n > 0:
-            n, rem = divmod(n - 1, 26)
-            letters = chr(65 + rem) + letters
-        return letters
-
-    @staticmethod
-    def _compute_group_name(db: Session, division_id, subject_id, class_part_ids: list) -> str:
-        """
-        Nom d'un groupe auto-généré, piloté par le paramétrage système GROUP_NAME_* : concaténation
-        de la première lettre du code classe (si activé et déterminable — un groupe peut mêler des
-        parties de plusieurs divisions, auquel cas division_id vaut None et ce segment est omis), du
-        séparateur, du code matière (si activé), puis d'un numéro/lettre rendant le nom unique parmi
-        les groupes déjà en base dont le nom commence par ce même préfixe.
-        """
-        from backend.app.models.system_setting import SystemSetting
-        from backend.app.models.division import Division
-        from backend.app.models.subject import Subject
-        from backend.app.models.group import Group
-
-        has_div_code = SystemSetting.get_system_setting_value(db, "GROUP_NAME_HAS_DIV_CODE") == "true"
-        has_subject_code = SystemSetting.get_system_setting_value(db, "GROUP_NAME_HAS_SUBJECT_CODE") == "true"
-        separator = SystemSetting.get_system_setting_value(db, "GROUP_NAME_SEPARATOR") or "G"
-
-        prefix = ""
-        if has_div_code and division_id:
-            division = db.get(Division, division_id)
-            if division and division.code:
-                prefix += division.code[0]
-        prefix += separator
-        if has_subject_code and subject_id:
-            subject = db.get(Subject, subject_id)
-            if subject:
-                prefix += subject.code
-
-        existing_count = db.query(Group).filter(Group.name.like(f"{prefix}%")).count()
-        return prefix + CompositionModes._next_number_suffix(db, existing_count, "GROUP_NAME_NUMBER_FORMAT")
-
-    @staticmethod
     def _resolve_dynamic_groups(db: Session, course: Course, mapping: list[dict]):
-        from backend.app.models.group import Group, ClassPart
+        from backend.app.models.group import find_or_create_group
         CompositionModes._resolve_dynamic_part_class(db, course, mapping)
         for row in mapping:
             cp_ids = set(row.get('class_part_ids', []))
             if len(cp_ids) > 1 and not row.get('group_ids'):
-                existing_groups = db.query(Group).all()
-                found_group = None
-                for g in existing_groups:
-                    g_cp_ids = {cp.id for cp in g.class_parts}
-                    if g_cp_ids == cp_ids:
-                        found_group = g
-                        break
-
-                if found_group:
-                    row['group_ids'] = row.get('group_ids', []) + [found_group.id]
-                    if found_group not in course.groups:
-                        course.update(db, {"group_ids": [g.id for g in course.groups] + [found_group.id]})
-                else:
-                    class_parts = [db.get(ClassPart, cid) for cid in cp_ids]
-                    division_ids = {cp.division_id for cp in class_parts if cp}
-                    common_division_id = next(iter(division_ids)) if len(division_ids) == 1 else None
-                    new_group = Group.create(db, {
-                        "name": CompositionModes._compute_group_name(db, common_division_id, row.get('subject_id'), cp_ids),
-                        "class_part_ids": list(cp_ids),
-                        "is_system_generated": True,
-                    })
-                    row['group_ids'] = row.get('group_ids', []) + [new_group.id]
-                    course.update(db, {"group_ids": [g.id for g in course.groups] + [new_group.id]})
+                group = find_or_create_group(db, list(cp_ids), row.get('subject_id'))
+                row['group_ids'] = row.get('group_ids', []) + [group.id]
+                if group not in course.groups:
+                    course.update(db, {"group_ids": [g.id for g in course.groups] + [group.id]})
 
                 db.flush()
                 # On vide class_part_ids : le groupe englobe ces parties, et
                 # Course._apply_group_class_part_cascade les réinjecte de toute façon
                 # automatiquement sur l'enfant dès que group_ids est appliqué (règle 1).
                 row['class_part_ids'] = []
-
-    @staticmethod
-    def _compute_class_part_name(db: Session, division_id, subject_id) -> str:
-        """Miroir de _compute_group_name, piloté par le paramétrage système DIVISION_PART_NAME_*."""
-        from backend.app.models.system_setting import SystemSetting
-        from backend.app.models.division import Division
-        from backend.app.models.subject import Subject
-        from backend.app.models.group import ClassPart
-
-        has_div_code = SystemSetting.get_system_setting_value(db, "DIVISION_PART_NAME_HAS_DIV_CODE") == "true"
-        has_subject_code = SystemSetting.get_system_setting_value(db, "DIVISION_PART_NAME_HAS_SUBJECT_CODE") == "true"
-        separator = SystemSetting.get_system_setting_value(db, "DIVISION_PART_NAME_SEPARATOR") or "P"
-
-        prefix = ""
-        if has_div_code and division_id:
-            division = db.get(Division, division_id)
-            if division:
-                prefix += division.code[0]
-        if has_subject_code and subject_id:
-            subject = db.get(Subject, subject_id)
-            if subject:
-                prefix += subject.code
-        prefix += separator
-
-        existing_count = db.query(ClassPart).filter(ClassPart.name.like(f"{prefix}%")).count()
-        return prefix + CompositionModes._next_number_suffix(db, existing_count, "DIVISION_PART_NAME_NUMBER_FORMAT")
 
     @staticmethod
     def _compute_partition_label(db: Session, course: Course, subject_ids: set) -> str:
@@ -150,16 +59,15 @@ class CompositionModes:
     def _resolve_dynamic_part_class(db: Session, course: Course, mapping: list[dict]):
         """
         Convertit les lignes de répartition ciblant une classe entière (division_ids) en parties
-        de classe (class_part_ids), par clé fonctionnelle {division, matière de la ligne} :
-        réutilise une ClassPart existante pour cette clé si elle existe, sinon en crée une nouvelle
-        — rattachée à une Partition commune à toutes les matières composées pour cette division
-        lors de cet appel (une seule Partition créée par division, réutilisée pour chaque matière).
+        de classe (class_part_ids) : une Partition par division est trouvée ou créée (voir
+        find_or_create_partition, group.py) pour couvrir toutes les matières composées sur cette
+        division lors de cet appel, puis chaque ligne y retrouve la ClassPart de sa propre matière.
 
         Attention : la clé de recherche/création est la matière PROPRE À LA LIGNE de répartition
         (row['subject_id']), jamais la matière "chapeau" du cours complexe (course.subject_id) —
         celle-ci ne sert qu'à nommer la Partition, cf. _compute_partition_label.
         """
-        from backend.app.models.group import Partition, ClassPart
+        from backend.app.models.group import find_or_create_partition
 
         subjects_by_division: dict[int, set] = {}
         for row in mapping:
@@ -173,7 +81,17 @@ class CompositionModes:
         if not subjects_by_division:
             return
 
-        partitions_by_division: dict[int, Partition] = {}
+        # Une Partition par division, couvrant AU MOINS toutes les matières nécessaires à cet
+        # appel (voir find_or_create_partition) — résolue une seule fois par division, réutilisée
+        # pour chaque ligne de mapping ciblant cette division.
+        partitions_by_division = {
+            division_id: find_or_create_partition(
+                db, division_id,
+                CompositionModes._compute_partition_label(db, course, subject_ids),
+                subject_ids=list(subject_ids),
+            )
+            for division_id, subject_ids in subjects_by_division.items()
+        }
 
         for row in mapping:
             if not row.get('division_ids'):
@@ -182,28 +100,8 @@ class CompositionModes:
             subject_id = row.get('subject_id')
             class_part_ids = []
             for division_id in row['division_ids']:
-                existing = (
-                    db.query(ClassPart)
-                    .join(Partition, ClassPart.partition_id == Partition.id)
-                    .filter(Partition.division_id == division_id, ClassPart.subject_id == subject_id)
-                    .first()
-                )
-                if existing:
-                    resolved_class_part = existing
-                else:
-                    partition = partitions_by_division.get(division_id)
-                    
-                    if partition is None:
-                        label = CompositionModes._compute_partition_label(db, course, subjects_by_division[division_id])
-                        partition = Partition.create(db, {"code": label, "name": label, "division_id": division_id, "is_system_generated": True})
-                        partitions_by_division[division_id] = partition
-
-                    resolved_class_part = ClassPart.create(db, {
-                        "partition_id": partition.id,
-                        "name": CompositionModes._compute_class_part_name(db, division_id, subject_id),
-                        "subject_id": subject_id,
-                        "is_system_generated": True,
-                    })
+                partition = partitions_by_division[division_id]
+                resolved_class_part = next(cp for cp in partition.class_parts if cp.subject_id == subject_id)
 
                 # Le cours parent doit lister cette ClassPart pour que ses enfants (qui la
                 # référencent) passent validate_child_constraints (miroir de _resolve_dynamic_groups).

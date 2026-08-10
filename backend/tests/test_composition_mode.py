@@ -461,3 +461,186 @@ class TestCompositionModes:
         assert len(parent.children) == 2
         # Vérifie que la surcharge métier a bien tourné (is_composed doit être True)
         assert parent.is_composed is True
+
+
+def _make_division(db, code="DIVX"):
+    school = db.query(School).first()
+    return Division.create(db, {"code": code, "name": f"Division {code}", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+
+
+class TestPartitionSpecialType:
+    def test_cannot_be_set_by_user(self, db_session):
+        from backend.app.models.group import Partition
+        division = _make_division(db_session)
+        with pytest.raises(ValueError, match="système"):
+            Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": "HALF_GENDER"})
+        db_session.rollback()
+
+    def test_settable_via_system_bypass(self, db_session):
+        from backend.app.models.group import Partition, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": PartitionSpecialType.HALF_GENDER, "_system_write": True})
+        assert partition.special_type == PartitionSpecialType.HALF_GENDER
+
+    def test_typed_partition_cannot_be_renamed(self, db_session):
+        from backend.app.models.group import Partition, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": PartitionSpecialType.HALF_GENDER, "_system_write": True})
+        with pytest.raises(ValueError, match="renommée"):
+            partition.update(db_session, {"name": "Nouveau nom"})
+        db_session.rollback()
+
+    def test_typed_partition_class_parts_cannot_be_changed_via_update(self, db_session):
+        from backend.app.models.group import Partition, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": PartitionSpecialType.HALF_GENDER, "_system_write": True})
+        with pytest.raises(ValueError, match="manuellement"):
+            partition.update(db_session, {"class_part_ids": [cp.id for cp in partition.class_parts]})
+        db_session.rollback()
+
+    def test_typed_partition_class_part_cannot_be_created_manually(self, db_session):
+        from backend.app.models.group import Partition, ClassPart, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": PartitionSpecialType.HALF_GENDER, "_system_write": True})
+        with pytest.raises(ValueError, match="manuellement"):
+            ClassPart.create(db_session, {"partition_id": partition.id, "name": "Extra"})
+        db_session.rollback()
+
+    def test_typed_partition_class_part_cannot_be_deleted_manually(self, db_session):
+        from backend.app.models.group import Partition, ClassPart, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": PartitionSpecialType.HALF_GENDER, "_system_write": True})
+        cp = ClassPart.create(db_session, {"partition_id": partition.id, "name": "Garçons", "_system_write": True})
+        with pytest.raises(ValueError, match="manuellement"):
+            cp.delete(db_session)
+        db_session.rollback()
+
+    def test_deleting_typed_partition_cascades_to_its_class_parts(self, db_session):
+        """La contrainte 'pas de retrait manuel' n'empêche pas la suppression de la partition entière (composition)."""
+        from backend.app.models.group import Partition, ClassPart, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "P1", "name": "P1", "division_id": division.id, "special_type": PartitionSpecialType.HALF_GENDER, "_system_write": True})
+        cp1 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "Garçons", "_system_write": True})
+        cp2 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "Filles", "_system_write": True})
+        partition_id, cp1_id, cp2_id = partition.id, cp1.id, cp2.id
+
+        partition.delete(db_session)
+
+        assert db_session.get(Partition, partition_id) is None
+        assert db_session.get(ClassPart, cp1_id) is None
+        assert db_session.get(ClassPart, cp2_id) is None
+
+
+class TestClassPartDeleteRestrict:
+    def test_cannot_delete_class_part_attached_to_a_course(self, db_session):
+        from backend.app.models.group import Partition, ClassPart
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        partition = Partition.create(db_session, {"code": "PX", "name": "PX", "division_id": divisions[0].id})
+        cp = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CPX"})
+        Course.create(db_session, {
+            "school_id": teachers[0].school_id, "subject_id": parent.subject_id, "duration_minutes": 30,
+            "teacher_ids": [teachers[0].id], "class_part_ids": [cp.id],
+        })
+
+        with pytest.raises(ValueError, match="rattachée à 1 cours"):
+            cp.delete(db_session)
+        db_session.rollback()
+
+    def test_deleting_partition_cascades_to_its_class_parts(self, db_session):
+        """Relation de composition Partition -> ClassPart (voir ForeignKey ondelete=CASCADE)."""
+        from backend.app.models.group import Partition, ClassPart
+        division = _make_division(db_session)
+        partition = Partition.create(db_session, {"code": "PC", "name": "PC", "division_id": division.id})
+        cp = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CPC"})
+        partition_id, cp_id = partition.id, cp.id
+
+        partition.delete(db_session)
+
+        assert db_session.get(Partition, partition_id) is None
+        assert db_session.get(ClassPart, cp_id) is None
+
+
+class TestFindOrCreatePartition:
+    def test_validates_exactly_one_strategy(self, db_session):
+        from backend.app.models.group import find_or_create_partition
+        division = _make_division(db_session)
+        with pytest.raises(ValueError):
+            find_or_create_partition(db_session, division.id, "X")
+        with pytest.raises(ValueError):
+            find_or_create_partition(db_session, division.id, "X", subject_ids=[1], part_count=2)
+
+    def test_by_subjects_creates_then_reuses_by_coverage(self, db_session):
+        from backend.app.models.group import find_or_create_partition
+        from backend.app.models.discipline import Discipline
+        division = _make_division(db_session)
+        discipline = Discipline.create(db_session, {"code": "GENX", "name": "GénéralX"})
+        s1 = Subject.create(db_session, {"code": "S1", "code_nomenclature": "N1", "short_name": "S1", "name": "Subj1", "discipline_id": discipline.id})
+        s2 = Subject.create(db_session, {"code": "S2", "code_nomenclature": "N2", "short_name": "S2", "name": "Subj2", "discipline_id": discipline.id})
+        s3 = Subject.create(db_session, {"code": "S3", "code_nomenclature": "N3", "short_name": "S3", "name": "Subj3", "discipline_id": discipline.id})
+
+        partition = find_or_create_partition(db_session, division.id, "Langues", subject_ids=[s1.id, s2.id])
+        assert {cp.subject_id for cp in partition.class_parts} == {s1.id, s2.id}
+
+        # s1 seule est déjà couverte par la partition existante (au moins, pas exactement) -> réutilisée
+        reused = find_or_create_partition(db_session, division.id, "Langues", subject_ids=[s1.id])
+        assert reused.id == partition.id
+
+        # s3 n'est couverte par aucune partition existante -> nouvelle partition
+        created = find_or_create_partition(db_session, division.id, "Options", subject_ids=[s3.id])
+        assert created.id != partition.id
+
+    def test_by_special_type_creates_then_reuses(self, db_session):
+        from backend.app.models.group import find_or_create_partition, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = find_or_create_partition(db_session, division.id, "ignored", special_type=PartitionSpecialType.HALF_GENDER)
+        assert partition.special_type == PartitionSpecialType.HALF_GENDER
+        assert {cp.name for cp in partition.class_parts} == {"Garçons", "Filles"}
+
+        reused = find_or_create_partition(db_session, division.id, "ignored", special_type=PartitionSpecialType.HALF_GENDER)
+        assert reused.id == partition.id
+
+    def test_by_special_type_half_alpha_names_parts_p1_p2(self, db_session):
+        from backend.app.models.group import find_or_create_partition, PartitionSpecialType
+        division = _make_division(db_session)
+        partition = find_or_create_partition(db_session, division.id, "ignored", special_type=PartitionSpecialType.HALF_ALPHA)
+        assert {cp.name for cp in partition.class_parts} == {"P1", "P2"}
+
+    def test_by_part_count_creates_then_reuses(self, db_session):
+        from backend.app.models.group import find_or_create_partition
+        division = _make_division(db_session)
+        partition = find_or_create_partition(db_session, division.id, "Ateliers", part_count=3)
+        assert len(partition.class_parts) == 3
+
+        reused = find_or_create_partition(db_session, division.id, "Ateliers", part_count=3)
+        assert reused.id == partition.id
+
+        different = find_or_create_partition(db_session, division.id, "Ateliers4", part_count=4)
+        assert different.id != partition.id
+
+
+class TestFindOrCreateGroup:
+    def test_exact_match_reuses_regardless_of_order(self, db_session):
+        from backend.app.models.group import find_or_create_group, Partition, ClassPart
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        partition = Partition.create(db_session, {"code": "PG", "name": "PG", "division_id": divisions[0].id})
+        cp1 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CP1"})
+        cp2 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CP2"})
+
+        group = find_or_create_group(db_session, [cp1.id, cp2.id], parent.subject_id)
+        reused = find_or_create_group(db_session, [cp2.id, cp1.id], parent.subject_id)
+
+        assert reused.id == group.id
+        assert group.is_system_generated is True
+
+    def test_no_match_creates_new_group_not_subset_or_superset(self, db_session):
+        from backend.app.models.group import find_or_create_group, Partition, ClassPart
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        partition = Partition.create(db_session, {"code": "PG2", "name": "PG2", "division_id": divisions[0].id})
+        cp1 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CP1"})
+        cp2 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CP2"})
+        cp3 = ClassPart.create(db_session, {"partition_id": partition.id, "name": "CP3"})
+
+        group_ab = find_or_create_group(db_session, [cp1.id, cp2.id], parent.subject_id)
+        group_abc = find_or_create_group(db_session, [cp1.id, cp2.id, cp3.id], parent.subject_id)
+
+        assert group_abc.id != group_ab.id

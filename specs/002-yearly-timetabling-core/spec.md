@@ -612,12 +612,27 @@ Une composante élémentaire issue d'une partition de classe (ex : Demi-classe 1
 *   `partition_id` : Clé étrangère vers la **Partition** parente (Entier, relation 1-à-N)
 *   `student_count` : Nombre d'élèves de cette partie (Entier)
 
+> **Suppression (Surcharge delete) :** Impossible de supprimer une `ClassPart` rattachée à au moins un `Course` "réel" (`is_composed = False`, directement ou via un `Group` qui la contient) — l'erreur retournée précise le nombre de cours concernés et leurs noms. Un cours composé PARENT qui la référence encore en transit (cascade de ressources enfant → parent, voir section **1. Course**) n'est PAS compté, même exclusion que pour le nettoyage automatique ci-dessous. Une `ClassPart` d'une `Partition` typée (`special_type`, voir 5bis) ne peut de plus jamais être ajoutée ni retirée manuellement — seul le retrait de la `Partition` entière l'emporte (composition).
+
 ### 5bis. Partition (Partition de classe)
 Découpage logique disjoint des élèves d'une Division (ex : la partition "Langues" contient les parties Esp1, Esp2, All ; la partition "Demi-classe" contient G1, G2).
 *   `id` : Clé primaire (Entier)
 *   `code` : Code unique de la partition (Chaîne, e.g. "LV2", "AP", "OPTIONS")
 *   `name` : Libellé de la partition (Chaîne, e.g. "Langue Vivante 2", "Accompagnement Personnalisé")
 *   `division_id` : Clé étrangère vers la classe parente **Division** (Entier, relation 1-à-N)
+*   `special_type` : Type spécial d'une partition entièrement générée et gérée par le système (Enum `PartitionSpecialType`, optionnel, `None` par défaut) :
+    *   `HALF_ALPHA` : dédoublement en 2 parties fixes ("P1"/"P2").
+    *   `HALF_GENDER` : répartition filles/garçons en 2 parties fixes ("Garçons"/"Filles").
+    *   **Écriture système uniquement** : ce champ ne peut jamais être défini ni modifié depuis l'IHM/l'API — seul un point d'entrée interne (voir `find_or_create_partition` ci-dessous) peut l'attribuer.
+    *   **Verrouillage structurel** : une `Partition` dont `special_type` n'est pas `None` ne peut plus être renommée (`name`/`code`), et ses `ClassPart` ne peuvent plus être ajoutées ni retirées manuellement (ni via `Partition.class_part_ids`, ni via `ClassPart.create`/`delete` direct) — sa structure (nombre et rôle fixes de ses parties) est entièrement gérée par le système. Seule la suppression de la `Partition` entière (composition, voir ci-dessous) échappe à ce verrou.
+*   *Relations (1-à-N)* : `class_parts` (Les parties de classe qui composent cette partition)
+
+> **Composition avec ClassPart :** Supprimer une `Partition` supprime automatiquement toutes ses `ClassPart` (relation de composition, `ondelete=CASCADE`) — y compris pour une `Partition` typée (`special_type`), le verrouillage structurel ci-dessus ne s'appliquant qu'au retrait MANUEL d'une partie isolée, jamais à la suppression de la partition qui la contient.
+
+> **Résolution dynamique (`find_or_create_partition`, `backend/app/models/group.py`) :** point d'entrée réutilisable (composition de cours, mais pas seulement) pour trouver ou créer, pour une Division donnée, la `Partition` correspondant à exactement UNE des trois stratégies mutuellement exclusives :
+> - `subject_ids` (liste de matières) : réutilise la première `Partition` de cette Division dont les `ClassPart` couvrent AU MOINS ces matières (des matières supplémentaires sur la partition existante sont tolérées) ; sinon en crée une nouvelle (non typée), avec une `ClassPart` par matière (`is_system_generated=True`).
+> - `special_type` : réutilise la `Partition` de cette Division déjà typée avec ce `special_type` ; sinon en crée une nouvelle avec ses deux `ClassPart` fixes (voir ci-dessus), `is_system_generated=True`.
+> - `part_count` (nombre de parties) : réutilise la `Partition` de cette Division qui possède exactement ce nombre de `ClassPart` ; sinon en crée une nouvelle (non typée) avec N `ClassPart` (`is_system_generated=True`).
 
 ### 6. Group (Groupe)
 Regroupement d'élèves (éventuellement à effectif variable) constitué par l'assemblage d'une ou plusieurs **ClassParts** (parties de classe) issues d'une ou plusieurs Divisions (ex : le groupe "Allemand LV2" associe la partie "All" de la 3ème A et la partie "All" de la 3ème B).
@@ -634,6 +649,7 @@ Regroupement d'élèves (éventuellement à effectif variable) constitué par l'
 > - **Recherche des groupes liés (`get_linked_groups`) :** Retourne tous les autres groupes qui possèdent une partie de classe incompatible avec l'une des parties du groupe actuel.
 >   * *Définition du lien* : Un groupe $G'$ est lié à $G$ s'il contient au moins une partie de classe $CP'$ qui est liée (via `ClassPartLink`) à l'une des parties de classe $CP$ de $G$.
 >   * Un groupe n'est jamais lié à lui-même (le groupe actuel est exclu du résultat).
+> - **Résolution dynamique (`find_or_create_group`, `backend/app/models/group.py`) :** point d'entrée réutilisable (composition de cours, mais pas seulement) qui, à partir d'une liste de `ClassPart` et d'une matière, cherche le `Group` composé EXACTEMENT de ces `ClassPart` (même ensemble, ordre indifférent — jamais un `Group` qui en contiendrait un sous-ensemble ou un sur-ensemble) ; s'il n'existe pas, en crée un nouveau (`is_system_generated=True`).
 
 ### 6bis. ClassPartLink (Lien entre parties de classe)
 Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de classe indique qu'elles ont (ou peuvent avoir) des élèves en commun. Par conséquent, le solveur de conflits s'assure que deux séances affectées à ces deux parties respectives ne peuvent pas être planifiées en même temps.
