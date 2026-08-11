@@ -67,6 +67,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { fetchGenericList } from '../services/api';
 
 interface Option {
   value: any;
@@ -84,6 +85,11 @@ const props = defineProps<{
   // (ex: Fiche T — ressource d'un cours composé absente de tous ses enfants). Optionnelle,
   // rétrocompatible : aucun effet si omise.
   highlightValues?: any[];
+  // Capacité standard du widget many2many, symétrique de SearchableSelect.vue (many2one) — voir
+  // architecture.md §15.R : options recherchées côté serveur, filtrées par un champ frère, plutôt
+  // que préchargées en entier. `options`, si fourni, sert alors uniquement de repli pour garder
+  // visibles les libellés des valeurs déjà sélectionnées sorties du filtre courant.
+  dynamicSource?: { resource: string; filterQueryParam: string; filterValue: any };
 }>();
 
 const emit = defineEmits<{
@@ -123,10 +129,54 @@ const currentValues = computed(() => {
   return [props.modelValue];
 });
 
+const dynamicOptions = ref<Option[]>([]);
+let dynamicDebounce: ReturnType<typeof setTimeout> | null = null;
+
+function currentValuesFallback(): Option[] {
+  return currentValues.value
+    .map(val => props.options.find(opt => String(opt.value) === String(val)))
+    .filter((opt): opt is Option => !!opt);
+}
+
+async function refreshDynamicOptions() {
+  if (!props.dynamicSource) return;
+  const { resource, filterQueryParam, filterValue } = props.dynamicSource;
+  if (!resource || filterValue === undefined || filterValue === null || filterValue === '') {
+    dynamicOptions.value = currentValuesFallback();
+    return;
+  }
+  try {
+    const res = await fetchGenericList(resource, 0, 50, undefined, { [filterQueryParam]: filterValue });
+    const fetched: Option[] = (res.items || []).map((item: any) => ({
+      value: item.id,
+      label: item.display_name || item.name || item.code || String(item.id)
+    }));
+    for (const fb of currentValuesFallback()) {
+      if (!fetched.some(o => String(o.value) === String(fb.value))) fetched.push(fb);
+    }
+    dynamicOptions.value = fetched;
+  } catch (e) {
+    console.error(`Échec du chargement filtré de ${resource}`, e);
+    dynamicOptions.value = currentValuesFallback();
+  }
+}
+
+watch(() => props.dynamicSource?.filterValue, () => {
+  if (!props.dynamicSource) return;
+  if (dynamicDebounce) clearTimeout(dynamicDebounce);
+  dynamicDebounce = setTimeout(refreshDynamicOptions, 300);
+});
+
+onMounted(() => {
+  if (props.dynamicSource) refreshDynamicOptions();
+});
+
+const activeOptions = computed(() => props.dynamicSource ? dynamicOptions.value : props.options);
+
 // Trouver les options sélectionnées
 const selectedOptions = computed(() => {
   return currentValues.value
-    .map(val => props.options.find(opt => String(opt.value) === String(val)))
+    .map(val => activeOptions.value.find(opt => String(opt.value) === String(val)))
     .filter((opt): opt is Option => !!opt);
 });
 
@@ -141,9 +191,9 @@ function isHighlighted(value: any) {
 
 // Filtrer les options par recherche
 const filteredOptions = computed(() => {
-  if (!searchQuery.value) return props.options;
+  if (!searchQuery.value) return activeOptions.value;
   const query = searchQuery.value.toLowerCase();
-  return props.options.filter(opt =>
+  return activeOptions.value.filter(opt =>
     opt.label.toLowerCase().includes(query)
   );
 });

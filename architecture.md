@@ -797,7 +797,7 @@ def delete(self, db):
 - Fonctionne pour **toute** FK du projet, déclarée ou non côté `relationship()` — plus de zone d'ombre possible pour un futur modèle : le mécanisme se base sur une information (`ondelete=`) déjà systématiquement obligatoire dans ce projet, jamais sur une convention à retenir en plus.
 - `ondelete="CASCADE"` → suppression réelle et récursive (chaque enfant traite à son tour ses propres dépendants via son propre `.delete()`).
 - `ondelete="SET NULL"` → passe par un vrai `.update()`, donc `@constrains()` s'exécute réellement : si la mise à `NULL` violerait un invariant métier (`_check_structure_exclusivity` sur `Service`), l'`update()` lève une erreur qui annule toute la suppression (transaction entière annulée) — la corruption silencieuse devient un échec bloquant et explicite, sans qu'aucune règle n'ait eu besoin d'être écrite spécifiquement pour `MefDivision`.
-- `RESTRICT`/`NO ACTION` : rien à faire, la BDD bloque nativement.
+- `RESTRICT`/`NO ACTION` : depuis l'enrichissement des données Enseignant (tables `ref_*`), le mécanisme ne se contente plus de laisser la BDD bloquer — il vérifie lui-même, *avant* toute tentative SQL, si au moins une ligne référence encore `self` et lève une `ValueError` métier explicite le cas échéant (`Impossible de supprimer : au moins un enregistrement dans « {table} » y fait encore référence.`). Sans ce correctif, une suppression bloquée remontait une `IntegrityError` brute (message technique Postgres/SQLite) via le catch générique de `make_delete_endpoint` — techniquement une erreur est bien retournée, mais illisible pour l'utilisateur. Même philosophie que le reste de la méthode : piloté par le schéma, zéro code par modèle, s'applique automatiquement à toute FK `RESTRICT` existante ou future (ex: `Subject.discipline_id`, `TeacherAra.ref_ara_id`).
 - Les tables d'association pures (`secondary=`, ex: `service_teachers`) sont ignorées : aucune classe mappée, donc aucune logique métier possible sur ces lignes — leur propre `ondelete=CASCADE` suffit.
 
 **Conséquence sur les déclarations existantes** : les `cascade="all, delete-orphan"` de `Course.children` et `Service.repartitions` ont été retirés (devenus redondants et risquant un double traitement/avertissement SQLAlchemy) — la suppression en cascade de ces deux relations est désormais entièrement portée par ce mécanisme générique, pilotée par le `ondelete="CASCADE"` déjà présent sur `Course.parent_id`/`ServiceRepartition.service_id`. `passive_deletes="all"` reste présent ailleurs dans le projet sans risque : ce mécanisme traite tout **avant** que SQLAlchemy n'ait la moindre chance de gérer quoi que ce soit lui-même, donc `passive_deletes` (qui ne fait que désactiver la gestion *native* de l'ORM) n'entre jamais en conflit avec lui.
@@ -811,7 +811,7 @@ def delete(self, db):
 **Solution rejetée** : une première version passait par deux clés `ui.json` dédiées au panneau détail (`masterFillField`/`masterFillSourceField`) calculant le pré-remplissage **côté frontend**. Rejetée explicitement ("c'est lourdingue") au profit d'un mécanisme générique, symétrique à `default_get()` côté Odoo, où le calcul reste entièrement en Python sur le modèle concerné — pas de config déclarative par écran.
 
 **Mécanisme retenu** :
-- `CRUDMixin.default_get(cls, db, context) -> dict` (`backend/app/models/base.py`) : point d'extension à surcharger par modèle, retourne `{}` par défaut. Contrairement à `@onchange`/`process_onchange` (évaluation en mémoire, sans BDD — voir plus haut), `default_get` reçoit une vraie session `db` et peut donc interroger la base.
+- `CRUDMixin.default_get(cls, db, context) -> dict` (`backend/app/models/base.py`) : point d'extension à surcharger par modèle, retourne `{}` par défaut. Reçoit une vraie session `db` et peut donc interroger la base — comme `@onchange`, désormais, pour les méthodes qui le demandent explicitement (voir §15.R).
 - `POST /api/generic/{resource}/defaults` (`backend/app/api/generic.py`, `make_defaults_endpoint`) : fusionne les défauts statiques déjà connus du schéma (même extraction que `make_pydantic_model`, `column.default.arg`) avec le résultat de `model.default_get(db, payload.context)`.
 - `api.fetchDefaults(resource, context)` (`frontend/src/services/api.ts`) : appelle cet endpoint ; retourne `{}` silencieusement en cas d'échec (un défaut manquant ne doit jamais bloquer un ajout, contrairement à un vrai échec de `create`/`update`).
 - Exemple (`Service.default_get`, `backend/app/models/service.py`) :
@@ -1026,3 +1026,69 @@ Correctif : le contenu du `<div class="inline-related-list-wrapper">` de `Generi
 **Ombre portée au survol (préview de destination)** : réutilise le mécanisme *existant* de surbrillance (`dragOverCells`, prop déjà câblée de bout en bout `TimetableGrid.vue` → `GridContainer.vue` → `BaseGrid.vue`), simplement étendu par un suffixe de clé (`-A`/`-B`) pour distinguer la moitié survolée quand le split est actif — pas un système parallèle. Découverte en implémentant cette extension : la classe `.drag-over` existait déjà mais n'avait **jamais fonctionné**, un bug de sélecteur CSS préexistant (`.grid-cell.drag-over` dans `main.css`, alors que la classe est en réalité posée sur `.sub-cell` — jamais sur `.grid-cell`, règle totalement inatteignable) — corrigé au passage et réutilisé comme fondation (styles scoped `.sub-cell.drag-over`/`.split-half.drag-over` dans `BaseGrid.vue`, grisé neutre et transparent plutôt que la teinte violette d'origine, même logique de non-superposition avec la coloration de poids/score).
 
 **Non vérifiable par l'IA** : le rendu visuel réel (positionnement du contour, lisibilité de l'ombre, comportement au relâchement) — test navigateur exclu par la constitution du projet (Principe II). Confirmation visuelle utilisateur nécessaire après toute modification de cette couche.
+
+### P. Layout à Onglets Générique (`notebook`/`page`, façon Odoo)
+
+**Le besoin** : le formulaire Enseignant, largement enrichi (état civil, coordonnées, dossier administratif...), ne tient plus dans un unique formulaire à défilement — il faut un découpage en onglets, entièrement piloté par `ui.json` comme tout le reste du moteur de formulaire générique, sans composant Vue dédié à écrire pour chaque nouveau formulaire à onglets.
+
+**Déclaration** : deux nouveaux types de `LayoutElement` (`GenericForm.vue`), au même niveau que `field`/`group`/`separator`/`newline` — un `notebook` contient une liste de `page`, chaque `page` porte un `string` (libellé de l'onglet) et une liste `children` d'éléments de layout **quelconques** :
+```json
+{
+  "type": "notebook",
+  "children": [
+    { "type": "page", "string": "État civil", "children": [ { "type": "group", "children": [...] } ] },
+    { "type": "page", "string": "Dossier administratif", "children": [ ... ] }
+  ]
+}
+```
+`parseLayoutElement()` traite `notebook`/`page` avec exactement la même récursion générique que `group` (parse chaque enfant quel que soit son type) — l'imbrication est donc native et non un cas spécial à coder : un `group` dans une `page`, ou un `notebook` dans un `group`, fonctionnent sans code supplémentaire.
+
+**Rendu (`NotebookLayout`, `GenericForm.vue`)** : contrairement à `group`, qui délègue directement à une instance imbriquée de `FormLayoutGrid` (un composant fonctionnel `h()` sans état propre, partagé par tous les éléments d'un même rendu), un notebook a besoin d'un état local réactif — l'onglet actif — impossible à porter dans `FormLayoutGrid` elle-même. D'où un composant dédié avec son propre `setup()`/`ref()` (`activeIndex`), qui rend une barre d'onglets (boutons) puis délègue le rendu de la **seule page active** à une instance imbriquée de `FormLayoutGrid` (même mécanisme de délégation que `group`).
+
+**Limite assumée** : seule la page active est présente dans le DOM — les validations `requiredExpr` de champs situés dans un onglet jamais ouvert ne s'exécutent donc pas visuellement avant sa première ouverture. Accepté pour cette itération (aucun formulaire du projet ne cache un champ obligatoire dans un onglet secondaire) plutôt que de construire une validation cross-onglets non demandée.
+
+### Q. Champ Binaire Générique (`type: "binary"`) et Widget `image`
+
+**Le besoin** : porter n'importe quel fichier (photo d'un enseignant, à terme tout autre document) sans dupliquer un mécanisme de stockage par champ, tout en offrant un aperçu visuel dédié pour les images sans que ce soit le comportement par défaut de tout champ binaire.
+
+**Forme de la valeur** : un objet JSON `{filename, mime_type, data_base64}`, stocké dans une colonne `JSON` (même type déjà utilisé pour `Course.underventilated_resource_ids`, fonctionne nativement sur SQLite comme Postgres) — nécessaire pour porter un vrai nom de fichier et type MIME, pas seulement des octets bruts. `info={"type": "binary"}` sur la colonne suffit : le pipeline générique (`make_pydantic_model`, `generic.py`) propage `type` en `ui_type` exactement comme n'importe quel autre type de champ, sans code spécifique.
+
+**Deux niveaux de widget** :
+- **Par défaut** (`type === 'binary'` sans `widget` déclaré, `BinaryFileField.vue`) : nom de fichier / état, boutons Télécharger / Effacer / Parcourir (upload via `<input type="file">` + `FileReader`, remplace la valeur existante). Câblé comme branche native de `FormLayoutGrid` (au même niveau que `text`/`date`/`color`...), pas via le registre de widgets — c'est le comportement de **tout** champ binaire qui ne demande rien de plus.
+- **Spécialisé** (`info={"widget": "image"}`, `ImageField.vue`) : ajoute un aperçu `<img>` au-dessus des mêmes actions Télécharger/Effacer/Parcourir, en réutilisant `BinaryFileField.vue` tel quel plutôt que de dupliquer sa logique. Enregistré dans `widgets/registry.ts` (`contexts: ['form']` uniquement), donc pris en priorité par le `getWidgetForContext(elem.widget, 'form')` déjà vérifié en premier dans `FormLayoutGrid` — aucune réorganisation du `if/else if` existant.
+
+**`GenericList.vue`** : un champ `type === 'binary'` (avec ou sans `widget: "image"`) n'affiche **jamais** le contenu du fichier dans une cellule de liste — seulement un badge de présence (« 📎 Fichier » / « — »), sur le modèle du résumé compact déjà en place pour `type === 'json'`. Le registre de widgets exclut délibérément `'list'` des `contexts` de l'entrée `image`, pour qu'`ImageField` ne puisse jamais s'y substituer par accident (même précaution que celle déjà documentée pour `many2many_ordered_list`, voir en tête de `registry.ts`).
+
+**Ce que ça garantit** : un futur champ "pièce jointe" quelconque (PDF, tableur...) réutilise `type: "binary"` sans rien écrire de nouveau ; seul un besoin d'aperçu visuel spécifique justifierait un nouveau widget dans le registre, sur le modèle d'`ImageField.vue`.
+
+### R. Cascade entre Champs FK d'un Même Formulaire : Pré-remplissage (`@onchange` + session BDD) et Filtrage d'Options (`dynamicOptionsFilter`, à la Odoo)
+
+**Le besoin** : sur le formulaire Enseignant, saisir un code postal doit filtrer la liste déroulante des villes à celles qui le portent, et sélectionner une ville doit pré-remplir automatiquement le pays — deux besoins de cascade entre champs FK d'un même formulaire, jamais rencontrés jusqu'ici dans le moteur générique, et à traiter différemment : le premier filtre une **liste d'options**, le second pré-remplit une **valeur**.
+
+**Pré-remplissage : `@onchange` étendu avec une session BDD, symétrique à `default_get` (§15.I)**
+
+**Le blocage initial** : `process_onchange` (`base.py`) instancie le modèle **en mémoire**, sans jamais l'ajouter à une session (`instance = cls()`, pas de `db.add()`). Une méthode `@onchange("address_city_id")` qui tente de lire `self.address_city.country_id` échoue donc silencieusement : SQLAlchemy ne peut résoudre une relation ORM sur un objet jamais rattaché à une session, elle reste vide. Une première version a contourné ce blocage entièrement côté frontend (copie du `rawData` déjà chargé dans `fkOptionsCache`) — **rejetée** : limitée à une simple copie de champ, sans possibilité d'y mettre une vraie logique métier (condition, calcul, recherche sur plusieurs sauts), et redondante avec un mécanisme qui existe déjà côté modèle.
+
+**Solution retenue** : donner à `@onchange` un accès BDD en lecture, exactement comme `default_get(cls, db, context)` (§15.I) et `@constrains(self, db)` — c'est d'ailleurs ainsi qu'Odoo procède nativement (un `onchange` y dispose toujours d'un environnement complet, donc `self.city_id.country_id` s'y résout sans effort ; la restriction n'existait que dans cette réimplémentation simplifiée).
+- `process_onchange(cls, db, vals, field_name)` (`base.py`) : reçoit désormais `db`, injecté aux méthodes `@onchange` selon le **nom** de leurs paramètres (pas leur position) — un paramètre nommé `db` reçoit la session, tout autre nom reçoit `field_name` (compatibilité avec l'unique méthode existante prenant un paramètre, `changed_field`). L'instance de brouillon reste transitoire (aucune écriture possible dessus) ; `db` sert uniquement à lire d'AUTRES enregistrements déjà persistés.
+- `make_onchange_endpoint` (`generic.py`) : ajoute `db: Session = Depends(get_db)`, comme tous les autres endpoints génériques — l'ancien commentaire ("pas besoin de session pour l'évaluation d'un brouillon") ne vaut donc plus que pour les `@onchange` qui n'en demandent pas.
+- Exemple (`Teacher._onchange_address_city`) :
+  ```python
+  @onchange("address_city_id")
+  def _onchange_address_city(self, db: Session):
+      if not self.address_city_id:
+          self.address_country_id = None
+          return
+      city = db.query(RefCity).filter(RefCity.id == self.address_city_id).first()
+      self.address_country_id = city.country_id if city else None
+  ```
+  Aucune configuration `ui.json` requise côté frontend : le mécanisme `@onchange` générique déjà en place (`GenericForm.vue`, `watch(localModel, ...)` → `POST .../onchange`) prend le relais automatiquement, comme pour tout autre onchange existant.
+
+**Filtrage d'options : `dynamicOptionsFilter`, requête serveur à chaque frappe (attribut `domain` d'Odoo)**
+
+Filtrer une **liste d'options** est un problème différent, qu'`@onchange`/`process_onchange` ne peut fondamentalement pas couvrir : il ne renvoie que des diffs de valeurs de colonnes, jamais une liste d'options alternative pour un autre champ. Dans Odoo, ce besoin passe par l'attribut `domain` d'un champ many2one, évalué dynamiquement contre les autres valeurs du formulaire — et **surtout**, Odoo ne précharge jamais toute la table cible en mémoire pour la filtrer côté client : chaque changement du champ source déclenche une vraie recherche serveur filtrée (`name_search`).
+
+**Solution retenue, alignée sur ce fonctionnement et portée par les widgets standards (pas un nouveau composant)** — deux versions intermédiaires ont été **rejetées** en cours de route : la première filtrait côté client sur `fkOptionsCache` déjà chargé en entier (contraire à la pratique Odoo, non scalable) ; la seconde déplaçait la requête serveur dans un widget wrapper dédié (`DynamicFilteredSelect.vue`), réservé au seul cas many2one — rejetée à son tour ("le filtrage dynamique est une fonction qui doit exister dans le widget many2one et many2many standards") au profit d'une capacité portée nativement par `SearchableSelect.vue` **et** `SearchableMultiSelect.vue` eux-mêmes, réutilisables partout où un champ FK (simple ou multiple) en a besoin :
+- `dynamicOptionsFilter: { sourceField, filterQueryParam }` (déclaré sur le `LayoutElement` d'un champ FK dans `ui.json`, ex: `address_city_id` avec `{"sourceField": "address_zipcode", "filterQueryParam": "zip_code"}`) — traduit dans `FormLayoutGrid` (`GenericForm.vue`) en une prop `dynamicSource: { resource, filterQueryParam, filterValue }` transmise à `SearchableSelect`/`SearchableMultiSelect`.
+- **`SearchableSelect.vue`/`SearchableMultiSelect.vue`** : nouvelle prop optionnelle `dynamicSource`, `undefined` pour tout champ FK qui n'en déclare pas (comportement strictement inchangé, c'est la quasi-totalité des champs FK du projet). Quand elle est fournie, un `watch` (débounce 300ms) sur `dynamicSource.filterValue` déclenche `fetchGenericList(resource, 0, 50, undefined, {[filterQueryParam]: filterValue})` — l'endpoint liste générique accepte déjà nativement un filtre par n'importe quelle colonne via ses query params (`generic.py`, `CRUDMixin._apply_domain`), donc **aucun changement backend** n'a été nécessaire pour ce mécanisme. Les options actives (`activeOptions`, computed) basculent alors du prop `options` statique vers ce résultat dynamique — toute la logique interne existante (recherche texte, scroll virtuel, sélection) continue d'opérer sur `activeOptions` sans distinction entre les deux modes.
+- **Valeur(s) déjà sélectionnée(s) toujours visible(s)** : si l'enregistrement en cours d'édition référence une valeur qui ne correspond plus au filtre courant (ex: le CP vient de changer), elle est réinjectée dans la liste dynamique depuis `props.options` (la liste préchargée classique, déjà transmise par l'appelant comme pour tout champ FK — réutilisée ici uniquement comme repli) — sans quoi le champ afficherait vide pour une valeur pourtant bien enregistrée.

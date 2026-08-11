@@ -1,9 +1,9 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Float, Boolean, Date, JSON, ForeignKey, Table
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, related_field, constrains
+from backend.app.models.base import Base, related_field, constrains, onchange
 
 teacher_subjects = Table(
     "teacher_subjects",
@@ -25,7 +25,62 @@ class Teacher(Base):
     # Nullable : un prof peut ne déclarer aucune matière préférée, même s'il a des matières
     # enseignées (subject_ids) — cf. _sync_preferred_subject ci-dessous pour le seul cas où ce
     # champ est calculé automatiquement plutôt que saisi librement.
-    preferred_subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, info={"label": "Matière préférée"})
+    preferred_subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=True, info={"label": "Matière préférée"})
+
+    # --- État civil ---
+    title_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_titles.id", ondelete="SET NULL"), nullable=True, info={"label": "Civilité"})
+    birth_last_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Nom de naissance"})
+    birth_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de naissance"})
+    birth_city_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_cities.id", ondelete="SET NULL"), nullable=True, info={"label": "Ville de naissance"})
+    # Valeur générique {filename, mime_type, data_base64} — voir architecture.md, champ binaire
+    # générique. widget="image" sélectionne l'aperçu dédié plutôt que le widget par défaut
+    # (Télécharger/Effacer/Parcourir), qui reste le comportement de tout autre champ binaire.
+    photo: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Photo", "type": "binary", "widget": "image"})
+    photo_diffusion_authorized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Autorisation de diffuser la photo"})
+
+    # --- Coordonnées ---
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, info={"label": "Téléphone"})
+    phone_diffusion_authorized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Autorisation de diffuser le n° de téléphone"})
+    email: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, info={"label": "Email"})
+    email_diffusion_authorized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Autorisation de diffuser l'adresse email"})
+    address_line1: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, info={"label": "Adresse (ligne 1)"})
+    address_line2: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, info={"label": "Adresse (ligne 2)"})
+    address_line3: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, info={"label": "Adresse (ligne 3)"})
+    address_line4: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, info={"label": "Adresse (ligne 4)"})
+    # Champ texte libre, ne pointe vers aucune table : sert uniquement à filtrer dynamiquement les
+    # options d'address_city_id (voir ui.json, dynamicOptionsFilter, architecture.md §15.R).
+    address_zipcode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, info={"label": "Code postal"})
+    address_city_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_cities.id", ondelete="SET NULL"), nullable=True, info={"label": "Ville"})
+    address_country_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_countries.id", ondelete="SET NULL"), nullable=True, info={"label": "Pays"})
+
+    # --- Données administratives ---
+    numen: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True, info={"label": "NUMEN"})
+    is_board_member: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Membre du conseil d'administration"})
+
+    # --- Données propres à l'enseignement ---
+    function_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_functions.id", ondelete="SET NULL"), nullable=True, info={"label": "Fonction"})
+    support_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_supports.id", ondelete="SET NULL"), nullable=True, info={"label": "Support"})
+    support_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_support_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de support"})
+    support_temporary_status: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Support temporaire (suppléant...)"})
+    support_comment: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, info={"label": "Commentaire sur le support"})
+
+    # --- Dossier administratif : données propres au poste ---
+    degree_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_degrees.id", ondelete="SET NULL"), nullable=True, info={"label": "Diplôme le plus élevé"})
+    administrative_group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_administrative_groups.id", ondelete="SET NULL"), nullable=True, info={"label": "Corps"})
+    administrative_group_entry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date d'entrée dans le corps"})
+    level_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_levels.id", ondelete="SET NULL"), nullable=True, info={"label": "Grade"})
+    level_entry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date d'entrée dans le grade"})
+    step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={"label": "Échelon"})
+    step_entry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date d'entrée dans l'échelon"})
+    recruit_discipline_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="SET NULL"), nullable=True, info={"label": "Discipline de recrutement"})
+    affectation_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_affectation_modes.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'affectation"})
+    affectation_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date d'affectation"})
+
+    # --- Dossier administratif : dernière inspection ---
+    last_inspection_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de la dernière inspection"})
+    last_inspection_note: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Note de la dernière inspection"})
+    last_inspection_inspector_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_inspectors.id", ondelete="SET NULL"), nullable=True, info={"label": "Inspecteur"})
+    service_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_service_modes.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité de service"})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="teachers")
@@ -33,6 +88,32 @@ class Teacher(Base):
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)
     subjects: Mapped[list["Subject"]] = relationship("Subject", secondary=teacher_subjects, info={"label": "Matières enseignées"})
     preferred_subject: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[preferred_subject_id])
+
+    title: Mapped[Optional["RefTitle"]] = relationship("RefTitle", foreign_keys=[title_id])
+    birth_city: Mapped[Optional["RefCity"]] = relationship("RefCity", foreign_keys=[birth_city_id])
+    address_city: Mapped[Optional["RefCity"]] = relationship("RefCity", foreign_keys=[address_city_id])
+    address_country: Mapped[Optional["RefCountry"]] = relationship("RefCountry", foreign_keys=[address_country_id])
+    function: Mapped[Optional["RefFunction"]] = relationship("RefFunction", foreign_keys=[function_id])
+    support: Mapped[Optional["RefSupport"]] = relationship("RefSupport", foreign_keys=[support_id])
+    support_type: Mapped[Optional["RefSupportType"]] = relationship("RefSupportType", foreign_keys=[support_type_id])
+    degree: Mapped[Optional["RefDegree"]] = relationship("RefDegree", foreign_keys=[degree_id])
+    administrative_group: Mapped[Optional["RefAdministrativeGroup"]] = relationship("RefAdministrativeGroup", foreign_keys=[administrative_group_id])
+    level: Mapped[Optional["RefLevel"]] = relationship("RefLevel", foreign_keys=[level_id])
+    recruit_discipline: Mapped[Optional["Discipline"]] = relationship("Discipline", foreign_keys=[recruit_discipline_id])
+    affectation_mode: Mapped[Optional["RefAffectationMode"]] = relationship("RefAffectationMode", foreign_keys=[affectation_mode_id])
+    last_inspection_inspector: Mapped[Optional["RefInspector"]] = relationship("RefInspector", foreign_keys=[last_inspection_inspector_id])
+    service_mode: Mapped[Optional["RefServiceMode"]] = relationship("RefServiceMode", foreign_keys=[service_mode_id])
+
+    # Lignes de volumes horaires annexes (ARA, ARE, discipline, missions, service ailleurs) —
+    # relations 1-N possédées : détectées automatiquement par le moteur générique (parentField,
+    # voir architecture.md §15.J) et exposées en popin CRUD via OwnedRelationField, sans widget
+    # dédié à écrire.
+    ara_lines: Mapped[list["TeacherAra"]] = relationship("TeacherAra", back_populates="teacher", passive_deletes="all", info={"label": "Lignes ARA"})
+    are_lines: Mapped[list["TeacherAre"]] = relationship("TeacherAre", back_populates="teacher", passive_deletes="all", info={"label": "Lignes ARE"})
+    discipline_lines: Mapped[list["TeacherDiscipline"]] = relationship("TeacherDiscipline", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Discipline"})
+    particular_mission_lines: Mapped[list["TeacherParticularMission"]] = relationship("TeacherParticularMission", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Missions particulières"})
+    pacte_mission_lines: Mapped[list["TeacherPacteMission"]] = relationship("TeacherPacteMission", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Missions Pacte"})
+    other_school_lines: Mapped[list["TeacherOtherSchool"]] = relationship("TeacherOtherSchool", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Autres établissements"})
 
     @constrains("subject_ids", "preferred_subject_id")
     def _sync_preferred_subject(self, db: Session):
@@ -46,6 +127,28 @@ class Teacher(Base):
         """
         if len(self.subjects) == 1:
             self.preferred_subject_id = self.subjects[0].id
+
+    @constrains("last_name", "first_name", "birth_date")
+    def _check_identity_unique(self, db: Session):
+        if not self.birth_date:
+            return
+        existing = db.query(Teacher).filter(
+            Teacher.last_name == self.last_name,
+            Teacher.first_name == self.first_name,
+            Teacher.birth_date == self.birth_date,
+            Teacher.id != (self.id or 0),
+        ).first()
+        if existing:
+            raise ValueError("Un enseignant avec le même nom, prénom et date de naissance existe déjà.")
+
+    @onchange("address_city_id")
+    def _onchange_address_city(self, db: Session):
+        if not self.address_city_id:
+            self.address_country_id = None
+            return
+        from backend.app.models.ref_city import RefCity
+        city = db.query(RefCity).filter(RefCity.id == self.address_city_id).first()
+        self.address_country_id = city.country_id if city else None
 
     # Déclaration déclarative et compacte des champs liés (Style Odoo)
     max_hours_per_day = related_field("constraint_record", "max_hours_per_day", info={"label": "Max Heures par Jour", "min": 0, "max": 12, "step": "0.5"})

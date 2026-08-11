@@ -320,11 +320,12 @@ def make_onchange_endpoint(model):
         values: dict
         field_changed: str
         
-    def onchange_endpoint(payload: OnchangePayload):
+    def onchange_endpoint(payload: OnchangePayload, db: Session = Depends(get_db)):
         try:
-            # We don't need a DB session for onchange draft evaluation
-            # Process onchange logic
-            diff = model.process_onchange(payload.values, payload.field_changed)
+            # L'instance de brouillon reste en mémoire (voir process_onchange) : db ne sert qu'aux
+            # méthodes @onchange qui déclarent un paramètre `db` pour résoudre une relation en
+            # lecture seule (ex: address_city_id -> RefCity.country_id).
+            diff = model.process_onchange(db, payload.values, payload.field_changed)
             return {"status": "success", "diff": diff}
         except Exception as e:
             return {"status": "error", "message": str(e), "diff": {}}

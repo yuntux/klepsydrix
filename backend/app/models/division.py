@@ -15,9 +15,11 @@ class Division(Base):
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #3498DB"})
 
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
+    main_teacher_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True, info={"label": "Professeur principal"})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="divisions")
+    main_teacher: Mapped[Optional["Teacher"]] = relationship("Teacher", foreign_keys=[main_teacher_id])
     mef_links: Mapped[list["MefDivision"]] = relationship(
         "MefDivision", back_populates="division", passive_deletes="all",
         info={

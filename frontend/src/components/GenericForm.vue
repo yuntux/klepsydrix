@@ -88,6 +88,7 @@ import BaseButton from './BaseButton.vue';
 import BaseModal from './BaseModal.vue';
 import GenericWizard from './widgets/GenericWizard.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
+import BinaryFileField from './widgets/BinaryFileField.vue';
 import { getWidgetForContext } from './widgets/registry';
 import * as api from '../services/api';
 
@@ -123,7 +124,7 @@ function handleActionClick(action: any) {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'html' | 'json';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'html' | 'json' | 'binary';
   required?: boolean;
   requiredExpr?: string;
   invisibleExpr?: string;
@@ -139,7 +140,7 @@ interface FormField {
   resource?: string;
 }
 interface LayoutElement {
-  type: 'field' | 'group' | 'separator' | 'newline';
+  type: 'field' | 'group' | 'separator' | 'newline' | 'notebook' | 'page';
   key?: string;
   string?: string;
   col?: number;
@@ -156,6 +157,15 @@ interface LayoutElement {
   disabled?: boolean;
   originalField?: FormField;
   help?: string;
+  // Filtrage générique et dynamique des options d'un champ FK par un champ frère du même
+  // formulaire (ex: address_city_id filtré par address_zipcode, voir architecture.md §15.R) — à
+  // la Odoo (attribut `domain`) : traduit en `dynamicSource` sur SearchableSelect/
+  // SearchableMultiSelect (capacité standard des deux widgets), qui refont une requête serveur
+  // filtrée à chaque changement du champ source plutôt que de précharger toute la ressource.
+  // sourceField : champ dont on lit la valeur courante dans le modèle ; filterQueryParam :
+  // paramètre de requête à passer à l'endpoint liste générique (déjà filtrable par n'importe
+  // quelle colonne, voir generic.py::_apply_domain).
+  dynamicOptionsFilter?: { sourceField: string; filterQueryParam: string };
 }
 const markdownCache = new Map<string, string>();
 function renderMarkdown(md: string | undefined): string {
@@ -323,7 +333,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         widget: elem.widget || original.widget,
         widgetParams: elem.widgetParams || original.widgetParams,
         originalField: original,
-        help: elem.help || original.help
+        help: elem.help || original.help,
+        dynamicOptionsFilter: elem.dynamicOptionsFilter
       };
     }
   }
@@ -343,7 +354,8 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         widget: elem.widget || original.widget,
         widgetParams: elem.widgetParams || original.widgetParams,
         originalField: original,
-        help: elem.help || original.help
+        help: elem.help || original.help,
+        dynamicOptionsFilter: elem.dynamicOptionsFilter
       };
     }
   }
@@ -378,8 +390,43 @@ function parseLayoutElement(elem: any): LayoutElement | null {
     };
   }
 
+  // Layout à onglets façon Odoo (voir architecture.md) : un 'notebook' contient une liste de
+  // 'page', chacune pouvant elle-même contenir n'importe quel autre élément de layout (field,
+  // group, notebook imbriqué...) — même récursion générique que 'group' ci-dessus, donc
+  // l'imbrication (un groupe dans un onglet, un onglet dans un groupe) fonctionne nativement
+  // sans code supplémentaire.
+  if (elem.type === 'notebook') {
+    const children: LayoutElement[] = [];
+    if (Array.isArray(elem.children)) {
+      elem.children.forEach((child: any) => {
+        const parsed = parseLayoutElement(child);
+        if (parsed) children.push(parsed);
+      });
+    }
+    return {
+      type: 'notebook',
+      children
+    };
+  }
+
+  if (elem.type === 'page') {
+    const children: LayoutElement[] = [];
+    if (Array.isArray(elem.children)) {
+      elem.children.forEach((child: any) => {
+        const parsed = parseLayoutElement(child);
+        if (parsed) children.push(parsed);
+      });
+    }
+    return {
+      type: 'page',
+      string: elem.string,
+      children
+    };
+  }
+
   return null;
 }
+
 
 const layoutTree = computed<LayoutElement[]>(() => {
   if (props.formConfig?.fields && props.formConfig.fields.length > 0) {
@@ -556,6 +603,19 @@ const FormLayoutGrid: any = defineComponent({
             ];
           }
 
+          if (elem.type === 'notebook') {
+            return [
+              h(NotebookLayout, {
+                pages: elem.children || [],
+                localModel: gridProps.localModel,
+                isEditableForm: gridProps.isEditableForm,
+                inline: gridProps.inline,
+                isMultiEdit: gridProps.isMultiEdit,
+                initialModelValue: gridProps.initialModelValue
+              })
+            ];
+          }
+
           if (elem.type === 'field' && elem.originalField) {
             const field = elem.originalField;
             const key = elem.key!;
@@ -604,6 +664,16 @@ const FormLayoutGrid: any = defineComponent({
             let inputElement: any = null;
 
             const isFk = !!field.resource;
+            // Capacité standard des widgets many2one/many2many (SearchableSelect/
+            // SearchableMultiSelect, voir architecture.md §15.R) — options recherchées côté
+            // serveur plutôt que préchargées, dès qu'un champ FK déclare dynamicOptionsFilter
+            // dans ui.json. undefined pour tout champ FK qui n'en déclare pas : comportement
+            // strictement inchangé.
+            const dynamicSource = elem.dynamicOptionsFilter ? {
+              resource: field.resource!,
+              filterQueryParam: elem.dynamicOptionsFilter.filterQueryParam,
+              filterValue: gridProps.localModel[elem.dynamicOptionsFilter.sourceField]
+            } : undefined;
 
             const widgetComponent = getWidgetForContext(elem.widget, 'form');
             if (widgetComponent) {
@@ -646,6 +716,7 @@ const FormLayoutGrid: any = defineComponent({
               inputElement = h(SearchableMultiSelect, {
                 modelValue: Array.isArray(gridProps.localModel[key]) ? gridProps.localModel[key] : (gridProps.localModel[key] ? [gridProps.localModel[key]] : []),
                 options: options,
+                dynamicSource: dynamicSource,
                 disabled: disabled,
                 placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : field.placeholder,
                 required: required && !gridProps.isMultiEdit,
@@ -662,6 +733,7 @@ const FormLayoutGrid: any = defineComponent({
               inputElement = h(SearchableSelect, {
                 modelValue: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : null,
                 options: options,
+                dynamicSource: dynamicSource,
                 disabled: disabled,
                 placeholder: isDivergent(key) && !isModified(key) ? 'Valeurs différentes' : field.placeholder,
                 required: required && !gridProps.isMultiEdit,
@@ -822,6 +894,19 @@ const FormLayoutGrid: any = defineComponent({
                 style: inputStyle,
                 title: hasValue ? JSON.stringify(val, null, 2) : ''
               }, hasValue ? `${Object.keys(val).length} type(s) de ressource` : '—');
+            } else if (field.type === 'binary') {
+              // Widget par défaut de tout champ binaire (n'importe quel fichier) sans widget
+              // explicite déclaré — voir BinaryFileField.vue. Un champ binaire avec
+              // info={"widget": "image"} ne passe jamais ici : il est intercepté plus haut par
+              // getWidgetForContext (registry.ts), qui rend ImageField à la place.
+              inputElement = h(BinaryFileField, {
+                modelValue: gridProps.localModel[key],
+                disabled: disabled,
+                style: inputStyle,
+                'onUpdate:modelValue': (val: any) => {
+                  gridProps.localModel[key] = val;
+                }
+              });
             }
 
             const labelElement = h('label', {
@@ -855,6 +940,87 @@ const FormLayoutGrid: any = defineComponent({
           return [];
         })
       );
+    };
+  }
+});
+
+// Layout à onglets (voir architecture.md, layout notebook/page) : contrairement à 'group', qui
+// délègue directement à une instance imbriquée de FormLayoutGrid, un notebook a besoin d'un état
+// local réactif (l'onglet actif) — impossible à porter dans FormLayoutGrid elle-même, qui rend
+// D'UN SEUL COUP tous les éléments de son tableau `elements` dans une seule fonction de rendu
+// partagée (pas d'instance de composant séparée par élément). D'où ce composant dédié, avec son
+// propre setup()/ref() — même mécanisme que 'group' pour le rendu de la page active (délégation à
+// FormLayoutGrid), simplement précédé d'une barre d'onglets qui pilote quelle page est affichée.
+const NotebookLayout: any = defineComponent({
+  name: 'NotebookLayout',
+  props: {
+    pages: {
+      type: Array as () => LayoutElement[],
+      required: true
+    },
+    localModel: {
+      type: Object as () => Record<string, any>,
+      required: true
+    },
+    isEditableForm: {
+      type: Boolean,
+      required: true
+    },
+    inline: {
+      type: Boolean,
+      default: false
+    },
+    isMultiEdit: {
+      type: Boolean,
+      default: false
+    },
+    initialModelValue: {
+      type: Object as () => Record<string, any>,
+      default: () => ({})
+    }
+  },
+  setup(notebookProps) {
+    const activeIndex = ref(0);
+    return () => {
+      const pages = notebookProps.pages || [];
+      if (activeIndex.value >= pages.length) activeIndex.value = 0;
+      const activePage = pages[activeIndex.value];
+
+      return h('div', {
+        class: 'form-notebook',
+        style: { gridColumn: '1 / -1', width: '100%' }
+      }, [
+        h('div', { class: 'form-notebook-tabs' }, pages.map((page, i) =>
+          h('button', {
+            type: 'button',
+            class: ['form-notebook-tab', i === activeIndex.value ? 'form-notebook-tab-active' : ''],
+            onClick: (e: Event) => {
+              e.preventDefault();
+              activeIndex.value = i;
+            }
+          }, page.string || `Onglet ${i + 1}`)
+        )),
+        h('div', {
+          class: 'form-notebook-page',
+          style: {
+            display: 'grid',
+            gridTemplateColumns: notebookProps.inline ? 'max-content 1fr' : 'max-content 1fr max-content 1fr',
+            gap: '10px',
+            alignItems: 'center',
+            width: '100%'
+          }
+        }, activePage ? [
+          h(FormLayoutGrid, {
+            elements: activePage.children || [],
+            localModel: notebookProps.localModel,
+            isEditableForm: notebookProps.isEditableForm,
+            inline: notebookProps.inline,
+            isNested: true,
+            isMultiEdit: notebookProps.isMultiEdit,
+            initialModelValue: notebookProps.initialModelValue
+          })
+        ] : [])
+      ]);
     };
   }
 });
@@ -1109,7 +1275,7 @@ function handleDelete() {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 0px;
   border-top: 1px solid var(--border-color);
   padding-top: 16px;
 }
@@ -1262,6 +1428,41 @@ function handleDelete() {
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.8px;
+}
+
+.form-notebook {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.form-notebook-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 12px;
+}
+
+.form-notebook-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.form-notebook-tab:hover {
+  color: var(--text-primary);
+}
+
+.form-notebook-tab-active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
 }
 
 .separator-hr {

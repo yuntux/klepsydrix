@@ -68,6 +68,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { fetchGenericList } from '../services/api';
 
 interface Option {
   value: any;
@@ -85,6 +86,13 @@ const props = withDefaults(defineProps<{
   // effacer un tel champ vers null est un no-op silencieux côté backend (CRUDMixin.clean_payload),
   // donc le bouton "×" ne doit pas être proposé — seule une vraie option (ex: "Aucune") est valide.
   nullable?: boolean;
+  // Capacité standard du widget many2one (voir architecture.md §15.R, symétrique sur
+  // SearchableMultiSelect.vue pour le many2many) : quand présent, les options ne viennent plus de
+  // `options` (liste préchargée statique) mais d'une requête serveur filtrée, refaite à chaque
+  // changement de filterValue (débounce) — équivalent de l'attribut `domain` d'Odoo sur un champ
+  // relationnel. `options`, si fourni, sert alors uniquement de repli pour garder visible le
+  // libellé de la valeur déjà sélectionnée si elle sort du filtre courant.
+  dynamicSource?: { resource: string; filterQueryParam: string; filterValue: any };
 }>(), {
   nullable: true
 });
@@ -118,9 +126,55 @@ const visibleOptions = computed(() => {
   }));
 });
 
+// Source active des options : le résultat de la requête dynamique si dynamicSource est fourni,
+// sinon la liste préchargée classique (comportement inchangé pour tout champ existant).
+const dynamicOptions = ref<Option[]>([]);
+let dynamicDebounce: ReturnType<typeof setTimeout> | null = null;
+
+function currentValueFallback(): Option[] {
+  if (props.modelValue === null || props.modelValue === undefined) return [];
+  const fallback = props.options.find(o => o.value === props.modelValue);
+  return fallback ? [fallback] : [];
+}
+
+async function refreshDynamicOptions() {
+  if (!props.dynamicSource) return;
+  const { resource, filterQueryParam, filterValue } = props.dynamicSource;
+  if (!resource || filterValue === undefined || filterValue === null || filterValue === '') {
+    dynamicOptions.value = currentValueFallback();
+    return;
+  }
+  try {
+    const res = await fetchGenericList(resource, 0, 50, undefined, { [filterQueryParam]: filterValue });
+    const fetched: Option[] = (res.items || []).map((item: any) => ({
+      value: item.id,
+      label: item.display_name || item.name || item.code || String(item.id)
+    }));
+    for (const fb of currentValueFallback()) {
+      if (!fetched.some(o => o.value === fb.value)) fetched.push(fb);
+    }
+    dynamicOptions.value = fetched;
+  } catch (e) {
+    console.error(`Échec du chargement filtré de ${resource}`, e);
+    dynamicOptions.value = currentValueFallback();
+  }
+}
+
+watch(() => props.dynamicSource?.filterValue, () => {
+  if (!props.dynamicSource) return;
+  if (dynamicDebounce) clearTimeout(dynamicDebounce);
+  dynamicDebounce = setTimeout(refreshDynamicOptions, 300);
+});
+
+onMounted(() => {
+  if (props.dynamicSource) refreshDynamicOptions();
+});
+
+const activeOptions = computed(() => props.dynamicSource ? dynamicOptions.value : props.options);
+
 // Trouver l'option courante
 const selectedOption = computed(() => {
-  return props.options.find(opt => opt.value === props.modelValue) || null;
+  return activeOptions.value.find(opt => opt.value === props.modelValue) || null;
 });
 
 // Mettre à jour la recherche quand la valeur change
@@ -138,7 +192,7 @@ watch(
 
 // Mettre à jour la recherche quand les options se chargent
 watch(
-  () => props.options,
+  activeOptions,
   () => {
     if (selectedOption.value) {
       searchQuery.value = selectedOption.value.label;
@@ -149,13 +203,13 @@ watch(
 
 // Filtrage des options
 const filteredOptions = computed(() => {
-  if (!isOpen.value) return props.options;
+  if (!isOpen.value) return activeOptions.value;
   // Si l'utilisateur n'a pas tapé, ou si la recherche correspond exactement à l'option sélectionnée, montrer toutes les options
   if (!searchQuery.value || (selectedOption.value && searchQuery.value === selectedOption.value.label)) {
-    return props.options;
+    return activeOptions.value;
   }
   const query = searchQuery.value.toLowerCase();
-  return props.options.filter(opt =>
+  return activeOptions.value.filter(opt =>
     opt.label.toLowerCase().includes(query)
   );
 });

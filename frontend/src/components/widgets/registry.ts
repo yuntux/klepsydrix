@@ -19,6 +19,7 @@ import Many2ManyOrderedList from './Many2ManyOrderedList.vue';
 import CourseCompositionMapping from './CourseCompositionMapping.vue';
 import CourseCompositionPreview from './CourseCompositionPreview.vue';
 import SystemSettingValueField from './SystemSettingValueField.vue';
+import ImageField from './ImageField.vue';
 
 export type WidgetContext = 'list' | 'form';
 
@@ -32,6 +33,10 @@ const REGISTRY: Record<string, WidgetRegistryEntry> = {
   course_composition_mapping: { component: CourseCompositionMapping, contexts: ['form'] },
   course_composition_preview: { component: CourseCompositionPreview, contexts: ['form'] },
   system_setting_value: { component: SystemSettingValueField, contexts: ['form', 'list'] },
+  // 'list' volontairement absent : un champ binaire (avec ou sans widget="image") ne doit jamais
+  // afficher son contenu dans une cellule de liste, seulement un badge de présence — voir
+  // GenericList.vue, branche type === 'binary'.
+  image: { component: ImageField, contexts: ['form'] },
 };
 
 export function getWidgetForContext(name: string | undefined, context: WidgetContext): any {

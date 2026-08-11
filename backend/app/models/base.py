@@ -90,26 +90,35 @@ class CRUDMixin:
                             pass
 
     @classmethod
-    def process_onchange(cls, vals: dict, field_name: str) -> dict:
+    def process_onchange(cls, db: Session, vals: dict, field_name: str) -> dict:
         """
         Traite un événement onchange sur un brouillon (Draft).
-        Instancie le modèle en mémoire, applique les valeurs, 
+        Instancie le modèle en mémoire, applique les valeurs,
         exécute les méthodes @onchange concernées et renvoie les différences.
+
+        L'instance elle-même reste transitoire (jamais `db.add()`-ée : aucune écriture n'est
+        possible dessus, cf. les listeners `before_insert`/`before_update`). `db` sert uniquement
+        à donner aux méthodes @onchange qui le demandent (paramètre nommé `db`) un accès en
+        LECTURE à d'autres enregistrements déjà persistés — nécessaire dès qu'un onchange doit
+        résoudre une relation à partir du seul id reçu (ex: lire le `country_id` d'une `RefCity`
+        depuis `address_city_id`), impossible sans session : une relation ORM sur une instance
+        jamais rattachée à une session ne se charge jamais (elle reste silencieusement vide), tout
+        comme dans Odoo un `onchange` a accès à un environnement complet pour la même raison.
         """
         from sqlalchemy import inspect
         import enum
 
         local_vals = vals.copy()
         cls._coerce_values(local_vals)
-        
+
         # Instanciation en mémoire sans base de données
         instance = cls()
-        
+
         if not hasattr(cls, "__mapper__"):
             return {}
-            
+
         mapper = inspect(cls)
-        
+
         # Peuplement de l'instance
         for key, value in local_vals.items():
             if key in mapper.columns:
@@ -127,8 +136,11 @@ class CRUDMixin:
                             mocks.append(m)
                         setattr(instance, rel.key, mocks)
                         break
-                
-        # Exécuter les méthodes @onchange qui écoutent ce field_name
+
+        # Exécuter les méthodes @onchange qui écoutent ce field_name — les paramètres de la
+        # méthode sont résolus par NOM (pas juste par position) : un paramètre nommé `db` reçoit
+        # la session, tout autre nom (ex: `changed_field`, seul cas historique) reçoit field_name,
+        # pour rester compatible avec les méthodes @onchange existantes qui ne demandent pas `db`.
         for attr_name in dir(instance):
             method = getattr(instance, attr_name)
             if callable(method) and hasattr(method, "_onchange"):
@@ -136,11 +148,9 @@ class CRUDMixin:
                 if field_name in trigger_fields:
                     import inspect as py_inspect
                     sig = py_inspect.signature(method)
-                    if len(sig.parameters) > 0:
-                        method(field_name)
-                    else:
-                        method()
-                    
+                    kwargs = {p: (db if p == "db" else field_name) for p in sig.parameters}
+                    method(**kwargs)
+
         # Extraire les différences
         result = {}
         for key in mapper.columns.keys():
@@ -505,8 +515,12 @@ class CRUDMixin:
           ce qui revalide ses @constrains() — si ça viole un invariant métier (ex: Service exige
           exactement un de mef_division_id/group_id), l'update() lève une erreur et annule toute
           la suppression, plutôt que de corrompre silencieusement les données.
-        - "RESTRICT"/"NO ACTION"/None : rien à faire ici, la BDD bloquera elle-même la suppression
-          s'il reste des lignes enfants.
+        - "RESTRICT"/"NO ACTION"/None : si au moins une ligne référence encore self, lève une
+          ValueError explicite AVANT toute tentative SQL — plutôt que de laisser la BDD renvoyer
+          une IntegrityError brute (message technique Postgres/SQLite) remontée telle quelle par
+          l'endpoint générique. Prolongement du même principe piloté par le schéma : aucun code à
+          écrire par modèle pour qu'une suppression bloquée par une FK RESTRICT (ex: un ref_ara
+          encore utilisé par un teacher_ara) produise un message métier clair.
         - Tables sans classe mappée (tables d'association pures type service_teachers) : ignorées
           — aucune logique métier n'est portée par une ligne d'association, le ondelete=CASCADE de
           la table suffit.
@@ -521,19 +535,22 @@ class CRUDMixin:
 
         for other_table in Base.metadata.tables.values():
             for fk in other_table.foreign_keys:
-                if fk.column.table is not table or fk.ondelete not in ("CASCADE", "SET NULL"):
+                if fk.column.table is not table:
                     continue
                 child_cls = table_to_class.get(other_table)
                 if child_cls is None:
-                    continue
+                    continue  # table d'association pure (secondary=) : pas de logique métier à protéger
                 fk_attr = class_mapper(child_cls).get_property_by_column(fk.parent).key
-                children = db.query(child_cls).filter(getattr(child_cls, fk_attr) == self.id).all()
-                for child in children:
-                    if fk.ondelete == "CASCADE":
-                        if not getattr(child, '_via_crud_mixin_delete', False):
-                            child.delete(db)
-                    else:
-                        child.update(db, {fk_attr: None})
+                if fk.ondelete in ("CASCADE", "SET NULL"):
+                    children = db.query(child_cls).filter(getattr(child_cls, fk_attr) == self.id).all()
+                    for child in children:
+                        if fk.ondelete == "CASCADE":
+                            if not getattr(child, '_via_crud_mixin_delete', False):
+                                child.delete(db)
+                        else:
+                            child.update(db, {fk_attr: None})
+                elif db.query(child_cls).filter(getattr(child_cls, fk_attr) == self.id).first():
+                    raise ValueError(f"Impossible de supprimer : au moins un enregistrement dans « {other_table.name} » y fait encore référence.")
 
     def delete(self, db: Session):
         """

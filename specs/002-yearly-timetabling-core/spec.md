@@ -430,14 +430,52 @@ Regroupement transversal et hiérarchique de ressources permettant de mutualiser
 *   `resource_type` : Type de ressource concernée par ce regroupement (Enum : `Subject`, `Course`, `Teacher`, `Classroom`)
 
 ### 3. Teacher (Professeur)
-Un professeur est défini globalement au niveau de la cité scolaire (permettant le partage de service entre collège et lycée), mais possède un établissement principal de rattachement administratif.
+Un professeur est défini globalement au niveau de la cité scolaire (permettant le partage de service entre collège et lycée), mais possède un établissement principal de rattachement administratif. Au-delà des données de planification (matières, contraintes), la fiche porte l'ensemble du dossier RH utile au planificateur : état civil, coordonnées, données administratives et de carrière.
 *   `id` : Clé primaire (Entier)
 *   `code` : Trigronyme ou identifiant unique (Chaîne, e.g. "DUPONT.J")
-*   `last_name` : Nom de famille (Chaîne)
-*   `first_name` : Prénom (Chaîne)
-*   `color` : Code couleur d'affichage (Chaîne)
+*   `last_name` : Nom de famille (Chaîne, requis)
+*   `first_name` : Prénom (Chaîne optionnelle)
 *   `max_weekly_hours` : Nombre maximum d'heures d'enseignement autorisées par semaine (Réel)
-*   `primary_school_id` : Clé étrangère optionnelle vers sa **School** de rattachement administratif principal (Entier, relation N-à-1)
+*   `school_id` : Clé étrangère vers la **School** de rattachement principal (Entier, relation N-à-1)
+*   `preferred_subject_id` : Clé étrangère optionnelle vers la **Subject** préférée (Entier, relation N-à-1, `RESTRICT`). Calculée et stockée automatiquement (`_sync_preferred_subject`) lorsqu'une seule matière enseignée est déclarée ; librement éditable sinon.
+*   *Relations (N-à-N)* : `subject_ids` (Matières enseignées, table de jointure `teacher_subjects`)
+
+> **État civil** : `title_id` (Clé étrangère optionnelle vers **RefTitle**), `birth_last_name` (Nom de naissance, Chaîne optionnelle), `birth_date` (Date optionnelle), `birth_city_id` (Clé étrangère optionnelle vers **RefCity**), `photo` (champ binaire générique, voir `architecture.md` §15.Q — `widget: "image"`), `photo_diffusion_authorized` (Booléen, défaut `False`).
+
+> **Coordonnées** : `phone` (Chaîne optionnelle), `phone_diffusion_authorized` (Booléen, défaut `False`), `email` (Chaîne optionnelle), `email_diffusion_authorized` (Booléen, défaut `False`), `address_line1` à `address_line4` (Chaîne optionnelle), `address_zipcode` (Chaîne optionnelle — sert uniquement à filtrer dynamiquement les options de `address_city_id`, voir `architecture.md` §15.R), `address_city_id` (Clé étrangère optionnelle vers **RefCity**), `address_country_id` (Clé étrangère optionnelle vers **RefCountry**, pré-rempli automatiquement à la sélection de `address_city_id` via `@onchange`, librement modifiable ensuite).
+
+> **Données administratives** : `numen` (Chaîne optionnelle, **unique** dans la base), `is_board_member` (Membre du conseil d'administration, Booléen, défaut `False`).
+
+> **Données propres à l'enseignement** : `function_id` (Clé étrangère optionnelle vers **RefFunction**), `support_id` (Clé étrangère optionnelle vers **RefSupport**), `support_type_id` (Clé étrangère optionnelle vers **RefSupportType**), `support_temporary_status` (Support temporaire/suppléant, Booléen, défaut `False`), `support_comment` (Chaîne optionnelle).
+
+> **Dossier administratif — données propres au poste** : `degree_id` (Diplôme le plus élevé, Clé étrangère optionnelle vers **RefDegree**), `administrative_group_id` (Corps, Clé étrangère optionnelle vers **RefAdministrativeGroup**), `administrative_group_entry_date` (Date optionnelle), `level_id` (Grade, Clé étrangère optionnelle vers **RefLevel**), `level_entry_date` (Date optionnelle), `step` (Échelon, Entier optionnel — nombre libre, sans table de référence), `step_entry_date` (Date optionnelle), `recruit_discipline_id` (Discipline de recrutement, Clé étrangère optionnelle vers **Discipline**), `affectation_mode_id` (Clé étrangère optionnelle vers **RefAffectationMode**), `affectation_date` (Date optionnelle).
+
+> **Dossier administratif — dernière inspection** : `last_inspection_date` (Date optionnelle), `last_inspection_note` (Chaîne optionnelle — texte libre, les grilles de notation ayant beaucoup évolué avec PPCR), `last_inspection_inspector_id` (Clé étrangère optionnelle vers **RefInspector**), `service_mode_id` (Modalité de service, Clé étrangère optionnelle vers **RefServiceMode**).
+
+> **Volumes horaires annexes** (voir 3ter ci-dessous) : `ara_line_ids`, `are_line_ids`, `discipline_line_ids`, `particular_mission_line_ids`, `pacte_mission_line_ids`, `other_school_line_ids` — relations 1-à-N possédées vers les objets **TeacherAra**/**TeacherAre**/**TeacherDiscipline**/**TeacherParticularMission**/**TeacherPacteMission**/**TeacherOtherSchool**.
+
+> **Contrainte d'intégrité** : le triplet (`last_name`, `first_name`, `birth_date`) doit être unique dans la base — vérifié uniquement quand `birth_date` est renseignée (contrainte applicative, pas une `UniqueConstraint` SQL, `birth_date` étant nullable).
+
+### 3bis. Tables de référence RH (`ref_*`)
+Ensemble de tables de référence en texte libre alimentant la fiche Enseignant, toutes construites sur le même gabarit minimal : `id`, `name` (Chaîne, requis, unique). Aucune ne peut être supprimée tant qu'au moins un enregistrement y fait encore référence (suppression protégée générique, voir `architecture.md` §15.H) :
+
+`RefAra`, `RefAre`, `RefParticularMission`, `RefPacteMission`, `RefExternalSchool`, `RefTitle`, `RefCountry`, `RefDegree`, `RefAdministrativeGroup`, `RefLevel`, `RefAffectationMode`, `RefInspector`, `RefServiceMode`, `RefFunction`, `RefSupport`, `RefSupportType`.
+
+**Cas particulier `RefCity`** : `name` (Chaîne, requis), `country_id` (Clé étrangère optionnelle vers **RefCountry**, `RESTRICT`), `zip_code` (Chaîne optionnelle, un seul code postal par ville). **Contrainte d'intégrité** : le couple (`name`, `zip_code`) doit être unique dans la base.
+
+### 3ter. Volumes horaires annexes de l'enseignant (`teacher_*`)
+Six objets de liaison, tous construits sur le même gabarit : `id`, `teacher_id` (Clé étrangère, `CASCADE` — supprimé automatiquement à la suppression de l'enseignant), un champ de référence (Clé étrangère, `RESTRICT` — la suppression de la référence est bloquée tant qu'une ligne l'utilise), `duration_minutes` (Entier, défaut `0`) :
+
+| Objet | Champ de référence |
+|---|---|
+| `TeacherAra` | `ref_ara_id` → **RefAra** |
+| `TeacherAre` | `ref_are_id` → **RefAre** |
+| `TeacherDiscipline` | `discipline_id` → **Discipline** |
+| `TeacherParticularMission` | `ref_particular_mission_id` → **RefParticularMission** |
+| `TeacherPacteMission` | `ref_pacte_mission_id` → **RefPacteMission** |
+| `TeacherOtherSchool` | `ref_external_school_id` → **RefExternalSchool** |
+
+`TeacherDiscipline` est indépendant du lien `Teacher.subject_ids` (matières enseignées) — il permet de suivre un volume horaire par discipline distinct de l'affectation pédagogique aux matières.
 
 ### 4. MEF (Module Élémentaire de Formation / Niveau de formation)
 Représente une formation ou un niveau d'enseignement réglementaire national défini par le ministère (ex: "Troisième Générale", "Seconde Générale et Technologique", "Première Spécialité"). C'est le socle technique indispensable pour l'import de la structure depuis STSWEB et pour calculer les dotations horaires globales.
@@ -486,6 +524,7 @@ Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » po
 *   `name` : Libellé de la classe (Chaîne, e.g. "Troisième A")
 *   `student_count` : Nombre total d'élèves de la classe (Entier)
 *   `color` : Code couleur d'affichage (Chaîne)
+*   `main_teacher_id` : Clé étrangère optionnelle vers le **Teacher** professeur principal (Entier, relation N-à-1, `SET NULL`)
 *   *Relations (1-à-N)* : `mef_links` (Liste des **MefDivision** rattachant cette classe à un ou plusieurs MEF — voir ci-dessous), `partitions`, `courses`
 *   `mefs` : Raccourci en lecture seule vers les **MEF** liés (Relation N-à-N traversant `mef_links`, `viewonly`). La gestion réelle du lien passe par `mef_links`/`MefDivision`, pas par ce raccourci.
 *   `services` : Raccourci en lecture seule vers tous les **Service** de tous les MEF liés à cette classe (Relation N-à-N traversant `Division → MefDivision → Service` en un seul saut, `viewonly`). Permet d'afficher tous les services d'une classe indépendamment du nombre de MEF auxquels elle est rattachée.
@@ -676,6 +715,7 @@ Représente un élève physique inscrit dans l'établissement, rattaché à une 
 *   `last_name` : Nom de l'élève (Chaîne, max 50 car.)
 *   `division_id` : Clé étrangère vers la **Division** (Entier)
 *   `mef_id` : Clé étrangère vers le **MEF** (formation) de l'élève (Entier). Distinct de la Division : c'est ce qui permet de distinguer, au sein d'une même classe physique, les élèves de formations différentes (ex: double-niveau, MEF Général / MEF SEGPA).
+*   `tutor_id` : Clé étrangère optionnelle vers le **Teacher** tuteur de l'élève (Entier, relation N-à-1, `SET NULL`)
 
 > **Contraintes d'intégrité de Student :**
 > - **Unicité de partition :** Un élève ne peut pas appartenir à deux parties de classe différentes de la même partition (les parties d'une même partition étant disjointes par nature).

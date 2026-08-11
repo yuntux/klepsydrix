@@ -131,7 +131,7 @@ class Course(Base):
     parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=True, info={"label": "Cours parent"})
     
     # Pour les cours simples, un subject_id est requis. Pour les cours complexes (parents), il peut être NULL.
-    subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=True, info={"label": "Matière"})
+    subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=True, info={"label": "Matière"})
     
     # Placements et attributs directs
     timeslot_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True, info={"label": "Créneau de placement"})

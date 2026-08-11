@@ -20,10 +20,12 @@ class Student(Base):
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom"})
     division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"label": "Division"})
     mef_id: Mapped[int] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="CASCADE"), nullable=False, info={"label": "MEF"})
+    tutor_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True, info={"label": "Tuteur"})
 
     # Relations de navigation
     division: Mapped[Optional["Division"]] = relationship("Division")
     mef: Mapped[Optional["Mef"]] = relationship("Mef")
+    tutor: Mapped[Optional["Teacher"]] = relationship("Teacher", foreign_keys=[tutor_id])
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=student_class_parts, back_populates="students", info={"label": "Parties de classe"})
 
     @constrains()

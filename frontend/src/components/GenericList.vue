@@ -248,6 +248,15 @@
                   :title="item[col.key] && Object.keys(item[col.key]).length ? JSON.stringify(item[col.key], null, 2) : ''"
                 >{{ item[col.key] && Object.keys(item[col.key]).length ? `${Object.keys(item[col.key]).length} type(s)` : '—' }}</div>
 
+                <!-- Champ binaire (n'importe quel fichier, avec ou sans widget="image") : jamais le
+                     contenu du fichier dans une cellule de liste — juste un badge de présence, le
+                     détail/l'édition se fait dans le formulaire (BinaryFileField/ImageField). -->
+                <span
+                  v-else-if="getFieldDef(col.key)?.type === 'binary'"
+                  class="inline-binary-badge"
+                  :title="item[col.key]?.filename || ''"
+                >{{ item[col.key]?.data_base64 ? '📎 Fichier' : '—' }}</span>
+
                 <!-- Texte standard (ex: nom, code) -->
                 <input
                   v-else
@@ -359,7 +368,7 @@ interface ColumnDef {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'json';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'json' | 'binary';
   required?: boolean;
   readOnly?: boolean;
   placeholder?: string;
@@ -1526,6 +1535,18 @@ function onDrop(event: DragEvent, index: number) {
   font-style: italic;
   font-size: 13px;
   cursor: help;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-binary-badge {
+  display: inline-block;
+  width: 100%;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  color: var(--text-muted);
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

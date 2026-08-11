@@ -24,3 +24,26 @@ from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint
 from backend.app.models.system_setting import SystemSetting
+from backend.app.models.ref_ara import RefAra
+from backend.app.models.ref_are import RefAre
+from backend.app.models.ref_particular_mission import RefParticularMission
+from backend.app.models.ref_pacte_mission import RefPacteMission
+from backend.app.models.ref_external_school import RefExternalSchool
+from backend.app.models.ref_title import RefTitle
+from backend.app.models.ref_country import RefCountry
+from backend.app.models.ref_degree import RefDegree
+from backend.app.models.ref_administrative_group import RefAdministrativeGroup
+from backend.app.models.ref_level import RefLevel
+from backend.app.models.ref_affectation_mode import RefAffectationMode
+from backend.app.models.ref_inspector import RefInspector
+from backend.app.models.ref_service_mode import RefServiceMode
+from backend.app.models.ref_function import RefFunction
+from backend.app.models.ref_support import RefSupport
+from backend.app.models.ref_support_type import RefSupportType
+from backend.app.models.ref_city import RefCity
+from backend.app.models.teacher_ara import TeacherAra
+from backend.app.models.teacher_are import TeacherAre
+from backend.app.models.teacher_discipline import TeacherDiscipline
+from backend.app.models.teacher_particular_mission import TeacherParticularMission
+from backend.app.models.teacher_pacte_mission import TeacherPacteMission
+from backend.app.models.teacher_other_school import TeacherOtherSchool

@@ -81,6 +81,58 @@ def seed_v2_data():
         db.commit()
         election_method_s_id = db.execute(text("SELECT id FROM election_methods WHERE code = 'S'")).scalar()
 
+        # 3c. Tables de référence RH (fiche enseignant) — simples listes en texte libre. ref_country,
+        # ref_inspector, ref_support, ref_ara, ref_are, ref_particular_mission, ref_pacte_mission,
+        # ref_external_school, ref_city sont volontairement créées vides (aucune valeur de seed
+        # demandée) : seules les tables ci-dessous ont un contenu initial connu.
+        ref_titles_data = ["Monsieur", "Madame"]
+        for name in ref_titles_data:
+            db.execute(text("INSERT INTO ref_titles (name) VALUES (:name)"), {"name": name})
+
+        ref_degrees_data = [
+            "CAP, BEP",
+            "Baccalauréat, BP",
+            "DEUG, BTS, DUT, DEUST",
+            "Licence, licence professionnelle, BUT",
+            "Maîtrise",
+            "Master, diplôme d'études approfondies, diplôme d'études supérieures spécialisées, diplôme d'ingénieur",
+            "Doctorat, habilitation à diriger des recherches",
+        ]
+        for name in ref_degrees_data:
+            db.execute(text("INSERT INTO ref_degrees (name) VALUES (:name)"), {"name": name})
+
+        ref_administrative_groups_data = [
+            "Professeurs certifiés",
+            "Professeurs d’éducation physique et sportive (PEPS)",
+            "Professeurs de lycée professionnel (PLP)",
+            "Professeurs agrégés",
+            "Professeurs de chaire supérieure",
+        ]
+        for name in ref_administrative_groups_data:
+            db.execute(text("INSERT INTO ref_administrative_groups (name) VALUES (:name)"), {"name": name})
+
+        ref_levels_data = ["Classe Normale", "Hors Classe", "Classe exceptionnelle"]
+        for name in ref_levels_data:
+            db.execute(text("INSERT INTO ref_levels (name) VALUES (:name)"), {"name": name})
+
+        ref_affectation_modes_data = ["Poste définitif", "Réaffectation carte", "Remplacement"]
+        for name in ref_affectation_modes_data:
+            db.execute(text("INSERT INTO ref_affectation_modes (name) VALUES (:name)"), {"name": name})
+
+        ref_service_modes_data = ["Mi-temps", "Temps partiel", "Temps plein"]
+        for name in ref_service_modes_data:
+            db.execute(text("INSERT INTO ref_service_modes (name) VALUES (:name)"), {"name": name})
+
+        ref_functions_data = ["Enseignant", "Direction", "Documentaliste", "Surveillant"]
+        for name in ref_functions_data:
+            db.execute(text("INSERT INTO ref_functions (name) VALUES (:name)"), {"name": name})
+
+        ref_support_types_data = ["Principal", "Secondaire", "Gelé"]
+        for name in ref_support_types_data:
+            db.execute(text("INSERT INTO ref_support_types (name) VALUES (:name)"), {"name": name})
+
+        db.commit()
+
         # 4. Création des Budgets TRMD pour les deux écoles
         for code, d_id in discipline_ids.items():
             # Collège
@@ -175,8 +227,10 @@ def seed_v2_data():
             last_name = f"Teacher_{i}"
             code = f"T{i}"
             db.execute(text(
-                "INSERT INTO teachers (code, first_name, last_name, max_weekly_hours, school_id) "
-                "VALUES (:code, :first_name, :last_name, 18.0, :school_id)"
+                "INSERT INTO teachers (code, first_name, last_name, max_weekly_hours, school_id, "
+                "photo_diffusion_authorized, phone_diffusion_authorized, email_diffusion_authorized, "
+                "is_board_member, support_temporary_status) "
+                "VALUES (:code, :first_name, :last_name, 18.0, :school_id, 0, 0, 0, 0, 0)"
             ), {"code": code, "first_name": first_name, "last_name": last_name, "school_id": school_idx})
             db.commit()
             t_id = db.execute(text("SELECT id FROM teachers WHERE code = :code"), {"code": code}).scalar()
