@@ -235,6 +235,7 @@ import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
 import { useDataStore } from './stores/data';
+import { getTimeslotHour } from './composables/useTimeslotGrid';
 import { useNotificationStore } from './stores/notifications';
 import { useQueryClient } from '@tanstack/vue-query';
 
@@ -1270,16 +1271,17 @@ function getFormFieldsConfig(resourceKey?: string) {
   // On extrait dynamiquement les heures de début de la vraie grille de l'école !
   const timeSet = new Set<string>();
   timeslots.value.forEach((ts: any) => {
-    if ((ts.minutes_from_midnight / 60) !== undefined && (ts.minutes_from_midnight / 60) !== null) {
+    const hour = getTimeslotHour(ts);
+    if (hour !== undefined && hour !== null) {
       // Format start time (e.g. 8.5 -> "08:30")
-      const h = Math.floor((ts.minutes_from_midnight / 60));
-      const m = Math.round(((ts.minutes_from_midnight / 60) - h) * 60);
+      const h = Math.floor(hour);
+      const m = Math.round((hour - h) * 60);
       const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
       timeSet.add(timeStr);
-      
+
       // Format approximate end time (+1h par défaut) pour avoir des options de fin de journée cohérentes
-      const h2 = Math.floor((ts.minutes_from_midnight / 60) + 1);
-      const m2 = Math.round((((ts.minutes_from_midnight / 60) + 1) - h2) * 60);
+      const h2 = Math.floor(hour + 1);
+      const m2 = Math.round(((hour + 1) - h2) * 60);
       const endStr = `${h2.toString().padStart(2, '0')}:${m2.toString().padStart(2, '0')}`;
       timeSet.add(endStr);
     }

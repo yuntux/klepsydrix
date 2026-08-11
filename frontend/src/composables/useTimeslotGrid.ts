@@ -1,5 +1,26 @@
 import { ref, computed, onMounted, Ref } from 'vue';
 
+// Exports de plain functions (pas dans la closure du composable ci-dessous) : appelables
+// n'importe où — store Pinia, autre composable... — sans dépendre d'un contexte Vue setup()
+// (le composable lui-même appelle onMounted, qui échoue hors setup()).
+
+// Timeslot ne porte que minutes_from_midnight (le champ float "hour" a été retiré lors du
+// passage à une architecture temporelle en minutes entières, voir 181dec6) — seule source de
+// vérité pour cette conversion, à ne plus dupliquer ailleurs.
+export function getTimeslotHour(ts: { minutes_from_midnight: number }): number {
+  return ts.minutes_from_midnight / 60;
+}
+
+// Recherche du timeslot correspondant à un jour/heure donné (tolérance flottante sur l'heure,
+// motif dupliqué à l'identique à plusieurs endroits avant cette factorisation).
+export function findTimeslotAt<T extends { day_of_week: number; minutes_from_midnight: number }>(
+  timeslots: T[],
+  day: number,
+  hour: number
+): T | undefined {
+  return timeslots.find(t => t.day_of_week === day && Math.abs(getTimeslotHour(t) - hour) < 0.001);
+}
+
 export function useTimeslotGrid(timeslotsRef?: Ref<any[]>) {
   const currentStandardDuration = ref(30);
 
@@ -37,7 +58,7 @@ export function useTimeslotGrid(timeslotsRef?: Ref<any[]>) {
     if (!timeslotsRef || !timeslotsRef.value || timeslotsRef.value.length === 0) {
       return [];
     }
-    const uniqueHours = Array.from(new Set(timeslotsRef.value.map(t => Math.floor(t.minutes_from_midnight / 60)))).sort((a, b) => a - b);
+    const uniqueHours = Array.from(new Set(timeslotsRef.value.map(t => Math.floor(getTimeslotHour(t))))).sort((a, b) => a - b);
     if (uniqueHours.length === 0) return [];
     
     const minH = uniqueHours[0];

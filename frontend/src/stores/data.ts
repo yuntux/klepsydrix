@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { Teacher, Classroom, Division, NonTeachingStaff, Timeslot, Course } from '../types';
+import { getTimeslotHour } from '../composables/useTimeslotGrid';
 
 export const useDataStore = defineStore('data', () => {
   const teachers = ref<Teacher[]>([]);
@@ -57,7 +58,7 @@ export const useDataStore = defineStore('data', () => {
   // Clé: `day_of_week-hour`
   const timeslotByTimeMap = computed(() => {
     return timeslots.value.reduce((map, ts) => {
-      const hour = Math.round(ts.minutes_from_midnight / 60 * 100) / 100;
+      const hour = Math.round(getTimeslotHour(ts) * 100) / 100;
       const key = `${ts.day_of_week}-${hour}`;
       map[key] = ts;
       return map;

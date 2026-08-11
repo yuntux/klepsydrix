@@ -142,7 +142,7 @@ import BaseButton from './BaseButton.vue';
 import GridContainer from './GridContainer.vue';
 import Sidebar from './Sidebar.vue';
 import CourseCard from './CourseCard.vue';
-import { useTimeslotGrid } from '../composables/useTimeslotGrid';
+import { useTimeslotGrid, getTimeslotHour } from '../composables/useTimeslotGrid';
 
 const props = defineProps<{
   courses: Course[];
@@ -264,7 +264,7 @@ watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([i
           const tsId = parseInt(tsIdStr);
           const ts = dataStore.timeslotMap[tsId];
           if (ts) {
-            mappedData[getCellKey(ts.day_of_week, ts.minutes_from_midnight / 60)] = scoreInfo;
+            mappedData[getCellKey(ts.day_of_week, getTimeslotHour(ts))] = scoreInfo;
           }
         }
         heatmapData.value = mappedData;
@@ -380,11 +380,12 @@ const overlapInfoMap = computed(() => {
     coursesSubset.forEach(c => {
       const ts = timeslotMap.value.get(c.timeslot_id!);
       if (!ts) return;
+      const start = getTimeslotHour(ts);
       if (!coursesByDay.has(ts.day_of_week)) coursesByDay.set(ts.day_of_week, []);
       coursesByDay.get(ts.day_of_week)!.push({
         course: c,
-        start: ts.hour,
-        end: ts.hour + (c.duration_minutes || 0) / 60
+        start,
+        end: start + (c.duration_minutes || 0) / 60
       });
     });
 
