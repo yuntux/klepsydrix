@@ -550,4 +550,30 @@ body {
   border-color: var(--accent-primary);
 }
 
+/* Style de base des champs de formulaire (input texte, select natif) — déplacé ici depuis
+   GenericForm.vue : un composant comme SearchableSelect.vue référence la classe .form-input sans
+   la définir lui-même, et GenericForm.vue est chargé en lazy (defineAsyncComponent) — tant qu'il
+   n'a jamais été monté dans la session, son <style> (donc cette règle) n'existe pas encore dans le
+   document, et l'input retombe sur le style natif du navigateur (bien plus bas). main.css est
+   importé une fois pour toutes dans main.ts : cette règle de base doit y vivre pour être garantie
+   disponible partout, dès le premier rendu. */
+.form-input, .form-select {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  font-family: var(--font-sans);
+  transition: all var(--transition-fast);
+}
+
+.form-input:focus, .form-select:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
 /* ColorSwatchPicker — positionnement géré nativement par Teleport + getBoundingClientRect */

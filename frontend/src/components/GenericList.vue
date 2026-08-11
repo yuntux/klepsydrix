@@ -238,6 +238,16 @@
                   class="inline-input"
                 />
 
+                <!-- Champ objet calculé côté serveur (ex: Course.underventilated_resource_ids) :
+                     jamais un input texte brut sur un objet JS — un résumé compact en lecture
+                     seule, détail en tooltip. Toujours read-only, aucun widget d'édition générique
+                     sensé pour un JSON arbitraire. -->
+                <div
+                  v-else-if="getFieldDef(col.key)?.type === 'json'"
+                  class="inline-json-summary"
+                  :title="item[col.key] && Object.keys(item[col.key]).length ? JSON.stringify(item[col.key], null, 2) : ''"
+                >{{ item[col.key] && Object.keys(item[col.key]).length ? `${Object.keys(item[col.key]).length} type(s)` : '—' }}</div>
+
                 <!-- Texte standard (ex: nom, code) -->
                 <input
                   v-else
@@ -349,7 +359,7 @@ interface ColumnDef {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'json';
   required?: boolean;
   readOnly?: boolean;
   placeholder?: string;
@@ -1506,6 +1516,19 @@ function onDrop(event: DragEvent, index: number) {
   font-family: var(--font-sans);
   font-size: 13px;
   transition: all var(--transition-fast);
+}
+
+.inline-json-summary {
+  width: 100%;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+  cursor: help;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inline-input:hover, .inline-select:hover {

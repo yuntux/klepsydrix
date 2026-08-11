@@ -1,13 +1,14 @@
 <template>
   <div
     v-if="show && courses.length > 0"
+    ref="containerRef"
     class="course-popin-container glass-morphism animate-pop"
     :style="{ top: y + 'px', left: x + 'px' }"
   >
     <!-- En-tête Draggable -->
     <div class="popin-header" @mousedown="startDrag">
       <div class="header-title-group">
-        <span class="header-badge">{{ courses.length }} sélectionné{{ courses.length > 1 ? 's' : '' }}</span>
+        <span v-if="courses.length > 1" class="header-badge">{{ courses.length }} sélectionnés</span>
         <span class="header-badge duration-badge" style="background-color: rgba(16, 185, 129, 0.08); color: #059669; border-color: rgba(16, 185, 129, 0.2);">⏱️ {{ totalDurationHours }}</span>
         <span v-if="headerWeekTypeLabel" class="header-badge week-badge">🔄 {{ headerWeekTypeLabel }}</span>
         <span v-if="headerPeriodCodes" class="header-badge period-badge">📅 {{ headerPeriodCodes }}</span>
@@ -216,9 +217,11 @@ async function updateCourseField(field: string, value: any) {
 const x = ref(100);
 const y = ref(100);
 
+const containerRef = ref<HTMLElement | null>(null);
+
 onMounted(() => {
   // Positionnement par défaut en haut à droite
-  x.value = window.innerWidth - 420;
+  x.value = window.innerWidth - 400;
   y.value = 140;
 });
 
@@ -246,9 +249,13 @@ function onDrag(event: MouseEvent) {
   const diffX = event.clientX - startX;
   const diffY = event.clientY - startY;
 
-  // Calculer la nouvelle position avec limites d'écran basiques
-  x.value = Math.max(10, Math.min(window.innerWidth - 380, dragOffsetX + diffX));
-  y.value = Math.max(10, Math.min(window.innerHeight - 300, dragOffsetY + diffY));
+  // Limites d'écran basées sur la taille RÉELLE du popin (containerRef) plutôt qu'une largeur/
+  // hauteur figée : la popin étant désormais redimensionnable (resize: both), une valeur figée
+  // laisserait un popin agrandi dépasser de l'écran une fois glissé.
+  const width = containerRef.value?.offsetWidth || 380;
+  const height = containerRef.value?.offsetHeight || 480;
+  x.value = Math.max(10, Math.min(window.innerWidth - width - 10, dragOffsetX + diffX));
+  y.value = Math.max(10, Math.min(window.innerHeight - height - 10, dragOffsetY + diffY));
 }
 
 function stopDrag() {
@@ -303,13 +310,23 @@ const consolidatedSubjects = computed(() => {
 <style scoped>
 .course-popin-container {
   position: fixed;
-  width: 360px;
+  width: 380px;
+  height: 480px;
+  min-width: 320px;
+  min-height: 220px;
+  max-width: 90vw;
+  max-height: 90vh;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--border-color);
   border-radius: 14px;
   box-shadow: var(--shadow-lg), 0 10px 30px rgba(15, 23, 42, 0.15);
   z-index: 5000;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Poignée de redimensionnement native (coin bas-droit) — largeur ET hauteur, aucun JS custom
+     nécessaire. Fonctionne avec overflow:hidden (préserve les coins arrondis du popin). */
+  resize: both;
 }
 
 .glass-morphism {
@@ -336,10 +353,11 @@ const consolidatedSubjects = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 6px 8px;
   background-color: rgba(0, 0, 0, 0.02);
   border-bottom: 1px solid var(--border-color);
   cursor: grab;
+  flex-shrink: 0;
 }
 
 .popin-header:active {
@@ -354,12 +372,12 @@ const consolidatedSubjects = computed(() => {
 }
 
 .header-badge {
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 600;
   background-color: rgba(99, 102, 241, 0.08);
   color: var(--accent-primary);
   border: 1px solid rgba(99, 102, 241, 0.2);
-  padding: 1px 6px;
+  padding: 3px 8px;
   border-radius: var(--radius-lg);
 }
 
@@ -394,32 +412,50 @@ const consolidatedSubjects = computed(() => {
 
 /* Corps de popin scrollable */
 .popin-body {
-  padding: 16px;
-  max-height: 420px;
+  padding: 12px 16px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 6px;
 }
 
+/* Étiquette de section à gauche + widget à droite sur une seule ligne (plutôt qu'empilés) : la
+   Fiche T listant 8 types de ressources, ce gain de hauteur par section évite un ascenseur
+   systématique sans avoir à agrandir la popin. */
 .consolidated-section {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  align-items: start;
   gap: 8px;
+  min-height: 38px;
+}
+
+/* Une cellule de grille garde par défaut min-width: auto (jamais plus étroite que son contenu) :
+   sans ce reset, le widget de droite (tags, texte non coupé) pousse au-delà de la colonne 1fr et
+   provoque un débordement horizontal du popin plutôt que de s'y adapter. */
+.consolidated-section > *:last-child {
+  min-width: 0;
 }
 
 .section-title {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-muted);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  line-height: 1.3;
+  padding-top: 11px;
 }
 
 .chips-container {
   display: flex;
   flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
   gap: 6px;
+  min-height: 38px;
 }
 
 .editable-field {

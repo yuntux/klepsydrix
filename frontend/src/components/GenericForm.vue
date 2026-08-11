@@ -123,7 +123,7 @@ function handleActionClick(action: any) {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'html';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'html' | 'json';
   required?: boolean;
   requiredExpr?: string;
   invisibleExpr?: string;
@@ -810,6 +810,18 @@ const FormLayoutGrid: any = defineComponent({
                 style: inputStyle,
                 innerHTML: gridProps.localModel[key] || ''
               });
+            } else if (field.type === 'json') {
+              // Champ objet calculé côté serveur (ex: Course.underventilated_resource_ids) :
+              // jamais un input texte brut sur un objet JS — juste un résumé compact en lecture
+              // seule, avec le détail en tooltip. Toujours read-only (pas de widget d'édition
+              // générique sensé pour un JSON arbitraire).
+              const val = gridProps.localModel[key];
+              const hasValue = val && typeof val === 'object' && Object.keys(val).length > 0;
+              inputElement = h('div', {
+                class: 'form-json-summary',
+                style: inputStyle,
+                title: hasValue ? JSON.stringify(val, null, 2) : ''
+              }, hasValue ? `${Object.keys(val).length} type(s) de ressource` : '—');
             }
 
             const labelElement = h('label', {
@@ -1071,25 +1083,9 @@ function handleDelete() {
   margin-left: 2px;
 }
 
-.form-input, .form-select {
-  width: 100%;
-  box-sizing: border-box;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  color: var(--text-primary);
-  font-size: 14px;
-  outline: none;
-  font-family: var(--font-sans);
-  transition: all var(--transition-fast);
-}
-
-.form-input:focus, .form-select:focus {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
-}
-
+/* Style de base .form-input/.form-select : voir main.css (déplacé pour être garanti disponible
+   avant même que GenericForm.vue ait été monté une première fois — SearchableSelect.vue en
+   dépend). */
 .form-select {
   width: 100%;
 }
@@ -1144,6 +1140,16 @@ function handleDelete() {
 
 .form-html-content :deep(p:last-child) {
   margin-bottom: 0;
+}
+
+.form-json-summary {
+  width: 100%;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-style: italic;
+  cursor: help;
 }
 
 .readonly-swatch {

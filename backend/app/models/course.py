@@ -163,7 +163,7 @@ class Course(Base):
     # _missing_resource_ids_by_type) : {champ_ressource: [ids présents sur ce cours composé mais
     # absents de TOUS ses enfants]}, uniquement les types en défaut. None si non composé, sans
     # enfant, ou FULLY_VENTILATED.
-    underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées"})
+    underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées", "type": "json", "readOnly": True})
     
     mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
