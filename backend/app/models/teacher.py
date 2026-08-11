@@ -209,3 +209,79 @@ class Teacher(Base):
         if self.first_name:
             return f"{self.first_name} {self.last_name}"
         return self.last_name
+
+
+# Objets de liaison à volume horaire (teacher_id CASCADE, ref_*_id RESTRICT) — dans ce fichier
+# plutôt que dans un fichier dédié par classe, comme le reste du projet (MefService/MefDivision
+# dans mef.py, ServiceRepartition/Alignment dans service.py) : un fichier par objet N-à-N/de
+# liaison n'est pas la convention ici, il vit avec son modèle propriétaire.
+class TeacherAra(Base):
+    __tablename__ = "teacher_aras"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
+    ref_ara_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_aras.id", ondelete="RESTRICT"), nullable=False, info={"label": "ARA"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="ara_lines")
+    ref_ara: Mapped["RefAra"] = relationship("RefAra")
+
+
+class TeacherAre(Base):
+    __tablename__ = "teacher_ares"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
+    ref_are_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_ares.id", ondelete="RESTRICT"), nullable=False, info={"label": "ARE"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="are_lines")
+    ref_are: Mapped["RefAre"] = relationship("RefAre")
+
+
+class TeacherDiscipline(Base):
+    __tablename__ = "teacher_disciplines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
+    discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="discipline_lines")
+    discipline: Mapped["Discipline"] = relationship("Discipline")
+
+
+class TeacherParticularMission(Base):
+    __tablename__ = "teacher_particular_missions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
+    ref_particular_mission_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_particular_missions.id", ondelete="RESTRICT"), nullable=False, info={"label": "Mission particulière"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="particular_mission_lines")
+    ref_particular_mission: Mapped["RefParticularMission"] = relationship("RefParticularMission")
+
+
+class TeacherPacteMission(Base):
+    __tablename__ = "teacher_pacte_missions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
+    ref_pacte_mission_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="RESTRICT"), nullable=False, info={"label": "Mission Pacte"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="pacte_mission_lines")
+    ref_pacte_mission: Mapped["RefPacteMission"] = relationship("RefPacteMission")
+
+
+class TeacherOtherSchool(Base):
+    __tablename__ = "teacher_other_schools"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
+    ref_external_school_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_external_schools.id", ondelete="RESTRICT"), nullable=False, info={"label": "Autre établissement"})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="other_school_lines")
+    ref_external_school: Mapped["RefExternalSchool"] = relationship("RefExternalSchool")

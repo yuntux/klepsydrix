@@ -411,8 +411,44 @@
                         },
                         {
                           "type": "page",
-                          "string": "Données administratives",
+                          "string": "Enseignements",
                           "children": [
+                            {
+                              "type": "group",
+                              "string": "Contrat & Rattachement",
+                              "col": 2,
+                              "children": [
+                                {
+                                  "key": "max_weekly_hours",
+                                  "overrideLabel": "Heures de cours max par semaine",
+                                  "required": true,
+                                  "readOnly": false
+                                },
+                                {
+                                  "key": "school_id",
+                                  "overrideLabel": "Établissement principal",
+                                  "required": true,
+                                  "readOnly": false
+                                }
+                              ]
+                            },
+                            {
+                              "type": "group",
+                              "string": "Matières",
+                              "col": 2,
+                              "children": [
+                                {
+                                  "key": "subject_ids",
+                                  "readOnly": false
+                                },
+                                {
+                                  "key": "preferred_subject_id",
+                                  "readOnly": false,
+                                  "readOnlyExpr": "model.subject_ids && model.subject_ids.length === 1",
+                                  "help": "Calculée automatiquement s'il n'y a qu'une seule matière enseignée ; librement modifiable sinon."
+                                }
+                              ]
+                            },
                             {
                               "type": "group",
                               "string": "Données administratives",
@@ -424,6 +460,10 @@
                                 },
                                 {
                                   "key": "is_board_member",
+                                  "readOnly": false
+                                },
+                                {
+                                  "key": "service_mode_id",
                                   "readOnly": false
                                 }
                               ]
@@ -467,6 +507,10 @@
                               "col": 2,
                               "children": [
                                 {
+                                  "key": "recruit_discipline_id",
+                                  "readOnly": false
+                                },
+                                {
                                   "key": "degree_id",
                                   "readOnly": false
                                 },
@@ -495,10 +539,6 @@
                                   "readOnly": false
                                 },
                                 {
-                                  "key": "recruit_discipline_id",
-                                  "readOnly": false
-                                },
-                                {
                                   "key": "affectation_mode_id",
                                   "readOnly": false
                                 },
@@ -524,52 +564,6 @@
                                 {
                                   "key": "last_inspection_inspector_id",
                                   "readOnly": false
-                                },
-                                {
-                                  "key": "service_mode_id",
-                                  "readOnly": false
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "page",
-                          "string": "Contrat & Matières",
-                          "children": [
-                            {
-                              "type": "group",
-                              "string": "Contrat & Rattachement",
-                              "col": 2,
-                              "children": [
-                                {
-                                  "key": "max_weekly_hours",
-                                  "overrideLabel": "Heures de cours max par semaine",
-                                  "required": true,
-                                  "readOnly": false
-                                },
-                                {
-                                  "key": "school_id",
-                                  "overrideLabel": "Établissement principal",
-                                  "required": true,
-                                  "readOnly": false
-                                }
-                              ]
-                            },
-                            {
-                              "type": "group",
-                              "string": "Matières",
-                              "col": 2,
-                              "children": [
-                                {
-                                  "key": "subject_ids",
-                                  "readOnly": false
-                                },
-                                {
-                                  "key": "preferred_subject_id",
-                                  "readOnly": false,
-                                  "readOnlyExpr": "model.subject_ids && model.subject_ids.length === 1",
-                                  "help": "Calculée automatiquement s'il n'y a qu'une seule matière enseignée ; librement modifiable sinon."
                                 }
                               ]
                             }

@@ -1063,15 +1063,19 @@ function buildColumnsConfig(model: string, items: any[]) {
         let colWidth = prop.list_width;
         if (!colWidth) {
           let baseType = prop.type;
+          let baseFormat = prop.format;
           if (!baseType && prop.anyOf) {
             const validOption = prop.anyOf.find((o: any) => o.type && o.type !== 'null');
-            if (validOption) baseType = validOption.type;
+            if (validOption) {
+              baseType = validOption.type;
+              if (!baseFormat) baseFormat = validOption.format;
+            }
           }
 
           if (baseType === 'boolean') colWidth = 100;
           else if (key === 'color') colWidth = 80;
           else if (baseType === 'integer' || baseType === 'number') colWidth = 130;
-          else if (prop.format === 'date-time' || prop.format === 'date') colWidth = 160;
+          else if (baseFormat === 'date-time' || baseFormat === 'date') colWidth = 160;
           else {
             // Calcul dynamique basé sur le contenu réel des données
             let maxLength = (prop.title || key).length;
@@ -1313,11 +1317,18 @@ function getFormFieldsConfig(resourceKey?: string) {
         
         let baseType = prop.type;
         let resourceName = prop.resource;
-        // Gérer les champs optionnels (nullable) de Pydantic qui utilisent anyOf
+        let baseFormat = prop.format;
+        // Gérer les champs optionnels (nullable) de Pydantic qui utilisent anyOf — format doit
+        // être déballé au même titre que type/resource, sans quoi un champ Date nullable (ex:
+        // Optional[date]) perd son format 'date' (porté par la branche anyOf, jamais au niveau
+        // racine du schéma) et retombe en simple texte au lieu du widget <input type="date">.
         if (!baseType && prop.anyOf) {
           const validOption = prop.anyOf.find((o: any) => o.type && o.type !== 'null');
-          if (validOption) baseType = validOption.type;
-          
+          if (validOption) {
+            baseType = validOption.type;
+            if (!baseFormat) baseFormat = validOption.format;
+          }
+
           const opt = prop.anyOf.find((o: any) => o.resource);
           if (opt) resourceName = opt.resource;
         }
@@ -1326,8 +1337,8 @@ function getFormFieldsConfig(resourceKey?: string) {
         if (fieldType === 'string') fieldType = 'text'; // OpenAPI renvoie string, mais le form attend text
         else if (fieldType === 'boolean') fieldType = 'boolean';
         else if (fieldType === 'integer' || fieldType === 'number') fieldType = 'number';
-        
-        if (fieldType === 'text' && prop.format === 'date') fieldType = 'date';
+
+        if (fieldType === 'text' && baseFormat === 'date') fieldType = 'date';
         
         if (fieldType === 'color' || key === 'color') fieldType = 'color';
         

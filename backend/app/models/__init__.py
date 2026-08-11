@@ -6,7 +6,7 @@ from backend.app.models.subject import Subject
 from backend.app.models.mef import Mef, MefService, MefDivision
 from backend.app.models.trmd_budget import TrmdBudget
 from backend.app.models.classroom import Classroom
-from backend.app.models.teacher import Teacher
+from backend.app.models.teacher import Teacher, TeacherAra, TeacherAre, TeacherDiscipline, TeacherParticularMission, TeacherPacteMission, TeacherOtherSchool
 from backend.app.models.division import Division
 from backend.app.models.material import Material
 from backend.app.models.mission import Mission
@@ -41,9 +41,3 @@ from backend.app.models.ref_function import RefFunction
 from backend.app.models.ref_support import RefSupport
 from backend.app.models.ref_support_type import RefSupportType
 from backend.app.models.ref_city import RefCity
-from backend.app.models.teacher_ara import TeacherAra
-from backend.app.models.teacher_are import TeacherAre
-from backend.app.models.teacher_discipline import TeacherDiscipline
-from backend.app.models.teacher_particular_mission import TeacherParticularMission
-from backend.app.models.teacher_pacte_mission import TeacherPacteMission
-from backend.app.models.teacher_other_school import TeacherOtherSchool

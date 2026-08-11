@@ -193,7 +193,7 @@ class Course(Base):
     materials: Mapped[list["Material"]] = relationship("Material", secondary=course_materials, info={"label": "Matériels"})
     divisions: Mapped[list["Division"]] = relationship("Division", secondary=course_divisions, back_populates="courses", info={"label": "Classes / Divisions"})
     periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods, info={"label": "Périodes"})
-    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts, info={"label": "Groupes de classe"})
+    class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=course_class_parts, info={"label": "Parties de classe"})
     groups: Mapped[list["Group"]] = relationship("Group", secondary=course_groups, back_populates="courses", info={"label": "Groupes"})
 
     @property

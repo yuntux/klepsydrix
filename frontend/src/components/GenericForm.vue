@@ -1275,7 +1275,10 @@ function handleDelete() {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 0px;
+  /* Colle les boutons en bas du panneau quand .form-body a plus de hauteur que son contenu (cas
+     du panneau inline, flex:1) — sans effet quand le conteneur (ex: la modale) épouse déjà la
+     hauteur du contenu, margin-top:auto n'ayant alors aucun espace où pousser. */
+  margin-top: auto;
   border-top: 1px solid var(--border-color);
   padding-top: 16px;
 }
@@ -1356,6 +1359,12 @@ function handleDelete() {
   background-color: var(--bg-card);
   overflow-y: auto;
   flex: 1;
+  /* La règle de base .form-body fixe max-height: 80vh pour la modale (dimensionnée par rapport à
+     la fenêtre). En panneau latéral, .form-body doit occuper toute la hauteur réelle disponible
+     de .generic-form-inline (flex: 1 ci-dessus) — sans ce reset, 80vh (relatif à la fenêtre, pas
+     au panneau) tronque .form-body dès que le panneau dépasse 80% de la hauteur de la fenêtre,
+     laissant un espace vide en bas du panneau sous lequel le contenu scrollé semble disparaître. */
+  max-height: none;
 }
 
 .generic-form-inline .form-input,
