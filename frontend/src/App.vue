@@ -104,6 +104,7 @@
             @update-item="onUpdateGenericInline"
             @row-click="onRowClickGeneric"
             @selection-change="onSelectionChangeGeneric"
+            @initial-selection-applied="urlSelectedIds = []"
           />
         </section>
 

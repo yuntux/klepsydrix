@@ -471,6 +471,14 @@ const emit = defineEmits<{
   (e: 'update-item', item: any): void;
   (e: 'row-click', item: any): void;
   (e: 'selection-change', ids: any[]): void;
+  // Accusé de réception de initialSelectedIds — voir architecture.md, "URLs profondes". Sans ça,
+  // App.vue n'a aucun moyen de savoir quand une sélection restaurée depuis l'URL a été consommée
+  // : la même instance de GenericList (réutilisée pour toute ressource affichée dans ce panneau,
+  // voir App.vue) recevrait sinon indéfiniment le même initialSelectedIds périmé à chaque
+  // changement de ressource suivant, et l'appliquerait à nouveau à tort (bug réel observé : une
+  // sélection restaurée sur les Classes se retrouvait réappliquée en changeant d'onglet vers les
+  // Enseignants).
+  (e: 'initial-selection-applied'): void;
 }>();
 
 const isMultiSelectAllowed = computed(() => {
@@ -774,6 +782,7 @@ watch(() => props.items, (newItems) => {
     .map(item => item.id)
     .filter(id => props.initialSelectedIds!.some(rid => String(rid) === String(id)));
   hasAppliedInitialSelection.value = true;
+  emit('initial-selection-applied');
   if (validIds.length === 0) return;
   // Une vue non multi-sélectionnable ne garde jamais que la première valeur valide, comme pour
   // un simple clic (voir onRowClick) — sans quoi une URL fournissant plusieurs ids sur une liste
