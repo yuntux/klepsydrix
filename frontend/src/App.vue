@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <!-- Vue interactive principale orchestrée par NotebooksTree (T032) -->
-    <NotebooksTree @change-leaf="onLeafChange" @trigger-action="onTriggerAction">
+    <NotebooksTree :initial-path="urlPathIds" @change-leaf="onLeafChange" @trigger-action="onTriggerAction">
       <template #panel="{ panel }">
         <!-- 1. Grille interactive de l'Emploi du Temps -->
         <!-- 1. Grille interactive de l'Emploi du Temps -->
@@ -97,6 +97,7 @@
             :fields="formFieldsConfig"
             :items="genericItems"
             :listConfig="panel.listConfig"
+            :initial-selected-ids="urlSelectedIds"
             @add="onAddGeneric"
             @edit="onEditGeneric"
             @delete="onDeleteGeneric"
@@ -279,6 +280,7 @@ const loading = ref<boolean>(false);
 
 import { useGridStore } from './stores/grid';
 import { storeToRefs } from 'pinia';
+import { parseLocationPath, parseLocationIds, syncUrl } from './services/urlState';
 const gridStore = useGridStore();
 const { autoTarget, layoutMode, placementAssistantActive, isDetailedView, selectedCourseIds } = storeToRefs(gridStore);
 
@@ -332,6 +334,22 @@ watch(autoTarget, (newVal) => {
 const activeTab = ref<string>('timetable');
 const activeLeaf = ref<any>(null);
 
+// URLs profondes (voir architecture.md, "URLs profondes") : `urlPathIds`/`urlSelectedIds` sont lus
+// une fois au chargement (état initial de l'URL), puis remis à jour uniquement sur un retour
+// navigateur (popstate, voir onMounted) — NotebooksTree/GenericList les surveillent en continu et
+// se resynchronisent dessus. `currentPathIds` reflète au contraire le chemin RÉELLEMENT actif à
+// tout instant (mis à jour à chaque changement de feuille, voir onLeafChange) : c'est lui, avec
+// `selectedParentIds`, qui pilote l'écriture de l'URL (voir le watch plus bas).
+const urlPathIds = ref<string[]>(parseLocationPath());
+const urlSelectedIds = ref<Array<string | number>>(parseLocationIds());
+const currentPathIds = ref<string[]>([]);
+let lastSyncedPathKey: string | null = null;
+// Arme une garde d'un tick dans le watcher de synchronisation (voir plus bas) chaque fois qu'une
+// restauration de sélection depuis l'URL vient d'être déclenchée (montage initial, ou retour
+// navigateur) — évite d'écraser l'URL avec l'état transitoire "sélection vidée" que produit
+// systématiquement onLeafChange avant que la restauration asynchrone n'ait eu le temps d'arriver.
+let awaitingSelectionRestore = urlSelectedIds.value.length > 0;
+
 const isInlineMode = computed(() => {
   if (!activeLeaf.value || !activeLeaf.value.panels) return false;
   return activeLeaf.value.panels.some((p: any) => p.component === 'GenericForm');
@@ -355,12 +373,13 @@ const inlineFormTitle = computed(() => {
   return isEditing.value ? `Modifier l'élément` : `Ajouter un élément`;
 });
 
-async function onLeafChange(leaf: any) {
+async function onLeafChange(leaf: any, pathIds: string[] = []) {
   // La Fiche T (CoursePopin) reste affichée tant que selectedCourseIds n'est pas vide, sans
   // rapport avec le panel actif : la vider ici garantit qu'elle disparaît dès qu'on quitte le
   // Visualiseur, plutôt que de rester affichée avec une sélection obsolète derrière un autre menu.
   gridStore.clearCourseSelection();
   activeLeaf.value = leaf;
+  currentPathIds.value = pathIds;
 
   if (leaf.id === 'timetable_root') {
     activeTab.value = 'timetable';
@@ -720,6 +739,36 @@ const isEditing = ref(false);
 const selectedParentIds = ref<any[]>([]);
 const selectedRelatedRecords = ref<any[]>([]);
 const isAddingInline = ref(false);
+
+// Point unique de synchronisation de l'URL (voir architecture.md, "URLs profondes") — centralise
+// toute la logique push/replace pour éviter toute incohérence entre plusieurs endroits qui
+// écriraient l'URL indépendamment. `push` (nouvelle entrée d'historique) uniquement quand le
+// CHEMIN change (vraie navigation "page") ; `replace` (pas de nouvelle entrée) quand seule la
+// sélection change (coche une ligne) — le bouton Précédent du navigateur navigue ainsi entre
+// feuilles visitées, pas entre chaque clic de ligne individuel.
+//
+// awaitingSelectionRestore gère un piège d'ordonnancement : la restauration d'une sélection
+// depuis l'URL est asynchrone (GenericList l'applique une fois `items` chargé, voir son watch
+// dédié), alors que onLeafChange remet toujours selectedParentIds à [] de façon synchrone en
+// premier — sans garde, le déclenchement immédiat de ce watcher écrirait une URL sans ids et
+// effacerait ceux collés par l'utilisateur (ou restaurés au clic Précédent) avant même qu'ils
+// aient eu la chance d'être appliqués. On ignore donc UN SEUL déclenchement par restauration
+// armée (au montage, ou après un popstate, voir onMounted) ; s'il ne s'agit que d'un état
+// transitoire, le déclenchement suivant (sélection réellement restaurée) écrit l'URL définitive
+// avec push:false (le chemin, lui, n'a pas changé entre les deux) ; si la restauration échoue
+// (ids invalides), l'URL est nettoyée au déclenchement suivant plutôt que de rester bloquée.
+watch([currentPathIds, selectedParentIds], ([pathIds, ids]) => {
+  if (!pathIds || pathIds.length === 0) return;
+  const pathKey = pathIds.join('/');
+  if (awaitingSelectionRestore) {
+    awaitingSelectionRestore = false;
+    lastSyncedPathKey = pathKey;
+    if (ids.length === 0) return;
+  }
+  const push = pathKey !== lastSyncedPathKey;
+  lastSyncedPathKey = pathKey;
+  syncUrl(pathIds, ids, { push });
+}, { deep: true });
 
 async function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
@@ -1677,6 +1726,16 @@ onMounted(async () => {
     if (resource === 'subjects') loadSubjects();
     if (resource === 'system_settings') loadTimeslotConfig();
     if (['teachers', 'classrooms', 'divisions', 'courses', 'groups'].includes(resource)) loadData();
+  });
+
+  // Retour/avancée navigateur (voir architecture.md, "URLs profondes") : ré-écrire urlPathIds/
+  // urlSelectedIds suffit à rejouer la restauration — NotebooksTree (watch sur initialPath) et
+  // GenericList (watch sur items + hasAppliedInitialSelection réarmé au changement de title)
+  // surveillent déjà ces refs en continu, aucun code de re-déclenchement supplémentaire ici.
+  window.addEventListener('popstate', () => {
+    urlPathIds.value = parseLocationPath();
+    urlSelectedIds.value = parseLocationIds();
+    awaitingSelectionRestore = urlSelectedIds.value.length > 0;
   });
 });
 </script>

@@ -143,7 +143,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
+import { ref, shallowRef, onMounted, onUnmounted, watch } from 'vue';
 import SplitPanel from './SplitPanel.vue';
 import MenuIcon from './MenuIcon.vue';
 import { fetchMenus } from '../services/api';
@@ -183,10 +183,36 @@ const popupPos = ref({ top: 0, left: 0 });
 const themes = ['light', 'dark', 'strict'];
 const currentThemeIndex = ref(0);
 
+// Chemin d'IDs ui.json (racine -> feuille) à restaurer depuis l'URL — voir architecture.md, "URLs
+// profondes". Surveillé en continu (pas juste lu au montage) : App.vue le remet à jour sur un
+// retour navigateur (popstate), et ce composant doit alors résoudre et sélectionner la nouvelle
+// cible sans être remonté.
+const props = defineProps<{
+  initialPath?: string[];
+}>();
+
 const emit = defineEmits<{
-  (e: 'change-leaf', leaf: NotebookNode): void;
+  (e: 'change-leaf', leaf: NotebookNode, pathIds: string[]): void;
   (e: 'trigger-action', action: { resourceKey: string; actionId: string }): void;
 }>();
+
+// Résout un chemin d'IDs (ex: ['timetable_root', 'teachers_setting', 'teachers_preferences_tab'])
+// en parcourant l'arbre déjà chargé — l'arbre ne dépasse jamais 3 niveaux (voir template : l1/l2
+// groupes, l3 toujours une feuille), donc pas besoin d'une résolution récursive générique.
+function findNodeByPath(path: string[]): { leaf: NotebookNode; parent: NotebookNode | null; grandParent: NotebookNode | null } | null {
+  if (!path || path.length === 0) return null;
+  const l1 = config.value.find(n => n.id === path[0]);
+  if (!l1) return null;
+  if (path.length === 1) return { leaf: l1, parent: null, grandParent: null };
+
+  const l2 = l1.children?.find(n => n.id === path[1]);
+  if (!l2) return null;
+  if (path.length === 2) return { leaf: l2, parent: l1, grandParent: null };
+
+  const l3 = l2.children?.find(n => n.id === path[2]);
+  if (!l3) return null;
+  return { leaf: l3, parent: l2, grandParent: l1 };
+}
 
 function toggleSidebar() {
   isSidebarCollapsed.value = !isSidebarCollapsed.value;
@@ -245,7 +271,7 @@ function selectLeaf(leaf: NotebookNode, parent?: NotebookNode | null, grandParen
 
   activeLeafId.value = leaf.id;
   activeLeafNode.value = leaf;
-  
+
   const parts: { title: string; icon?: string }[] = [];
   if (grandParent) parts.push({ title: grandParent.title, icon: grandParent.icon });
   if (parent) parts.push({ title: parent.title, icon: parent.icon });
@@ -253,7 +279,11 @@ function selectLeaf(leaf: NotebookNode, parent?: NotebookNode | null, grandParen
   breadcrumbParts.value = parts;
 
   activePopupNode.value = null;
-  emit('change-leaf', leaf);
+  // Chemin racine -> feuille, dans cet ordre quel que soit le niveau de profondeur de la feuille
+  // (grandParent est toujours l'ancêtre le plus haut quand il existe — voir findNodeByPath) :
+  // App.vue s'en sert pour synchroniser l'URL (voir architecture.md, "URLs profondes").
+  const pathIds = [grandParent?.id, parent?.id, leaf.id].filter((id): id is string => !!id);
+  emit('change-leaf', leaf, pathIds);
 }
 
 function onDocClick(e: Event) {
@@ -269,22 +299,44 @@ onMounted(async () => {
     const data = await fetchMenus();
     config.value = data as NotebookNode[];
     if (config.value.length > 0) {
-      let firstLeaf = config.value[0];
-      let p = null, gp = null;
-      if (firstLeaf.children && firstLeaf.children.length > 0) {
-        gp = firstLeaf;
-        firstLeaf = firstLeaf.children[0];
+      // Restauration depuis l'URL (voir architecture.md, "URLs profondes") si un chemin valide
+      // est fourni ; repli sur le comportement historique (première feuille de l'arbre) sinon —
+      // aucune régression pour un premier chargement sans URL de navigation.
+      const restored = props.initialPath && props.initialPath.length > 0 ? findNodeByPath(props.initialPath) : null;
+      if (restored) {
+        if (restored.grandParent) openGroupIds.value.add(restored.grandParent.id);
+        if (restored.parent) openGroupIds.value.add(restored.parent.id);
+        selectLeaf(restored.leaf, restored.parent, restored.grandParent);
+      } else {
+        let firstLeaf = config.value[0];
+        let p = null, gp = null;
         if (firstLeaf.children && firstLeaf.children.length > 0) {
-          p = firstLeaf;
+          gp = firstLeaf;
           firstLeaf = firstLeaf.children[0];
+          if (firstLeaf.children && firstLeaf.children.length > 0) {
+            p = firstLeaf;
+            firstLeaf = firstLeaf.children[0];
+          }
         }
+        if (gp) openGroupIds.value.add(gp.id);
+        if (p) openGroupIds.value.add(p.id);
+        selectLeaf(firstLeaf, p, gp);
       }
-      if (gp) openGroupIds.value.add(gp.id);
-      if (p) openGroupIds.value.add(p.id);
-      selectLeaf(firstLeaf, p, gp);
     }
   } catch (e) {
     console.error("Failed to load menus from backend:", e);
+  }
+});
+
+// Retour navigateur (popstate) : App.vue remet à jour initialPath, qu'il faut alors résoudre et
+// appliquer sans attendre un nouveau montage du composant (le montage n'a lieu qu'une fois).
+watch(() => props.initialPath, (newPath) => {
+  if (!newPath || newPath.length === 0 || config.value.length === 0) return;
+  const resolved = findNodeByPath(newPath);
+  if (resolved) {
+    if (resolved.grandParent) openGroupIds.value.add(resolved.grandParent.id);
+    if (resolved.parent) openGroupIds.value.add(resolved.parent.id);
+    selectLeaf(resolved.leaf, resolved.parent, resolved.grandParent);
   }
 });
 

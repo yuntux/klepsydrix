@@ -458,6 +458,10 @@ const props = defineProps<{
   items: any[];
   fields?: FormField[];
   listConfig?: ListConfig;
+  // Restauration de sélection depuis l'URL (voir architecture.md, "URLs profondes") — appliquée
+  // une seule fois dès que `items` se peuple pour cette ressource (voir watch dédié plus bas),
+  // puis la sélection redevient un état purement interactif classique.
+  initialSelectedIds?: Array<string | number>;
 }>();
 
 const emit = defineEmits<{
@@ -756,6 +760,27 @@ watch(selectedIds, (newVal) => {
   emit('selection-change', Array.from(newVal));
 }, { deep: true });
 
+// Restauration de sélection depuis l'URL — une seule fois par chargement de ressource (voir
+// hasAppliedInitialSelection, réarmé plus bas au changement de `title`). Le `watch(selectedIds)`
+// ci-dessus émet ensuite `selection-change` normalement : toute la chaîne en aval (App.vue,
+// panneau détail maître/détail, PreferenceGrid, formulaire) réagit exactement comme pour un clic
+// utilisateur, sans code spécifique à écrire pour ces cas.
+const hasAppliedInitialSelection = ref(false);
+watch(() => props.items, (newItems) => {
+  if (hasAppliedInitialSelection.value) return;
+  if (!props.initialSelectedIds || props.initialSelectedIds.length === 0) return;
+  if (!newItems || newItems.length === 0) return;
+  const validIds = newItems
+    .map(item => item.id)
+    .filter(id => props.initialSelectedIds!.some(rid => String(rid) === String(id)));
+  hasAppliedInitialSelection.value = true;
+  if (validIds.length === 0) return;
+  // Une vue non multi-sélectionnable ne garde jamais que la première valeur valide, comme pour
+  // un simple clic (voir onRowClick) — sans quoi une URL fournissant plusieurs ids sur une liste
+  // à sélection unique laisserait un Set incohérent avec ce que l'UI peut normalement produire.
+  selectedIds.value = new Set(isMultiSelectAllowed.value ? validIds : validIds.slice(0, 1));
+}, { immediate: true });
+
 // Pagination
 const currentPage = ref(1);
 const perPage = ref(30);
@@ -964,6 +989,10 @@ watch(isSomeSelected, (val) => {
 watch(() => props.title, () => {
   selectedIds.value.clear();
   lastClickedItem.value = null;
+  // Réarme la restauration depuis l'URL : si l'utilisateur navigue vers une autre ressource puis
+  // revient (bouton Précédent) sur celle-ci avec initialSelectedIds à nouveau pertinent, il faut
+  // pouvoir la réappliquer plutôt que la considérer comme déjà consommée.
+  hasAppliedInitialSelection.value = false;
 });
 
 watch(() => props.items, (newItems) => {
