@@ -5,7 +5,7 @@
        backend. -->
   <div class="searchable-multiselect-container" :class="{ 'is-inline': inline, 'is-disabled': disabled, 'is-open': isOpen }" ref="containerRef" @click="!disabled && $event.stopPropagation()">
     <div class="input-tags-wrapper" @click="focusInput">
-      <div v-for="val in selectedOptions" :key="val.value" class="tag-badge">
+      <div v-for="val in selectedOptions" :key="val.value" class="tag-badge" :class="{ 'tag-badge-highlight': isHighlighted(val.value) }">
         <span class="tag-label">{{ val.label }}</span>
         <!-- mousedown.prevent (pas click) : voir SearchableSelect.vue, même piège avec le
              focusout de ligne de GenericList.vue qui flush avant que le clic ne s'exécute. -->
@@ -80,6 +80,10 @@ const props = defineProps<{
   placeholder?: string;
   required?: boolean;
   inline?: boolean;
+  // Signale (fond rouge) une valeur sélectionnée jugée insuffisamment précisée par l'appelant
+  // (ex: Fiche T — ressource d'un cours composé absente de tous ses enfants). Optionnelle,
+  // rétrocompatible : aucun effet si omise.
+  highlightValues?: any[];
 }>();
 
 const emit = defineEmits<{
@@ -129,6 +133,10 @@ const selectedOptions = computed(() => {
 // Vérifier si une option est sélectionnée
 function isSelected(value: any) {
   return currentValues.value.some(val => String(val) === String(value));
+}
+
+function isHighlighted(value: any) {
+  return (props.highlightValues || []).some(val => String(val) === String(value));
 }
 
 // Filtrer les options par recherche
@@ -310,6 +318,16 @@ onUnmounted(() => {
   opacity: 0.7;
   font-weight: bold;
   transition: opacity 0.15s;
+}
+
+.tag-badge-highlight {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--accent-danger, #dc2626);
+}
+
+.tag-badge-highlight .tag-remove {
+  color: var(--accent-danger, #dc2626);
 }
 
 .tag-remove:hover {

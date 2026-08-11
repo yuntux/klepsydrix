@@ -854,6 +854,82 @@ def test_course_status_calculation(db_session: Session):
     assert parent.decomposition_status == "FULLY_VENTILATED"
 
 
+def test_course_underventilated_resource_ids(db_session: Session):
+    """
+    underventilated_resource_ids (recalculé au même endroit que decomposition_status, voir
+    Course._missing_resource_ids_by_type) doit lister, par type de ressource, les IDs présents
+    sur le cours composé mais absents de TOUS ses enfants.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    division = Division.create(db_session, {"code": "DIV_UV", "name": "UV", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    teacher1 = Teacher.create(db_session, {"code": "T_UV1", "first_name": "Prof", "last_name": "UV1", "school_id": school.id})
+    teacher2 = Teacher.create(db_session, {"code": "T_UV2", "first_name": "Prof", "last_name": "UV2", "school_id": school.id})
+
+    # Cours simple (non composé) : jamais de valeur.
+    simple = Course.create(db_session, {"subject_id": subject.id, "school_id": school.id, "teacher_ids": [teacher1.id]})
+    assert simple.underventilated_resource_ids is None
+
+    # Composé sans enfant (UNVENTILATED) : jamais de valeur non plus.
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "is_composed": True,
+        "teacher_ids": [teacher1.id, teacher2.id], "division_ids": [division.id],
+    })
+    assert parent.decomposition_status == "UNVENTILATED"
+    assert parent.underventilated_resource_ids is None
+
+    # Enfant ne reprenant qu'un seul des deux enseignants et pas la division : les deux types
+    # apparaissent dans le dict, teacher_ids ne liste que l'enseignant manquant.
+    child = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "parent_id": parent.id,
+        "teacher_ids": [teacher1.id],
+    })
+    assert parent.decomposition_status == "PARTIALLY_VENTILATED"
+    assert parent.underventilated_resource_ids == {
+        "teacher_ids": [teacher2.id],
+        "division_ids": [division.id],
+    }
+
+    # Une fois l'enfant complété, le dict redevient vide (None), cohérent avec FULLY_VENTILATED.
+    child.update(db_session, {"teacher_ids": [teacher1.id, teacher2.id], "division_ids": [division.id]})
+    assert parent.decomposition_status == "FULLY_VENTILATED"
+    assert parent.underventilated_resource_ids is None
+
+
+def test_generic_update_endpoint_persists_late_recompute(db_session: Session):
+    """
+    Régression : make_update_endpoint (generic.py) appelait db.refresh(updated_item) sans
+    db.flush() préalable. Session.refresh() DISCARDE tout changement d'attribut non flushé — or
+    Course.update() modifie encore self APRÈS le dernier flush interne à CRUDMixin.update()
+    (recompute_status(), appelé en toute fin de Course.update()). Un appel PATCH sur un cours
+    composé déjà FULLY_VENTILATED (donc SANS aucun champ ressource dans le payload — le
+    recalcul de decomposition_status doit survivre à une modification qui ne le touche même
+    pas directement) reproduisait la perte : la réponse HTTP ET la ligne persistée en base
+    retombaient sur l'ancien decomposition_status ("UNVENTILATED", la valeur par défaut à la
+    création) au lieu de "FULLY_VENTILATED". Ce test passe par le client HTTP (pas un appel
+    Python direct à Course.update()) : c'est justement la seule voie qui exerçait le bug, un
+    appel direct au modèle ne recréant pas le refresh() supplémentaire de l'endpoint.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_FLUSH", "first_name": "Prof", "last_name": "Flush", "school_id": school.id})
+
+    parent = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "is_composed": True, "teacher_ids": [teacher.id],
+    })
+    child = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "teacher_ids": [teacher.id],
+    })
+    assert parent.decomposition_status == "FULLY_VENTILATED"
+
+    response = client.patch(f"/api/generic/courses/{parent.id}", json={"memo": "note sans rapport"})
+    assert response.status_code == 200
+    assert response.json()["decomposition_status"] == "FULLY_VENTILATED"
+
+    db_session.expire_all()
+    assert db_session.get(Course, parent.id).decomposition_status == "FULLY_VENTILATED"
+
+
 def test_course_decomposition_status_ignores_children_placement(db_session: Session):
     """
     decomposition_status ne mesure que la ventilation des ressources (répartition parent ->

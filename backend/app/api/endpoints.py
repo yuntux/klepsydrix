@@ -13,6 +13,7 @@ from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.group import Group
 from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
 from backend.app.solver.solver import start_solve_timetable_async, SolverState
+from backend.app.api.generic import sqla_to_dict
 
 router = APIRouter(prefix="/api/timetable")
 
@@ -44,22 +45,9 @@ def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)
         "timeslots": [ts.to_dict() if hasattr(ts, "to_dict") else {"id": ts.id, "day_of_week": ts.day_of_week, "minutes_from_midnight": ts.minutes_from_midnight, "day_of_week_str": getattr(ts, "day_of_week_str", ""), "display_name": getattr(ts, "display_name", "")} for ts in timeslots],
         "courses": [
             {
-                "id": c.id,
-                "display_name": c.display_name,
+                **sqla_to_dict(c),
                 "subject": c.subject_relation.short_name if c.subject_relation else "Cours",
                 "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
-                "teacher_ids": [t.id for t in c.teachers],
-                "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
-                "division_ids": [d.id for d in c.divisions],
-                "timeslot_id": c.timeslot_id,
-                "classroom_ids": [cr.id for cr in c.classrooms],
-                "group_ids": [g.id for g in c.groups],
-                "is_pinned": c.is_pinned,
-                "duration_minutes": c.duration_minutes,
-                "week_type": c.week_type.value,
-                "parent_id": c.parent_id,
-                "status": c.status,
-                "decomposition_status": c.decomposition_status,
             }
             for c in courses
         ],

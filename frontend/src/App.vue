@@ -185,7 +185,7 @@
       @cancel="showImpactModal = false"
     />
 
-    <!-- Fiche T Cumulée (T020) -->
+    <!-- Fiche T (T020) -->
     <CoursePopin
       :show="selectedCourseIds.length > 0"
       :courses="courses.filter(c => selectedCourseIds.includes(c.id))"
@@ -194,7 +194,14 @@
       :divisions="divisions"
       :classrooms="classrooms"
       :timeslots="timeslots"
+      :groups="groupsList"
+      :classParts="classPartsList"
+      :materials="materialsList"
+      :periods="periodsList"
+      :subjects="subjectsList"
       @close="selectedCourseIds = []"
+      @course-updated="onCoursePopinCourseUpdated"
+      @error="(message: string) => showNotification('error', message)"
     />
 
     <!-- Système de notifications -->
@@ -262,6 +269,10 @@ const weekType = ref<'W' | 'A' | 'B'>('W');
 const periodTypeId = ref<number | null>(null);
 const periodIds = ref<number[]>([]);
 const periodsList = ref<any[]>([]);
+const groupsList = ref<any[]>([]);
+const classPartsList = ref<any[]>([]);
+const materialsList = ref<any[]>([]);
+const subjectsList = ref<any[]>([]);
 const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
 
@@ -344,6 +355,10 @@ const inlineFormTitle = computed(() => {
 });
 
 async function onLeafChange(leaf: any) {
+  // La Fiche T (CoursePopin) reste affichée tant que selectedCourseIds n'est pas vide, sans
+  // rapport avec le panel actif : la vider ici garantit qu'elle disparaît dès qu'on quitte le
+  // Visualiseur, plutôt que de rester affichée avec une sélection obsolète derrière un autre menu.
+  gridStore.clearCourseSelection();
   activeLeaf.value = leaf;
 
   if (leaf.id === 'timetable_root') {
@@ -532,6 +547,54 @@ async function loadPeriods() {
     periodsList.value = res.items;
   } catch (e) {
     console.error("Échec du chargement des périodes", e);
+  }
+}
+
+async function loadGroups() {
+  try {
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'groups'],
+      queryFn: () => api.fetchAllGenericItems('groups')
+    });
+    groupsList.value = res.items;
+  } catch (e) {
+    console.error("Échec du chargement des groupes", e);
+  }
+}
+
+async function loadClassParts() {
+  try {
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'class_parts'],
+      queryFn: () => api.fetchAllGenericItems('class_parts')
+    });
+    classPartsList.value = res.items;
+  } catch (e) {
+    console.error("Échec du chargement des parties de classe", e);
+  }
+}
+
+async function loadMaterials() {
+  try {
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'materials'],
+      queryFn: () => api.fetchAllGenericItems('materials')
+    });
+    materialsList.value = res.items;
+  } catch (e) {
+    console.error("Échec du chargement des matériels", e);
+  }
+}
+
+async function loadSubjects() {
+  try {
+    const res = await queryClient.fetchQuery({
+      queryKey: ['genericList', 'subjects'],
+      queryFn: () => api.fetchAllGenericItems('subjects')
+    });
+    subjectsList.value = res.items;
+  } catch (e) {
+    console.error("Échec du chargement des matières", e);
   }
 }
 
@@ -1449,6 +1512,20 @@ async function onUnassignCourse(courseId: number) {
   }
 }
 
+// La Fiche T (CoursePopin) appelle elle-même l'API générique pour éditer une ressource d'un cours
+// et attend en retour l'objet cours complet renvoyé par le serveur (pas seulement le champ
+// modifié) : une modification peut en cascader d'autres (ex: cascade Group<->ClassPart,
+// recalcul de decomposition_status/underventilated_resource_ids). Remplacer l'entrée dans
+// `courses` ici propage la mise à jour par réactivité à la grille, la Sidebar et la Fiche T
+// elle-même, sans rechargement complet (même principe que onUnassignCourse/onTogglePinCourse).
+function onCoursePopinCourseUpdated(updatedCourse: Course) {
+  const idx = courses.value.findIndex(c => c.id === updatedCourse.id);
+  if (idx !== -1) {
+    courses.value[idx] = updatedCourse;
+  }
+  invalidateFkCache('courses');
+}
+
 async function onTogglePinCourse(courseId: number) {
   const previousCoursesState = JSON.parse(JSON.stringify(courses.value));
   const oldScore = scoreData.value ? { ...scoreData.value } : null;
@@ -1563,6 +1640,10 @@ onMounted(async () => {
   loadSchools();
   loadPeriodTypes();
   loadPeriods();
+  loadGroups();
+  loadClassParts();
+  loadMaterials();
+  loadSubjects();
   checkStatus();
 
   // Écoute des événements de mutation pour rafraîchir les données globales d'App.vue
@@ -1577,6 +1658,10 @@ onMounted(async () => {
     if (resource === 'schools') loadSchools();
     if (resource === 'period_types') loadPeriodTypes();
     if (resource === 'periods') loadPeriods();
+    if (resource === 'groups') loadGroups();
+    if (resource === 'class_parts') loadClassParts();
+    if (resource === 'materials') loadMaterials();
+    if (resource === 'subjects') loadSubjects();
     if (resource === 'system_settings') loadTimeslotConfig();
     if (['teachers', 'classrooms', 'divisions', 'courses', 'groups'].includes(resource)) loadData();
   });

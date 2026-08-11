@@ -1,105 +1,52 @@
 <template>
-  <div 
-    v-if="show && courses.length > 0" 
+  <div
+    v-if="show && courses.length > 0"
     class="course-popin-container glass-morphism animate-pop"
     :style="{ top: y + 'px', left: x + 'px' }"
   >
     <!-- En-tête Draggable -->
     <div class="popin-header" @mousedown="startDrag">
       <div class="header-title-group">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="icon-header">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-.621-.504-1.125-1.125-1.125H9.75M8.25 21h8.25a2.25 2.25 0 002.25-2.25V5.75A2.25 2.25 0 0016.5 3.5h-8.25A2.25 2.25 0 006 5.75v13a2.25 2.25 0 002.25 2.25Z" />
-        </svg>
-        <span class="header-text">Fiche T Cumulée</span>
-        <span class="header-badge">{{ courses.length }} sélectionnés</span>
+        <span class="header-badge">{{ courses.length }} sélectionné{{ courses.length > 1 ? 's' : '' }}</span>
         <span class="header-badge duration-badge" style="background-color: rgba(16, 185, 129, 0.08); color: #059669; border-color: rgba(16, 185, 129, 0.2);">⏱️ {{ totalDurationHours }}</span>
+        <span v-if="headerWeekTypeLabel" class="header-badge week-badge">🔄 {{ headerWeekTypeLabel }}</span>
+        <span v-if="headerPeriodCodes" class="header-badge period-badge">📅 {{ headerPeriodCodes }}</span>
       </div>
       <button class="btn-close" @click="$emit('close')">×</button>
     </div>
 
-    <!-- Corps de la Fiche T consolidée -->
+    <!-- Corps de la Fiche T -->
     <div class="popin-body">
-      <!-- Section Matières -->
+      <!-- Section Matière (singulier : un cours n'a qu'un seul subject_id, contrairement aux
+           autres sections ci-dessous qui sont toutes des relations N-N) -->
       <div class="consolidated-section">
-        <div class="section-title">📖 Matières</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedSubjects" 
-            :key="chip.label" 
-            v-bind="chip" 
+        <div class="section-title">{{ subjectCount }} 📖 Matière</div>
+        <div v-if="isSingle" class="editable-field" :style="subjectFieldStyle">
+          <SearchableSelect
+            :modelValue="singleCourse.subject_id ?? null"
+            :options="subjectOptions"
+            placeholder="-- Aucune matière --"
+            @update:modelValue="(val: any) => updateCourseField('subject_id', val)"
           />
+        </div>
+        <div v-else class="chips-container">
+          <ConsolidatedChip v-for="chip in consolidatedSubjects" :key="chip.label" v-bind="chip" />
         </div>
       </div>
 
-      <!-- Section Enseignants -->
-      <div class="consolidated-section">
-        <div class="section-title">👨‍🏫 Enseignants</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedTeachers" 
-            :key="chip.label" 
-            v-bind="chip" 
-          />
-        </div>
-      </div>
-
-      <!-- Section Personnel Non Enseignant -->
-      <div class="consolidated-section">
-        <div class="section-title">🧑‍💼 Personnel</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedNonTeachingStaffs" 
-            :key="chip.label" 
-            v-bind="chip" 
-          />
-        </div>
-      </div>
-
-      <!-- Section Salles -->
-      <div class="consolidated-section">
-        <div class="section-title">🏢 Salles</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedClassrooms" 
-            :key="chip.label" 
-            v-bind="chip" 
-          />
-        </div>
-      </div>
-
-      <!-- Section Divisions -->
-      <div class="consolidated-section">
-        <div class="section-title">🎒 Classes (Divisions)</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedDivisions" 
-            :key="chip.label" 
-            v-bind="chip" 
-          />
-        </div>
-      </div>
-
-      <!-- Section Créneaux -->
-      <div class="consolidated-section">
-        <div class="section-title">📅 Créneaux Horaires</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedTimeslots" 
-            :key="chip.label" 
-            v-bind="chip" 
-          />
-        </div>
-      </div>
-
-      <!-- Section Alternances -->
-      <div class="consolidated-section">
-        <div class="section-title">🔄 Semaines Alternées</div>
-        <div class="chips-container">
-          <ConsolidatedChip 
-            v-for="chip in consolidatedWeeks" 
-            :key="chip.label" 
-            v-bind="chip" 
-          />
+      <!-- Sections des ressources N-N, dans l'ordre demandé — un seul bloc piloté par
+           RESOURCE_TYPES plutôt que 7 blocs quasi-identiques copiés-collés. -->
+      <div v-for="rt in RESOURCE_TYPES" :key="rt.key" class="consolidated-section">
+        <div class="section-title">{{ distinctCount(rt.key) }} {{ rt.icon }} {{ rt.label }}</div>
+        <SearchableMultiSelect
+          v-if="isSingle"
+          :modelValue="(singleCourse as any)[rt.key]"
+          :options="rt.options.value"
+          :highlightValues="highlightFor(rt.key)"
+          @update:modelValue="(ids: number[]) => updateCourseField(rt.key, ids)"
+        />
+        <div v-else class="chips-container">
+          <ConsolidatedChip v-for="chip in consolidateResource(rt.key, rt.nameFn)" :key="chip.label" v-bind="chip" />
         </div>
       </div>
     </div>
@@ -107,10 +54,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+// Fiche T : détail d'un cours sélectionné (édition directe des ressources) ou vue consolidée en
+// lecture seule de plusieurs cours sélectionnés à la fois. Le mode édition (multiselect générique
+// + surlignage des ressources insuffisamment ventilées) n'est actif qu'à 1 seul cours sélectionné
+// — au-delà, l'ambiguïté d'une édition en masse (quel cours modifier ? quel enfant surligner ?)
+// n'a pas de réponse évidente, donc on garde l'affichage consolidé existant.
+import { ref, computed, onMounted, inject } from 'vue';
 import ConsolidatedChip from './ConsolidatedChip.vue';
-import { Course, Teacher, NonTeachingStaff, Division, Classroom, Timeslot } from '../types';
+import SearchableSelect from './SearchableSelect.vue';
+import SearchableMultiSelect from './SearchableMultiSelect.vue';
+import { Course, Teacher, NonTeachingStaff, Division, Classroom, Timeslot, Group, ClassPart, Material, Period } from '../types';
 import { getTeacherName, getDivisionName, getClassroomName, getNonTeachingStaffName } from '../utils/resourceFormatters';
+import * as api from '../services/api';
 
 const props = defineProps<{
   show: boolean;
@@ -120,11 +75,21 @@ const props = defineProps<{
   divisions: Division[];
   classrooms: Classroom[];
   timeslots: Timeslot[];
+  groups: Group[];
+  classParts: ClassPart[];
+  materials: Material[];
+  periods: Period[];
+  subjects: any[];
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'course-updated', course: Course): void;
+  (e: 'error', message: string): void;
 }>();
+
+const isSingle = computed(() => props.courses.length === 1);
+const singleCourse = computed(() => props.courses[0]);
 
 const totalDurationHours = computed(() => {
   const sumMinutes = props.courses.reduce((acc, c) => acc + (c.duration_minutes || 0), 0);
@@ -133,6 +98,119 @@ const totalDurationHours = computed(() => {
   const mStr = String(m).padStart(2, '0');
   return `${h}h${mStr}`;
 });
+
+// LIBELLÉ DE SEMAINE (EN-TÊTE) — résolu via le schéma OpenAPI déjà injecté par App.vue (même
+// mécanisme que GenericListModal.vue), à partir des options attachées à week_type dans son info
+// dict (backend/app/models/course.py) plutôt qu'un mapping dupliqué en dur ici.
+const openApiSpec = inject<any>('openApiSpec', ref(null));
+
+const weekTypeOptions = computed(() => {
+  const schema = openApiSpec.value?.components?.schemas?.['courses_CreatePayload'];
+  return schema?.properties?.week_type?.options || [];
+});
+
+function weekTypeLabelFor(weekType: string): string {
+  const opt = weekTypeOptions.value.find((o: any) => o.value === weekType);
+  return opt?.label || weekType;
+}
+
+const headerWeekTypeLabel = computed(() => {
+  const distinct = new Set(props.courses.map(c => c.week_type));
+  if (distinct.size === 0) return '';
+  if (distinct.size > 1) return 'Semaines multiples';
+  return weekTypeLabelFor(props.courses[0].week_type);
+});
+
+const headerPeriodCodes = computed(() => {
+  const hasNonAnnual = props.courses.some(c => !!c.period_type_id);
+  if (!hasNonAnnual) return '';
+  const codes = new Set<string>();
+  props.courses.forEach(c => {
+    (c.period_ids || []).forEach(pid => {
+      const period = props.periods.find(p => p.id === pid);
+      if (period) codes.add(period.code);
+    });
+  });
+  return Array.from(codes).join(', ');
+});
+
+// COMPTEURS — nombre d'IDs distincts de ce type sur le(s) cours sélectionné(s), affiché à gauche
+// du libellé de section, remplace les étiquettes "Sans <type>" supprimées.
+function distinctCount(field: string): number {
+  const set = new Set<number>();
+  props.courses.forEach(c => ((c as any)[field] || []).forEach((id: number) => set.add(id)));
+  return set.size;
+}
+
+const subjectCount = computed(() => new Set(props.courses.map(c => c.subject_id).filter((id): id is number => id != null)).size);
+
+// OPTIONS DES MULTISELECT (mode 1 cours) — construites directement depuis les listes reçues en
+// props, sous la forme {value, label} attendue par SearchableMultiSelect/SearchableSelect.
+const subjectOptions = computed(() => props.subjects.map((s: any) => ({ value: s.id, label: s.name || s.display_name })));
+const teacherOptions = computed(() => props.teachers.map((t: any) => ({ value: t.id, label: t.display_name })));
+const divisionOptions = computed(() => props.divisions.map((d: any) => ({ value: d.id, label: d.display_name })));
+const groupOptions = computed(() => props.groups.map((g: any) => ({ value: g.id, label: g.display_name })));
+const classPartOptions = computed(() => props.classParts.map((cp: any) => ({ value: cp.id, label: cp.display_name })));
+const classroomOptions = computed(() => props.classrooms.map((cr: any) => ({ value: cr.id, label: cr.display_name })));
+const nonTeachingStaffOptions = computed(() => props.nonTeachingStaffs.map((s: any) => ({ value: s.id, label: s.display_name })));
+const materialOptions = computed(() => props.materials.map((m: any) => ({ value: m.id, label: m.display_name || m.name })));
+
+// Pilote les 7 sections de ressources N-N (ordre demandé : Enseignants, Divisions, Groupes,
+// Parties de classe, Salles, Personnel, Matériels) — un seul bloc de template les parcourt tous
+// plutôt que 7 blocs copiés-collés. `nameFn` sert uniquement au mode consolidé (2+ cours).
+const RESOURCE_TYPES = [
+  { key: 'teacher_ids', label: 'Enseignants', icon: '👨‍🏫', options: teacherOptions, nameFn: (id: number) => getTeacherName(props.teachers, id) },
+  { key: 'division_ids', label: 'Divisions', icon: '🎒', options: divisionOptions, nameFn: (id: number) => getDivisionName(props.divisions, id) },
+  { key: 'group_ids', label: 'Groupes', icon: '👥', options: groupOptions, nameFn: (id: number) => props.groups.find((g: any) => g.id === id)?.display_name || 'Inconnu' },
+  { key: 'class_part_ids', label: 'Parties de classe', icon: '🧩', options: classPartOptions, nameFn: (id: number) => props.classParts.find((cp: any) => cp.id === id)?.display_name || 'Inconnu' },
+  { key: 'classroom_ids', label: 'Salles', icon: '🏢', options: classroomOptions, nameFn: (id: number) => getClassroomName(props.classrooms, id) },
+  { key: 'non_teaching_staff_ids', label: 'Personnel', icon: '🧑‍💼', options: nonTeachingStaffOptions, nameFn: (id: number) => getNonTeachingStaffName(props.nonTeachingStaffs, id) },
+  { key: 'material_ids', label: 'Matériels', icon: '📦', options: materialOptions, nameFn: (id: number) => props.materials.find((m: any) => m.id === id)?.display_name || 'Inconnu' },
+];
+
+// SURLIGNAGE DES RESSOURCES INSUFFISAMMENT VENTILÉES — n'a de sens que pour un cours composé avec
+// des enfants pas encore FULLY_VENTILATED (voir Course.underventilated_resource_ids, recalculé
+// côté backend au même endroit que decomposition_status).
+const showUnderventilatedHighlight = computed(() => {
+  if (!isSingle.value) return false;
+  const c = singleCourse.value;
+  return !!c.is_composed && (c.children_ids?.length || 0) > 0 && c.decomposition_status !== 'FULLY_VENTILATED';
+});
+
+function highlightFor(field: string): number[] {
+  if (!showUnderventilatedHighlight.value) return [];
+  return singleCourse.value.underventilated_resource_ids?.[field] || [];
+}
+
+// Couleur de fond de la Matière = subject.color (mêmes teintes que CourseCard/TimetableGrid).
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const num = parseInt(m[1], 16);
+  return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+}
+
+const subjectFieldStyle = computed(() => {
+  if (!isSingle.value) return {};
+  const subj = props.subjects.find((s: any) => s.id === singleCourse.value.subject_id);
+  if (!subj?.color) return {};
+  return { backgroundColor: hexToRgba(subj.color, 0.15), borderColor: hexToRgba(subj.color, 0.5) };
+});
+
+// PERSISTANCE — appelle directement l'API générique (déjà validée côté serveur : conflits de
+// ressources, cascade Group<->ClassPart...) puis remonte l'objet cours COMPLET renvoyé par le
+// serveur (pas seulement le champ modifié localement) : App.vue le réinjecte dans son ref
+// `courses`, ce qui propage par réactivité tout effet de bord (cascade, recalcul de
+// decomposition_status/underventilated_resource_ids) à cette Fiche T et au reste de l'IHM.
+async function updateCourseField(field: string, value: any) {
+  const course = singleCourse.value;
+  try {
+    const updated = await api.updateGenericItem('courses', course.id, { [field]: value });
+    emit('course-updated', updated);
+  } catch (e: any) {
+    emit('error', e.message || "Erreur lors de la mise à jour du cours.");
+  }
+}
 
 // Coordonnées absolues du Popin
 const x = ref(100);
@@ -179,7 +257,7 @@ function stopDrag() {
   document.body.style.userSelect = '';
 }
 
-// LOGIQUE DE CONSOLIDATION DYNAMIQUE
+// LOGIQUE DE CONSOLIDATION (mode 2+ cours sélectionnés, lecture seule)
 
 function consolidate(attrGetter: (c: Course) => string) {
   const counts: Record<string, number> = {};
@@ -197,59 +275,28 @@ function consolidate(attrGetter: (c: Course) => string) {
   })).sort((a, b) => b.count - a.count);
 }
 
-// Consolidations par ressource
+// Variante pour les ressources N-N (hors Matière) : un cours sans aucune ressource de ce type ne
+// produit plus de chip "Sans X" — il est simplement absent du regroupement (le compteur de
+// section indique déjà le total de ressources distinctes).
+function consolidateResource(field: string, nameFn: (id: number) => string) {
+  const counts: Record<string, number> = {};
+  props.courses.forEach(c => {
+    const ids: number[] = (c as any)[field] || [];
+    if (ids.length === 0) return;
+    const label = ids.map(nameFn).join(', ');
+    counts[label] = (counts[label] || 0) + 1;
+  });
+  const total = props.courses.length;
+  return Object.entries(counts).map(([label, count]) => ({
+    label,
+    count,
+    total,
+    isDivergent: count < total
+  })).sort((a, b) => b.count - a.count);
+}
+
 const consolidatedSubjects = computed(() => {
   return consolidate(c => c.subject || 'Aucune Matière');
-});
-
-const consolidatedTeachers = computed(() => {
-  return consolidate(c => {
-    if (!c.teacher_ids || c.teacher_ids.length === 0) return 'Sans Enseignant';
-    return c.teacher_ids.map(id => getTeacherName(props.teachers, id)).join(', ');
-  });
-});
-
-const consolidatedNonTeachingStaffs = computed(() => {
-  return consolidate(c => {
-    if (!c.non_teaching_staff_ids || c.non_teaching_staff_ids.length === 0) return 'Sans Personnel';
-    return c.non_teaching_staff_ids.map(id => getNonTeachingStaffName(props.nonTeachingStaffs, id)).join(', ');
-  });
-});
-
-const consolidatedClassrooms = computed(() => {
-  return consolidate(c => {
-    if (!c.classroom_ids || c.classroom_ids.length === 0) return 'Sans Salle';
-    return c.classroom_ids.map(id => getClassroomName(props.classrooms, id)).join(', ');
-  });
-});
-
-const consolidatedDivisions = computed(() => {
-  return consolidate(c => {
-    if (!c.division_ids || c.division_ids.length === 0) return 'Sans Division';
-    return c.division_ids.map(id => getDivisionName(props.divisions, id)).join(', ');
-  });
-});
-
-const consolidatedTimeslots = computed(() => {
-  return consolidate(c => {
-    if (!c.timeslot_id) return 'Non planifié';
-    const ts = props.timeslots.find(item => item.id === c.timeslot_id);
-    if (!ts) return 'Créneau Inconnu';
-    const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-    const hInt = Math.floor(ts.hour);
-    const mInt = Math.round((ts.hour - hInt) * 60);
-    const mStr = mInt > 0 ? String(mInt).padStart(2, '0') : '00';
-    return `${jours[ts.day_of_week]} ${hInt}h${mStr}`;
-  });
-});
-
-const consolidatedWeeks = computed(() => {
-  return consolidate(c => {
-    const sess = c.sessions && c.sessions[0];
-    if (!sess) return 'Semaine W (Hebdo)';
-    const w = sess.week_type;
-    return w === 'A' ? 'Semaine A' : w === 'B' ? 'Semaine B' : 'Semaine W (Hebdo)';
-  });
 });
 </script>
 
@@ -302,20 +349,8 @@ const consolidatedWeeks = computed(() => {
 .header-title-group {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.icon-header {
-  width: 18px;
-  height: 18px;
-  color: var(--accent-primary);
-}
-
-.header-text {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 0.2px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .header-badge {
@@ -326,6 +361,18 @@ const consolidatedWeeks = computed(() => {
   border: 1px solid rgba(99, 102, 241, 0.2);
   padding: 1px 6px;
   border-radius: var(--radius-lg);
+}
+
+.week-badge {
+  background-color: rgba(14, 165, 233, 0.08);
+  color: rgb(2, 132, 199);
+  border-color: rgba(14, 165, 233, 0.2);
+}
+
+.period-badge {
+  background-color: rgba(168, 85, 247, 0.08);
+  color: rgb(147, 51, 234);
+  border-color: rgba(168, 85, 247, 0.2);
 }
 
 .btn-close {
@@ -348,7 +395,7 @@ const consolidatedWeeks = computed(() => {
 /* Corps de popin scrollable */
 .popin-body {
   padding: 16px;
-  max-height: 380px;
+  max-height: 420px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -373,5 +420,10 @@ const consolidatedWeeks = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.editable-field {
+  border-radius: var(--radius-md);
+  transition: background-color 0.2s, border-color 0.2s;
 }
 </style>

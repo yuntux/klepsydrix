@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 from typing import Optional, Any
 import enum
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event, JSON
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, exposed, constrains, onchange
@@ -140,7 +140,15 @@ class Course(Base):
     # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au parent)
     parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Décalage par rapport au parent"})
     
-    week_type: Mapped[Any] = mapped_column(Enum(CourseWeekType, name="course_week_type_enum"), nullable=False, default=CourseWeekType.W, info={"label": "Semaine", "placeholder": "ex: A, B, W, Q"})
+    week_type: Mapped[Any] = mapped_column(Enum(CourseWeekType, name="course_week_type_enum"), nullable=False, default=CourseWeekType.W, info={
+        "label": "Semaine", "placeholder": "ex: A, B, W, Q", "type": "select",
+        "options": [
+            {"value": "W", "label": "Hebdomadaire"},
+            {"value": "Q", "label": "Quinzaine à déterminer"},
+            {"value": "A", "label": "Semaine A"},
+            {"value": "B", "label": "Semaine B"},
+        ],
+    })
     period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de période"})
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
@@ -151,6 +159,11 @@ class Course(Base):
     lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Structure verrouillée"})
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED", info={"label": "Statut de placement"})
     decomposition_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED", info={"label": "Statut de décomposition"})
+    # Recalculé dans recompute_status() en même temps que decomposition_status (voir
+    # _missing_resource_ids_by_type) : {champ_ressource: [ids présents sur ce cours composé mais
+    # absents de TOUS ses enfants]}, uniquement les types en défaut. None si non composé, sans
+    # enfant, ou FULLY_VENTILATED.
+    underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées"})
     
     mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
@@ -196,29 +209,43 @@ class Course(Base):
             return False
         except ValueError:
             return True
+    # Relations de ressources (hors matière) prises en compte pour la ventilation composé/enfants
+    # — associées au champ _ids correspondant, seul nom que le front connaît (voir
+    # Course.underventilated_resource_ids et _RESOURCE_FIELD_BY_RELATION un peu plus bas, qui
+    # sert un usage différent — cascade parent/enfant — mais couvre les 7 mêmes relations).
+    _VENTILATION_RELATIONS = (
+        ('teachers', 'teacher_ids'),
+        ('non_teaching_staffs', 'non_teaching_staff_ids'),
+        ('classrooms', 'classroom_ids'),
+        ('divisions', 'division_ids'),
+        ('groups', 'group_ids'),
+        ('materials', 'material_ids'),
+        ('class_parts', 'class_part_ids'),
+    )
+
+    def _missing_resource_ids_by_type(self, children_list) -> dict:
+        """
+        Pour chaque type de ressource (hors matière), IDs présents sur ce cours composé mais
+        absents de TOUS les cours enfants de la liste — uniquement les types en défaut.
+        """
+        missing = {}
+        for relation, field in self._VENTILATION_RELATIONS:
+            parent_ids = {x.id for x in getattr(self, relation)}
+            if not parent_ids:
+                continue
+            child_ids = set()
+            for child in children_list:
+                child_ids.update(x.id for x in getattr(child, relation))
+            gap = parent_ids - child_ids
+            if gap:
+                missing[field] = sorted(gap)
+        return missing
+
     def resources_fully_ventilated_list(self, children_list) -> bool:
         """Vérifie si toutes les ressources du cours composé sont attribuées à au moins un cours enfant de la liste."""
         if not self.is_composed:
             return True
-        
-        def check_ventilated(parent_list, child_attr):
-            parent_ids = {x.id for x in parent_list}
-            if not parent_ids:
-                return True
-            child_ids = set()
-            for child in children_list:
-                child_ids.update(x.id for x in getattr(child, child_attr))
-            return parent_ids.issubset(child_ids)
-
-        return (
-            check_ventilated(self.teachers, 'teachers') and
-            check_ventilated(self.non_teaching_staffs, 'non_teaching_staffs') and
-            check_ventilated(self.classrooms, 'classrooms') and
-            check_ventilated(self.divisions, 'divisions') and
-            check_ventilated(self.groups, 'groups') and
-            check_ventilated(self.materials, 'materials') and
-            check_ventilated(self.class_parts, 'class_parts')
-        )
+        return not self._missing_resource_ids_by_type(children_list)
 
     def resources_fully_ventilated(self, exclude_child_id=None) -> bool:
         """Vérifie si toutes les ressources du cours composé sont attribuées à au moins un cours enfant."""
@@ -242,6 +269,7 @@ class Course(Base):
         # 2. Statut de décomposition (decomposition_status) : uniquement pour les cours composés
         if not self.is_composed:
             self.decomposition_status = None
+            self.underventilated_resource_ids = None
         else:
             # Récupérer les enfants par requête directe (pas via self.children) ET les nouveaux
             # objets pas encore flushés. self.children est une collection ORM back_populates :
@@ -268,16 +296,16 @@ class Course(Base):
                 
             if not children:
                 self.decomposition_status = "UNVENTILATED"
+                self.underventilated_resource_ids = None
             else:
                 # 4. Calcul de la ventilation — uniquement l'affectation des ressources du
                 # parent aux enfants, indépendamment de leur état de placement sur la grille
                 # (status). Un cours composé peut donc être FULLY_VENTILATED avec des enfants
                 # encore UNPLACED : ce sont deux diagnostics distincts (répartition structurelle
                 # vs. planification), volontairement découplés.
-                if self.resources_fully_ventilated_list(children):
-                    self.decomposition_status = "FULLY_VENTILATED"
-                else:
-                    self.decomposition_status = "PARTIALLY_VENTILATED"
+                missing = self._missing_resource_ids_by_type(children)
+                self.decomposition_status = "PARTIALLY_VENTILATED" if missing else "FULLY_VENTILATED"
+                self.underventilated_resource_ids = missing or None
 
         # Si c'est un enfant, recalculer le statut de son parent
         if self.parent_id and db:
@@ -913,7 +941,7 @@ class Course(Base):
         if 'timeslot_id' in vals or 'is_pinned' in vals:
             for child in self.children:
                 child.update(db, {})
-                
+
         return res
 
     def compose_by_mode(self, db: Session, mode: int, mapping: list[dict] = None) -> dict:

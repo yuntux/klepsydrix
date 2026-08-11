@@ -299,6 +299,12 @@ def make_update_endpoint(model, payload_schema):
             updated_item = item.update(db, cleaned_vals)
             if updated_item is None:
                 return {"id": item_id, "status": "purged"}
+            # db.refresh() DISCARDE tout changement d'attribut non flushé (remplacé par l'état
+            # actuellement en base) : un modèle qui, comme Course.update(), continue à modifier
+            # self APRÈS le dernier flush interne à CRUDMixin.update() (ex: recompute_status(),
+            # appelée après le flush de la ligne 476/486 de base.py) verrait ces changements
+            # silencieusement perdus par le refresh ci-dessous sans ce flush préalable.
+            db.flush()
             db.refresh(updated_item)
             return sqla_to_dict(updated_item)
         except UnsupportedOperationError as e:
