@@ -33,7 +33,7 @@
 // une dérivation de fields/columns à partir du schéma OpenAPI similaire à celle d'App.vue, mais
 // volontairement minimale (pas de gestion des colonnes "time", tri, largeur dynamique... ) puisque
 // ces popins affichent typiquement une poignée de lignes.
-import { ref, computed, inject, onMounted } from 'vue';
+import { ref, computed, inject, onMounted, watch } from 'vue';
 import BaseModal from './BaseModal.vue';
 import GenericList from './GenericList.vue';
 import * as api from '../services/api';
@@ -44,15 +44,24 @@ const notificationStore = useNotificationStore();
 const props = defineProps<{
   resourceKey: string;
   // Deux modes de filtrage mutuellement exclusifs :
-  // - filterField/filterValue : popin "enfant possédé" (ex: repartition_ids) — filtre serveur sur
-  //   une seule FK réelle.
+  // - filterField/filterValue : popin "enfant possédé" (ex: repartition_ids) — sert uniquement à
+  //   exclure la colonne FK parent de l'édition (voir `fields` ci-dessous) et de préremplissage
+  //   pour `onAdd` ; le chargement lui-même passe par `draftItems` (voir plus bas), pas par un
+  //   fetch serveur filtré, DÈS QUE `draftItems` est fourni.
   // - ids : liste d'IDs explicite, déjà résolue côté appelant (ex: GenericPivot — une cellule de
   //   pivot peut regrouper plusieurs Service, et ses axes ligne/colonne peuvent être des champs
   //   dérivés non filtrables en SQL comme division_id/mef_id, voir generic.py::related_field) —
-  //   voir GenericPivot.vue et le paramètre `ids` de l'endpoint liste générique.
+  //   voir GenericPivot.vue et le paramètre `ids` de l'endpoint liste générique. Toujours en mode
+  //   direct/serveur (jamais de draftItems pour ce mode).
   filterField?: string;
   filterValue?: any;
   ids?: number[];
+  // Présence (même à []) => mode "brouillon" : aucun appel API (create/update/delete) n'est fait
+  // ici, les lignes sont purement en mémoire, portées par l'appelant (OwnedRelationField.vue) et
+  // remontées via `update:draftItems` à chaque ajout/modification/suppression. Utilisé par le
+  // widget "relation possédée" d'un formulaire — voir architecture.md section 15.J : un seul
+  // écrivain (le formulaire parent, à sa soumission), jamais cette popin en direct.
+  draftItems?: any[];
   title?: string;
   readOnly?: boolean;
   // listConfig complet (même structure que celui d'un panneau GenericList classique — columns,
@@ -64,7 +73,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'update:draftItems', value: any[]): void;
 }>();
+
+const isDraftMode = computed(() => props.draftItems !== undefined);
 
 const openApiSpec = inject<any>('openApiSpec', ref(null));
 const fkOptionsCache = inject<any>('fkOptionsCache', ref({}));
@@ -143,7 +155,14 @@ const effectiveListConfig = computed(() => ({
 const items = ref<any[]>([]);
 const loading = ref(false);
 
+// En mode brouillon, `items` n'est qu'un miroir local de `props.draftItems` (source de vérité
+// détenue par OwnedRelationField.vue) — jamais rechargé depuis le serveur.
+watch(() => props.draftItems, (val) => {
+  if (isDraftMode.value) items.value = val || [];
+}, { immediate: true });
+
 async function loadItems() {
+  if (isDraftMode.value) return;
   loading.value = true;
   try {
     const filters = props.ids ? { ids: props.ids.join(',') } : { [props.filterField as string]: props.filterValue };
@@ -166,10 +185,18 @@ function onAdd() {
     if (f.default !== undefined) defaults[f.key] = f.default;
   });
   items.value.unshift({ ...defaults, id: 'new_' + Date.now() });
+  if (isDraftMode.value) emit('update:draftItems', items.value);
 }
 
 async function onUpdateItem(item: any) {
   const idx = items.value.findIndex((x: any) => x.id === item.id);
+
+  if (isDraftMode.value) {
+    if (idx !== -1) items.value[idx] = item;
+    emit('update:draftItems', items.value);
+    return;
+  }
+
   const oldItem = idx !== -1 ? { ...items.value[idx] } : null;
   if (idx !== -1) items.value[idx] = item;
 
@@ -194,6 +221,12 @@ async function onUpdateItem(item: any) {
 }
 
 async function onDelete(item: any) {
+  if (isDraftMode.value) {
+    items.value = items.value.filter((x: any) => x.id !== item.id);
+    emit('update:draftItems', items.value);
+    return;
+  }
+
   try {
     await api.deleteGenericItem(props.resourceKey, item.id);
     items.value = items.value.filter((x: any) => x.id !== item.id);

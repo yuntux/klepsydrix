@@ -117,3 +117,62 @@ class TestTeacherOnchangeAddressCity:
         result = Teacher.process_onchange(db_session, {"address_city_id": city.id}, "address_city_id")
 
         assert result.get("address_country_id") == country.id
+
+
+class TestOwnedCollectionCommands:
+    """
+    discipline_line_ids (TeacherDiscipline) comme relation possédée de référence pour le
+    mécanisme générique de "commandes" façon Odoo one2many — voir CRUDMixin.
+    _apply_owned_collection_commands (base.py) et architecture.md section 15.J. Régression
+    d'origine : IntegrityError (FK NOT NULL) quand le formulaire parent resoumettait un tableau
+    d'ids périmé après une édition faite ailleurs.
+    """
+
+    def _make_discipline(self, db, code="GEN"):
+        return Discipline.create(db, {"code": code, "name": f"Discipline {code}"})
+
+    def test_create_teacher_with_inline_commands(self, db_session):
+        discipline = self._make_discipline(db_session)
+        teacher = _make_teacher(db_session, discipline_line_ids=[
+            {"discipline_id": discipline.id, "duration_minutes": 20},
+        ])
+        assert len(teacher.discipline_lines) == 1
+        assert teacher.discipline_lines[0].teacher_id == teacher.id
+        assert teacher.discipline_lines[0].duration_minutes == 20
+
+    def test_update_keeps_edits_and_creates_in_one_call(self, db_session):
+        d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
+        teacher = _make_teacher(db_session)
+        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+
+        teacher.update(db_session, {"discipline_line_ids": [
+            {"id": line.id, "duration_minutes": 99},
+            {"discipline_id": d2.id, "duration_minutes": 5},
+        ]})
+
+        lines = {l.discipline_id: l for l in teacher.discipline_lines}
+        assert lines[d1.id].duration_minutes == 99
+        assert lines[d2.id].duration_minutes == 5
+
+    def test_update_removes_line_absent_from_commands(self, db_session):
+        d1 = self._make_discipline(db_session)
+        teacher = _make_teacher(db_session)
+        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+
+        teacher.update(db_session, {"discipline_line_ids": []})
+
+        assert teacher.discipline_lines == []
+        assert db_session.get(TeacherDiscipline, line.id) is None
+
+    def test_empty_command_list_deletes_rather_than_nulls_fk(self, db_session):
+        # Régression : une liste vide ne contient aucun dict, le routage ne doit donc pas se baser
+        # sur "y a-t-il un dict dans la liste" mais sur la nature de la relation (rel.secondary is
+        # None) — sans quoi ce cas retombait sur l'ancien mécanisme, qui tentait de mettre
+        # teacher_id à NULL (colonne NOT NULL) au lieu de supprimer la ligne.
+        d1 = self._make_discipline(db_session)
+        teacher = _make_teacher(db_session)
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+
+        teacher.update(db_session, {"discipline_line_ids": []})  # ne doit pas lever d'IntegrityError
+
+        assert db_session.query(TeacherDiscipline).count() == 0

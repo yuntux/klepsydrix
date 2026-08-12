@@ -199,6 +199,8 @@
                   :widgetParams="{ listConfig: listConfig?.columns?.[col.key]?.listConfig }"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :parentRecord="item"
+                  liveSync
+                  @update:modelValue="(val: any) => { item[col.key] = val; }"
                 />
 
                 <SearchableMultiSelect

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, date
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import importlib
 import pkgutil
 import inspect
@@ -202,7 +202,14 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
                 for k, v in rel.info.items():
                     if k not in ("label", "type"):
                         rel_schema_extra[k] = v() if callable(v) else v
-                fields[field_name] = (Optional[List[int]], Field(None, title=title, json_schema_extra=rel_schema_extra))
+                # Une relation possédée (parentField présent, voir ci-dessus) accepte aussi des
+                # "commandes" façon Odoo one2many — un dict {id?, **champs} par ligne plutôt qu'un
+                # simple id — voir CRUDMixin._apply_owned_collection_commands (base.py,
+                # architecture.md section 15.J). Un vrai many-to-many (secondary is not None, ex:
+                # teacher_ids) reste strictement une liste d'ids : ses enregistrements existent
+                # indépendamment du parent, ce mécanisme de commandes n'a pas de sens pour lui.
+                item_type = Union[int, Dict[str, Any]] if rel.secondary is None else int
+                fields[field_name] = (Optional[List[item_type]], Field(None, title=title, json_schema_extra=rel_schema_extra))
             
     suffix = "_ReadPayload" if include_id else ("_UpdatePayload" if all_optional else "_CreatePayload")
     base_name = getattr(model, "__tablename__", model.__name__)

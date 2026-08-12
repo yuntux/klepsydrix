@@ -167,6 +167,77 @@ class CRUDMixin:
 
         return result
 
+    @staticmethod
+    def _apply_owned_collection_commands(db: Session, obj, rel, raw_items: list):
+        """
+        Traite une collection possédée (relation à `parentField`, voir generic.py — même condition
+        `rel.secondary is None`, systématiquement routée ici par create()/update() ci-dessous, y
+        compris pour une liste vide ou une liste d'ids "à plat") sous forme de "commandes" à la
+        Odoo (widget one2many) : chaque élément est soit un id nu (garder/rattacher tel quel, voir
+        plus bas), soit un dict `{id?, **champs}` (id reconnu = mise à jour de cet enfant ; sans id
+        = création). Tout enfant actuellement rattaché à `obj` mais absent de la liste soumise est
+        supprimé.
+
+        Ce mécanisme remplace l'ancien : une popin dédiée (GenericListModal) qui persistait
+        immédiatement chaque création/modification/suppression d'un enfant, indépendamment du
+        formulaire parent — deux écrivains distincts sur la même collection, à l'origine d'un bug
+        réel (IntegrityError : le formulaire parent, rouvert après une mutation directe de la
+        popin, resoumettait un tableau d'ids périmé ; ce module interprétait alors un enfant
+        réellement en base mais absent de ce tableau comme "retiré", et tentait de mettre sa FK
+        parent à NULL — échec garanti sur une colonne NOT NULL). Avec un seul écrivain (le
+        formulaire, via ces commandes), la collection soumise est par construction toujours
+        complète et à jour : tout ce qui n'y figure pas a été réellement supprimé par
+        l'utilisateur, donc supprimé ici aussi (jamais orphelin avec FK à NULL, qui n'a de toute
+        façon aucun sens pour un enfant qui n'existe pas indépendamment de son parent).
+
+        La résolution d'un `id` soumis se fait par une requête GLOBALE (pas restreinte aux enfants
+        déjà rattachés à `obj`) — même portée que l'ancien mécanisme "liste d'ids brute" qu'elle
+        remplace : un enfant déjà existant mais pas encore rattaché doit pouvoir l'être (ex:
+        `Course.rpc_save_composition`, qui crée d'abord chaque enfant isolément — sans `parent_id`
+        — puis les rattache tous ici via `update(db, {"children_ids": [c.id for c in children]})`
+        ; restreindre au parent courant romprait ce rattachement légitime et créerait à tort un
+        doublon vide).
+        """
+        target_cls = rel.mapper.class_
+        fk_attr = None
+        for local_col, remote_col in rel.local_remote_pairs:
+            if remote_col.table is target_cls.__table__:
+                fk_attr = target_cls.__mapper__.get_property_by_column(remote_col).key
+                break
+
+        real_ids = list({cmd.get("id") if isinstance(cmd, dict) else cmd for cmd in raw_items
+                          if (cmd.get("id") if isinstance(cmd, dict) else cmd) is not None})
+        items_by_id = {}
+        if real_ids:
+            items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(real_ids))).scalars().all()}
+
+        current_items = getattr(obj, rel.key, None) or []
+        kept_ids = set()
+        ordered_items = []
+        for cmd in raw_items:
+            # Un entier nu (compatibilité avec l'ancienne liste d'ids "à plat") vaut "garder/
+            # rattacher cette ligne telle quelle" — équivalent à un dict {id: X} sans autre champ.
+            if not isinstance(cmd, dict):
+                cmd = {"id": cmd}
+            cmd_id = cmd.get("id")
+            child_vals = {k: v for k, v in cmd.items() if k != "id"}
+            if isinstance(cmd_id, int) and cmd_id in items_by_id:
+                child = items_by_id[cmd_id]
+                kept_ids.add(cmd_id)
+                if child_vals:
+                    child.update(db, child_vals)
+                ordered_items.append(child)
+            else:
+                if fk_attr:
+                    child_vals[fk_attr] = obj.id
+                ordered_items.append(target_cls.create(db, child_vals))
+
+        for item in current_items:
+            if item.id not in kept_ids:
+                item.delete(db)
+
+        setattr(obj, rel.key, ordered_items)
+
     @classmethod
     def default_get(cls, db: Session, context: dict) -> dict:
         """
@@ -238,6 +309,16 @@ class CRUDMixin:
 
             # 5. Mettre à jour les relations collection
             for rel_key, (rel, ids) in collection_updates.items():
+                # Une relation possédée (rel.secondary is None, voir generic.py::parentField —
+                # même condition, TOUJOURS exposée à l'identique côté schéma) passe systématiquement
+                # par les commandes façon Odoo, y compris une liste vide (tout retirer) : le
+                # contenu de la liste (dicts, ids nus, ou rien du tout) ne doit pas déterminer le
+                # mécanisme utilisé, sans quoi une liste vide retomberait à tort sur le chemin
+                # legacy ci-dessous (qui tente de mettre la FK à NULL au lieu de supprimer).
+                if rel.secondary is None:
+                    cls._apply_owned_collection_commands(db, instance, rel, ids)
+                    continue
+
                 target_cls = rel.mapper.class_
                 items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()}
                 ordered_items = [items_by_id[i] for i in ids if i in items_by_id]
@@ -441,33 +522,23 @@ class CRUDMixin:
 
             # 5. Mettre à jour les relations collection
             for rel_key, (rel, ids) in collection_updates.items():
+                # Une relation possédée (rel.secondary is None, voir generic.py::parentField —
+                # même condition, TOUJOURS exposée à l'identique côté schéma) passe systématiquement
+                # par les commandes façon Odoo, y compris une liste vide (tout retirer) : le
+                # contenu de la liste (dicts, ids nus, ou rien du tout) ne doit pas déterminer le
+                # mécanisme utilisé, sans quoi une liste vide retomberait à tort sur le chemin
+                # legacy ci-dessous (qui tentait de mettre la FK à NULL au lieu de supprimer — bug
+                # d'origine, voir _apply_owned_collection_commands).
+                if rel.secondary is None:
+                    self._apply_owned_collection_commands(db, self, rel, ids)
+                    continue
+
+                # Chemin restant : un vrai many-to-many (rel.secondary is not None, ex:
+                # Service.teachers) — ses enregistrements existent indépendamment du parent, une
+                # simple liste d'ids à rattacher/détacher, jamais de create/update/delete implicite.
                 target_cls = rel.mapper.class_
                 items_by_id = {item.id: item for item in db.execute(select(target_cls).filter(target_cls.id.in_(ids))).scalars().all()}
                 ordered_items = [items_by_id[i] for i in ids if i in items_by_id]
-
-                # Un élément retiré de la collection n'est jamais simplement détaché en silence dès
-                # que la relation n'est pas une table d'association (secondary=) : sans ce traitement
-                # explicite, le setattr() ci-dessous laisserait SQLAlchemy modifier l'enfant retiré
-                # hors CRUDMixin (suppression réelle si delete-orphan, sinon mise à NULL de sa FK),
-                # ce que before_delete/before_update rejette (RuntimeError "Mise à jour/suppression
-                # directe interdite") — même principe que _cascade_delete_dependents, côté update().
-                if rel.secondary is None:
-                    current_items = getattr(self, rel_key, None) or []
-                    removed_items = [item for item in current_items if item.id not in ids]
-                    is_delete_orphan = getattr(rel.cascade, 'delete_orphan', False)
-                    fk_attr = None
-                    if not is_delete_orphan and removed_items:
-                        for local_col, remote_col in rel.local_remote_pairs:
-                            if remote_col.table is target_cls.__table__:
-                                fk_attr = target_cls.__mapper__.get_property_by_column(remote_col).key
-                                break
-                    for item in removed_items:
-                        if is_delete_orphan:
-                            if not getattr(item, '_via_crud_mixin_delete', False):
-                                item.delete(db)
-                        elif fk_attr:
-                            item.update(db, {fk_attr: None})
-
                 setattr(self, rel_key, ordered_items)
 
                 # Gestion d'un champ d'ordre sur la table d'association

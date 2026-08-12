@@ -1524,7 +1524,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Total heures (min)"
+                  "overrideLabel": "Temps / élève hebdo (min)"
                 }
               ],
               "matrix": {
@@ -1568,7 +1568,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Total heures (min)"
+                  "overrideLabel": "Temps / élève hebdo (min)"
                 }
               ],
               "matrix": {
@@ -1605,7 +1605,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Total heures (min)"
+                  "overrideLabel": "Temps / élève hebdo (min)"
                 }
               ],
               "matrix": {

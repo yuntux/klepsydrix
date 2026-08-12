@@ -1141,6 +1141,7 @@ function handleSubmit() {
   if (isMultiEdit.value) {
     const submitPayload: Record<string, any> = {};
     props.fields.forEach(field => {
+      if (field.resource && field.parentField) return;
       const key = field.key;
       const current = localModel.value[key];
       const initial = initialModelValue.value[key];
@@ -1153,6 +1154,12 @@ function handleSubmit() {
   } else {
     initialModelValue.value = JSON.parse(JSON.stringify(localModel.value));
     emit('update:modelValue', localModel.value);
+    // Les relations 1-N "possédées" (OwnedRelationField, ex: discipline_line_ids) sont désormais
+    // soumises ici avec le reste du formulaire, sous forme de "commandes" à la Odoo (un dict par
+    // ligne : {id, ...champs} pour garder/modifier, {...champs} sans id pour créer — tout id
+    // rattaché mais absent de la liste est supprimé) plutôt qu'une simple liste d'ids : voir
+    // OwnedRelationField.vue (seul écrivain de sa collection, plus aucun appel API direct depuis
+    // la popin) et CRUDMixin._apply_owned_collection_commands (base.py, architecture.md 15.J).
     emit('submit', localModel.value);
   }
 }
