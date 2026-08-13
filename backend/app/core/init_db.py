@@ -35,6 +35,7 @@ def init_prod_data():
             ('GROUP_NAME_HAS_SUBJECT_CODE', 'true'),
             ('GROUP_NAME_SEPARATOR', 'G'),
             ('GROUP_NAME_NUMBER_FORMAT', 'numerique'),
+            ('MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT', 'false'),
         ]:
             db.execute(text("INSERT INTO system_settings (key, value) VALUES (:key, :value)"), {"key": setting_key, "value": setting_value})
         db.commit()
@@ -88,6 +89,14 @@ def init_prod_data():
         ref_support_types_data = ["Principal", "Secondaire", "Gelé"]
         for name in ref_support_types_data:
             db.execute(text("INSERT INTO ref_support_types (name) VALUES (:name)"), {"name": name})
+
+        # Niveaux de formation (RefGrade) — nomenclature nationale, présente dans TOUTE base de
+        # production (contrairement aux tables ref_* ci-dessus, laissées vides) : frontière de
+        # mutualisation de l'effectif réduit entre Service de MEF différents (voir
+        # Service._reduced_pool_services, spec.md « Mutualisation de l'effectif réduit »).
+        ref_grades_data = ["6EME", "5EME", "4EME", "3EME", "2NDE", "1ERE", "TERMINALE"]
+        for name in ref_grades_data:
+            db.execute(text("INSERT INTO ref_grades (name) VALUES (:name)"), {"name": name})
 
         db.commit()
         print("[INIT DB] Succès ! Schéma créé, réglages système et tables de référence RH initialisés.")

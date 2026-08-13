@@ -19,6 +19,16 @@ service_teachers = Table(
     Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# Divisions avec lesquelles une ServiceRepartition de type REDUCED mutualise son effectif réduit
+# (voir ServiceRepartition.shared_divisions / _sync_reduced_pool) — champ calculé et stocké
+# (§15.F), jamais alimenté depuis un payload IHM standard.
+service_repartition_divisions = Table(
+    "service_repartition_divisions",
+    Base.metadata,
+    Column("service_repartition_id", Integer, ForeignKey("service_repartitions.id", ondelete="CASCADE"), primary_key=True),
+    Column("division_id", Integer, ForeignKey("divisions.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class RepartitionPeriodicity(str, enum.Enum):
     WEEKLY = "WEEKLY"
@@ -72,7 +82,7 @@ class Service(Base):
     mef_division_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("mef_divisions.id", ondelete="SET NULL"), nullable=True, info={"label": "Lien MEF/Division"})
     group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True, info={"label": "Groupe"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False, info={"label": "Matière"})
-    discipline_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=True, info={"label": "Discipline"})
+    discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
     alignment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alignments.id", ondelete="SET NULL"), nullable=True, info={"label": "Alignement"})
 
@@ -82,14 +92,15 @@ class Service(Base):
     weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "select", "options": _weekly_duration_options})
     weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "select", "options": _weekly_duration_options})
     weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "select", "options": _weekly_duration_options})
-    reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
 
     # Champs mirroir du MefService d'origine : copiés à la génération, comparés par
     # is_synced_with_mef_service. student_count est volontairement exclu (voir MefService.student_count).
+    # reduced_group_student_count n'en fait plus partie : c'est désormais un related_field (voir
+    # plus bas), toujours lu en direct depuis mef_service, donc il ne peut plus diverger.
     _MEF_SERVICE_MIRROR_FIELDS = (
         "subject_id", "discipline_id", "election_method_id", "weighting_coefficient",
         "weekly_duration_full_class_minutes", "weekly_duration_reduced_minutes",
-        "weekly_duration_split_minutes", "reduced_group_student_count",
+        "weekly_duration_split_minutes",
     )
 
     # Relations de navigation
@@ -97,6 +108,13 @@ class Service(Base):
     mef_division: Mapped[Optional["MefDivision"]] = relationship("MefDivision")
     division_id = related_field("mef_division", "division_id", info={"label": "Division", "resource": "divisions", "readOnly": True})
     mef_id = related_field("mef_division", "mef_id", info={"label": "MEF", "resource": "mefs", "readOnly": True})
+    # Le nombre d'élèves en effectif réduit n'est plus modifiable sur le Service : le gabarit
+    # MefService reste seul autoritaire (voir MefService.reduced_group_student_count) — lecture
+    # directe, ne peut donc plus diverger (retiré de _MEF_SERVICE_MIRROR_FIELDS ci-dessus).
+    reduced_group_student_count = related_field("mef_service", "reduced_group_student_count", info={"label": "Élèves en effectif réduit", "readOnly": True})
+    # Niveau du MEF d'origine (chaîné via mef_service.ref_grade_id, lui-même related vers Mef) —
+    # frontière de mutualisation de l'effectif réduit (voir _reduced_pool_services).
+    ref_grade_id = related_field("mef_service", "ref_grade_id", info={"label": "Niveau", "resource": "ref_grades", "readOnly": True})
     # Couleur de l'Alignment lié, à plat sur le Service — évite au frontend (ex: GenericPivot,
     # section 15.L de architecture.md) d'avoir à résoudre un chemin imbriqué "alignment.color" ;
     # même pattern que division_id/mef_id ci-dessus.
@@ -111,7 +129,13 @@ class Service(Base):
     # désormais pilotée par CRUDMixin._cascade_delete_dependents() à partir du ondelete=CASCADE
     # de ServiceRepartition.service_id (voir base.py) — déclarer aussi une cascade ORM ferait
     # doublon (tentative de suppression redondante sur des lignes déjà supprimées).
-    repartitions: Mapped[list["ServiceRepartition"]] = relationship("ServiceRepartition", back_populates="service", info={"label": "Répartitions"})
+    repartitions: Mapped[list["ServiceRepartition"]] = relationship(
+        "ServiceRepartition", back_populates="service",
+        info={
+            "label": "Détail cours par élève",
+            "help": "Chaque ligne décrit les séances qu'un même élève suit chaque semaine. Le nombre de groupes parallèles nécessaires (dédoublement, effectif réduit) est calculé séparément dans la colonne \"Nb groupes\".",
+        },
+    )
 
     @constrains()
     def _check_structure_exclusivity(self, db: Session):
@@ -147,16 +171,15 @@ class Service(Base):
 
     @constrains('weekly_duration_full_class_minutes')
     def _sync_full_class_repartitions(self, db: Session):
-        _generate_repartition_service(db, self, RepartitionGroupType.FULL_CLASS, self.weekly_duration_full_class_minutes, 1)
+        _generate_repartition_service(db, self, RepartitionGroupType.FULL_CLASS, self.weekly_duration_full_class_minutes, group_count=1)
 
     @constrains('weekly_duration_split_minutes')
     def _sync_split_repartitions(self, db: Session):
-        _generate_repartition_service(db, self, RepartitionGroupType.SPLIT, self.weekly_duration_split_minutes, 2)
+        _generate_repartition_service(db, self, RepartitionGroupType.SPLIT, self.weekly_duration_split_minutes, group_count=2)
 
     @constrains('weekly_duration_reduced_minutes', 'student_count', 'reduced_group_student_count')
     def _sync_reduced_repartitions(self, db: Session):
-        groups_need = _reduced_groups_need(self)
-        _generate_repartition_service(db, self, RepartitionGroupType.REDUCED, self.weekly_duration_reduced_minutes, groups_need)
+        _sync_reduced_pool(db, self)
 
     @constrains("alignment_id")
     def _check_alignment_repartition_match(self, db: Session):
@@ -166,6 +189,13 @@ class Service(Base):
         for sibling in siblings:
             if _repartition_signature(sibling) != _repartition_signature(self):
                 raise ValueError("Tous les services d'un même alignement doivent partager le même modèle de répartition.")
+
+    @constrains("alignment_id")
+    def _sync_reduced_pool_on_alignment_change(self, db: Session):
+        # Rejoindre/quitter un Alignment change le pool de mutualisation REDUCED (voir _sync_reduced_pool)
+        # même si aucun champ weekly_duration_reduced_minutes/student_count/reduced_group_student_count
+        # n'a lui-même changé sur ce Service précis.
+        _sync_reduced_pool(db, self)
 
     @exposed
     @property
@@ -228,20 +258,33 @@ class Service(Base):
 
 
 def _repartition_signature(service: "Service") -> frozenset:
+    """
+    Signature d'homogénéité utilisée pour valider/mirorer un Alignment — exclut désormais les
+    lignes REDUCED : leur group_count dépend du pool de mutualisation (_sync_reduced_pool), qui
+    varie légitimement d'un service à l'autre même alignés (reduced_group_student_count propre à
+    chaque service, effectifs propres à chaque division) — les forcer identiques via cette
+    signature n'aurait pas de sens. Inclut group_count pour FULL_CLASS/SPLIT (partie intégrante du
+    modèle de répartition depuis leur séparation d'avec occurrence_count).
+    """
     return frozenset(
-        (r.occurrence_count, r.duration_minutes, r.periodicity, r.group_type)
+        (r.occurrence_count, r.duration_minutes, r.periodicity, r.group_type, r.group_count)
         for r in service.repartitions
+        if r.group_type != RepartitionGroupType.REDUCED
     )
 
 
 def _sync_aligned_repartitions(db: Session, service: "Service"):
     """
-    Propage le modèle de répartition de `service` vers tous les autres Service du même Alignment,
-    en remplaçant entièrement leurs ServiceRepartition par des copies des siennes — pour qu'ils
-    partagent exactement la même _repartition_signature. Remplace l'ancien comportement qui
-    rejetait la modification avec une erreur ("casse l'homogénéité...") : modifier la répartition
-    d'un service aligné répercute désormais le changement sur les autres services alignés, plutôt
-    que de le bloquer.
+    Propage le modèle de répartition FULL_CLASS/SPLIT de `service` vers tous les autres Service du
+    même Alignment, en remplaçant leurs ServiceRepartition non-REDUCED par des copies des siennes
+    — pour qu'ils partagent exactement la même _repartition_signature. Remplace l'ancien
+    comportement qui rejetait la modification avec une erreur ("casse l'homogénéité...") :
+    modifier la répartition d'un service aligné répercute désormais le changement sur les autres
+    services alignés, plutôt que de le bloquer.
+
+    Les lignes REDUCED ne sont PAS mirorées ici : leur cohérence inter-services alignés est gérée
+    séparément par _sync_reduced_pool (group_count dépendant d'un pool par discipline/MEF, pas
+    d'une simple copie).
 
     Garde de réentrance (db._syncing_alignment_repartitions) : recréer les ServiceRepartition d'un
     service voisin ci-dessous déclenche à son tour ce même mécanisme sur ses propres lignes — sans
@@ -267,12 +310,14 @@ def _sync_aligned_repartitions(db: Session, service: "Service"):
     db._syncing_alignment_repartitions = True
     try:
         reference_rows = [
-            {"occurrence_count": r.occurrence_count, "duration_minutes": r.duration_minutes, "periodicity": r.periodicity.value, "group_type": r.group_type.value}
+            {"occurrence_count": r.occurrence_count, "duration_minutes": r.duration_minutes, "periodicity": r.periodicity.value, "group_type": r.group_type.value, "group_count": r.group_count}
             for r in service.repartitions
+            if r.group_type != RepartitionGroupType.REDUCED
         ]
         for sibling in mismatched:
             for old_row in list(sibling.repartitions):
-                old_row.delete(db)
+                if old_row.group_type != RepartitionGroupType.REDUCED:
+                    old_row.delete(db)
             for vals in reference_rows:
                 ServiceRepartition.create(db, {**vals, "service_id": sibling.id})
     finally:
@@ -288,22 +333,103 @@ def _sync_aligned_repartitions(db: Session, service: "Service"):
         _recompute_service_weekly_durations(db, sibling)
 
 
-def _reduced_groups_need(service: "Service") -> int:
-    """Nombre de groupes en effectif réduit — 1 par défaut tant que reduced_group_student_count
-    n'est pas renseigné (traité comme un unique groupe, pas une erreur bloquante)."""
-    if not service.reduced_group_student_count:
-        return 1
-    return math.ceil(service.student_count / service.reduced_group_student_count)
+def _reduced_pool_services(db: Session, service: "Service") -> list["Service"]:
+    """
+    Autres Service avec lesquels `service` mutualise son effectif réduit pour le calcul de
+    group_count (voir spec.md « Mutualisation de l'effectif réduit ») — restreint aux services qui
+    utilisent eux-mêmes l'effectif réduit (weekly_duration_reduced_minutes > 0) et JAMAIS entre
+    deux NIVEAUX (RefGrade, voir Mef.ref_grade_id) différents, quel que soit le mode — deux MEF
+    différents peuvent mutualiser dès lors qu'ils portent le même niveau (ex: MEF Général et MEF
+    SEGPA de 6ème) :
+
+    - Paramètre système MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT == "true" : tous les Service du
+      même niveau et de la même discipline, indépendamment de tout Alignment.
+    - Sinon (défaut) : uniquement les Service du même Alignment que `service`, partageant la même
+      matière (subject_id) ET le même niveau — mutualisation seulement entre services formellement
+      alignés.
+    """
+    if not service.ref_grade_id:
+        return []
+    ref_grade_id = service.ref_grade_id
+
+    from backend.app.models.system_setting import SystemSetting
+    mutualize = SystemSetting.get_system_setting_value(db, "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT")
+
+    if mutualize == "true":
+        candidates = db.query(Service).filter(
+            Service.discipline_id == service.discipline_id,
+            Service.id != service.id,
+        ).all()
+    else:
+        if not service.alignment_id:
+            return []
+        candidates = db.query(Service).filter(
+            Service.alignment_id == service.alignment_id,
+            Service.subject_id == service.subject_id,
+            Service.id != service.id,
+        ).all()
+
+    return [
+        s for s in candidates
+        if s.ref_grade_id == ref_grade_id and (s.weekly_duration_reduced_minutes or 0) > 0
+    ]
 
 
-def _generate_repartition_service(db: Session, service: "Service", group_type: "RepartitionGroupType", target_weekly_duration: int, occurrence_multiple: int):
+def _sync_reduced_pool(db: Session, service: "Service"):
+    """
+    Recalcule le group_count des ServiceRepartition REDUCED de `service` à partir de son pool de
+    mutualisation (_reduced_pool_services), puis propage récursivement le même recalcul à chaque
+    service du pool (le pool est symétrique : si A mutualise avec B, l'inverse doit aussi être
+    reconsidéré, ex. B a pu rejoindre/quitter le pool sans que A ait lui-même changé).
+
+    Garde de réentrance par ENSEMBLE d'ids (db._syncing_reduced_pool_ids, pendant du drapeau
+    ambiant §15.G) plutôt qu'un simple booléen : plusieurs services distincts sont traités dans la
+    même passe (contrairement à _generate_repartition_service, qui ne concerne qu'un seul service
+    à la fois) — un booléen unique bloquerait le traitement légitime du service suivant du pool.
+    """
+    processing = getattr(db, "_syncing_reduced_pool_ids", None)
+    is_root_call = processing is None
+    if is_root_call:
+        processing = set()
+        db._syncing_reduced_pool_ids = processing
+    if service.id in processing:
+        return
+    processing.add(service.id)
+    try:
+        pool = _reduced_pool_services(db, service)
+        pool_student_count = (service.student_count or 0) + sum(s.student_count or 0 for s in pool)
+        groups_need = 1
+        if service.reduced_group_student_count:
+            groups_need = math.ceil(pool_student_count / service.reduced_group_student_count)
+
+        from backend.app.models.division import Division
+        division_ids = [s.division_id for s in pool if s.division_id]
+        shared_divisions = db.query(Division).filter(Division.id.in_(division_ids)).all() if division_ids else []
+
+        _generate_repartition_service(
+            db, service, RepartitionGroupType.REDUCED, service.weekly_duration_reduced_minutes,
+            group_count=groups_need, shared_divisions=shared_divisions,
+        )
+
+        for sibling in pool:
+            _sync_reduced_pool(db, sibling)
+    finally:
+        processing.discard(service.id)
+        if is_root_call:
+            db._syncing_reduced_pool_ids = None
+
+
+def _generate_repartition_service(db: Session, service: "Service", group_type: "RepartitionGroupType", target_weekly_duration: int, group_count: int, shared_divisions: Optional[list] = None):
     """
     Implémente generate_repartitionService (voir spec.md, section « Synchronisation Service ↔
     ServiceRepartition ») : régénère les ServiceRepartition de type `group_type` de `service` à
     partir d'une durée hebdomadaire cible, en blocs d'1h (+ un éventuel reliquat), toutes en
-    periodicity=WEEKLY. `occurrence_multiple` compense la définition du type (SPLIT double le
-    nombre de séances car chaque moitié de classe a la sienne ; REDUCED le multiplie par le nombre
-    de groupes) — voir _recompute_service_weekly_durations pour la réciproque.
+    periodicity=WEEKLY. `occurrence_count` (nombre de séances PAR ÉLÈVE) n'est plus multiplié par
+    `group_count` (nombre de groupes parallèles nécessaires, ex: 2 pour un dédoublement) — les deux
+    notions sont désormais des colonnes distinctes de ServiceRepartition (voir plan Volet B) ; le
+    nombre réel de Course à générer se calcule ailleurs comme occurrence_count * group_count (voir
+    wizard_course_generation.py). `shared_divisions` (uniquement pertinent pour REDUCED, voir
+    _sync_reduced_pool) est appliqué à chaque ligne recréée.
 
     Garde de réentrance (db._weekly_duration_sync_service_id) : les create()/delete() ci-dessous
     déclenchent à leur tour _recompute_service_weekly_durations sur CE service — sans la garde, la
@@ -311,6 +437,8 @@ def _generate_repartition_service(db: Session, service: "Service", group_type: "
     """
     if getattr(db, "_weekly_duration_sync_service_id", None) == service.id:
         return
+
+    shared_division_ids = [d.id for d in shared_divisions] if shared_divisions else []
 
     previous_sync_id = getattr(db, "_weekly_duration_sync_service_id", None)
     db._weekly_duration_sync_service_id = service.id
@@ -330,20 +458,23 @@ def _generate_repartition_service(db: Session, service: "Service", group_type: "
                     ServiceRepartition.create(db, {
                         "service_id": service.id, "group_type": group_type.value,
                         "periodicity": RepartitionPeriodicity.WEEKLY.value,
-                        "duration_minutes": 60 + remainder, "occurrence_count": occurrence_multiple,
+                        "duration_minutes": 60 + remainder, "occurrence_count": 1, "group_count": group_count,
+                        "shared_division_ids": shared_division_ids,
                     })
                     full_hours -= 1
                 else:
                     ServiceRepartition.create(db, {
                         "service_id": service.id, "group_type": group_type.value,
                         "periodicity": RepartitionPeriodicity.WEEKLY.value,
-                        "duration_minutes": remainder, "occurrence_count": occurrence_multiple,
+                        "duration_minutes": remainder, "occurrence_count": 1, "group_count": group_count,
+                        "shared_division_ids": shared_division_ids,
                     })
             if full_hours > 0:
                 ServiceRepartition.create(db, {
                     "service_id": service.id, "group_type": group_type.value,
                     "periodicity": RepartitionPeriodicity.WEEKLY.value,
-                    "duration_minutes": 60, "occurrence_count": full_hours * occurrence_multiple,
+                    "duration_minutes": 60, "occurrence_count": full_hours, "group_count": group_count,
+                    "shared_division_ids": shared_division_ids,
                 })
     finally:
         db._weekly_duration_sync_service_id = previous_sync_id
@@ -372,23 +503,15 @@ def _recompute_service_weekly_durations(db: Session, service: "Service"):
     if getattr(db, "_syncing_alignment_repartitions", False):
         return
 
+    # occurrence_count n'est plus multiplié par le nombre de groupes (voir group_count, plan Volet
+    # B) : la formule est désormais uniforme pour les 3 group_type, sans validation de
+    # divisibilité (celle-ci n'a plus de sens — occurrence_count et group_count varient
+    # indépendamment).
     totals = {RepartitionGroupType.FULL_CLASS: 0.0, RepartitionGroupType.SPLIT: 0.0, RepartitionGroupType.REDUCED: 0.0}
     for repartition in service.repartitions:
         periodicity_multiple = 0.5 if repartition.periodicity == RepartitionPeriodicity.BIWEEKLY else 1
-
-        if repartition.group_type == RepartitionGroupType.FULL_CLASS:
-            totals[RepartitionGroupType.FULL_CLASS] += repartition.duration_minutes * repartition.occurrence_count * periodicity_multiple
-
-        elif repartition.group_type == RepartitionGroupType.SPLIT:
-            if repartition.occurrence_count % 2 != 0:
-                raise ValueError("Le nombre d'occurrences doit être un multiple de 2 puisqu'il s'agit d'une répartition de type Dédoublement.")
-            totals[RepartitionGroupType.SPLIT] += repartition.duration_minutes * (repartition.occurrence_count // 2) * periodicity_multiple
-
-        elif repartition.group_type == RepartitionGroupType.REDUCED:
-            groups_need = _reduced_groups_need(service)
-            if repartition.occurrence_count % groups_need != 0:
-                raise ValueError(f"Le nombre d'occurrences doit être un multiple du nombre de groupes ({groups_need}, de {service.reduced_group_student_count} élèves maximum) puisqu'il s'agit d'une répartition de type Effectif réduit.")
-            totals[RepartitionGroupType.REDUCED] += repartition.duration_minutes * (repartition.occurrence_count // groups_need) * periodicity_multiple
+        if repartition.group_type in totals:
+            totals[repartition.group_type] += repartition.duration_minutes * repartition.occurrence_count * periodicity_multiple
 
     previous_sync_id = getattr(db, "_weekly_duration_sync_service_id", None)
     db._weekly_duration_sync_service_id = service.id
@@ -427,9 +550,23 @@ class ServiceRepartition(Base):
         ],
     })
     name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Nom", "readOnly": True})
+    # Nombre de groupes parallèles nécessaires pour délivrer cette répartition (1 = classe entière,
+    # 2 = dédoublement, N = effectif réduit mutualisé sur N groupes) — calculé et stocké (§15.F),
+    # voir _sync_reduced_pool/_generate_repartition_service. Distinct de occurrence_count (nombre
+    # de séances PAR ÉLÈVE par semaine) depuis leur séparation (plan Volet B).
+    group_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nb groupes", "readOnly": True})
+    # Besoin brut/pondéré en heures-professeur hebdomadaires de CETTE ligne — calculés et stockés
+    # (§15.F, voir _compute_need_durations), consommés par le TRMD (trmd_synthesis.py).
+    raw_need_weekly_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Besoin brut (min)", "readOnly": True})
+    weighted_need_weekly_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Besoin pondéré (min)", "readOnly": True})
 
     # Relations de navigation
     service: Mapped[Optional["Service"]] = relationship("Service", back_populates="repartitions")
+    mef_service_id = related_field("service", "mef_service_id", info={"label": "Service MEF d'origine", "resource": "mef_services", "readOnly": True})
+    # "Partagé avec les classes suivantes" (mutualisation REDUCED) — calculé et stocké, jamais
+    # saisi manuellement (voir _sync_reduced_pool). readOnly : un payload IHM standard ne doit
+    # jamais le cibler, seul le recalcul interne réassigne cette collection.
+    shared_divisions: Mapped[list["Division"]] = relationship("Division", secondary=service_repartition_divisions, info={"label": "Partagé avec les classes suivantes", "readOnly": True})
 
     @constrains("duration_minutes")
     def validate_duration_multiple(self, db: Session):
@@ -456,6 +593,39 @@ class ServiceRepartition(Base):
         periodicity_letter = "H" if self.periodicity == RepartitionPeriodicity.WEEKLY else "Q"
         group_type_letter = _REPARTITION_GROUP_TYPE_LETTERS[self.group_type]
         self.name = f"{self.occurrence_count}x{hours_text}({periodicity_letter}/{group_type_letter})"
+
+    @constrains()
+    def _enforce_group_count_and_compute_need_durations(self, db: Session):
+        """
+        Calculé et stocké (§15.F), comme _compute_name. Fait DEUX choses dans une seule méthode,
+        volontairement, plutôt que deux @constrains() séparées :
+
+        1. Impose le group_count fixe de FULL_CLASS/SPLIT (1 et 2 respectivement) — utile même sur
+           une ligne créée/éditée directement, hors synchro weekly_duration_* (ex: édition en ligne
+           du tableau de répartitions). REDUCED n'est pas concerné : son group_count dépend d'un
+           pool cross-service (_sync_reduced_pool), pas calculable depuis cette seule ligne.
+        2. Calcule le besoin en heures-professeur à partir de ce group_count (désormais à jour) :
+           occurrence_count (séances/élève/semaine) x duration_minutes x group_count, pondéré par
+           periodicity (une semaine sur deux = moitié) puis par Service.weighting_coefficient.
+
+        **Bug réel corrigé en les fusionnant** : CRUDMixin dispatche les @constrains() dans l'ordre
+        alphabétique de dir(instance) (voir base.py) — avec ces deux calculs en méthodes séparées,
+        rien ne garantissait que le group_count fixe soit appliqué AVANT le calcul du besoin qui en
+        dépend. Constaté concrètement : une ligne SPLIT créée sans group_count explicite voyait son
+        group_count bien corrigé à 2 (par l'ancienne _enforce_fixed_group_counts, alphabétiquement
+        après l'ancienne _compute_need_durations), mais raw_need_weekly_duration_minutes restait
+        calculé avec l'ancienne valeur (1) — jamais recalculé après coup. En une seule méthode,
+        l'ordre interne est garanti par construction, plus de dépendance à l'ordre de dispatch.
+        """
+        if self.group_type == RepartitionGroupType.FULL_CLASS:
+            self.group_count = 1
+        elif self.group_type == RepartitionGroupType.SPLIT:
+            self.group_count = 2
+
+        periodicity_coeff = 0.5 if self.periodicity == RepartitionPeriodicity.BIWEEKLY else 1
+        self.raw_need_weekly_duration_minutes = int(round(self.occurrence_count * self.duration_minutes * periodicity_coeff * self.group_count))
+        weighting_coefficient = self.service.weighting_coefficient if self.service else 1.0
+        self.weighted_need_weekly_duration_minutes = int(round(self.raw_need_weekly_duration_minutes * weighting_coefficient))
 
     @classmethod
     def create(cls, db: Session, vals: dict):

@@ -486,7 +486,7 @@
                                   "readOnly": false
                                 },
                                 {
-                                  "key": "support_temporary_status",
+                                  "key": "is_temporary_support",
                                   "readOnly": false
                                 },
                                 {

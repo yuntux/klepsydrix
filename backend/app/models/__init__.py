@@ -26,6 +26,7 @@ from backend.app.models.constraint import ResourceConstraint, CourseToCourseCons
 from backend.app.models.system_setting import SystemSetting
 from backend.app.models.ref_ara import RefAra
 from backend.app.models.ref_are import RefAre
+from backend.app.models.ref_grade import RefGrade
 from backend.app.models.ref_particular_mission import RefParticularMission
 from backend.app.models.ref_pacte_mission import RefPacteMission
 from backend.app.models.ref_external_school import RefExternalSchool

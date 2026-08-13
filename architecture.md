@@ -1202,3 +1202,44 @@ Deux bugs de course distincts trouvés et corrigés en vérifiant ce changement 
 **Vérifié en conditions réelles** (onglets fraîchement ouverts, plusieurs fois pour écarter tout artefact d'historique réseau accumulé sur un onglet réutilisé) : `?active=true`/`?active=false` sur `/api/generic/timeslots` (curl et navigateur), suite `pytest` complète (213 tests, y compris un nouveau test dédié au filtre et `test_solve_timetable` qui exerce `get_active_timeslots`), grille EDT par défaut (couleurs/libellés de matière corrects après le correctif `onLeafChange`, plus aucune requête vers `/api/timetable`), Fiche T mono-sélection et multi-sélection (`consolidatedSubjects` affiche bien 3 matières distinctes pour 3 cours sélectionnés), Sidebar (rendu correct, aucun cours non planifié dans le jeu de données actuel). Aucune erreur console sur l'ensemble des scénarios testés.
 
 **Corollaire du même bug, trouvé en réexaminant `loadFkOptionsForModel('schools')`** (§15.T, "comportement résiduel non corrigé") — cette caractérisation s'est révélée incomplète : le comportement n'est "sans conséquence" QUE dans le cas précis "premier chargement, `activeAdminModel` encore à sa valeur par défaut `'schools'`" (dont les dépendances FK recoupent par coïncidence celles de `loadData()`, voir plus haut). Testé le cas non couvert jusqu'ici — naviguer d'un panneau admin **vers** la grille EDT (pas juste y atterrir directement) : `onLeafChange` ne remet jamais `activeAdminModel` à zéro pour une feuille sans panneau `GenericForm` (la grille EDT elle-même) — il garde la valeur du DERNIER panneau admin visité. Résultat observé (Disciplines → Visualiseur, navigation SPA sans rechargement) : `loadFkOptionsForModel('disciplines')` se redéclenchait sur la grille, tirant `disciplines`/`trmd_budgets` — deux requêtes sans aucun rapport avec les besoins de la grille, contrairement au cas `schools` initial. Corrigé en ajoutant `activeTab.value !== 'admin'` au garde du watch (même principe que `refreshActiveGenericPanel`, juste en dessous dans le même fichier) : `loadFkOptionsForModel` ne se déclenche plus que si un panneau admin est effectivement affiché, quel que soit `activeAdminModel`. Revérifié : atterrissage direct sur la grille (inchangé, `schools`/period_types/periods/groups/class_parts/materials/subjects toujours chargés normalement) et navigation Disciplines → Visualiseur (`disciplines`/`trmd_budgets` ne réapparaissent plus après la navigation).
+
+### V. Contexte Ambiant Générique sur `db` pour des Propriétés Calculées (extension de la section G)
+
+Le drapeau ambiant posé sur `db` (section G — réentrance de cascades ORM) se généralise à un
+second usage : transmettre une valeur de filtre à une propriété `@exposed`, sans passer par un
+paramètre de méthode (les `@property` Python n'acceptent aucun argument). Même support (`db`,
+scopé à la durée de vie de la Session/requête HTTP), usage différent — pas un garde-fou de
+réentrance mais un vrai paramètre de calcul, l'équivalent direct du `self.env.context` d'Odoo.
+
+**Convention** : l'appelant pose l'attribut directement sur `db` avant de lire la propriété, avec
+`try`/`finally` pour garantir le nettoyage même en cas d'exception — aucune fonction utilitaire
+dédiée, pas de wrapper `contextmanager` : l'idiome est volontairement le même que celui déjà en
+place pour les drapeaux de réentrance (`db._weekly_duration_sync_service_id`, etc.), pour rester
+reconnaissable et ne pas ajouter une seconde façon de faire la même chose.
+```python
+db.filter_discipline_id = discipline.id
+try:
+    total = teacher.are_duration_minutes  # lit le contexte en interne via object_session(self)
+finally:
+    db.filter_discipline_id = None
+```
+Côté propriété : `getattr(object_session(self), "filter_discipline_id", None)` — sans contexte
+actif (ex: un `GET /api/generic/teachers` normal), la valeur est absente et la propriété retombe
+sur un comportement par défaut sensé ("aucun filtre" = agrégat total), jamais une erreur.
+
+**Implémentation de référence** : `Teacher.discipline_duration_minutes`/`are_duration_minutes`/
+`ara_duration_minutes`/`particular_mission_duration_minutes`/`pacte_mission_duration_minutes`/
+`other_school_duration_minutes` (`backend/app/models/teacher.py`), lues sous
+`db.filter_discipline_id` par `TrmdLine.read()` (`trmd_synthesis.py`, voir spec.md « TrmdLine ») pour ne compter
+que l'apport d'un enseignant sur UNE discipline précise. Deux façons de filtrer selon le champ :
+`discipline_duration_minutes` filtre ligne à ligne (chaque `TeacherDiscipline` porte sa propre
+`discipline_id`) ; les 5 autres (ARE/ARA/mission particulière/mission Pacte/autre établissement)
+n'ont pas de discipline propre — elles sont attribuées en bloc à la **discipline majeure** du
+professeur (`Teacher._discipline_majeure_id`, la ligne `discipline_lines` au `duration_minutes` le
+plus élevé, jamais elle-même filtrée par le contexte) : la propriété renvoie 0 si le contexte ne
+correspond pas à cette discipline majeure, la somme complète sinon.
+
+**Portée délibérément limitée à un usage interne** pour cette première itération : pas de nouveau
+paramètre de requête sur le moteur générique (`generic.py`) pour piloter ce contexte depuis une
+URL — seul du code Python interne (`trmd_synthesis.py`) le pose aujourd'hui. Rien n'empêche un
+futur besoin de réutiliser exactement le même idiome pour une autre clé de contexte.

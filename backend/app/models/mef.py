@@ -4,7 +4,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, constrains, exposed
+from backend.app.models.base import Base, constrains, exposed, related_field
 from backend.app.core.time_utils import get_duration_options
 
 # Voir backend/app/models/service.py : mêmes 3 champs (miroir), même besoin d'inclure 0 ("modalité
@@ -18,11 +18,16 @@ class Mef(Base):
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
     code_national: Mapped[str] = mapped_column(String(11), unique=True, index=True, nullable=False, info={"label": "Code National (MEF10)", "placeholder": "ex: 1001001211"})
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Libellé", "placeholder": "ex: 6EME"})
+    # Frontière de mutualisation de l'effectif réduit entre Service de MEF différents (voir
+    # Service._reduced_pool_services) — obligatoire : un MEF représente toujours un niveau de
+    # formation précis, jamais ambigu.
+    ref_grade_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_grades.id", ondelete="RESTRICT"), nullable=False, info={"label": "Niveau"})
     forecast_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif prévisionnel d'élèves", "min": 0, "max": 1000})
     max_students_per_class: Mapped[int] = mapped_column(Integer, nullable=False, default=30, info={"label": "Capacité maximale par classe", "min": 1, "max": 100})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School")
+    ref_grade: Mapped[Optional["RefGrade"]] = relationship("RefGrade")
     mef_services: Mapped[list["MefService"]] = relationship(
         "MefService", back_populates="mef", passive_deletes="all",
         info={
@@ -62,7 +67,7 @@ class MefService(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     mef_id: Mapped[int] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="CASCADE"), nullable=False, info={"label": "MEF"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False, info={"label": "Matière"})
-    discipline_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=True, info={"label": "Discipline"})
+    discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
 
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif attendu par division", "min": 0, "max": 50})
@@ -75,6 +80,8 @@ class MefService(Base):
 
     # Relations de navigation
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="mef_services")
+    # Niveau du MEF d'origine (voir Mef.ref_grade_id) — lecture seule, jamais divergent.
+    ref_grade_id = related_field("mef", "ref_grade_id", info={"label": "Niveau", "resource": "ref_grades", "readOnly": True})
     subject: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="mef_services")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
     election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod")
@@ -101,6 +108,14 @@ class MefService(Base):
         Division déjà liée au MEF (via MefDivision) — propagation à sens unique, en
         création seulement (voir Service.generate_from_mef_service).
         """
+        if not vals.get("discipline_id") and vals.get("subject_id"):
+            # discipline_id est obligatoire (non-nullable) mais déjà porté par la matière —
+            # défaut pratique si omis du payload, sans empêcher une discipline explicitement
+            # différente d'être fournie (ex: matière interdisciplinaire).
+            from backend.app.models.subject import Subject
+            subject = db.get(Subject, vals["subject_id"])
+            if subject:
+                vals["discipline_id"] = subject.discipline_id
         instance = super().create(db, vals)
         from backend.app.models.service import Service
         mef_divisions = db.query(MefDivision).filter(MefDivision.mef_id == instance.mef_id).all()
@@ -121,6 +136,14 @@ class MefService(Base):
         instance = super().update(db, vals)
         from backend.app.models.service import Service
         mirror_vals = {field: getattr(self, field) for field in Service._MEF_SERVICE_MIRROR_FIELDS}
+        # reduced_group_student_count n'est plus un champ mirroir (Service le lit désormais en
+        # direct via un related_field vers ce MefService, voir Service.reduced_group_student_count)
+        # — sa valeur est donc déjà à jour sans propagation. On le repasse quand même explicitement
+        # ici pour que la clé apparaisse dans original_vals_keys côté CRUDMixin.update() et
+        # redéclenche _sync_reduced_repartitions (qui régénère les ServiceRepartition REDUCED avec
+        # le nouveau nombre de groupes) — sans ça, seul un changement direct de
+        # weekly_duration_reduced_minutes/student_count sur le Service la redéclencherait.
+        mirror_vals["reduced_group_student_count"] = self.reduced_group_student_count
         services = db.query(Service).filter(Service.mef_service_id == self.id).all()
         for service in services:
             service.update(db, dict(mirror_vals))

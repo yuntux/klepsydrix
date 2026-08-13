@@ -422,6 +422,28 @@ Le système compare en temps réel :
 *   `allocated_hsa` : Volume d'Heures Supplémentaires Annuelles (HSA) budgétées pour la discipline (Réel, ex: `18.0` heures supplémentaires)
 *   `allocated_posts` : Nombre de postes d'enseignants titulaires (Equivalent Temps Plein / ETP) alloués à la discipline (Réel, ex: `10.0`)
 
+### 2quinquies. TrmdLine (Synthèse TRMD calculée)
+Modèle virtuel (`TransientModel`, non stocké — voir `architecture.md` §5.A), une ligne calculée par **Discipline**, comparant en temps réel le besoin théorique en heures d'enseignement (issu de `MEFService`/`Service`/`ServiceRepartition`) aux moyens humains réellement affectés (`Teacher`, définitifs et provisoires). Distinct de **TRMDBudget** (2ter, ci-dessus) : `TRMDBudget` porte une dotation budgétaire saisie manuellement par le chef d'établissement (HP/HSA/postes alloués), `TrmdLine` calcule le besoin et la ressource RÉELS à partir des données de structure — les deux sont complémentaires pour piloter le TRMD, ni l'un ni l'autre ne remplace l'autre.
+
+*   `id` : Identifiant de ligne (Entier, pas une clé stockée — juste un compteur de restitution)
+*   `discipline_id` : La **Discipline** de cette ligne (Entier)
+*   `need_ids` : Les **ServiceRepartition** dont le `Service.mef_service.discipline_id` correspond à cette discipline — dédupliquées si mutualisées entre plusieurs divisions (voir « Mutualisation de l'effectif réduit » ci-dessus : ne garder que la ligne dont la division est l'id minimal du pool `{division propre} ∪ shared_divisions`, calculé sur l'ensemble des `MEFService` de la discipline, pas MEFService par MEFService — un partage n'est pas restreint à un même MEFService).
+*   `def_teacher_ids` / `temp_teacher_ids` : Les **Teacher** rattachés à cette discipline via `TeacherDiscipline`, répartis selon `is_temporary_support` (définitifs / provisoires)
+*   `need_raw_duration_minutes` : Heures enseignées — somme des `raw_need_weekly_duration_minutes` des lignes de `need_ids`
+*   `need_weighted_duration_minutes` : Heures pondérées — somme des `weighted_need_weekly_duration_minutes` des lignes de `need_ids`
+*   `are_duration_minutes` : ARE — somme de `teacher.are_duration_minutes` (contexte `filter_discipline_id`) pour tous les `Teacher` de la discipline (définitifs + provisoires)
+*   `total_needs` : Besoins totaux = `need_weighted_duration_minutes + are_duration_minutes`
+*   `def_teacher_count` / `temp_teacher_count` : Nombre de postes définitifs / provisoires
+*   `def_teached_duration_minutes` / `temp_teached_duration_minutes` : Heures enseignées définitives / provisoires = somme de `teacher.discipline_duration_minutes - teacher.ara_duration_minutes` (contexte `filter_discipline_id`)
+*   `def_given_duration_minutes` / `temp_given_duration_minutes` : Heures données à un autre établissement, définitives / provisoires = somme de `teacher.other_school_duration_minutes` (contexte `filter_discipline_id`) — comptées de la même façon pour les deux statuts (rien n'empêche en pratique de saisir un `TeacherOtherSchool` pour un professeur à statut temporaire)
+*   `def_gap_duration_minutes` : Écart ressources déf. − besoins déf. = `def_teached_duration_minutes - def_given_duration_minutes - total_needs`
+*   `total_ressource_duration_minutes` : Moyens totaux = `(def_teached - def_given) + (temp_teached - temp_given)`
+*   `total_gap_duration_minutes` : Ressource > besoin = `max(0, total_ressource_duration_minutes - total_needs)`
+*   `total_hsa_duration_minutes` : HSA, ressource < besoin = `max(0, total_needs - total_ressource_duration_minutes)`
+*   `imp_duration_minutes` : IMP (Indemnité pour Mission Particulière) — somme de `teacher.particular_mission_duration_minutes` (contexte `filter_discipline_id`) ; pas de modèle dédié, `RefParticularMission`/`TeacherParticularMission` (3ter) porte déjà ce concept.
+
+**Pas de filtre par école pour cette itération** : `TrmdLine.read()` traite l'intégralité de la base. Aucune interface frontend ne consomme encore cette ressource (menu/écran de restitution à construire séparément).
+
 ### 2quater. Family (Famille / Catégorie)
 Regroupement transversal et hiérarchique de ressources permettant de mutualiser des contraintes ou de filtrer l'affichage (ex: familles de matières "Sciences", familles de cours "Spécialités Terminale", familles de professeurs "Sciences Humaines").
 *   `id` : Clé primaire (Entier)
@@ -446,13 +468,17 @@ Un professeur est défini globalement au niveau de la cité scolaire (permettant
 
 > **Données administratives** : `numen` (Chaîne optionnelle, **unique** dans la base), `is_board_member` (Membre du conseil d'administration, Booléen, défaut `False`).
 
-> **Données propres à l'enseignement** : `function_id` (Clé étrangère optionnelle vers **RefFunction**), `support_id` (Clé étrangère optionnelle vers **RefSupport**), `support_type_id` (Clé étrangère optionnelle vers **RefSupportType**), `support_temporary_status` (Support temporaire/suppléant, Booléen, défaut `False`), `support_comment` (Chaîne optionnelle).
+> **Données propres à l'enseignement** : `function_id` (Clé étrangère optionnelle vers **RefFunction**), `support_id` (Clé étrangère optionnelle vers **RefSupport**), `support_type_id` (Clé étrangère optionnelle vers **RefSupportType**), `is_temporary_support` (Support temporaire/suppléant, Booléen, défaut `False`), `support_comment` (Chaîne optionnelle).
 
 > **Dossier administratif — données propres au poste** : `degree_id` (Diplôme le plus élevé, Clé étrangère optionnelle vers **RefDegree**), `administrative_group_id` (Corps, Clé étrangère optionnelle vers **RefAdministrativeGroup**), `administrative_group_entry_date` (Date optionnelle), `level_id` (Grade, Clé étrangère optionnelle vers **RefLevel**), `level_entry_date` (Date optionnelle), `step` (Échelon, Entier optionnel — nombre libre, sans table de référence), `step_entry_date` (Date optionnelle), `recruit_discipline_id` (Discipline de recrutement, Clé étrangère optionnelle vers **Discipline**), `affectation_mode_id` (Clé étrangère optionnelle vers **RefAffectationMode**), `affectation_date` (Date optionnelle).
 
 > **Dossier administratif — dernière inspection** : `last_inspection_date` (Date optionnelle), `last_inspection_note` (Chaîne optionnelle — texte libre, les grilles de notation ayant beaucoup évolué avec PPCR), `last_inspection_inspector_id` (Clé étrangère optionnelle vers **RefInspector**), `service_mode_id` (Modalité de service, Clé étrangère optionnelle vers **RefServiceMode**).
 
 > **Volumes horaires annexes** (voir 3ter ci-dessous) : `ara_line_ids`, `are_line_ids`, `discipline_line_ids`, `particular_mission_line_ids`, `pacte_mission_line_ids`, `other_school_line_ids` — relations 1-à-N possédées vers les objets **TeacherAra**/**TeacherAre**/**TeacherDiscipline**/**TeacherParticularMission**/**TeacherPacteMission**/**TeacherOtherSchool**.
+
+> **Discipline obligatoire** : un enseignant doit toujours être rattaché à au moins une **TeacherDiscipline** (évite une ligne "Sans discipline" dans le TRMD). Garantie en deux temps, aucune des deux seule n'étant suffisante : côté backend, la suppression de la DERNIÈRE `TeacherDiscipline` restante d'un professeur est bloquée (mais la suppression du `Teacher` lui-même, qui supprime forcément toutes ses lignes en cascade, reste possible) ; côté IHM, `discipline_line_ids` bloque la soumission du formulaire tant que la collection est vide, y compris si le champ est placé sur un onglet non actif. **Limite assumée** : un `Teacher` fraîchement créé reste transitoirement sans discipline le temps que le planificateur ajoute sa première ligne dans le même formulaire, avant le premier enregistrement — impossible à empêcher autrement, le panneau détail créant les lignes après coup.
+
+> **Champs calculés pour le TRMD** (non stockés, voir 2quinquies ci-dessous et `architecture.md` §15.V) : `discipline_duration_minutes` (somme des `discipline_line_ids.duration_minutes`, filtrée ligne à ligne par un contexte ambiant `filter_discipline_id` si posé), `are_duration_minutes`, `ara_duration_minutes`, `particular_mission_duration_minutes`, `pacte_mission_duration_minutes`, `other_school_duration_minutes` (mêmes lignes annexes que ci-dessus, mais attribuées en bloc à la **discipline majeure** du professeur — celle de sa `discipline_line` au `duration_minutes` le plus élevé — plutôt que filtrées ligne à ligne, puisqu'elles ne portent elles-mêmes aucune discipline propre). Sans contexte actif (utilisation normale hors TRMD), ces 6 champs renvoient la somme totale du professeur, sans filtre.
 
 > **Contrainte d'intégrité** : le triplet (`last_name`, `first_name`, `birth_date`) doit être unique dans la base — vérifié uniquement quand `birth_date` est renseignée (contrainte applicative, pas une `UniqueConstraint` SQL, `birth_date` étant nullable).
 
@@ -477,6 +503,12 @@ Six objets de liaison, tous construits sur le même gabarit : `id`, `teacher_id`
 
 `TeacherDiscipline` est indépendant du lien `Teacher.subject_ids` (matières enseignées) — il permet de suivre un volume horaire par discipline distinct de l'affectation pédagogique aux matières.
 
+### 3quater. RefGrade (Niveau de formation)
+Nomenclature nationale des niveaux de formation (ex: 6ème, 5ème, ..., Terminale), seedée dans toute base de production (`init_db.py`, au même titre que `STANDARD_TIMESLOT_DURATION` — contrairement aux tables `ref_*` RH du §3bis, laissées vides). Sert de **frontière de mutualisation de l'effectif réduit** entre `Service` de `MEF` différents (voir « Mutualisation de l'effectif réduit » plus bas) : deux MEF différents peuvent mutualiser un groupe à effectif réduit dès lors qu'ils portent le même niveau (ex: MEF Général et MEF SEGPA de 6ème, cf. point 3 ci-dessous) — jamais entre deux niveaux différents.
+*   `id` : Clé primaire (Entier)
+*   `name` : Libellé du niveau (Chaîne, unique, e.g. "6EME", "TERMINALE")
+*   **Suppression protégée** : `RESTRICT` — un `RefGrade` référencé par au moins un `MEF` ne peut pas être supprimé (garde-fou générique piloté par le schéma, voir `architecture.md` §15.H).
+
 ### 4. MEF (Module Élémentaire de Formation / Niveau de formation)
 Représente une formation ou un niveau d'enseignement réglementaire national défini par le ministère (ex: "Troisième Générale", "Seconde Générale et Technologique", "Première Spécialité"). C'est le socle technique indispensable pour l'import de la structure depuis STSWEB et pour calculer les dotations horaires globales.
 
@@ -489,6 +521,7 @@ Le MEF est un concept structurant pour :
 *   `school_id` : Clé étrangère vers la **School** concernée (Entier, relation N-à-1)
 *   `code_national` : Code national unique standardisé sur 11 caractères (Chaîne, e.g. "20310010110" pour une 3ème Générale)
 *   `name` : Libellé complet de la formation (Chaîne, e.g. "Troisième Générale")
+*   `ref_grade_id` : Clé étrangère **obligatoire** vers le **RefGrade** (niveau) de ce MEF (Entier, relation N-à-1, `RESTRICT`, voir 3quater) — frontière de mutualisation de l'effectif réduit entre MEF différents.
 *   `forecast_student_count` : Nombre prévisionnel d'élèves affectés à cette formation dans l'établissement (Entier)
 *   `max_students_per_class` : Limite conseillée ou réglementaire d'élèves par division (Entier, ex: `30` pour le collège, `35` pour le lycée)
 *   *Relations (1-à-N)* : `mef_services` (Liste des dotations d'heures réglementaires par matière pour ce niveau), `division_links` (Liste des **MefDivision** rattachant ce MEF à une ou plusieurs classes)
@@ -503,8 +536,9 @@ Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » po
 > **Suppression en cascade** : supprimer un `MEFService` supprime aussi tous les `Service` (et leurs `ServiceRepartition`) générés à partir de lui. Un `Service` référence toujours un `MEFService` (voir 4quinquies) — il ne peut donc jamais y avoir de `Service` orphelin après cette suppression.
 *   `id` : Clé primaire (Entier)
 *   `mef_id` : Clé étrangère vers le **MEF** parent (Entier, relation 1-à-N)
+*   `ref_grade_id` : Niveau du MEF d'origine (Entier, related field en lecture seule dérivé de `mef_id.ref_grade_id`)
 *   `subject_id` : Clé étrangère vers la **Subject** (Matière) enseignée (Entier, relation N-à-1)
-*   `discipline_id` : Clé étrangère optionnelle vers la **Discipline** (Entier, relation N-à-1). Peut diverger du `discipline_id` par défaut de la matière, pour une déclaration budgétaire différente du rattachement pédagogique usuel.
+*   `discipline_id` : Clé étrangère **obligatoire** vers la **Discipline** (Entier, relation N-à-1) — peut diverger du `discipline_id` par défaut de la matière, pour une déclaration budgétaire différente du rattachement pédagogique usuel, mais ne peut jamais être vide (voir « Discipline obligatoire partout » plus bas — le TRMD ne doit jamais gérer de ligne "Sans discipline"). Si omis à la création, dérivé automatiquement de `Subject.discipline_id`.
 *   `election_method_id` : Clé étrangère optionnelle vers une **ElectionMethod** (Entier, ex: classification réglementaire/export STSWEB)
 *   `student_count` : Effectif attendu par division (Entier). Sert de valeur par défaut copiée dans chaque `Service` généré ; n'est volontairement pas comparé par `is_synced_with_mef_service` sur `Service`, l'effectif réel divergeant naturellement d'une division à l'autre.
 *   `weighting_coefficient` : Pondération (Réel, ex: coefficient de type HSA/HP). Distinct de `Subject.pedagogic_weight`, qui sert lui à l'équilibrage de la grille par le solveur.
@@ -549,13 +583,15 @@ L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **
 *   `mef_division_id` : Clé étrangère optionnelle vers un **MefDivision** (Entier, relation N-à-1). Mutuellement exclusif avec `group_id` — un service cible soit une Division (via son lien MEF), soit un Groupe, jamais les deux, jamais aucun des deux.
 *   `division_id` : Division ciblée (Entier, propriété calculée non stockée, dérivée de `mef_division_id.division_id`)
 *   `mef_id` : MEF ciblé (Entier, propriété calculée non stockée, dérivée de `mef_division_id.mef_id`)
+*   `ref_grade_id` : Niveau du MEFService d'origine (Entier, related field en lecture seule dérivé de `mef_service_id.ref_grade_id`, lui-même dérivé du MEF) — frontière de mutualisation de l'effectif réduit (voir « Mutualisation de l'effectif réduit » plus bas).
 *   `group_id` : Clé étrangère optionnelle vers un **Group** (Entier, relation N-à-1)
 *   `subject_id` : Clé étrangère vers la **Subject** enseignée (Entier, relation N-à-1). Copiée du MEFService à la génération, éditable ensuite.
-*   `discipline_id`, `election_method_id`, `student_count`, `weighting_coefficient`, `weekly_duration_full_class_minutes`, `weekly_duration_reduced_minutes`, `weekly_duration_split_minutes`, `reduced_group_student_count`, `total_weekly_duration_minutes` : mêmes définitions que sur **MEFService** (voir 4bis), copiées à la génération puis librement éditables.
+*   `discipline_id`, `election_method_id`, `student_count`, `weighting_coefficient`, `weekly_duration_full_class_minutes`, `weekly_duration_reduced_minutes`, `weekly_duration_split_minutes`, `total_weekly_duration_minutes` : mêmes définitions que sur **MEFService** (voir 4bis), copiées à la génération puis librement éditables. `discipline_id` obligatoire, comme sur MEFService.
+*   `reduced_group_student_count` : **N'est plus un champ propre au Service** — related field en lecture seule vers `mef_service_id.reduced_group_student_count` (Entier). Le nombre d'élèves en effectif réduit n'est modifiable QUE sur le MEFService, jamais localement sur un Service généré — élimine ce champ de toute divergence possible.
 *   `alignment_id` : Clé étrangère optionnelle vers un **Alignment** (Entier, relation N-à-1)
 *   *Relations (N-à-N)* : `teacher_ids` (Professeur(s) affecté(s) à ce service — plusieurs en cas de co-enseignement)
 *   *Relations (1-à-N)* : `repartitions` (Liste des **ServiceRepartition** décomposant ce service — voir ci-dessous)
-*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id`, les trois durées hebdomadaires et `reduced_group_student_count` du service à son `MEFService` d'origine. La dérive n'est **jamais durable** : toute modification ultérieure du `MEFService` d'origine réécrase ces champs sur le service (voir 4bis, « Propagation forcée »), ce qui repasse l'indicateur à vrai.
+*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id` et les trois durées hebdomadaires du service à son `MEFService` d'origine (`reduced_group_student_count` en est exclu depuis qu'il n'est plus un champ mirroré mais une lecture directe — il ne peut plus diverger). La dérive n'est **jamais durable** : toute modification ultérieure du `MEFService` d'origine réécrase ces champs sur le service (voir 4bis, « Propagation forcée »), ce qui repasse l'indicateur à vrai.
 
 > **Contraintes d'intégrité de Service :**
 > - **Gabarit obligatoire :** `mef_service_id` doit toujours être renseigné — un `Service` sans `MEFService` d'origine n'est pas permis (voir aussi « L'IHM ne propose ni création ni suppression directe » ci-dessus).
@@ -568,77 +604,79 @@ L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **
 Décompose un `Service` en occurrences de créneaux hebdomadaires, servant de patron à la génération des `Course`. Un service de 2h30 peut par exemple se décomposer en 2 lignes : 2 occurrences d'1h chaque semaine, et 1 occurrence d'1h une semaine sur deux.
 *   `id` : Clé primaire (Entier)
 *   `service_id` : Clé étrangère vers le **Service** parent (Entier, relation 1-à-N)
-*   `occurrence_count` : Nombre d'occurrences hebdomadaires générées par cette ligne (Entier, ex: `2`)
+*   `mef_service_id` : MEFService d'origine (Entier, related field en lecture seule dérivé de `service_id.mef_service_id`)
+*   `occurrence_count` : Nombre de séances **par élève** générées par cette ligne chaque semaine (Entier, ex: `2`) — depuis la séparation avec `group_count` ci-dessous, ne représente plus le nombre de `Course` à générer (voir `group_count`).
+*   `group_count` : Nombre de **groupes parallèles** nécessaires pour délivrer cette ligne (Entier, calculé et stocké) — `1` pour `FULL_CLASS`, `2` pour `SPLIT` (fixe : deux demi-classes sont toujours deux cours parallèles avec deux professeurs distincts, jamais fusionnées), variable pour `REDUCED` (voir « Mutualisation de l'effectif réduit » ci-dessous). Le nombre réel de `Course` générés par cette ligne est `occurrence_count × group_count`.
 *   `duration_minutes` : Durée de chaque occurrence (Entier, doit être un multiple exact du créneau standard de l'établissement — même validation que `Course.duration_minutes`)
 *   `periodicity` : Périodicité (Enum : `WEEKLY` chaque semaine, `BIWEEKLY` une semaine sur deux). Une ligne `BIWEEKLY` ne précise pas encore si l'occurrence tombera en semaine A ou B — ce choix se fait à la génération du `Course` (`week_type`).
+*   `raw_need_weekly_duration_minutes` : Besoin brut en heures-professeur hebdomadaires de cette ligne (Entier, calculé et stocké) = `occurrence_count × duration_minutes × (0.5 si BIWEEKLY sinon 1) × group_count`. Consommé par le TRMD (voir plus bas).
+*   `weighted_need_weekly_duration_minutes` : Besoin pondéré (Entier, calculé et stocké) = `raw_need_weekly_duration_minutes × Service.weighting_coefficient`.
+*   `shared_divisions` : Divisions avec lesquelles cette ligne (uniquement si `group_type=REDUCED`) mutualise son effectif réduit (Relation N-à-N, calculée et stockée, **jamais éditée manuellement** — voir « Mutualisation de l'effectif réduit »).
 *   `name` : Nom d'affichage calculé et stocké en base (Chaîne, ex: `2x1h(H)` ou `1x1h30(Q)`), recalculé automatiquement à chaque création/modification à partir de `occurrence_count`, de `duration_minutes` (converti en heures via l'utilitaire générique `minutes_to_hours` — heure non paddée, minutes omises si nombre exact d'heures) et de `periodicity` (`H` pour hebdomadaire, `Q` pour quinzaine)
 
 ### Synchronisation Service ↔ ServiceRepartition
 
-Je veux une synchronisation entre les objets Service et ServiceRepartition.
-
+Synchronisation entre les objets Service et ServiceRepartition, dans les deux sens.
 
 Synchronisation dans le sens Service ==> ServiceRepartition :
 -------------------------------------------------------------
 Si je change la valeur de weekly_duration_full_class_minutes :
-	return generate_repartitionService(service_id, group_type='FULL_CLASS', target_weekly_duration=weekly_duration_full_class_minutes, occurrence_multiple=1)
+	return generate_repartitionService(service_id, group_type='FULL_CLASS', target_weekly_duration=weekly_duration_full_class_minutes, group_count=1)
 
 Si je change la valeur de weekly_duration_split_minutes :
-	return generate_repartitionService(service_id, group_type='SPLIT', target_weekly_duration=weekly_duration_split_minutes, occurrence_multiple=2)
+	return generate_repartitionService(service_id, group_type='SPLIT', target_weekly_duration=weekly_duration_split_minutes, group_count=2)
 
-Si je change la valeur de weekly_duration_reduced_minutes ou student_count ou de reduced_group_student_count :
-	groups_need = math.ceil(student_count/reduced_group_student_count)
-	return generate_repartitionService(service_id, group_type='REDUCED', target_weekly_duration=weekly_duration_reduced_minutes, occurrence_multiple=groups_need)
+Si je change la valeur de weekly_duration_reduced_minutes, student_count, reduced_group_student_count, ou l'alignment_id du service :
+	pool = reduced_pool_services(service_id)  # voir « Mutualisation de l'effectif réduit »
+	pool_student_count = student_count + somme(student_count des services du pool)
+	groups_need = 1 si reduced_group_student_count vide, sinon ceil(pool_student_count / reduced_group_student_count)
+	return generate_repartitionService(service_id, group_type='REDUCED', target_weekly_duration=weekly_duration_reduced_minutes, group_count=groups_need, shared_divisions=[divisions du pool])
+	# propagé récursivement (garde de réentrance) à chaque service du pool : leur group_count/shared_divisions dépendent aussi de ce même pool.
 
 
-def generate_repartitionService(service_id, group_type, target_weekly_duration, occurrence_multiple):
+def generate_repartitionService(service_id, group_type, target_weekly_duration, group_count, shared_divisions=[]):
 	- On supprime les ServiceRepartition de type group_type liés à ce service_id
-	- Si target_weekly_duration > 0 : # on regénère les ServcieRepartition
+	- Si target_weekly_duration > 0 : # on regénère les ServiceRepartition
 		nombre_cours_heures_pleine = target_weekly_duration // 60
-		reste = weekly_duration_split_minutes %% 60
+		reste = target_weekly_duration %% 60
 		Si reste > 0 :
 			Si nombre_cours_heures_pleine > 0 :
-				créer un ServiceRepartition : service_id=service_id, group_type=group_type, de periodicity=WEEKLY, de duration_minutes=60+reste et occurrence_count=1*occurrence_multiple
+				créer un ServiceRepartition : service_id=service_id, group_type=group_type, periodicity=WEEKLY, duration_minutes=60+reste, occurrence_count=1, group_count=group_count, shared_divisions=shared_divisions
 				nombre_cours_heures_pleine -= 1
 			Sinon :
-				créer un ServiceRepartition : service_id=service_id, group_type=group_type, de periodicity=WEEKLY, de duration_minutes=reste et occurrence_count=1*occurrence_multiple
+				créer un ServiceRepartition : service_id=service_id, group_type=group_type, periodicity=WEEKLY, duration_minutes=reste, occurrence_count=1, group_count=group_count, shared_divisions=shared_divisions
 
 		Si nombre_cours_heures_pleine > 0 :
-			créer un ServiceRepartition : service_id=service_id, group_type=group_type, de periodicity=WEEKLY, de duration_minutes=60 et occurrence_count=nombre_cours_heures_pleine*occurrence_multiple
+			créer un ServiceRepartition : service_id=service_id, group_type=group_type, periodicity=WEEKLY, duration_minutes=60, occurrence_count=nombre_cours_heures_pleine, group_count=group_count, shared_divisions=shared_divisions
+
+FULL_CLASS et SPLIT ont un group_count fixe (1 et 2), imposé même sur une ligne créée/éditée directement hors de cette synchronisation (édition en ligne du tableau de répartitions).
 
 
 Synchronisation dans le sens ServiceRepartition ==> Service :
 -------------------------------------------------------------
-Si je supprime, crée ou modifie un objet ServiceRepartition, on actualise les valeurs de l'objet Servcie lié :
+Si je supprime, crée ou modifie un objet ServiceRepartition, on actualise les valeurs de l'objet Service lié — formule désormais UNIFORME pour les 3 group_type (plus de division par un nombre de groupes, ni de validation de divisibilité : occurrence_count et group_count varient indépendamment) :
 	tmp_weekly_duration_full_class_minutes = 0
 	tmp_weekly_duration_split_minutes = 0
 	tmp_weekly_duration_reduced_minutes = 0
-	
+
 	for repartition in ServiceRepartition_ids :
-		inverse_periodicity_multiple = 1
-		if periodicity==BIWEEKLY :
-			inverse_periodicity_multiple = 0.5
-			
-		if group_type == 'FULL_CLASS' :
-			inverse_occurence_multiple = 1
-			tmp_weekly_duration_full_class_minutes += duration_minutes * occurrence_count * inverse_periodicity_multiple * inverse_occurence_multiple
+		inverse_periodicity_multiple = 0.5 si periodicity==BIWEEKLY sinon 1
+		tmp_weekly_duration_<group_type> += duration_minutes * occurrence_count * inverse_periodicity_multiple
 
-		elif group_type == 'SPLIT' :
-			if occurrence_count % 2 != 0:
-				Lever une erreur : "Le nombre d'occurence doit être un multiple de 2 puisqu'il s'agit d'une répartition de type Dédoublement."
-			inverse_occurence_multiple = 1/2
-			tmp_weekly_duration_split_minutes += duration_minutes * occurrence_count * inverse_periodicity_multiple * inverse_occurence_multiple
-
-		elif group_type == 'REDUCED' :
-			groups_need = math.ceil(student_count/reduced_group_student_count)
-			if occurrence_count % groups_need != 0:
-				Lever une erreur : "Le nombre d'occurence doit être un multiple du nombre de groupes (%groups_need de maximum %reduced_group_student_count élèves) puisqu'il s'agit d'une répartition de type Groupes en effectifs réduits."
-			inverse_occurence_multiple = 1/groups_need
-			tmp_weekly_duration_reduced_minutes += duration_minutes * occurrence_count * inverse_periodicity_multiple * inverse_occurence_multiple
-			
 	Service.weekly_duration_full_class_minutes = tmp_weekly_duration_full_class_minutes
 	Service.weekly_duration_split_minutes = tmp_weekly_duration_split_minutes
 	Service.weekly_duration_reduced_minutes = tmp_weekly_duration_reduced_minutes
+
+### Mutualisation de l'effectif réduit (`reduced_pool_services`)
+
+Le nombre de groupes réduits nécessaires pour un Service peut dépendre de l'effectif d'AUTRES Service, quand plusieurs classes/divisions mutualisent le même effectif réduit (ex: une option rare partagée entre deux classes, ou entre deux MEF d'un même niveau — ex: MEF Général et MEF SEGPA de 6ème). Le "pool" d'un Service (les autres Service avec lesquels il mutualise) dépend du paramètre système `MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT` (Booléen texte `"true"`/`"false"`, défaut `"false"`) :
+
+*   Si `"true"` : le pool = tous les Service ayant la même discipline_id ET le même niveau (`ref_grade_id` identique, voir 3quater), indépendamment de tout Alignment et de leur MEF respectif.
+*   Si `"false"` (défaut) : le pool = les Service du même Alignment que ce Service, partageant la même subject_id (matière) ET le même niveau (`ref_grade_id`).
+
+Dans les deux cas : **jamais de mutualisation entre deux NIVEAUX différents** (`ref_grade_id` différent), même entre services alignés ou du même MEF — en revanche, deux services de **MEF différents** peuvent mutualiser dès lors qu'ils portent le même niveau (c'est précisément le rôle de `RefGrade`, distinct d'une frontière par MEF). Seuls les Service utilisant eux-mêmes l'effectif réduit (`weekly_duration_reduced_minutes > 0`) entrent dans un pool.
+
+`ServiceRepartition.shared_divisions` (les divisions des autres membres du pool) et `group_count` sont recalculés pour CHAQUE membre du pool à chaque changement affectant l'un d'eux (garde de réentrance par ensemble d'ids, pour éviter la boucle infinie). Ce champ n'est **jamais saisi manuellement** dans l'IHM.
 
 ### 4septies. Alignment (Alignement / Barrette)
 Regroupe plusieurs **Service** devant avoir lieu strictement au même moment (ex: barrette de LV2, groupes de spécialités). Tous les services d'un même alignement doivent partager un modèle de répartition rigoureusement identique (même ensemble de lignes `ServiceRepartition`) pour être alignables. Lorsqu'un alignement est rempli, un `Course` composé (`is_composed=True`) est généré par occurrence de répartition, avec une ligne de mapping par service aligné — décomposé selon le Mode 1 de `composition_mode.py` (un cours enfant par professeur).

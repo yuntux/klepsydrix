@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Float, Boolean, Date, JSON, ForeignKey, Table
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, related_field, constrains, onchange
+from backend.app.models.base import Base, related_field, constrains, onchange, exposed
 
 teacher_subjects = Table(
     "teacher_subjects",
@@ -61,7 +61,7 @@ class Teacher(Base):
     function_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_functions.id", ondelete="SET NULL"), nullable=True, info={"label": "Fonction"})
     support_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_supports.id", ondelete="SET NULL"), nullable=True, info={"label": "Support"})
     support_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_support_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de support"})
-    support_temporary_status: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Support temporaire (suppléant...)"})
+    is_temporary_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Support temporaire (suppléant...)"})
     support_comment: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, info={"label": "Commentaire sur le support"})
 
     # --- Dossier administratif : données propres au poste ---
@@ -110,7 +110,18 @@ class Teacher(Base):
     # dédié à écrire.
     ara_lines: Mapped[list["TeacherAra"]] = relationship("TeacherAra", back_populates="teacher", passive_deletes="all", info={"label": "Lignes ARA"})
     are_lines: Mapped[list["TeacherAre"]] = relationship("TeacherAre", back_populates="teacher", passive_deletes="all", info={"label": "Lignes ARE"})
-    discipline_lines: Mapped[list["TeacherDiscipline"]] = relationship("TeacherDiscipline", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Discipline"})
+    # required_field=True : un enseignant doit toujours être rattaché à au moins une discipline
+    # (évite une ligne "Sans discipline" dans le TRMD) — bloque la soumission du formulaire tant
+    # que la collection est vide (voir GenericForm.vue). Garde-fou définitif côté backend :
+    # TeacherDiscipline.delete() (voir plus bas).
+    # PAS la clé "required" : réservée par JSON-Schema/OpenAPI au niveau de l'objet PARENT (liste
+    # des clés obligatoires du payload, voir schema.required dans App.vue) — un booléen "required"
+    # sur le schéma d'UNE propriété fait planter la génération OpenAPI (Pydantic ValidationError
+    # sur OpenAPI.components.schemas.*.properties.discipline_line_ids.required : "Input should be
+    # a valid list"). D'où cette clé dédiée, non réservée — générique, pas spécifique aux
+    # relations/collections : App.vue la fusionne directement dans le même `required` frontend que
+    # les champs scalaires classiques, donc utilisable sur n'importe quel type de champ.
+    discipline_lines: Mapped[list["TeacherDiscipline"]] = relationship("TeacherDiscipline", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Discipline", "required_field": True})
     particular_mission_lines: Mapped[list["TeacherParticularMission"]] = relationship("TeacherParticularMission", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Missions particulières"})
     pacte_mission_lines: Mapped[list["TeacherPacteMission"]] = relationship("TeacherPacteMission", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Missions Pacte"})
     other_school_lines: Mapped[list["TeacherOtherSchool"]] = relationship("TeacherOtherSchool", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Autres établissements"})
@@ -210,6 +221,79 @@ class Teacher(Base):
             return f"{self.first_name} {self.last_name}"
         return self.last_name
 
+    # --- Champs calculés pour le TRMD (volet D) ---
+    #
+    # Contexte ambiant : trmd_synthesis.py pose `db.filter_discipline_id = <id>` avant de lire ces
+    # propriétés (try/finally, même idiome que db._weekly_duration_sync_service_id, voir
+    # architecture.md §15.G) pour restreindre leur calcul à une discipline précise. Sans contexte
+    # actif (ex: une liste Teacher normale), filter_discipline_id est absent et ces propriétés
+    # retombent sur "aucun filtre" = somme totale du professeur.
+
+    @property
+    def _discipline_majeure_id(self) -> Optional[int]:
+        """
+        Discipline dont l'apport (discipline_lines) est le plus important pour ce professeur —
+        toujours calculée sur l'ENSEMBLE de ses lignes, jamais filtrée par le contexte ambiant.
+        Sert de référence pour ventiler ARE/ARA/missions/dons de service à une discipline précise
+        quand l'apport d'un enseignant est réparti sur plusieurs disciplines (voir spec.md — TODO
+        d'origine : "l'ARE/ARA/mission particulière/mission PACTE/dons de service sont rattachés
+        à la discipline dont l'apport est le plus important").
+        """
+        lines = self.discipline_lines
+        if not lines:
+            return None
+        return max(lines, key=lambda l: l.duration_minutes or 0).discipline_id
+
+    def _filter_discipline_id(self) -> Optional[int]:
+        from sqlalchemy.orm import object_session
+        return getattr(object_session(self), "filter_discipline_id", None)
+
+    def _sum_lines_by_own_discipline(self, lines) -> int:
+        """Chaque ligne porte sa propre discipline_id (ex: discipline_lines) — filtrage ligne à
+        ligne, pas de recours à la discipline majeure."""
+        filter_discipline_id = self._filter_discipline_id()
+        if filter_discipline_id is None:
+            return sum(l.duration_minutes or 0 for l in lines)
+        return sum(l.duration_minutes or 0 for l in lines if l.discipline_id == filter_discipline_id)
+
+    def _sum_lines_by_discipline_majeure(self, lines) -> int:
+        """Ces lignes (ARE/ARA/missions/dons de service) ne portent aucune discipline propre —
+        attribuées en bloc à la discipline majeure du professeur (tout ou rien)."""
+        filter_discipline_id = self._filter_discipline_id()
+        if filter_discipline_id is not None and filter_discipline_id != self._discipline_majeure_id:
+            return 0
+        return sum(l.duration_minutes or 0 for l in lines)
+
+    @exposed
+    @property
+    def discipline_duration_minutes(self) -> int:
+        return self._sum_lines_by_own_discipline(self.discipline_lines)
+
+    @exposed
+    @property
+    def are_duration_minutes(self) -> int:
+        return self._sum_lines_by_discipline_majeure(self.are_lines)
+
+    @exposed
+    @property
+    def ara_duration_minutes(self) -> int:
+        return self._sum_lines_by_discipline_majeure(self.ara_lines)
+
+    @exposed
+    @property
+    def particular_mission_duration_minutes(self) -> int:
+        return self._sum_lines_by_discipline_majeure(self.particular_mission_lines)
+
+    @exposed
+    @property
+    def pacte_mission_duration_minutes(self) -> int:
+        return self._sum_lines_by_discipline_majeure(self.pacte_mission_lines)
+
+    @exposed
+    @property
+    def other_school_duration_minutes(self) -> int:
+        return self._sum_lines_by_discipline_majeure(self.other_school_lines)
+
 
 # Objets de liaison à volume horaire (teacher_id CASCADE, ref_*_id RESTRICT) — dans ce fichier
 # plutôt que dans un fichier dédié par classe, comme le reste du projet (MefService/MefDivision
@@ -249,6 +333,30 @@ class TeacherDiscipline(Base):
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="discipline_lines")
     discipline: Mapped["Discipline"] = relationship("Discipline")
+
+    def delete(self, db: Session):
+        """
+        Garantie backend (garde-fou définitif, imparable même hors IHM) qu'un Teacher reste
+        toujours rattaché à au moins une discipline — voir architecture.md section 15.H pour le
+        principe similaire côté MefDivision. Ne bloque pas la création d'un Teacher sans ligne
+        (impossible à empêcher transactionnellement, le panneau détail crée les lignes après
+        coup) : seule la suppression de la DERNIÈRE ligne restante, alors que le Teacher lui-même
+        survit, est refusée — complétée côté IHM par le flag `required` sur
+        `Teacher.discipline_lines` (voir OwnedRelationField.vue). Ne s'applique PAS quand la
+        ligne est supprimée en cascade par la suppression du Teacher lui-même (CRUDMixin
+        pose `_via_crud_mixin_delete` sur le Teacher avant de cascader vers ses dépendants,
+        voir base.py::_cascade_delete_dependents) — sinon un Teacher ne pourrait plus jamais
+        être supprimé du tout.
+        """
+        if getattr(self.teacher, "_via_crud_mixin_delete", False):
+            return super().delete(db)
+        sibling_count = db.query(TeacherDiscipline).filter(
+            TeacherDiscipline.teacher_id == self.teacher_id,
+            TeacherDiscipline.id != self.id,
+        ).count()
+        if sibling_count == 0:
+            raise ValueError("Impossible de supprimer la dernière discipline d'un enseignant : un enseignant doit toujours être rattaché à au moins une discipline.")
+        return super().delete(db)
 
 
 class TeacherParticularMission(Base):

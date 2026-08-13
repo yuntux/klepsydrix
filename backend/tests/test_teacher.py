@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
-    School, Teacher, RefAra, RefCity, RefCountry, TeacherAra, TeacherDiscipline,
+    School, Teacher, RefAra, RefAre, RefCity, RefCountry, TeacherAra, TeacherAre, TeacherDiscipline,
     Discipline, SystemSetting,
 )
 
@@ -78,6 +78,112 @@ class TestTeacherCascadeDelete:
         assert db_session.query(TeacherAra).filter(TeacherAra.id == line.id).first() is None
         # Le ref_ara lui-même n'a aucune raison de disparaître (RESTRICT côté ref, pas CASCADE)
         assert db_session.query(RefAra).filter(RefAra.id == ref_ara.id).first() is not None
+
+
+class TestTeacherRequiresAtLeastOneDiscipline:
+    """Volet C (discipline obligatoire partout) : un Teacher doit toujours garder au moins une
+    TeacherDiscipline — garde-fou définitif côté backend, complété côté IHM par le flag `required`
+    sur Teacher.discipline_lines (voir OwnedRelationField.vue)."""
+
+    def _make_discipline(self, db, code="GEN"):
+        return Discipline.create(db, {"code": code, "name": f"Discipline {code}"})
+
+    def test_deleting_last_discipline_line_is_blocked(self, db_session):
+        discipline = self._make_discipline(db_session)
+        teacher = _make_teacher(db_session)
+        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": 10})
+
+        with pytest.raises(ValueError, match="dernière discipline"):
+            line.delete(db_session)
+
+        assert db_session.get(TeacherDiscipline, line.id) is not None
+
+    def test_deleting_one_of_several_discipline_lines_is_allowed(self, db_session):
+        d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
+        teacher = _make_teacher(db_session)
+        line1 = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 10})
+
+        line1.delete(db_session)
+
+        assert db_session.get(TeacherDiscipline, line1.id) is None
+        assert len(teacher.discipline_lines) == 1
+
+    def test_deleting_teacher_cascades_despite_last_discipline_guard(self, db_session):
+        # La suppression complète du Teacher doit rester possible (elle vide forcément la
+        # collection jusqu'à zéro ligne) — voir le contournement explicite via
+        # `teacher._via_crud_mixin_delete` dans TeacherDiscipline.delete().
+        discipline = self._make_discipline(db_session)
+        teacher = _make_teacher(db_session)
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": 10})
+
+        teacher.delete(db_session)
+
+        assert db_session.query(Teacher).filter(Teacher.id == teacher.id).first() is None
+        assert db_session.query(TeacherDiscipline).filter(TeacherDiscipline.teacher_id == teacher.id).count() == 0
+
+
+class TestTeacherComputedFieldsForTrmd:
+    """Volet D : discipline_duration_minutes / are_duration_minutes / _discipline_majeure_id, et
+    le contexte ambiant db.filter_discipline_id (voir teacher.py, architecture.md §15.G)."""
+
+    def _make_discipline(self, db, code="GEN"):
+        return Discipline.create(db, {"code": code, "name": f"Discipline {code}"})
+
+    def test_discipline_duration_minutes_sums_all_lines_without_context(self, db_session):
+        d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
+        teacher = _make_teacher(db_session)
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 600})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 300})
+
+        assert teacher.discipline_duration_minutes == 900
+
+    def test_discipline_duration_minutes_filtered_by_context(self, db_session):
+        d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
+        teacher = _make_teacher(db_session)
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 600})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 300})
+
+        db_session.filter_discipline_id = d2.id
+        try:
+            assert teacher.discipline_duration_minutes == 300
+        finally:
+            db_session.filter_discipline_id = None
+        # Contexte nettoyé : retombe sur la somme totale.
+        assert teacher.discipline_duration_minutes == 900
+
+    def test_discipline_majeure_is_the_line_with_highest_duration(self, db_session):
+        d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
+        teacher = _make_teacher(db_session)
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 300})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 600})
+
+        assert teacher._discipline_majeure_id == d2.id
+
+    def test_are_duration_gated_by_discipline_majeure(self, db_session):
+        # are_duration_minutes (et ara/mission particulière/mission Pacte/autre établissement) ne
+        # sont pas filtrées ligne à ligne comme discipline_duration_minutes : elles sont attribuées
+        # en bloc à la discipline majeure du professeur (voir _sum_duration_lines gate_by_majeure).
+        d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
+        teacher = _make_teacher(db_session)
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 300})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 600})
+        ref_are = RefAre.create(db_session, {"name": "ARE Test"})
+        TeacherAre.create(db_session, {"teacher_id": teacher.id, "ref_are_id": ref_are.id, "duration_minutes": 60})
+
+        assert teacher.are_duration_minutes == 60  # pas de contexte -> somme totale
+
+        db_session.filter_discipline_id = d2.id  # discipline majeure
+        try:
+            assert teacher.are_duration_minutes == 60
+        finally:
+            db_session.filter_discipline_id = None
+
+        db_session.filter_discipline_id = d1.id  # pas la discipline majeure
+        try:
+            assert teacher.are_duration_minutes == 0
+        finally:
+            db_session.filter_discipline_id = None
 
 
 class TestTeacherIdentityUnique:
@@ -155,24 +261,30 @@ class TestOwnedCollectionCommands:
         assert lines[d2.id].duration_minutes == 5
 
     def test_update_removes_line_absent_from_commands(self, db_session):
-        d1 = self._make_discipline(db_session)
+        # ara_line_ids (TeacherAra) plutôt que discipline_line_ids ici : ce test vide entièrement
+        # la collection, ce que TeacherDiscipline.delete() interdit désormais sur la dernière ligne
+        # d'un Teacher (un enseignant doit toujours garder au moins une discipline, voir Volet C) —
+        # TeacherAra n'a pas cette contrainte métier, donc reste un témoin neutre du mécanisme
+        # générique testé ici (qui n'a rien de spécifique à discipline_lines).
+        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
         teacher = _make_teacher(db_session)
-        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+        line = TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 10})
 
-        teacher.update(db_session, {"discipline_line_ids": []})
+        teacher.update(db_session, {"ara_line_ids": []})
 
-        assert teacher.discipline_lines == []
-        assert db_session.get(TeacherDiscipline, line.id) is None
+        assert teacher.ara_lines == []
+        assert db_session.get(TeacherAra, line.id) is None
 
     def test_empty_command_list_deletes_rather_than_nulls_fk(self, db_session):
         # Régression : une liste vide ne contient aucun dict, le routage ne doit donc pas se baser
         # sur "y a-t-il un dict dans la liste" mais sur la nature de la relation (rel.secondary is
         # None) — sans quoi ce cas retombait sur l'ancien mécanisme, qui tentait de mettre
-        # teacher_id à NULL (colonne NOT NULL) au lieu de supprimer la ligne.
-        d1 = self._make_discipline(db_session)
+        # teacher_id à NULL (colonne NOT NULL) au lieu de supprimer la ligne. ara_line_ids plutôt
+        # que discipline_line_ids : voir commentaire du test précédent.
+        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
         teacher = _make_teacher(db_session)
-        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+        TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 10})
 
-        teacher.update(db_session, {"discipline_line_ids": []})  # ne doit pas lever d'IntegrityError
+        teacher.update(db_session, {"ara_line_ids": []})  # ne doit pas lever d'IntegrityError
 
-        assert db_session.query(TeacherDiscipline).count() == 0
+        assert db_session.query(TeacherAra).count() == 0

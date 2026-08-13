@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
     School, Discipline, Subject, Mef, MefDivision, Division, Teacher, Classroom,
-    Group, Service, ServiceRepartition, Alignment, SystemSetting, Course, Timeslot,
+    Group, Service, ServiceRepartition, Alignment, SystemSetting, Course, Timeslot, RefGrade,
 )
 from backend.app.models.mef import MefService
 from backend.app.models.group import Partition, ClassPart
@@ -34,7 +34,8 @@ def db_session():
 def _make_school_division(db, code="6A"):
     school = School.create(db, {"uai": "1234567A", "name": "Collège Test"})
     division = Division.create(db, {"school_id": school.id, "code": code, "name": f"6ème {code}", "student_count": 24})
-    mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012110", "name": "6EME", "max_students_per_class": 30, "forecast_student_count": 60})
+    ref_grade = RefGrade.create(db, {"name": "6EME"})
+    mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012110", "name": "6EME", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 60})
     mef_division = MefDivision.create(db, {"mef_id": mef.id, "division_id": division.id, "forecast_student_count": 28})
     return school, division, mef, mef_division
 
@@ -50,9 +51,10 @@ def _make_service(db, mef, mef_division, subject, teachers, group_id=None, reduc
         # MefService.create() suppose une Division ; utiliser un Mef sans aucune MefDivision
         # associée évite toute auto-génération, puis créer le Service directement à la main.
         school = mef.school
-        isolated_mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012999", "name": "MEF isolé", "max_students_per_class": 30, "forecast_student_count": 60})
+        isolated_ref_grade = RefGrade.create(db, {"name": "ISOLE"})
+        isolated_mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012999", "name": "MEF isolé", "ref_grade_id": isolated_ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 60})
         mef_service = MefService.create(db, {"mef_id": isolated_mef.id, "subject_id": subject.id})
-        service = Service.create(db, {"mef_service_id": mef_service.id, "group_id": group_id, "subject_id": subject.id})
+        service = Service.create(db, {"mef_service_id": mef_service.id, "group_id": group_id, "subject_id": subject.id, "discipline_id": mef_service.discipline_id})
     else:
         mef_service = MefService.create(db, {"mef_id": mef.id, "subject_id": subject.id})
         service = db.query(Service).filter(
@@ -92,7 +94,9 @@ class TestSplitService:
         school, division, mef, mef_division = _make_school_division(db_session)
         teacher = Teacher.create(db_session, {"code": "T2", "first_name": "A", "last_name": "B", "school_id": school.id})
         service = _make_service(db_session, mef, mef_division, subject, [teacher])
-        ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 4, "duration_minutes": 30, "periodicity": "WEEKLY", "group_type": "SPLIT"})
+        # 120min/semaine en dédoublement -> 1 ligne (60min, occurrence_count=2, group_count=2 fixe,
+        # voir _generate_repartition_service/plan Volet B) : 2x2=4 Course générés, comme avant.
+        service.update(db_session, {"weekly_duration_split_minutes": 120})
 
         result = generate_courses_from_services(db_session)
 
@@ -114,33 +118,16 @@ class TestSplitService:
         assert partitions[0].special_type.value == "HALF_ALPHA"
         assert len(partitions[0].class_parts) == 2
 
-    def test_rejects_occurrence_count_not_multiple_of_two(self, db_session):
-        """
-        Cette invariance est déjà bloquée en amont, à la création de la ServiceRepartition
-        (_recompute_service_weekly_durations) : le contrôle redondant dans generate_courses_
-        from_services (demandé explicitement) est donc une sécurité en profondeur qui ne peut
-        pas être atteinte par un chemin normal — ce test vérifie la garantie amont elle-même.
-        """
-        discipline = Discipline.create(db_session, {"code": "GEN", "name": "Général"})
-        subject = _make_subject(db_session, discipline, "ANG")
-        school, division, mef, mef_division = _make_school_division(db_session)
-        teacher = Teacher.create(db_session, {"code": "T3", "first_name": "A", "last_name": "B", "school_id": school.id})
-        service = _make_service(db_session, mef, mef_division, subject, [teacher])
-
-        with pytest.raises(ValueError, match="multiple de 2"):
-            ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 3, "duration_minutes": 30, "periodicity": "WEEKLY", "group_type": "SPLIT"})
-
-
 class TestReducedService:
     def test_uses_computed_groups_need(self, db_session):
         discipline = Discipline.create(db_session, {"code": "GEN", "name": "Général"})
         subject = _make_subject(db_session, discipline, "SPO")
         school, division, mef, mef_division = _make_school_division(db_session)
         teacher = Teacher.create(db_session, {"code": "T4", "first_name": "A", "last_name": "B", "school_id": school.id})
-        # 24 élèves / 8 par groupe reduit -> 3 groupes
+        # 24 élèves / 8 par groupe reduit -> 3 groupes ; 120min/semaine -> 1 ligne (60min,
+        # occurrence_count=2, group_count=3) : 2x3=6 Course générés, comme avant (plan Volet B).
         service = _make_service(db_session, mef, mef_division, subject, [teacher], reduced_group_student_count=8)
-        service.update(db_session, {"student_count": 24})
-        ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 6, "duration_minutes": 30, "periodicity": "WEEKLY", "group_type": "REDUCED"})
+        service.update(db_session, {"student_count": 24, "weekly_duration_reduced_minutes": 120})
 
         result = generate_courses_from_services(db_session)
 

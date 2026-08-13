@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
     School, Discipline, Subject, Mef, MefDivision, Division, ElectionMethod,
-    Group, Service, ServiceRepartition, Alignment, SystemSetting
+    Group, Service, ServiceRepartition, Alignment, SystemSetting, RefGrade
 )
 from backend.app.models.service import RepartitionPeriodicity, RepartitionGroupType
 from backend.app.core.time_utils import minutes_to_hours
@@ -59,7 +59,8 @@ def _base_fixtures(db):
     school = School.create(db, {"uai": "1234567A", "name": "Collège Test"})
     discipline = Discipline.create(db, {"code": "GEN", "name": "Général"})
     subject = Subject.create(db, {"code": "MATH", "code_nomenclature": "N_MATH", "short_name": "Maths", "name": "Mathématiques", "discipline_id": discipline.id})
-    mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012110", "name": "6EME", "max_students_per_class": 30, "forecast_student_count": 60})
+    ref_grade = RefGrade.create(db, {"name": "6EME"})
+    mef = Mef.create(db, {"school_id": school.id, "code_national": "10010012110", "name": "6EME", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 60})
     division = Division.create(db, {"school_id": school.id, "code": "6A", "name": "6ème A"})
     mef_division = MefDivision.create(db, {"mef_id": mef.id, "division_id": division.id, "forecast_student_count": 28})
     from backend.app.models.mef import MefService
@@ -69,6 +70,22 @@ def _base_fixtures(db):
         Service.mef_division_id == mef_division.id,
     ).one()
     return school, discipline, subject, mef, division, mef_division, mef_service, service
+
+
+class TestRefGradeDeleteRestrict:
+    def test_cannot_delete_ref_grade_referenced_by_a_mef(self, db_session):
+        _, _, _, mef, _, _, _, _ = _base_fixtures(db_session)
+
+        with pytest.raises(ValueError, match="Impossible de supprimer"):
+            mef.ref_grade.delete(db_session)
+
+        assert db_session.query(RefGrade).filter(RefGrade.id == mef.ref_grade_id).first() is not None
+
+    def test_ref_grade_deletable_once_unreferenced(self, db_session):
+        ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_LIBRE"})
+        ref_grade.delete(db_session)
+
+        assert db_session.query(RefGrade).filter(RefGrade.name == "NIVEAU_LIBRE").first() is None
 
 
 class TestMefServiceFields:
@@ -155,6 +172,7 @@ class TestServiceStructure:
         with pytest.raises(ValueError, match="doit être rattaché"):
             Service.create(db_session, {
                 "subject_id": subject.id,
+                "discipline_id": mef_service.discipline_id,
                 "mef_service_id": mef_service.id,
                 "student_count": 28,
             })
@@ -166,6 +184,7 @@ class TestServiceStructure:
         with pytest.raises(ValueError, match="ne peut pas être rattaché"):
             Service.create(db_session, {
                 "subject_id": subject.id,
+                "discipline_id": mef_service.discipline_id,
                 "mef_service_id": mef_service.id,
                 "mef_division_id": mef_division.id,
                 "group_id": group.id,
@@ -178,12 +197,14 @@ class TestServiceStructure:
     def test_service_rejects_mismatched_mef(self, db_session):
         school, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         from backend.app.models.mef import MefService
-        other_mef = Mef.create(db_session, {"school_id": school.id, "code_national": "10010012199", "name": "5EME", "max_students_per_class": 30, "forecast_student_count": 30})
+        other_ref_grade = RefGrade.create(db_session, {"name": "5EME"})
+        other_mef = Mef.create(db_session, {"school_id": school.id, "code_national": "10010012199", "name": "5EME", "ref_grade_id": other_ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 30})
         other_mef_service = MefService.create(db_session, {"mef_id": other_mef.id, "subject_id": subject.id})
 
         with pytest.raises(ValueError, match="même MEF"):
             Service.create(db_session, {
                 "subject_id": subject.id,
+                "discipline_id": other_mef_service.discipline_id,
                 "mef_division_id": mef_division.id,
                 "mef_service_id": other_mef_service.id,
             })
@@ -350,27 +371,29 @@ class TestServiceWeeklyDurationSync:
         rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS]
         assert rows == [(60, 2)]
 
-    def test_split_duration_doubles_occurrence_count(self, db_session):
+    def test_split_duration_sets_group_count_two(self, db_session):
+        # occurrence_count reste 1 (une séance/élève/semaine) : group_count (2, fixe pour SPLIT)
+        # porte désormais le nombre de groupes parallèles, séparément (plan Volet B).
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         service.update(db_session, {"weekly_duration_split_minutes": 60})
 
-        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.SPLIT]
-        assert rows == [(60, 2)]
+        rows = [(r.duration_minutes, r.occurrence_count, r.group_count) for r in service.repartitions if r.group_type == RepartitionGroupType.SPLIT]
+        assert rows == [(60, 1, 2)]
 
-    def test_reduced_duration_multiplies_occurrence_by_groups_needed(self, db_session):
+    def test_reduced_duration_sets_group_count_from_groups_needed(self, db_session):
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         service.update(db_session, {"student_count": 50, "reduced_group_student_count": 15, "weekly_duration_reduced_minutes": 60})
 
-        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED]
-        # ceil(50/15) = 4 groupes
-        assert rows == [(60, 4)]
+        rows = [(r.duration_minutes, r.occurrence_count, r.group_count) for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED]
+        # ceil(50/15) = 4 groupes, occurrence_count reste 1 (une séance/élève/semaine)
+        assert rows == [(60, 1, 4)]
 
     def test_reduced_group_student_count_zero_defaults_to_one_group(self, db_session):
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
         service.update(db_session, {"student_count": 50, "weekly_duration_reduced_minutes": 60})
 
-        rows = [(r.duration_minutes, r.occurrence_count) for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED]
-        assert rows == [(60, 1)]
+        rows = [(r.duration_minutes, r.occurrence_count, r.group_count) for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED]
+        assert rows == [(60, 1, 1)]
 
     def test_zero_duration_clears_the_bucket(self, db_session):
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
@@ -408,17 +431,36 @@ class TestServiceWeeklyDurationSync:
         r.delete(db_session)
         assert service.weekly_duration_full_class_minutes == 0
 
-    def test_split_repartition_with_odd_occurrence_count_is_rejected(self, db_session):
+    def test_manually_created_split_repartition_gets_group_count_two(self, db_session):
+        # occurrence_count et group_count sont désormais indépendants (plan Volet B) : plus de
+        # validation de divisibilité — mais group_count reste imposé à 2 pour SPLIT même sur une
+        # ligne créée directement, hors synchro weekly_duration_split_minutes
+        # (_enforce_group_count_and_compute_need_durations). raw_need_weekly_duration_minutes doit
+        # refléter ce group_count corrigé, pas la valeur par défaut (1) qui précède la correction —
+        # régression réelle trouvée et corrigée en fusionnant l'ancienne _enforce_fixed_group_counts
+        # avec _compute_need_durations (l'ordre alphabétique de dispatch des @constrains() faisait
+        # tourner le calcul du besoin AVANT la correction du group_count).
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        with pytest.raises(ValueError, match="multiple de 2"):
-            ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "SPLIT"})
+        r = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 1, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "SPLIT"})
+        assert r.group_count == 2
+        assert r.raw_need_weekly_duration_minutes == 120  # 1 x 60 x 1 (WEEKLY) x 2 (group_count), pas 60
 
-    def test_reduced_repartition_occurrence_count_must_be_multiple_of_groups_needed(self, db_session):
+    def test_manually_created_full_class_repartition_gets_group_count_one(self, db_session):
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        service.update(db_session, {"student_count": 50, "reduced_group_student_count": 15})
+        r = ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 3, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "FULL_CLASS"})
+        assert r.group_count == 1
 
-        with pytest.raises(ValueError, match="multiple du nombre de groupes"):
-            ServiceRepartition.create(db_session, {"service_id": service.id, "occurrence_count": 3, "duration_minutes": 60, "periodicity": "WEEKLY", "group_type": "REDUCED"})
+    def test_raw_and_weighted_need_include_group_count(self, db_session):
+        # raw_need = occurrence_count x duration_minutes x coeff_periodicite x group_count ;
+        # weighted_need = raw_need x weighting_coefficient (voir _compute_need_durations).
+        _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
+        service.update(db_session, {"weighting_coefficient": 1.5})
+        service.update(db_session, {"student_count": 50, "reduced_group_student_count": 15, "weekly_duration_reduced_minutes": 60})
+
+        r = next(r for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        # occurrence_count=1, duration=60, coeff=1 (WEEKLY), group_count=4 (ceil(50/15))
+        assert r.raw_need_weekly_duration_minutes == 240
+        assert r.weighted_need_weekly_duration_minutes == 360
 
     def test_editing_aligned_service_duration_propagates_repartitions_and_totals_to_sibling(self, db_session):
         # Interaction la plus fragile de cette synchro : régénérer les ServiceRepartition d'un
@@ -444,6 +486,121 @@ class TestServiceWeeklyDurationSync:
         s2_full_class = sorted((r.duration_minutes, r.occurrence_count) for r in s2.repartitions if r.group_type == RepartitionGroupType.FULL_CLASS)
         assert s2_full_class == [(60, 1), (90, 1)]
         assert s2.weekly_duration_full_class_minutes == 150
+
+
+class TestReducedGroupPooling:
+    """_sync_reduced_pool / _reduced_pool_services (plan Volet B) : mutualisation de l'effectif
+    réduit entre plusieurs Service, soit via un Alignment formel (défaut), soit via le paramètre
+    système MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT."""
+
+    def _two_services_same_mef_service(self, db):
+        school, _, subject, mef, division, mef_division, mef_service, s1 = _base_fixtures(db)
+        division_b = Division.create(db, {"school_id": school.id, "code": "6B", "name": "6ème B"})
+        mef_division_b = MefDivision.create(db, {"mef_id": mef.id, "division_id": division_b.id})
+        s2 = db.query(Service).filter(
+            Service.mef_service_id == mef_service.id,
+            Service.mef_division_id == mef_division_b.id,
+        ).one()
+        return mef_service, division, division_b, s1, s2
+
+    def test_aligned_reduced_services_pool_their_effectifs(self, db_session):
+        # Les deux services doivent porter weekly_duration_reduced_minutes > 0 chacun pour se
+        # mutualiser (_reduced_pool_services exclut tout service qui n'utilise pas lui-même
+        # l'effectif réduit) — sinon celui resté à 0 n'a simplement aucune ligne REDUCED.
+        mef_service, division, division_b, s1, s2 = self._two_services_same_mef_service(db_session)
+        mef_service.update(db_session, {"reduced_group_student_count": 10})
+        alignment = Alignment.create(db_session, {"code": "AL_POOL", "name": "Alignement Pool"})
+        s1.update(db_session, {"alignment_id": alignment.id, "student_count": 12})
+        s2.update(db_session, {"alignment_id": alignment.id, "student_count": 13})
+
+        s1.update(db_session, {"weekly_duration_reduced_minutes": 60})
+        s2.update(db_session, {"weekly_duration_reduced_minutes": 60})
+
+        db_session.refresh(s1)
+        db_session.refresh(s2)
+        r1 = next(r for r in s1.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        r2 = next(r for r in s2.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        # pool = 12 + 13 = 25 eleves, /10 par groupe -> ceil(25/10) = 3 groupes, pour LES DEUX services
+        assert r1.group_count == 3
+        assert r2.group_count == 3
+        assert {d.id for d in r1.shared_divisions} == {division_b.id}
+        assert {d.id for d in r2.shared_divisions} == {division.id}
+
+    def test_non_aligned_reduced_services_do_not_pool_by_default(self, db_session):
+        mef_service, division, division_b, s1, s2 = self._two_services_same_mef_service(db_session)
+        mef_service.update(db_session, {"reduced_group_student_count": 10})
+        s1.update(db_session, {"student_count": 12})
+        s2.update(db_session, {"student_count": 13, "weekly_duration_reduced_minutes": 60})
+
+        r2 = next(r for r in s2.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        # pas d'alignement, paramètre mutualisation à false (défaut) -> pool = soi-même seulement (13/10 -> 2)
+        assert r2.group_count == 2
+        assert r2.shared_divisions == []
+
+    def test_mutualize_setting_pools_without_alignment(self, db_session):
+        # Le pool ne retient que des services qui utilisent eux-mêmes l'effectif réduit
+        # (_reduced_pool_services) : les deux services doivent porter weekly_duration_reduced_minutes > 0
+        # pour se mutualiser, même sous le paramètre global.
+        mef_service, division, division_b, s1, s2 = self._two_services_same_mef_service(db_session)
+        mef_service.update(db_session, {"reduced_group_student_count": 10})
+        SystemSetting.create(db_session, {"key": "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT", "value": "true"})
+        s1.update(db_session, {"student_count": 12, "weekly_duration_reduced_minutes": 60})
+        s2.update(db_session, {"student_count": 13, "weekly_duration_reduced_minutes": 60})
+
+        db_session.refresh(s1)
+        r1 = next(r for r in s1.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        r2 = next(r for r in s2.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        # même MEF + même discipline, pas besoin d'alignement quand le paramètre est actif
+        assert r1.group_count == 3
+        assert r2.group_count == 3
+        assert {d.id for d in r2.shared_divisions} == {division.id}
+
+    def _two_services_different_mef(self, db, same_grade: bool):
+        """Deux Service issus de DEUX MefService (donc deux Mef) distincts, partageant la même
+        matière/discipline — pour tester la frontière de mutualisation par niveau (RefGrade), pas
+        par MefService."""
+        school, discipline, subject, mef1, division1, mef_division1, mef_service1, s1 = _base_fixtures(db)
+        ref_grade2_id = mef1.ref_grade_id if same_grade else RefGrade.create(db, {"name": "AUTRE_NIVEAU"}).id
+        mef2 = Mef.create(db, {"school_id": school.id, "code_national": "20020023220", "name": "5EME", "ref_grade_id": ref_grade2_id, "max_students_per_class": 30, "forecast_student_count": 60})
+        division2 = Division.create(db, {"school_id": school.id, "code": "5A", "name": "5ème A"})
+        mef_division2 = MefDivision.create(db, {"mef_id": mef2.id, "division_id": division2.id, "forecast_student_count": 28})
+        from backend.app.models.mef import MefService
+        mef_service2 = MefService.create(db, {"mef_id": mef2.id, "subject_id": subject.id, "discipline_id": discipline.id})
+        s2 = db.query(Service).filter(Service.mef_service_id == mef_service2.id, Service.mef_division_id == mef_division2.id).one()
+        return mef_service1, mef_service2, division1, division2, s1, s2
+
+    def test_pools_across_different_mef_when_same_grade(self, db_session):
+        # Nouvel objet RefGrade : deux Service de MEF différents doivent pouvoir mutualiser leur
+        # effectif réduit dès lors qu'ils portent le même niveau (ex: MEF Général et MEF SEGPA de
+        # 6ème) — la frontière de mutualisation n'est plus le MEF mais le niveau.
+        mef_service1, mef_service2, division1, division2, s1, s2 = self._two_services_different_mef(db_session, same_grade=True)
+        mef_service1.update(db_session, {"reduced_group_student_count": 10})
+        mef_service2.update(db_session, {"reduced_group_student_count": 10})
+        SystemSetting.create(db_session, {"key": "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT", "value": "true"})
+        s1.update(db_session, {"student_count": 12, "weekly_duration_reduced_minutes": 60})
+        s2.update(db_session, {"student_count": 13, "weekly_duration_reduced_minutes": 60})
+
+        db_session.refresh(s1)
+        r1 = next(r for r in s1.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        r2 = next(r for r in s2.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        # pool = 12 + 13 = 25 eleves, /10 par groupe -> ceil(25/10) = 3 groupes
+        assert r1.group_count == 3
+        assert r2.group_count == 3
+        assert {d.id for d in r1.shared_divisions} == {division2.id}
+
+    def test_does_not_pool_across_different_grades(self, db_session):
+        # Jamais de mutualisation entre deux niveaux différents, même même discipline et même
+        # paramètre MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT=true.
+        mef_service1, mef_service2, division1, division2, s1, s2 = self._two_services_different_mef(db_session, same_grade=False)
+        mef_service1.update(db_session, {"reduced_group_student_count": 10})
+        mef_service2.update(db_session, {"reduced_group_student_count": 10})
+        SystemSetting.create(db_session, {"key": "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT", "value": "true"})
+        s1.update(db_session, {"student_count": 12, "weekly_duration_reduced_minutes": 60})
+        s2.update(db_session, {"student_count": 13, "weekly_duration_reduced_minutes": 60})
+
+        r1 = next(r for r in s1.repartitions if r.group_type == RepartitionGroupType.REDUCED)
+        assert r1.group_count == 2  # ceil(12/10) : pas de pool, effectif propre seulement
+        assert r1.shared_divisions == []
 
 
 class TestAlignment:

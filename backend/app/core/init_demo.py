@@ -107,11 +107,18 @@ def seed_demo_data():
             s_id = db.execute(text("SELECT id FROM subjects WHERE code = :code"), {"code": code}).scalar()
             subject_ids[code] = s_id
 
+        # 4bis. Niveaux de formation (RefGrade) — déjà seedés par init_db.py::init_prod_data()
+        # (nomenclature nationale, présente dans toute base de production), appelée avant ce
+        # script (voir seed_demo_data ci-dessous) : simple lookup, pas de nouvelle insertion.
+        grade_ids = {}
+        for grade_name in ["6EME", "5EME", "2NDE", "1ERE"]:
+            grade_ids[grade_name] = db.execute(text("SELECT id FROM ref_grades WHERE name = :name"), {"name": grade_name}).scalar()
+
         # 5. Création des MEFs (2 pour collège, 2 pour lycée)
-        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012110', '6EME GENERALE', 120, 30)"), {"school_id": clg_id})
-        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012111', '5EME GENERALE', 115, 30)"), {"school_id": clg_id})
-        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012110', '2NDE GENERALE', 150, 35)"), {"school_id": lyc_id})
-        db.execute(text("INSERT INTO mefs (school_id, code_national, name, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012111', '1ERE GENERALE', 140, 35)"), {"school_id": lyc_id})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, ref_grade_id, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012110', '6EME GENERALE', :ref_grade_id, 120, 30)"), {"school_id": clg_id, "ref_grade_id": grade_ids["6EME"]})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, ref_grade_id, forecast_student_count, max_students_per_class) VALUES (:school_id, '10010012111', '5EME GENERALE', :ref_grade_id, 115, 30)"), {"school_id": clg_id, "ref_grade_id": grade_ids["5EME"]})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, ref_grade_id, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012110', '2NDE GENERALE', :ref_grade_id, 150, 35)"), {"school_id": lyc_id, "ref_grade_id": grade_ids["2NDE"]})
+        db.execute(text("INSERT INTO mefs (school_id, code_national, name, ref_grade_id, forecast_student_count, max_students_per_class) VALUES (:school_id, '20010012111', '1ERE GENERALE', :ref_grade_id, 140, 35)"), {"school_id": lyc_id, "ref_grade_id": grade_ids["1ERE"]})
         db.commit()
 
         mef_6_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '10010012110'")).scalar()
@@ -160,12 +167,25 @@ def seed_demo_data():
             db.execute(text(
                 "INSERT INTO teachers (code, first_name, last_name, max_weekly_hours, school_id, "
                 "photo_diffusion_authorized, phone_diffusion_authorized, email_diffusion_authorized, "
-                "is_board_member, support_temporary_status) "
+                "is_board_member, is_temporary_support) "
                 "VALUES (:code, :first_name, :last_name, 18.0, :school_id, 0, 0, 0, 0, 0)"
             ), {"code": code, "first_name": first_name, "last_name": last_name, "school_id": school_idx})
             db.commit()
             t_id = db.execute(text("SELECT id FROM teachers WHERE code = :code"), {"code": code}).scalar()
             teachers.append((t_id, school_idx))
+
+        # 8a2. Rattachement à une discipline (TeacherDiscipline) : chaque enseignant doit toujours
+        # être rattaché à au moins une discipline (Volet C, "discipline obligatoire partout" —
+        # évite une ligne "Sans discipline" dans le TRMD, voir architecture.md) — répartition
+        # round-robin sur les disciplines nationales, 18h/semaine (= max_weekly_hours) par défaut.
+        discipline_codes = list(discipline_ids.keys())
+        for idx, (t_id, _school_idx) in enumerate(teachers):
+            d_id = discipline_ids[discipline_codes[idx % len(discipline_codes)]]
+            db.execute(text(
+                "INSERT INTO teacher_disciplines (teacher_id, discipline_id, duration_minutes) "
+                "VALUES (:teacher_id, :discipline_id, 1080)"
+            ), {"teacher_id": t_id, "discipline_id": d_id})
+        db.commit()
 
         # 8b. Création de personnel non enseignant (AESH, Labo, etc.)
         non_teaching_staffs = []
@@ -268,24 +288,29 @@ def seed_demo_data():
             db.execute(text(
                 "INSERT INTO services (mef_service_id, mef_division_id, subject_id, discipline_id, election_method_id, student_count, "
                 "weighting_coefficient, weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, "
-                "weekly_duration_split_minutes, reduced_group_student_count, alignment_id) "
-                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, 14, :alignment_id)"
+                "weekly_duration_split_minutes, alignment_id) "
+                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, :alignment_id)"
             ), {"mef_service_id": mef_service_6_id, "mef_division_id": mef_division_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "election_method_id": election_method_s_id, "alignment_id": alignment_id})
             db.commit()
             service_id = db.execute(text("SELECT id FROM services WHERE mef_division_id = :mef_division_id"), {"mef_division_id": mef_division_id}).scalar()
             service_ids.append(service_id)
 
+        # occurrence_count = séances par ÉLÈVE par semaine, group_count = groupes parallèles
+        # nécessaires (plan Volet B) — désormais deux colonnes distinctes. FULL_CLASS :
+        # occurrence_count=2 (2 séances d'1h/semaine), group_count=1. SPLIT : occurrence_count=1
+        # (1 séance de 30min/semaine par élève), group_count=2 (fixe, deux demi-classes en
+        # parallèle) — raw_need_weekly_duration_minutes reflète le besoin en heures-PROFESSEUR
+        # (30min x 2 groupes = 60min), distinct de weekly_duration_split_minutes (30min, le besoin
+        # côté ÉLÈVE). raw/weighted_need calculés à la main (le seed contourne les @constrains,
+        # voir _compute_need_durations) : weighting_coefficient=1.0 pour ces deux services (défaut).
         for service_id in service_ids:
             db.execute(text(
-                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, name) "
-                "VALUES (:service_id, 2, 60, 'WEEKLY', 'FULL_CLASS', '2x1h(H/C)')"
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, group_count, raw_need_weekly_duration_minutes, weighted_need_weekly_duration_minutes, name) "
+                "VALUES (:service_id, 2, 60, 'WEEKLY', 'FULL_CLASS', 1, 120, 120, '2x1h(H/C)')"
             ), {"service_id": service_id})
-            # occurrence_count=2 (pas 1) : une répartition de type Dédoublement doit porter un
-            # nombre d'occurrences pair (chaque moitié de classe a la sienne, voir
-            # _recompute_service_weekly_durations).
             db.execute(text(
-                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, name) "
-                "VALUES (:service_id, 2, 30, 'WEEKLY', 'SPLIT', '2x0h30(H/D)')"
+                "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, group_count, raw_need_weekly_duration_minutes, weighted_need_weekly_duration_minutes, name) "
+                "VALUES (:service_id, 1, 30, 'WEEKLY', 'SPLIT', 2, 60, 60, '1x0h30(H/D)')"
             ), {"service_id": service_id})
             db.commit()
 

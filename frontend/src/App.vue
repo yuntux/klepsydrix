@@ -1505,7 +1505,13 @@ function getFormFieldsConfig(resourceKey?: string) {
           key: key,
           label: prop.title || key,
           type: fieldType,
-          required: requiredFields.includes(key),
+          // required_field (voir teacher.py::discipline_lines) fusionné directement ici : clé
+          // backend dédiée (info={}) distincte du `required` JSON-Schema réservé (présence de la
+          // clé dans le payload, schema.required ci-dessus) pour éviter de faire planter la
+          // génération OpenAPI — mais côté frontend, un seul et même `required`, générique à
+          // n'importe quel type de champ (scalaire, relation, collection...), pas seulement les
+          // relations possédées.
+          required: requiredFields.includes(key) || prop.required_field === true,
           requiredExpr: prop.requiredExpr,
           readOnly: prop.readOnly,
           readOnlyExpr: prop.readOnlyExpr,

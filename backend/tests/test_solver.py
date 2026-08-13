@@ -604,11 +604,13 @@ def test_auto_create_class_part_links(db_session: Session):
 def test_student_and_link_constraints(db_session: Session):
     import pytest
     from backend.app.models.mef import Mef, MefDivision
+    from backend.app.models.ref_grade import RefGrade
     school = db_session.query(School).first()
     d = Division.create(db_session, {"code": "DIV_STUD_TEST", "name": "Div Stud Test", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
     d_id = d.id
 
-    mef = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_STUD_TEST", "name": "MEF Test", "max_students_per_class": 30, "forecast_student_count": 25})
+    ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_STUD_TEST"})
+    mef = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_STUD_TEST", "name": "MEF Test", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": d_id, "forecast_student_count": 25})
 
     # Partitions
@@ -696,11 +698,13 @@ def test_student_and_link_constraints(db_session: Session):
 def test_student_mef_must_match_division(db_session: Session):
     import pytest
     from backend.app.models.mef import Mef, MefDivision
+    from backend.app.models.ref_grade import RefGrade
     school = db_session.query(School).first()
     d = Division.create(db_session, {"code": "DIV_MEF_TEST", "name": "Div Mef Test", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
 
-    mef_linked = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_LINKED", "name": "MEF Lié", "max_students_per_class": 30, "forecast_student_count": 25})
-    mef_unrelated = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_UNRELATED", "name": "MEF Non Lié", "max_students_per_class": 30, "forecast_student_count": 25})
+    ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_MEF_TEST"})
+    mef_linked = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_LINKED", "name": "MEF Lié", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
+    mef_unrelated = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_UNRELATED", "name": "MEF Non Lié", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
     MefDivision.create(db_session, {"mef_id": mef_linked.id, "division_id": d.id, "forecast_student_count": 25})
     db_session.commit()
 
@@ -724,11 +728,13 @@ def test_mef_division_computed_count_is_per_mef(db_session: Session):
     """Sur une division composite (double-niveau), chaque MefDivision ne doit compter
     que les élèves de son propre MEF, pas l'ensemble des élèves de la division."""
     from backend.app.models.mef import Mef, MefDivision
+    from backend.app.models.ref_grade import RefGrade
     school = db_session.query(School).first()
     d = Division.create(db_session, {"code": "DIV_DOUBLE_NIVEAU", "name": "Div Double Niveau", "student_count": 4, "color": "#CCCCCC", "school_id": school.id})
 
-    mef_a = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_A_DBL", "name": "MEF A", "max_students_per_class": 30, "forecast_student_count": 2})
-    mef_b = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_B_DBL", "name": "MEF B", "max_students_per_class": 30, "forecast_student_count": 2})
+    ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_DBL"})
+    mef_a = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_A_DBL", "name": "MEF A", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 2})
+    mef_b = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_B_DBL", "name": "MEF B", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 2})
     link_a = MefDivision.create(db_session, {"mef_id": mef_a.id, "division_id": d.id, "forecast_student_count": 2})
     link_b = MefDivision.create(db_session, {"mef_id": mef_b.id, "division_id": d.id, "forecast_student_count": 2})
     db_session.commit()
@@ -1197,7 +1203,9 @@ def test_max_separation_successive_days_orm(db_session: Session):
     sub = Subject.create(db_session, {"code": "S1", "code_nomenclature": "S1", "discipline_id": disc.id, "short_name": "S1", "name": "S1", "color": "#000"})
     
     from backend.app.models.mef import Mef, MefDivision
-    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": "M", "name": "M", "max_students_per_class": 30, "forecast_student_count": 30})
+    from backend.app.models.ref_grade import RefGrade
+    ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_SEP"})
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": "M", "name": "M", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 30})
     div = Division.create(db_session, {"school_id": sch.id, "code": "DIV", "name": "DIV"})
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
     
@@ -1237,7 +1245,9 @@ def setup_group_course_order_scenario(db_session, enum_value, pin_c1_day, pin_c2
     sub = Subject.create(db_session, {"code": f"S_{uai_val}", "code_nomenclature": f"S_{uai_val}", "discipline_id": disc.id, "short_name": "S3", "name": "S3", "color": "#000"})
     
     from backend.app.models.mef import Mef, MefDivision
-    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"M_{uai_val}", "name": "M3", "max_students_per_class": 30, "forecast_student_count": 30})
+    from backend.app.models.ref_grade import RefGrade
+    ref_grade = RefGrade.create(db_session, {"name": f"NIVEAU_{uai_val}"})
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"M_{uai_val}", "name": "M3", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 30})
     div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV3"})
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
     
@@ -1339,6 +1349,7 @@ def test_solver_pedagogic_weight_limits(db_session: Session):
     from backend.app.models.course import Course
     from backend.app.models.division import Division
     from backend.app.models.mef import Mef, MefDivision
+    from backend.app.models.ref_grade import RefGrade
     from backend.app.models.discipline import Discipline
     from datetime import date
     import uuid
@@ -1360,7 +1371,8 @@ def test_solver_pedagogic_weight_limits(db_session: Session):
     # Matière très lourde : Mathématiques (Poids 2.0)
     sub_math = Subject.create(db_session, {"code": f"MATH_{uai_val}", "code_nomenclature": f"M_{uai_val}", "discipline_id": disc.id, "short_name": "Math", "name": "Math", "pedagogic_weight": 2.0})
     
-    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"MEF_{uai_val}", "name": "M", "max_students_per_class": 30, "forecast_student_count": 30})
+    ref_grade = RefGrade.create(db_session, {"name": f"NIVEAU_{uai_val}"})
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"MEF_{uai_val}", "name": "M", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 30})
     div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV"})
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
 

@@ -78,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, defineComponent, h } from 'vue';
+import { ref, reactive, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
@@ -90,6 +90,7 @@ import GenericWizard from './widgets/GenericWizard.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
 import BinaryFileField from './widgets/BinaryFileField.vue';
 import { getWidgetForContext } from './widgets/registry';
+import { useNotificationStore } from '../stores/notifications';
 import * as api from '../services/api';
 
 const showWizard = ref(false);
@@ -146,8 +147,14 @@ interface LayoutElement {
   col?: number;
   span?: number;
   children?: LayoutElement[];
+  // Identifiant stable d'un noeud 'notebook' (voir notebookActiveIndex plus bas) — permet de
+  // piloter son onglet actif depuis l'extérieur (ex: validateRequiredFields le bascule sur
+  // l'onglet contenant un champ requis resté vide, y compris s'il n'est pas actif au moment de
+  // la soumission).
+  notebookId?: string;
   readOnly?: boolean;
   readOnlyExpr?: string;
+  required?: boolean;
   requiredExpr?: string;
   invisibleExpr?: string;
   widget?: string;
@@ -254,6 +261,8 @@ const emit = defineEmits<{
   (e: 'delete', value: Record<string, any>): void;
 }>();
 
+const notificationStore = useNotificationStore();
+
 // Ouverture automatique du wizard désigné par formConfig.autoOpenActionId (voir FormConfig) —
 // déclenchée une seule fois par enregistrement chargé (identité de props.modelValue : App.vue
 // assigne un nouvel objet à chaque visite de la feuille, ce qui permet de rouvrir le wizard si
@@ -292,6 +301,18 @@ const isEditableForm = computed(() => {
 const isDeletableForm = computed(() => {
   return props.formConfig?.deletable !== false;
 });
+
+// Onglet actif de chaque notebook (clé = LayoutElement.notebookId), piloté depuis l'extérieur des
+// composants NotebookLayout eux-mêmes (contrairement à leur ancien ref() local) — nécessaire pour
+// que handleSubmit() puisse basculer automatiquement sur l'onglet contenant un champ requis resté
+// vide (voir validateRequiredFields), y compris s'il n'est pas l'onglet actif au moment de la
+// soumission (un onglet non actif n'est pas rendu dans le DOM, voir NotebookLayout, donc aucune
+// validation HTML5 native ne peut le couvrir).
+const notebookActiveIndex = reactive<Record<string, number>>({});
+
+// Remis à zéro au début de chaque (re)calcul de layoutTree ci-dessous — les ids générés restent
+// stables pour la durée d'un calcul, seul repère dont notebookActiveIndex a besoin.
+let notebookIdCounter = 0;
 
 function parseLayoutElement(elem: any): LayoutElement | null {
   if (!elem) return null;
@@ -405,6 +426,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
     }
     return {
       type: 'notebook',
+      notebookId: `nb-${notebookIdCounter++}`,
       children
     };
   }
@@ -429,6 +451,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
 
 
 const layoutTree = computed<LayoutElement[]>(() => {
+  notebookIdCounter = 0;
   if (props.formConfig?.fields && props.formConfig.fields.length > 0) {
     const parsed: LayoutElement[] = [];
     props.formConfig.fields.forEach((item: any) => {
@@ -606,6 +629,7 @@ const FormLayoutGrid: any = defineComponent({
           if (elem.type === 'notebook') {
             return [
               h(NotebookLayout, {
+                notebookId: elem.notebookId,
                 pages: elem.children || [],
                 localModel: gridProps.localModel,
                 isEditableForm: gridProps.isEditableForm,
@@ -954,6 +978,10 @@ const FormLayoutGrid: any = defineComponent({
 const NotebookLayout: any = defineComponent({
   name: 'NotebookLayout',
   props: {
+    notebookId: {
+      type: String,
+      default: ''
+    },
     pages: {
       type: Array as () => LayoutElement[],
       required: true
@@ -980,7 +1008,13 @@ const NotebookLayout: any = defineComponent({
     }
   },
   setup(notebookProps) {
-    const activeIndex = ref(0);
+    // Contrôlé via le registre partagé notebookActiveIndex (clé = notebookId) plutôt qu'un ref()
+    // local — permet à handleSubmit() de basculer l'onglet actif depuis l'extérieur de ce
+    // composant (voir déclaration de notebookActiveIndex plus haut).
+    const activeIndex = computed({
+      get: () => notebookActiveIndex[notebookProps.notebookId] ?? 0,
+      set: (v: number) => { notebookActiveIndex[notebookProps.notebookId] = v; }
+    });
     return () => {
       const pages = notebookProps.pages || [];
       if (activeIndex.value >= pages.length) activeIndex.value = 0;
@@ -1032,6 +1066,78 @@ const initialModelValue = ref<Record<string, any>>({});
 const isMultiEdit = computed(() => {
   return props.selectedRecords && props.selectedRecords.length > 1;
 });
+
+// Validation générique des champs requis (required=true ou requiredExpr, voir LayoutElement) au
+// moment de la soumission — nécessaire en plus de la validation HTML5 native des <input required>
+// (GenericForm.vue plus bas) car un widget en collection (OwnedRelationField, "au moins une ligne
+// requise" — voir Teacher.discipline_lines) ne porte aucun <input> natif à valider, et un champ
+// placé sur un onglet notebook non actif n'est même pas rendu dans le DOM (voir NotebookLayout) :
+// la validation native ne peut couvrir ni l'un ni l'autre cas. L'erreur est signalée via le store
+// de notification partagé (déjà utilisé pour toute erreur de sauvegarde, voir App.vue/
+// GenericListModal.vue/Many2ManyOrderedList.vue) plutôt qu'une bannière dédiée à ce formulaire.
+
+function isValueEmpty(value: any): boolean {
+  if (Array.isArray(value)) return value.length === 0;
+  return value === null || value === undefined || value === '';
+}
+
+function evaluateRequired(elem: LayoutElement, model: Record<string, any>): boolean {
+  if (elem.required) return true;
+  if (elem.requiredExpr) {
+    try {
+      const fn = new Function('model', `return ${elem.requiredExpr}`);
+      return !!fn(model);
+    } catch (e) {
+      console.error("Error evaluating required expression", e);
+      return false;
+    }
+  }
+  return false;
+}
+
+interface NotebookTabRef { notebookId: string; pageIndex: number; }
+
+// Parcourt TOUTES les pages de TOUS les notebooks (pas seulement l'onglet actif) puisqu'un champ
+// requis peut être caché sur un onglet non consulté par l'utilisateur — accumule le chemin des
+// onglets ancêtres traversés pour pouvoir les rendre actifs d'un coup si ce champ est en défaut.
+function findFirstInvalidRequiredField(
+  elements: LayoutElement[],
+  model: Record<string, any>,
+  path: NotebookTabRef[] = []
+): { key: string; label: string; path: NotebookTabRef[] } | null {
+  for (const elem of elements) {
+    if (elem.type === 'field' && elem.key) {
+      if (evaluateRequired(elem, model) && isValueEmpty(model[elem.key])) {
+        return { key: elem.key, label: elem.label || elem.key, path };
+      }
+    } else if (elem.type === 'group' && elem.children) {
+      const found = findFirstInvalidRequiredField(elem.children, model, path);
+      if (found) return found;
+    } else if (elem.type === 'notebook' && elem.children) {
+      for (let pageIndex = 0; pageIndex < elem.children.length; pageIndex++) {
+        const page = elem.children[pageIndex];
+        const found = findFirstInvalidRequiredField(page.children || [], model, [...path, { notebookId: elem.notebookId || '', pageIndex }]);
+        if (found) return found;
+      }
+    }
+  }
+  return null;
+}
+
+// Retourne false et bascule sur l'onglet en défaut si un champ requis est vide — appelé en tête de
+// handleSubmit(). Ignoré en édition groupée (isMultiEdit) : seuls les champs explicitement
+// modifiés y sont soumis (payload partiel), un champ requis peut légitimement rester non touché
+// pour la plupart des enregistrements sélectionnés.
+function validateRequiredFields(): boolean {
+  if (isMultiEdit.value) return true;
+  const invalid = findFirstInvalidRequiredField(layoutTree.value, localModel.value);
+  if (!invalid) return true;
+  for (const ref of invalid.path) {
+    notebookActiveIndex[ref.notebookId] = ref.pageIndex;
+  }
+  notificationStore.showNotification('error', `Le champ « ${invalid.label} » est obligatoire.`);
+  return false;
+}
 
 let oldLocalModelStr = '';
 let onchangeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -1138,6 +1244,7 @@ watch(localModel, (newVal) => {
 }, { deep: true });
 
 function handleSubmit() {
+  if (!validateRequiredFields()) return;
   if (isMultiEdit.value) {
     const submitPayload: Record<string, any> = {};
     props.fields.forEach(field => {

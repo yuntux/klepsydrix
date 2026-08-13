@@ -15,6 +15,7 @@ class SystemSettingKey(str, enum.Enum):
     GROUP_NAME_HAS_SUBJECT_CODE = "GROUP_NAME_HAS_SUBJECT_CODE"
     GROUP_NAME_SEPARATOR = "GROUP_NAME_SEPARATOR"
     GROUP_NAME_NUMBER_FORMAT = "GROUP_NAME_NUMBER_FORMAT"
+    MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT = "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT"
 
 SETTING_LABELS = {
     SystemSettingKey.STANDARD_TIMESLOT_DURATION: "Durée minimale d'un créneau (en minutes)",
@@ -26,6 +27,7 @@ SETTING_LABELS = {
     SystemSettingKey.GROUP_NAME_HAS_SUBJECT_CODE: "[Nommage groupe] : intégrer le code matière",
     SystemSettingKey.GROUP_NAME_SEPARATOR: "[Nommage groupe] : séparateur",
     SystemSettingKey.GROUP_NAME_NUMBER_FORMAT: "[Nommage groupe] : type numérotation",
+    SystemSettingKey.MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT: "Mutualiser les groupes à effectif réduit même sans alignement formel",
 }
 
 # Valeurs autorisées pour les paramètres de type "liste déroulante" (*_NUMBER_FORMAT)

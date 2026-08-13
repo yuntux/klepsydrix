@@ -9,7 +9,7 @@ from backend.app.models.base import TransientModel
 from backend.app.models.course import Course
 from backend.app.models.division import Division
 from backend.app.models.subject import Subject
-from backend.app.models.service import Service, Alignment, RepartitionGroupType, RepartitionPeriodicity, _reduced_groups_need
+from backend.app.models.service import Service, Alignment, RepartitionGroupType, RepartitionPeriodicity
 from backend.app.models.group import find_or_create_partition, find_or_create_group, PartitionSpecialType
 
 
@@ -53,7 +53,10 @@ def _courses_from_alignment(db: Session, alignment: Alignment) -> list[dict]:
     template_service = division_services[0]
     vals_list = []
     for repartition in template_service.repartitions:
-        for _ in range(repartition.occurrence_count):
+        # occurrence_count (séances/élève/semaine) x group_count (groupes parallèles) = nombre
+        # réel de Course à générer, depuis leur séparation (plan Volet B) — group_count vaut 1
+        # pour un Alignment composé de services FULL_CLASS/SPLIT non REDUCED (voir _repartition_signature).
+        for _ in range(repartition.occurrence_count * repartition.group_count):
             vals_list.append({
                 "school_id": school_id,
                 "subject_id": subject_id,
@@ -94,22 +97,20 @@ def _courses_from_service(db: Session, service: Service) -> list[dict]:
                 vals_list.append({**base_vals, "division_ids": [service.division_id]})
             continue
 
+        # SPLIT/REDUCED : groups_need vient directement de group_count (calculé et stocké, voir
+        # ServiceRepartition/_sync_reduced_pool) — plus de validation de divisibilité, occurrence_count
+        # et group_count varient désormais indépendamment (plan Volet B).
+        groups_need = repartition.group_count
         if repartition.group_type == RepartitionGroupType.SPLIT:
-            groups_need = 2
-            if repartition.occurrence_count % groups_need != 0:
-                raise ValueError("Le nombre d'occurrences doit être un multiple de 2 puisqu'il s'agit d'une répartition de type Dédoublement.")
             partition = find_or_create_partition(db, service.division_id, "", special_type=PartitionSpecialType.HALF_ALPHA)
         elif repartition.group_type == RepartitionGroupType.REDUCED:
-            groups_need = _reduced_groups_need(service)
-            if repartition.occurrence_count % groups_need != 0:
-                raise ValueError(f"Le nombre d'occurrences doit être un multiple du nombre de groupes ({groups_need}, de {service.reduced_group_student_count} élèves maximum) puisqu'il s'agit d'une répartition de type Effectif réduit.")
             subject = db.get(Subject, service.subject_id)
             partition = find_or_create_partition(db, service.division_id, subject.name if subject else "", part_count=groups_need)
         else:
             raise ValueError(f"Type de répartition non géré : {repartition.group_type}")
 
         group_pool = [find_or_create_group(db, [cp.id], service.subject_id) for cp in partition.class_parts]
-        for i in range(repartition.occurrence_count):
+        for i in range(repartition.occurrence_count * groups_need):
             vals_list.append({**base_vals, "group_ids": [group_pool[i % groups_need].id]})
 
     return vals_list
