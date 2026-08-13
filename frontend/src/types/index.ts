@@ -58,9 +58,7 @@ export interface Period {
 
 export interface Course {
   id: number;
-  subject: string;
   subject_id?: number | null;
-  color?: string;
   teacher_ids: number[];
   non_teaching_staff_ids: number[];
   division_ids: number[];
@@ -79,13 +77,4 @@ export interface Course {
   children_ids?: number[];
   decomposition_status?: string | null;
   underventilated_resource_ids?: Record<string, number[]> | null;
-}
-
-export interface TimetableData {
-  teachers: Teacher[];
-  non_teaching_staffs: NonTeachingStaff[];
-  classrooms: Classroom[];
-  divisions: Division[];
-  timeslots: Timeslot[];
-  courses: Course[];
 }

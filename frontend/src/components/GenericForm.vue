@@ -1108,7 +1108,7 @@ watch(localModel, (newVal) => {
     if (onchangeTimeout) clearTimeout(onchangeTimeout);
     onchangeTimeout = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/generic/${props.resourceKey}/onchange`, {
+        const response = await api.apiFetch(`/api/generic/${props.resourceKey}/onchange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

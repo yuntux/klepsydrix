@@ -97,9 +97,13 @@
 // serveur sur les axes ligne/colonne : ce sont souvent des champs dérivés (related_field, ex:
 // division_id/mef_id) non filtrables en SQL.
 import { ref, computed, inject, onMounted } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
 import * as api from '../services/api';
 import BaseButton from './BaseButton.vue';
 import GenericListModal from './GenericListModal.vue';
+import { genericCacheKey } from '../composables/useGenericCache';
+
+const queryClient = useQueryClient();
 
 interface RowDim {
   field: string;
@@ -366,9 +370,13 @@ const neededResources = computed(() => {
   return Array.from(new Set(list));
 });
 
+// resources dynamique (dérivé de la config du pivot) : pas de clé statique possible pour une
+// useQuery() dédiée par ressource — queryClient.fetchQuery() partage néanmoins la même entrée de
+// cache que le reste de l'app (voir useGenericCache, architecture.md §15.T) sans imposer de
+// réactivité complète ici (comportement inchangé : un seul chargement, au montage).
 async function loadOptionMaps() {
   const resources = neededResources.value;
-  const results = await Promise.all(resources.map(r => api.fetchAllGenericItems(r)));
+  const results = await Promise.all(resources.map(r => queryClient.fetchQuery({ queryKey: genericCacheKey(r), queryFn: () => api.fetchAllGenericItems(r) })));
   const maps: Record<string, Record<number, string>> = {};
   resources.forEach((r, i) => {
     maps[r] = Object.fromEntries((results[i].items || []).map((it: any) => [it.id, it.display_name || it.name || String(it.id)]));
@@ -377,7 +385,7 @@ async function loadOptionMaps() {
 }
 
 async function loadRecords() {
-  const res = await api.fetchAllGenericItems(props.resourceKey);
+  const res = await queryClient.fetchQuery({ queryKey: genericCacheKey(props.resourceKey), queryFn: () => api.fetchAllGenericItems(props.resourceKey) });
   records.value = res.items || [];
 }
 

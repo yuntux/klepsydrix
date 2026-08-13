@@ -18,6 +18,7 @@ for _, module_name, _ in pkgutil.iter_modules(models_package.__path__):
 router = APIRouter(prefix="/api/generic")
 
 from backend.app.models.base import TransientModel, UnsupportedOperationError
+from backend.app.core.exclusive_mode import ExclusiveModeActiveError
 
 # Génération 100% automatique de la cartographie des modèles sur la base de leur table SQL
 MODEL_MAP = {
@@ -250,15 +251,15 @@ def make_list_endpoint(model):
         for key, value in request.query_params.items():
             if key in ["skip", "limit", "school_id", "ids"] or not is_filterable(key):
                 continue
-            # Cast du type Python de la colonne (ex: "true" -> bool, "3" -> int) quand c'est une
-            # vraie colonne SQL ; sinon (related_field, champ TransientModel...) valeur brute.
-            if hasattr(model, "__table__") and key in model.__table__.columns:
-                try:
-                    column_type = model.__table__.columns[key].type.python_type
-                    domain[key] = (value.lower() in ("true", "1", "yes")) if column_type == bool else column_type(value)
-                except Exception:
-                    domain[key] = value
-            else:
+            # Cast du type Python de l'attribut (ex: "true" -> bool, "3" -> int) quand SQLAlchemy
+            # sait en exposer un — vraie colonne SQL, mais aussi hybrid_property avec .expression
+            # (ex: Timeslot.active, voir timeslot.py) : les deux exposent .type.python_type de la
+            # même façon au niveau classe. Sinon (related_field, champ TransientModel...), qui
+            # n'ont pas de .type, l'exception retombe sur la valeur brute.
+            try:
+                column_type = getattr(model, key).type.python_type
+                domain[key] = (value.lower() in ("true", "1", "yes")) if column_type == bool else column_type(value)
+            except Exception:
                 domain[key] = value
 
         total = model.count(db, domain)
@@ -290,6 +291,8 @@ def make_create_endpoint(model, payload_schema):
             return sqla_to_dict(new_item)
         except UnsupportedOperationError as e:
             raise HTTPException(status_code=405, detail=str(e))
+        except ExclusiveModeActiveError as e:
+            raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Erreur de création : {e}")
     return create_endpoint
@@ -316,6 +319,8 @@ def make_update_endpoint(model, payload_schema):
             return sqla_to_dict(updated_item)
         except UnsupportedOperationError as e:
             raise HTTPException(status_code=405, detail=str(e))
+        except ExclusiveModeActiveError as e:
+            raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     return update_endpoint
@@ -375,6 +380,8 @@ def make_delete_endpoint(model, resource_name: str):
             return {"status": "success", "message": f"Élément {item_id} de {resource_name} supprimé avec succès."}
         except UnsupportedOperationError as e:
             raise HTTPException(status_code=405, detail=str(e))
+        except ExclusiveModeActiveError as e:
+            raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Impossible de supprimer l'élément : {e}")
     return delete_endpoint
@@ -421,9 +428,11 @@ def make_class_call_endpoint(model):
         try:
             result = func(*args, **kwargs)
             return serialize_execution_result(result)
+        except ExclusiveModeActiveError as e:
+            raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode de classe : {e}")
-            
+
     return class_call_endpoint
 
 def make_instance_call_endpoint(model):
@@ -460,10 +469,13 @@ def make_instance_call_endpoint(model):
             result = func(*args, **kwargs)
             db.commit()
             return serialize_execution_result(result)
+        except ExclusiveModeActiveError as e:
+            db.rollback()
+            raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode d'instance : {e}")
-            
+
     return instance_call_endpoint
 
 def make_actions_endpoint(model):

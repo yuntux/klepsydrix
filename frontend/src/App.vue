@@ -13,6 +13,7 @@
             :nonTeachingStaffs="nonTeachingStaffs"
             :divisions="divisions"
             :classrooms="classrooms"
+            :subjects="subjectsList"
             :schools="schoolsList"
             v-model:schoolId="schoolId"
             v-model:selectedTeacherIds="selectedTeacherIds"
@@ -29,6 +30,9 @@
             :periods="periodsList"
             :loading="loading"
             :scoreData="scoreData"
+            :solverProgress="solverProgress"
+            :solverElapsedSeconds="solverElapsedSeconds"
+            :solverTimeLimitSeconds="solverTimeLimitSeconds"
             :selectedCourseIds="selectedCourseIds"
             @move="onMoveCourse"
             @unassign="onUnassignCourse"
@@ -232,14 +236,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, provide, defineAsyncComponent } from 'vue';
-import type { Component } from 'vue';
+import type { Component, Ref } from 'vue';
 import NotebooksTree from './components/NotebooksTree.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
 import { useDataStore } from './stores/data';
 import { getTimeslotHour } from './composables/useTimeslotGrid';
+import { genericCacheKey } from './composables/useGenericCache';
 import { useNotificationStore } from './stores/notifications';
-import { useQueryClient } from '@tanstack/vue-query';
+import { useQueryClient, useQuery } from '@tanstack/vue-query';
 
 const dataStore = useDataStore();
 const notificationStore = useNotificationStore();
@@ -278,6 +283,9 @@ const materialsList = ref<any[]>([]);
 const subjectsList = ref<any[]>([]);
 const schoolId = ref<number | null>(null);
 const loading = ref<boolean>(false);
+const solverProgress = ref<{ hard_score: number; soft_score: number } | null>(null);
+const solverElapsedSeconds = ref<number | null>(null);
+const solverTimeLimitSeconds = ref<number | null>(null);
 
 import { useGridStore } from './stores/grid';
 import { storeToRefs } from 'pinia';
@@ -331,8 +339,15 @@ watch(autoTarget, (newVal) => {
   }
 });
 
-// Onglet actif et configuration des Notebooks (T032)
-const activeTab = ref<string>('timetable');
+// Onglet actif et configuration des Notebooks (T032). Valeur initiale dérivée de l'URL (même
+// fonction pure que urlPathIds ci-dessous, appelée ici séparément pour ne pas réordonner les
+// déclarations) plutôt que systématiquement 'timetable' : sinon, une URL profonde pointant
+// directement sur une feuille admin (ex: /settings_root/disciplines_setting, voir "URLs
+// profondes") démarre quand même avec activeTab='timetable' le temps qu'onLeafChange corrige la
+// valeur — trop tard pour les query() dont le `enabled` dépend de activeTab dès leur création
+// synchrone en setup() (voir bindGenericListQuery plus bas) : elles se déclenchaient donc quand
+// même, même en arrivant directement sur une page admin, jamais sur la grille EDT.
+const activeTab = ref<string>(parseLocationPath()[0] === 'timetable_root' ? 'timetable' : 'admin');
 const activeLeaf = ref<any>(null);
 
 // URLs profondes (voir architecture.md, "URLs profondes") : `urlPathIds`/`urlSelectedIds` sont lus
@@ -382,11 +397,16 @@ async function onLeafChange(leaf: any, pathIds: string[] = []) {
   activeLeaf.value = leaf;
   currentPathIds.value = pathIds;
 
-  if (leaf.id === 'timetable_root') {
-    activeTab.value = 'timetable';
-  } else {
-    activeTab.value = 'admin';
-  }
+  // 'timetable_root' est un noeud GROUPE dans l'arbre (voir ui.json) — jamais lui-même
+  // sélectionnable comme feuille : la vraie feuille de la grille EDT s'appelle
+  // 'timetable_viewer' (son enfant). Comparer leaf.id === 'timetable_root' ne matchait donc
+  // JAMAIS, quelle que soit la feuille affichée — activeTab retombait silencieusement sur
+  // 'admin' même quand la grille EDT était bien montrée, empêchant les 6 caches gérés
+  // par `enabled: timetableTabActive` (period_types/periods/groups/class_parts/materials/
+  // subjects, voir bindGenericListQuery) de jamais se déclencher. Vérifier directement le
+  // panneau affiché (comme pour activeAdminModel juste en dessous) est robuste à la profondeur/
+  // au nommage de l'arbre, contrairement à une comparaison d'id figée.
+  activeTab.value = leaf.panels?.some((p: any) => p.component === 'TimetableGrid') ? 'timetable' : 'admin';
 
   // Si l'onglet actif est une feuille administrative avec une ressource
   if (leaf.panels) {
@@ -456,6 +476,57 @@ async function onTriggerAction(action: { resourceKey: string; actionId: string }
 const activeAdminModel = ref('schools');
 const genericItems = ref<any[]>([]);
 const genericLoading = ref(false);
+
+// Clé de requête réactive du panneau maître générique : recalculée automatiquement dès que
+// activeAdminModel ou les filtres du panel actif changent — une vraie useQuery() (ci-dessous)
+// redéclenche son fetch nativement dès que sa clé change, sans watch() explicite à maintenir.
+// Segment filters omis quand vide (cas de loin le plus courant) : ['genericList', resource] est
+// alors EXACTEMENT la même clé que bindGenericListQuery/fkOptionsCache/useGenericCache pour cette
+// ressource — ouvrir le panneau Enseignants et référencer teacher_ids comme FK ailleurs partagent
+// désormais une seule requête réseau et une seule entrée de cache, plutôt que deux clés distinctes
+// pour la même donnée non filtrée (voir architecture.md §15.T, "unification du cache generic").
+const genericListQueryKey = computed(() => genericCacheKey(activeAdminModel.value, activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList')?.listConfig?.filters));
+
+// Source de vérité unique du panneau maître (voir architecture.md §15.T) : UNE SEULE copie en
+// cache TanStack Query, partagée par tout consommateur présent ou futur de cette clé — plutôt
+// qu'un fetch imperatif isolé (queryClient.fetchQuery() + recopie manuelle) qu'il fallait
+// explicitement re-déclencher à chaque site de mutation, au risque d'en oublier un (voir la
+// discussion sur schoolsList/fkOptionsCache — des copies indépendantes de la même donnée, qu'il
+// fallait garder synchronisées "à la main"). `enabled` : inutile de fetcher tant que l'onglet
+// admin n'est pas affiché.
+const genericListQuery = useQuery({
+  queryKey: genericListQueryKey,
+  queryFn: () => api.fetchAllGenericItems(genericListQueryKey.value[1], undefined, genericListQueryKey.value[2]),
+  enabled: computed(() => activeTab.value === 'admin'),
+});
+
+// genericItems reste une ref "à plat" mutable : des dizaines de sites existants la lisent/mutent
+// directement (ex: patchs optimistes après une sauvegarde, ligne "brouillon" ajoutée localement
+// avant sa création serveur) — les conserver tels quels était le but explicite de ce refactor
+// (ne pas réécrire GenericList.vue/GenericForm.vue). Elle est maintenant synchronisée depuis le
+// résultat réactif de la query ci-dessus : à chaque changement (montage, navigation, invalidation
+// déclenchée n'importe où dans l'app — resource:mutated, write-token:stale, invalidateFkCache
+// puisqu'ils partagent le même préfixe de clé ['genericList', ressource]), pas seulement quand
+// CE composant décide explicitement de recharger.
+// flush: 'sync' impératif ici : refreshActiveGenericPanel(IfMatches) attend la fin de
+// l'invalidation (await queryClient.invalidateQueries(...)) puis lit immédiatement
+// genericItems.value juste après (via loadDetailListItems, qui en dérive) — avec le flush 'pre'
+// par défaut de Vue (asynchrone, groupé avant le prochain rendu), rien ne garantit que ce watch
+// se soit déjà exécuté à ce moment précis, ce qui ferait lire une valeur encore périmée à
+// loadDetailListItems. L'ancien code (avant ce refactor) écrivait genericItems.value de façon
+// synchrone dans loadGenericItems() lui-même ; ce watch() doit reproduire exactement cette
+// garantie de synchronicité, pas seulement "à peu près en même temps".
+watch(() => genericListQuery.data.value, (val) => {
+  genericItems.value = val?.items || [];
+}, { flush: 'sync' });
+// isLoading (pas isFetching) : vrai seulement tant qu'aucune donnée n'est encore en cache pour
+// cette clé — un rafraîchissement en arrière-plan (données déjà affichées, requête déjà en cache)
+// ne doit pas faire disparaître la liste sous un spinner, seulement le tout premier chargement
+// d'une ressource jamais visitée.
+watch(() => genericListQuery.isLoading.value, (val) => {
+  genericLoading.value = val;
+});
+
 const schoolsList = ref<any[]>([]);
 const periodTypesList = ref<any[]>([]);
 const globalTimeslotDuration = ref(30);
@@ -494,25 +565,41 @@ function showNotification(type: 'success' | 'error' | 'info', message: string) {
 
 const scoreData = ref<{ hard_score: number; soft_score: number; summary: string; matches: Record<string, { hard: number; soft: number; count: number }> } | null>(null);
 
-// Chargement initial des données
+// Chargement initial des données de la grille EDT — auparavant un seul round-trip bespoke
+// (GET /api/timetable, voir architecture.md §15.U), désormais des appels génériques en
+// parallèle, partageant le cache queryClient avec le reste de l'app (queryClient.fetchQuery,
+// même clé canonique que useGenericCache — voir GenericPivot.vue pour le même motif). courses/
+// timeslots/teachers/etc. restent des refs "à plat" mutables (patchs optimistes après solve,
+// drag & drop...), remplies une fois ici plutôt que dérivées d'une useQuery() réactive.
+//
+// timeslots : filtré ?active=true côté serveur (Timeslot.active, hybrid_property SQL, voir
+// timeslot.py) — remplace Timeslot.get_active_timeslots() qui faisait la même chose à la main
+// dans l'ancien endpoint dédié.
 async function loadData() {
   try {
-    const data = await api.fetchTimetable();
-    
-    // Remplir le store pour accès O(1)
-    dataStore.setCourses(data.courses);
-    dataStore.setTimeslots(data.timeslots);
-    dataStore.setTeachers(data.teachers);
-    dataStore.setNonTeachingStaffs(data.non_teaching_staffs);
-    dataStore.setDivisions(data.divisions);
-    dataStore.setClassrooms(data.classrooms);
+    const [teachersRes, classroomsRes, divisionsRes, nonTeachingRes, coursesRes, timeslotsRes] = await Promise.all([
+      queryClient.fetchQuery({ queryKey: genericCacheKey('teachers'), queryFn: () => api.fetchAllGenericItems('teachers') }),
+      queryClient.fetchQuery({ queryKey: genericCacheKey('classrooms'), queryFn: () => api.fetchAllGenericItems('classrooms') }),
+      queryClient.fetchQuery({ queryKey: genericCacheKey('divisions'), queryFn: () => api.fetchAllGenericItems('divisions') }),
+      queryClient.fetchQuery({ queryKey: genericCacheKey('non_teaching_staffs'), queryFn: () => api.fetchAllGenericItems('non_teaching_staffs') }),
+      queryClient.fetchQuery({ queryKey: genericCacheKey('courses'), queryFn: () => api.fetchAllGenericItems('courses') }),
+      queryClient.fetchQuery({ queryKey: genericCacheKey('timeslots', { active: true }), queryFn: () => api.fetchAllGenericItems('timeslots', undefined, { active: true }) }),
+    ]);
 
-    courses.value = data.courses;
-    timeslots.value = data.timeslots;
-    teachers.value = data.teachers;
-    nonTeachingStaffs.value = data.non_teaching_staffs;
-    divisions.value = data.divisions;
-    classrooms.value = data.classrooms;
+    // Remplir le store pour accès O(1)
+    dataStore.setCourses(coursesRes.items);
+    dataStore.setTimeslots(timeslotsRes.items);
+    dataStore.setTeachers(teachersRes.items);
+    dataStore.setNonTeachingStaffs(nonTeachingRes.items);
+    dataStore.setDivisions(divisionsRes.items);
+    dataStore.setClassrooms(classroomsRes.items);
+
+    courses.value = coursesRes.items;
+    timeslots.value = timeslotsRes.items;
+    teachers.value = teachersRes.items;
+    nonTeachingStaffs.value = nonTeachingRes.items;
+    divisions.value = divisionsRes.items;
+    classrooms.value = classroomsRes.items;
 
     updateDefaultSelection();
 
@@ -528,112 +615,71 @@ async function loadData() {
 
 async function loadOpenApiSpec() {
   try {
-    const res = await fetch('/api/openapi.json').then(r => r.json());
+    const res = await api.apiFetch('/api/openapi.json').then(r => r.json());
     openApiSpec.value = res;
   } catch (err: any) {
     console.error("Échec du chargement de la spécification OpenAPI", err);
   }
 }
 
-async function loadSchools() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'schools'],
-      queryFn: () => api.fetchAllGenericItems('schools')
-    });
-    schoolsList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des écoles", e);
-  }
+// Même traitement que genericItems (voir plus haut) pour les caches "globaux" à clé statique
+// (pas de filtre, pas de dépendance à la navigation) — schools, period_types, periods, groups,
+// class_parts, materials, subjects. Ces refs partageaient déjà la même clé de cache TanStack
+// Query que fkOptionsCache (['genericList', resourceName]) sans pour autant en profiter : chaque
+// mutation devait explicitement rappeler loadSchools()/loadPeriodTypes()/etc pour rester à jour
+// (voir la discussion sur les copies indépendantes d'une même table en mémoire navigateur,
+// architecture.md §15.T). Devenues de vrais abonnés réactifs : invalider cette clé n'importe où
+// (ex: invalidateFkCache) les rafraîchit désormais automatiquement.
+//
+// `enabled` (optionnel) : ces 7 caches n'existent que pour alimenter la grille EDT et ses
+// dépendances (TimetableGrid, CoursePopin) — sauf schools, dont PreferenceGrid et
+// PeriodTransitionManager ont AUSSI besoin (des panneaux de l'onglet admin, pas seulement
+// timetable). Les charger inconditionnellement au montage de l'appli couplait leur déclenchement
+// à la page d'accueil ACTUELLE (qui affiche la grille EDT par défaut) plutôt qu'au véritable
+// besoin — un couplage accidentel, pas voulu : si la page d'accueil change un jour, ces 6-là se
+// chargeraient quand même, pour rien, avant même que la grille EDT soit affichée une seule fois.
+function bindGenericListQuery(resourceName: string, target: Ref<any[]>, enabled?: Ref<boolean> | (() => boolean)) {
+  const query = useQuery({
+    queryKey: genericCacheKey(resourceName),
+    queryFn: () => api.fetchAllGenericItems(resourceName),
+    ...(enabled !== undefined ? { enabled } : {}),
+  });
+  watch(() => query.data.value, (val) => {
+    target.value = val?.items || [];
+  });
+  return query;
 }
 
-async function loadPeriodTypes() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'period_types'],
-      queryFn: () => api.fetchAllGenericItems('period_types')
-    });
-    periodTypesList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des types de périodes", e);
-  }
-}
+// Pas de wrapper loadX()/appel explicite au montage pour ces 7 : useQuery ci-dessus fait déjà son
+// propre fetch automatique dès sa création (pas de enabled:false), donc au chargement initial.
+// Un appel explicite supplémentaire ici (refetch() ou même invalidateQueries()) entrait en course
+// avec ce fetch automatique ET avec loadFkOptionsForModel() (watch immediate sur activeAdminModel,
+// qui interroge potentiellement la même clé de cache au même instant) : TanStack Query annule
+// purement et simplement tout fetch déjà en vol dès qu'un second est déclenché pour la MÊME clé,
+// quel que soit le mécanisme utilisé pour le déclencher — observé en conditions réelles
+// (CancelledError répétées au montage). Pas de perte fonctionnelle : une mutation externe de l'une
+// de ces 7 ressources reste rafraîchie normalement via resource:mutated -> invalidateFkCache (même
+// clé exacte, voir plus bas) ; et un jeton d'écriture périmé (fin de résolution) ne les concerne de
+// toute façon jamais — un solve ne touche jamais schools/period_types/periods/groups/class_parts/
+// materials/subjects, seulement courses/timeslots.
+const timetableTabActive = computed(() => activeTab.value === 'timetable');
+bindGenericListQuery('schools', schoolsList); // pas de enabled : aussi requis par PreferenceGrid/PeriodTransitionManager (onglet admin)
+bindGenericListQuery('period_types', periodTypesList, timetableTabActive);
+bindGenericListQuery('periods', periodsList, timetableTabActive);
+bindGenericListQuery('groups', groupsList, timetableTabActive);
+bindGenericListQuery('class_parts', classPartsList, timetableTabActive);
+bindGenericListQuery('materials', materialsList, timetableTabActive);
+bindGenericListQuery('subjects', subjectsList, timetableTabActive);
 
-async function loadPeriods() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'periods'],
-      queryFn: () => api.fetchAllGenericItems('periods')
-    });
-    periodsList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des périodes", e);
-  }
-}
-
-async function loadGroups() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'groups'],
-      queryFn: () => api.fetchAllGenericItems('groups')
-    });
-    groupsList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des groupes", e);
-  }
-}
-
-async function loadClassParts() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'class_parts'],
-      queryFn: () => api.fetchAllGenericItems('class_parts')
-    });
-    classPartsList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des parties de classe", e);
-  }
-}
-
-async function loadMaterials() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'materials'],
-      queryFn: () => api.fetchAllGenericItems('materials')
-    });
-    materialsList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des matériels", e);
-  }
-}
-
-async function loadSubjects() {
-  try {
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', 'subjects'],
-      queryFn: () => api.fetchAllGenericItems('subjects')
-    });
-    subjectsList.value = res.items;
-  } catch (e) {
-    console.error("Échec du chargement des matières", e);
-  }
-}
-
+// Conservée telle quelle (même nom, même contrat "appelable sans argument") pour tous les sites
+// d'appel existants (navigation, après création, après suppression...) — ne fait plus qu'un
+// refetch forcé de la query réactive ci-dessus ; genericItems/genericLoading se resynchronisent
+// automatiquement via les watch() qui l'accompagnent, plus besoin de le faire ici à la main.
 async function loadGenericItems() {
-  genericLoading.value = true;
-  genericItems.value = [];
   try {
-    const listPanel = activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList');
-    const filters = listPanel?.listConfig?.filters || {};
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', activeAdminModel.value, filters],
-      queryFn: () => api.fetchAllGenericItems(activeAdminModel.value, undefined, filters)
-    });
-    genericItems.value = res.items;
+    await genericListQuery.refetch();
   } catch (err: any) {
     showNotification('error', err.message || 'Erreur lors du chargement des ressources');
-  } finally {
-    genericLoading.value = false;
   }
 }
 
@@ -641,9 +687,36 @@ const fkOptionsCache = ref<Record<string, { items: Array<{ value: any; label: st
 
 provide('fkOptionsCache', fkOptionsCache);
 
-// Récupère et (ré)écrit fkOptionsCache[resourceName] de façon atomique : jamais de suppression
-// préalable qui laisserait un trou vide le temps du fetch (voir invalidateFkCache) — remplacer
-// directement par les données fraîches, ou conserver les anciennes si le fetch échoue.
+function toFkOptions(items: any[]) {
+  return (items || []).map((item: any) => ({
+    value: item.id,
+    label: item.display_name || item.name || item.code || String(item.id),
+    rawData: item,
+  }));
+}
+
+// fkOptionsCache est un miroir réactif PASSIF du cache queryClient (voir architecture.md §15.T,
+// "unification du cache generic") : toute query dont la clé est ['genericList', resource] SANS
+// filtre (voir genericCacheKey) alimente automatiquement cette entrée, quelle que soit son
+// origine — un des 7 caches globaux (bindGenericListQuery), le panneau admin actif sans filtre
+// (genericListQuery), ou n'importe quel composant utilisant useGenericCache(resource) ailleurs
+// dans l'app (CourseCompositionPreview, GenericPivot...). Remplace l'ancienne écriture manuelle
+// propre à refreshFkOptionsForResource seul : désormais N'IMPORTE QUEL déclencheur du même fetch
+// (ex: une mutation invalidant la query via resource:mutated ailleurs) tient fkOptionsCache à
+// jour, pas seulement un appel explicite à cette fonction précise — la duplication qu'on cherchait
+// à éliminer n'était pas seulement réseau, mais aussi structurelle (deux ownership distincts pour
+// une même collection).
+queryClient.getQueryCache().subscribe((event: any) => {
+  const key = event.query?.queryKey;
+  if (!Array.isArray(key) || key[0] !== 'genericList' || key.length !== 2) return;
+  const data = event.query.state.data;
+  if (!data) return;
+  fkOptionsCache.value[key[1]] = { items: toFkOptions(data.items) };
+});
+
+// S'assure que fkOptionsCache[resourceName] est frais, sans jamais le vider entre-temps (voir
+// invalidateFkCache) — le fetch alimente le miroir ci-dessus, cette fonction ne fait qu'en garantir
+// le déclenchement.
 //
 // Invalide TOUJOURS la query avant de la refetch : le QueryClient a un staleTime global de 1
 // minute (main.ts), donc un simple fetchQuery() sur une queryKey déjà en cache (ex: chargée au
@@ -652,18 +725,11 @@ provide('fkOptionsCache', fkOptionsCache);
 // recréé restait affiché sous forme d'ID brut malgré l'appel à ce refresh).
 async function refreshFkOptionsForResource(resourceName: string) {
   try {
-    queryClient.invalidateQueries({ queryKey: ['genericList', resourceName] });
-    const res = await queryClient.fetchQuery({
-      queryKey: ['genericList', resourceName],
+    await queryClient.invalidateQueries({ queryKey: genericCacheKey(resourceName) });
+    await queryClient.fetchQuery({
+      queryKey: genericCacheKey(resourceName),
       queryFn: () => api.fetchAllGenericItems(resourceName)
     });
-    fkOptionsCache.value[resourceName] = {
-      items: (res.items || []).map((item: any) => ({
-        value: item.id,
-        label: item.display_name || item.name || item.code || String(item.id),
-        rawData: item
-      }))
-    };
   } catch (e) {
     console.error(`Failed to fetch options for resource ${resourceName}`, e);
   }
@@ -707,7 +773,22 @@ async function loadFkOptionsForModel(model: string) {
   }
 }
 
-watch([activeAdminModel, openApiSpec], () => {
+// activeLeaf ajouté aux sources : activeAdminModel vaut 'schools' par défaut avant toute
+// résolution de feuille (voir plus bas), donc sans ce garde-fou ce watch peut se déclencher sur
+// cette valeur par défaut erronée dès que openApiSpec charge, avant que NotebooksTree n'ait
+// restauré la vraie feuille depuis l'URL (onLeafChange) — provoquant des GET FK parasites
+// (ex: teachers/divisions/classrooms/courses/periods, référencés par schools_CreatePayload).
+//
+// activeTab !== 'admin' ajouté séparément : onLeafChange ne remet jamais activeAdminModel à zéro
+// pour une feuille sans panneau GenericForm (ex: la grille EDT elle-même) — sans ce garde,
+// naviguer d'un panneau admin QUELCONQUE vers la grille redéclenche loadFkOptionsForModel() avec
+// le modèle du DERNIER panneau admin visité, dont les dépendances FK n'ont aucune raison de
+// recouper les besoins de la grille (ex: Disciplines -> disciplines/trmd_budgets, inutiles ici) —
+// contrairement au cas "premier chargement" ci-dessus (activeAdminModel === 'schools' par défaut,
+// dont les dépendances FK recoupent par coïncidence celles de loadData()). Même garde que
+// refreshActiveGenericPanel un peu plus bas.
+watch([activeAdminModel, openApiSpec, activeLeaf], () => {
+  if (!activeLeaf.value || activeTab.value !== 'admin') return;
   loadFkOptionsForModel(activeAdminModel.value);
 }, { immediate: true });
 
@@ -722,12 +803,12 @@ function updateDefaultSelection() {
 // Watchers
 // Removed viewMode watch
 
-watch([activeTab, activeAdminModel], ([newTab, newModel], [oldTab, oldModel]) => {
-  if (newTab === 'admin') {
-    if (newTab !== oldTab || newModel !== oldModel) {
-      loadGenericItems();
-    }
-  } else if (newTab !== oldTab) {
+// Le rechargement du panneau maître sur navigation (changement d'onglet admin ou de ressource)
+// est désormais géré nativement par genericListQuery (clé réactive + `enabled` sur activeTab,
+// voir sa déclaration plus haut) — plus besoin de le redéclencher ici à la main. Seul le
+// rechargement de la grille EDT au retour sur l'onglet Emploi du temps reste explicite.
+watch([activeTab, activeAdminModel], ([newTab], [oldTab]) => {
+  if (newTab !== 'admin' && newTab !== oldTab) {
     loadData();
   }
 });
@@ -933,7 +1014,10 @@ async function onSubmitGeneric(value: Record<string, any>) {
       // l'écran jusqu'à un F5.
       const updated = await api.updateGenericItem(targetResource, value.id, value);
       showNotification('success', 'Ressource modifiée avec succès !');
-      invalidateFkCache(targetResource);
+      // Pas d'invalidateFkCache(targetResource) direct ici : le dispatch resource:mutated
+      // juste en dessous s'en charge déjà (son handler l'appelle inconditionnellement pour la
+      // ressource mutée) — l'appeler aussi ici doublait le nombre de requêtes réseau déclenchées
+      // par cette sauvegarde sans le moindre bénéfice (voir architecture.md §15.T).
       // Rafraîchit aussi le cache des ressources référencées par les champs relation de
       // targetResource lui-même (ex: repartition_ids -> service_repartitions) — sans quoi
       // l'étiquette affiche l'ID brut au lieu du nom pour toute ligne enfant régénérée côté
@@ -971,7 +1055,8 @@ async function onSubmitGeneric(value: Record<string, any>) {
     } else {
       const created = await api.createGenericItem(targetResource, value);
       showNotification('success', 'Ressource créée avec succès !');
-      invalidateFkCache(targetResource);
+      // Pas d'invalidateFkCache(targetResource) direct ici : le dispatch resource:mutated
+      // juste en dessous s'en charge déjà (voir la même remarque plus haut dans cette fonction).
       loadFkOptionsForModel(targetResource);
 
       // Full reload on creation since there might be server-generated fields or ordering changes
@@ -1006,7 +1091,8 @@ async function onUpdateGenericInline(item: any) {
       if (idx !== -1) {
         genericItems.value[idx] = created;
       }
-      invalidateFkCache(activeAdminModel.value);
+      // Pas d'invalidateFkCache direct ici : le dispatch resource:mutated en fin de fonction
+      // s'en charge déjà (voir la même remarque dans onSubmitGeneric plus haut).
       loadFkOptionsForModel(activeAdminModel.value);
       showNotification('success', 'Élément créé directement !');
     } else {
@@ -1018,7 +1104,8 @@ async function onUpdateGenericInline(item: any) {
       if (idx !== -1) {
         genericItems.value[idx] = updated;
       }
-      invalidateFkCache(activeAdminModel.value);
+      // Pas d'invalidateFkCache direct ici non plus (voir juste au-dessus dans cette même
+      // fonction) : le dispatch resource:mutated en fin de fonction s'en charge déjà.
       // invalidateFkCache ne rafraîchit que le cache de activeAdminModel.value lui-même — pas
       // celui des ressources référencées par SES propres champs relation (ex: repartition_ids ->
       // service_repartitions), d'où l'ID brut affiché dans l'étiquette au lieu du nom tant que ce
@@ -1054,12 +1141,18 @@ async function onDeleteGeneric(item: any) {
         pendingDeleteCallback.value = async () => {
           await api.applyChange("DELETE_RESOURCE", resourceType, item.id);
           await api.deleteGenericItem(activeAdminModel.value, item.id);
-          invalidateFkCache(activeAdminModel.value);
+          // Séquentiel, pas fire-and-forget : invalidateFkCache(activeAdminModel.value) et
+          // loadData() peuvent cibler la MÊME clé de cache (ex: activeAdminModel === 'teachers',
+          // aussi l'une des 6 ressources rechargées par loadData) — lancés en parallèle, TanStack
+          // Query annule l'un des deux fetchQuery en vol (CancelledError visible à l'utilisateur,
+          // découvert en testant ce chemin — voir architecture.md §15.T sur cette même classe de
+          // course au montage).
+          await invalidateFkCache(activeAdminModel.value);
           showNotification('success', 'Ressource supprimée et séances dépositionnées avec succès !');
           showFormModal.value = false;
           formModel.value = {};
-          loadGenericItems();
-          loadTimetableData();
+          await loadGenericItems();
+          await loadData();
         };
         return;
       }
@@ -1071,7 +1164,8 @@ async function onDeleteGeneric(item: any) {
   if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement cet élément ?`)) {
     try {
       await api.deleteGenericItem(activeAdminModel.value, item.id);
-      invalidateFkCache(activeAdminModel.value);
+      // Pas d'invalidateFkCache direct ici : le dispatch resource:mutated juste en dessous s'en
+      // charge déjà (voir la même remarque dans onSubmitGeneric plus haut).
       showNotification('success', 'Ressource supprimée avec succès !');
       showFormModal.value = false;
       formModel.value = {};
@@ -1528,7 +1622,7 @@ async function onMoveCourse(courseId: number, timeslotId: number, weekType?: 'A'
     // Alerte en cas de placement sur un créneau indisponible (Rouge / Unsuited) - T025b
     if (courseObj) {
       try {
-        const prefResData = await fetch(`/api/generic/resource_preferences?timeslot_id=${timeslotId}&limit=1000`).then(res => res.json());
+        const prefResData = await api.apiFetch(`/api/generic/resource_preferences?timeslot_id=${timeslotId}&limit=1000`).then(res => res.json());
         const prefRes = prefResData.items || [];
         const unsuitedPref = prefRes.find((p: any) => 
           p.preference_level === 'Unsuited' && (
@@ -1626,6 +1720,9 @@ async function checkStatus() {
     const res = await api.fetchTimetableStatus();
     if (res.status === 'SOLVING') {
       loading.value = true;
+      solverProgress.value = res.progress;
+      solverElapsedSeconds.value = res.elapsed_seconds;
+      solverTimeLimitSeconds.value = res.time_limit_seconds;
       if (!pollingInterval) {
         pollingInterval = window.setInterval(checkStatus, 3000);
       }
@@ -1634,6 +1731,9 @@ async function checkStatus() {
         loading.value = false;
         loadData();
       }
+      solverProgress.value = null;
+      solverElapsedSeconds.value = null;
+      solverTimeLimitSeconds.value = null;
       if (pollingInterval) {
         window.clearInterval(pollingInterval);
         pollingInterval = undefined;
@@ -1687,7 +1787,7 @@ async function onReset() {
 
 async function loadTimeslotConfig() {
   try {
-    const res = await fetch('/api/generic/system_settings').then(r => r.json());
+    const res = await api.apiFetch('/api/generic/system_settings').then(r => r.json());
     const items = res.items || [];
     const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
     globalTimeslotDuration.value = durationSetting ? Number(durationSetting.value) : 30;
@@ -1696,18 +1796,79 @@ async function loadTimeslotConfig() {
   }
 }
 
+// Rechargement global des données en cache (mêmes appels qu'au montage) — factorisé pour être
+// aussi réutilisable par le mécanisme de jeton d'écriture périmé (voir onMounted ci-dessous et
+// architecture.md, "mode exclusif") : nos données locales doivent être rafraîchies exactement de
+// la même façon qu'à l'ouverture de l'application, que ce soit au premier chargement ou après
+// avoir détecté qu'elles ont divergé (ex: une résolution automatique vient de se terminer).
+function reloadAllData() {
+  loadData();
+  // schools/period_types/periods/groups/class_parts/materials/subjects : pas rechargés ici
+  // (voir bindGenericListQuery plus haut) — un solve ne touche jamais ces ressources, et une
+  // mutation externe les rafraîchit déjà via resource:mutated -> invalidateFkCache.
+  refreshActiveGenericPanel();
+}
+
+// Rafraîchit génériquement le panneau maître (genericItems) et, s'il dépend du même
+// enregistrement sélectionné, le panneau détail (detailListItems) — quelle que soit la ressource
+// affichée. Remplace le besoin d'étendre au cas par cas une liste codée en dur à chaque nouvelle
+// ressource : fonctionne pour les ~60 ressources exposées par l'API générique, pas seulement
+// celles qui ont un cache global dédié (schools, period_types... juste au-dessus, qui restent
+// nécessaires pour d'autres usages indépendants du panneau actif, ex: le sélecteur
+// d'établissement).
+//
+// invalidateQueries (pas loadGenericItems/refetch) : un refetch forcé déclenche TOUJOURS une
+// nouvelle requête réseau, même si une invalidation identique vient déjà d'en déclencher une
+// (ex: invalidateFkCache, appelée juste avant dans le handler resource:mutated, invalide déjà
+// exactement le même préfixe de clé) — deux requêtes réseau redondantes pour la même donnée.
+// invalidateQueries se contente de marquer périmé et laisse l'abonné actif (genericListQuery)
+// se recharger une seule fois, quel que soit le nombre d'appels à invalidateQueries pour la même
+// clé dans le même tick (voir architecture.md §15.T).
+async function refreshActiveGenericPanel() {
+  if (activeTab.value !== 'admin') return;
+  await queryClient.invalidateQueries({ queryKey: ['genericList', activeAdminModel.value] });
+  await loadDetailListItems();
+}
+
+// Variante ciblée pour resource:mutated (voir plus bas) : on connaît la ressource mutée, donc on
+// ne rafraîchit que si elle correspond effectivement à ce qui est affiché (maître ou détail) —
+// contrairement à refreshActiveGenericPanel, toujours inconditionnel, adapté au signal plus flou
+// "le jeton d'écriture a changé, on ne sait pas précisément quoi a bougé".
+async function refreshActiveGenericPanelIfMatches(resource: string) {
+  if (activeTab.value !== 'admin') return;
+  if (resource === activeAdminModel.value) {
+    await queryClient.invalidateQueries({ queryKey: ['genericList', resource] });
+    await loadDetailListItems();
+    return;
+  }
+  const detailPanel = getDetailPanel();
+  if (detailPanel && resource === detailPanel.resourceKey) {
+    await loadDetailListItems();
+  }
+}
+
 onMounted(async () => {
   await loadOpenApiSpec();
   await loadTimeslotConfig();
-  loadData();
-  loadSchools();
-  loadPeriodTypes();
-  loadPeriods();
-  loadGroups();
-  loadClassParts();
-  loadMaterials();
-  loadSubjects();
+  reloadAllData();
   checkStatus();
+
+  // Jeton d'écriture périmé (voir services/api.ts::apiFetch, architecture.md "mode exclusif") :
+  // le backend annonce un jeton différent de celui qu'on connaissait, sur n'importe quelle
+  // réponse. Deux cas, distingués par wasWriteAttempt :
+  // - Simple lecture devenue périmée (ex: on vient d'apprendre qu'une résolution automatique
+  //   s'est terminée en arrière-plan) : rechargement silencieux, sans interrompre l'utilisateur.
+  // - Une ÉCRITURE vient d'être activement rejetée (409, voir write_token_middleware.py) parce que
+  //   son jeton ne correspondait plus : l'utilisateur doit comprendre pourquoi son action n'a pas
+  //   été appliquée, pas juste voir ses données changer sous ses yeux sans explication.
+  window.addEventListener('write-token:stale', (e: any) => {
+    if (e.detail?.wasWriteAttempt) {
+      showNotification('error', 'Les données ont été modifiées entre-temps (ex: une résolution automatique vient de se terminer). Votre action n\'a pas été appliquée — les données à jour ont été rechargées, merci de réessayer.');
+    } else {
+      showNotification('info', 'Les données ont été mises à jour en arrière-plan (ex: une résolution automatique vient de se terminer) et ont été rechargées.');
+    }
+    reloadAllData();
+  });
 
   // Écoute des événements de mutation pour rafraîchir les données globales d'App.vue
   window.addEventListener('resource:mutated', (e: any) => {
@@ -1717,16 +1878,16 @@ onMounted(async () => {
     // invalidé, sans quoi un widget qui édite une ressource "en aparté" (ex: Many2ManyOrderedList
     // en mode association) laisse les autres consommateurs de cette ressource (y compris son propre
     // repli field.options) afficher des données périmées jusqu'au prochain changement de menu actif.
+    // Bénéfice supplémentaire (voir architecture.md §15.T) : schools/period_types/periods/groups/
+    // class_parts/materials/subjects partagent EXACTEMENT la même clé de cache TanStack Query
+    // (['genericList', resourceName], sans segment filtres) que leur ref associée (schoolsList,
+    // etc., voir bindGenericListQuery) — invalider ici les rafraîchit donc déjà automatiquement,
+    // plus besoin des 7 lignes "if (resource === 'x') loadX()" qui existaient avant (chacune
+    // déclenchait un second fetch réseau redondant avec celui-ci).
     invalidateFkCache(resource);
-    if (resource === 'schools') loadSchools();
-    if (resource === 'period_types') loadPeriodTypes();
-    if (resource === 'periods') loadPeriods();
-    if (resource === 'groups') loadGroups();
-    if (resource === 'class_parts') loadClassParts();
-    if (resource === 'materials') loadMaterials();
-    if (resource === 'subjects') loadSubjects();
     if (resource === 'system_settings') loadTimeslotConfig();
     if (['teachers', 'classrooms', 'divisions', 'courses', 'groups'].includes(resource)) loadData();
+    refreshActiveGenericPanelIfMatches(resource);
   });
 
   // Retour/avancée navigateur (voir architecture.md, "URLs profondes") : ré-écrire urlPathIds/

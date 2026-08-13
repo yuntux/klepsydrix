@@ -303,7 +303,7 @@ function consolidateResource(field: string, nameFn: (id: number) => string) {
 }
 
 const consolidatedSubjects = computed(() => {
-  return consolidate(c => c.subject || 'Aucune Matière');
+  return consolidate(c => props.subjects.find((s: any) => s.id === c.subject_id)?.short_name || 'Aucune Matière');
 });
 </script>
 

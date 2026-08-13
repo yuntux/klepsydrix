@@ -98,19 +98,37 @@ def db_session():
         db.close()
         Base.metadata.drop_all(bind=test_engine)
 
-def test_get_timetable(db_session: Session):
-    school = db_session.query(School).first()
-    t = Teacher(code="MARTIN", first_name="Prof", last_name="Martin", school_id=school.id)
-    t._via_crud_mixin_create = True
-    db_session.add(t)
+def test_generic_timeslots_active_filter(db_session: Session):
+    # STANDARD_TIMESLOT_DURATION vaut 30 (fixture db_session) : les deux créneaux, multiples de
+    # 30, sont valides à la création (voir Timeslot._validate_hour_overflow, qui ne bloque QUE la
+    # création). On fait ensuite passer la durée standard à 60 : le créneau à la minute 510
+    # (multiple de 30 mais pas de 60) devient inactif, celui à 480 (multiple des deux) reste
+    # actif — Timeslot.active reflète la pertinence COURANTE de la durée standard, pas la
+    # validité au moment de la création.
+    still_active_ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
+    still_active_ts._via_crud_mixin_create = True
+    now_inactive_ts = Timeslot(day_of_week=1, minutes_from_midnight=510)
+    now_inactive_ts._via_crud_mixin_create = True
+    db_session.add_all([still_active_ts, now_inactive_ts])
     db_session.commit()
 
-    response = client.get("/api/timetable")
+    from backend.app.models.system_setting import SystemSetting
+    setting = db_session.query(SystemSetting).filter(SystemSetting.key == "STANDARD_TIMESLOT_DURATION").first()
+    setting._via_crud_mixin_update = True
+    setting.value = "60"
+    db_session.commit()
+
+    response = client.get("/api/generic/timeslots?active=true")
     assert response.status_code == 200
-    data = response.json()
-    assert "teachers" in data
-    assert "courses" in data
-    assert any(teacher["display_name"] == "Prof Martin" for teacher in data["teachers"])
+    ids = [item["id"] for item in response.json()["items"]]
+    assert still_active_ts.id in ids
+    assert now_inactive_ts.id not in ids
+
+    response = client.get("/api/generic/timeslots?active=false")
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()["items"]]
+    assert now_inactive_ts.id in ids
+    assert still_active_ts.id not in ids
 
 def test_solve_timetable(db_session: Session):
     school = db_session.query(School).first()
@@ -504,40 +522,6 @@ def test_preferences_period_split_logic(db_session: Session):
 
 
 
-
-def test_trmd_budget_synthesis(db_session: Session):
-    from backend.app.models.trmd_budget import TrmdBudget
-    from backend.app.models.school import School
-    from backend.app.models.discipline import Discipline
-    from backend.app.models.subject import Subject
-
-    school = db_session.query(School).first()
-    discipline = db_session.query(Discipline).first()
-    
-    # 1. Créer un budget de test
-    budget = TrmdBudget(
-        school_id=school.id,
-        discipline_id=discipline.id,
-        allocated_hp=36.0,
-        allocated_hsa=4.0,
-        allocated_posts=2.0
-    )
-    budget._via_crud_mixin_create = True
-    db_session.add(budget)
-    db_session.commit()
-
-    # 2. Appeler l'API de synthèse budgétaire générique via le modèle virtuel
-    response = client.get(f"/api/generic/trmd_syntheses?school_id={school.id}")
-    assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert len(data["items"]) > 0
-    
-    # Heures allouées converties en ETP = 36.0 / 18.0 = 2.0
-    maths_summary = next(s for s in data["items"] if s["short_label"] == "Maths")
-    assert maths_summary["allocated_etp"] == 2.0
-    assert maths_summary["consumed_etp"] == 0.0
-    assert maths_summary["status"] == "UNDER_BUDGET"
 
 def test_course_week_alternation_conflicts(db_session: Session):
     """

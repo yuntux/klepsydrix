@@ -1,8 +1,9 @@
-import { ref, computed, onMounted, Ref } from 'vue';
+import { computed, Ref } from 'vue';
+import { useGenericCache } from './useGenericCache';
 
 // Exports de plain functions (pas dans la closure du composable ci-dessous) : appelables
 // n'importe où — store Pinia, autre composable... — sans dépendre d'un contexte Vue setup()
-// (le composable lui-même appelle onMounted, qui échoue hors setup()).
+// (le composable lui-même appelle useGenericCache -> useQuery, qui échoue hors setup()).
 
 // Timeslot ne porte que minutes_from_midnight (le champ float "hour" a été retiré lors du
 // passage à une architecture temporelle en minutes entières, voir 181dec6) — seule source de
@@ -22,17 +23,14 @@ export function findTimeslotAt<T extends { day_of_week: number; minutes_from_mid
 }
 
 export function useTimeslotGrid(timeslotsRef?: Ref<any[]>) {
-  const currentStandardDuration = ref(30);
-
-  onMounted(async () => {
-    try {
-      const res = await fetch('/api/generic/system_settings').then(r => r.json());
-      const items = res.items || [];
-      const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
-      currentStandardDuration.value = durationSetting ? Number(durationSetting.value) : 30;
-    } catch (e) {
-      console.error("Failed to load standard timeslot duration", e);
-    }
+  // system_settings partagé (voir useGenericCache, architecture.md §15.T) : plusieurs composants
+  // (PreferenceGrid, TimetableGrid, BaseGrid) en avaient chacun leur propre copie, dupliquant le
+  // fetch — désormais une seule entrée de cache queryClient, réactive (une invalidation externe,
+  // ex: modification du réglage ailleurs, met aussi à jour la grille sans rechargement de page).
+  const { items: systemSettings } = useGenericCache('system_settings');
+  const currentStandardDuration = computed(() => {
+    const durationSetting = systemSettings.value.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
+    return durationSetting ? Number(durationSetting.value) : 30;
   });
 
   const subCellCount = computed(() => {

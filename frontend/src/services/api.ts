@@ -1,27 +1,68 @@
-import { TimetableData, Course } from '../types';
+import { Course } from '../types';
+
+// ==========================================
+// JETON D'ÉCRITURE (voir architecture.md, "mode exclusif") — apiFetch()
+// ==========================================
+// Toute requête passe par ce wrapper plutôt qu'un fetch() direct : il attache le dernier jeton
+// d'écriture connu (X-Write-Token, voir core/write_token_middleware.py côté backend) sur CHAQUE
+// requête, lecture ou écriture, et surveille le même en-tête sur CHAQUE réponse. Le backend
+// l'annonce systématiquement : dès qu'il diffère de ce qu'on connaissait, nos données locales
+// sont potentiellement périmées (ex: une résolution automatique vient de se terminer et a déplacé
+// des cours) — un CustomEvent 'write-token:stale' est alors émis (même pattern que
+// 'resource:mutated'), écouté une seule fois côté App.vue pour déclencher la réaction adaptée :
+// rechargement silencieux pour une simple lecture périmée, notification explicite si c'est une
+// écriture qui vient d'être activement rejetée (409, voir plus bas).
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+let currentWriteToken: string | null = null;
+
+export function getWriteToken(): string | null {
+  return currentWriteToken;
+}
+
+export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers || {});
+  if (currentWriteToken) {
+    headers.set('X-Write-Token', currentWriteToken);
+  }
+  const response = await fetch(input, { ...init, headers });
+
+  const serverToken = response.headers.get('X-Write-Token');
+  if (serverToken && serverToken !== currentWriteToken) {
+    const wasKnown = currentWriteToken !== null;
+    currentWriteToken = serverToken;
+    if (wasKnown) {
+      const method = (init.method || 'GET').toUpperCase();
+      window.dispatchEvent(new CustomEvent('write-token:stale', {
+        detail: { wasWriteAttempt: WRITE_METHODS.has(method) && response.status === 409 },
+      }));
+    }
+  }
+  return response;
+}
 
 // ==========================================
 // CLIENTS D'API TIMETABLE
 // ==========================================
 
-export async function fetchTimetable(): Promise<TimetableData> {
-  const response = await fetch('/api/timetable');
-  if (!response.ok) {
-    throw new Error('Erreur lors de la récupération de l\'emploi du temps');
-  }
-  return response.json();
-}
-
 export async function fetchMenus(): Promise<any> {
-  const response = await fetch('/api/ui/menus');
+  const response = await apiFetch('/api/ui/menus');
   if (!response.ok) {
     throw new Error('Erreur lors de la récupération des menus');
   }
   return response.json();
 }
 
-export async function fetchTimetableStatus(): Promise<{ status: string }> {
-  const response = await fetch('/api/timetable/status');
+// progress/elapsed_seconds/time_limit_seconds : null tant qu'aucune résolution n'est en cours (ou
+// pas encore de score connu pour `progress` — voir solver.py::_on_best_solution_changed, le
+// listener Timefold ne se déclenche pas de façon garantie, à traiter comme "pas encore de
+// donnée", jamais comme une erreur).
+export async function fetchTimetableStatus(): Promise<{
+  status: string;
+  progress: { hard_score: number; soft_score: number } | null;
+  elapsed_seconds: number | null;
+  time_limit_seconds: number | null;
+}> {
+  const response = await apiFetch('/api/timetable/status');
   if (!response.ok) {
     throw new Error('Erreur lors de la récupération du statut');
   }
@@ -29,7 +70,7 @@ export async function fetchTimetableStatus(): Promise<{ status: string }> {
 }
 
 export async function fetchTimetableScore(): Promise<{ hard_score: number; soft_score: number; summary: string; matches: Record<string, { hard: number; soft: number; count: number }> }> {
-  const response = await fetch('/api/timetable/score');
+  const response = await apiFetch('/api/timetable/score');
   if (!response.ok) {
     throw new Error('Erreur lors de la récupération du score');
   }
@@ -37,7 +78,7 @@ export async function fetchTimetableScore(): Promise<{ hard_score: number; soft_
 }
 
 export async function solveTimetable(): Promise<{ status: string; message: string }> {
-  const response = await fetch('/api/timetable/solve', {
+  const response = await apiFetch('/api/timetable/solve', {
     method: 'POST',
   });
   if (!response.ok) {
@@ -48,7 +89,7 @@ export async function solveTimetable(): Promise<{ status: string; message: strin
 }
 
 export async function stopTimetable(): Promise<{ status: string; message: string }> {
-  const response = await fetch('/api/timetable/stop', {
+  const response = await apiFetch('/api/timetable/stop', {
     method: 'POST',
   });
   if (!response.ok) {
@@ -58,7 +99,7 @@ export async function stopTimetable(): Promise<{ status: string; message: string
 }
 
 export async function resetTimetable(): Promise<{ status: string }> {
-  const response = await fetch('/api/timetable/reset', {
+  const response = await apiFetch('/api/timetable/reset', {
     method: 'POST',
   });
   if (!response.ok) {
@@ -73,7 +114,7 @@ export async function updateCourse(
   isPinned?: boolean,
   weekType?: 'A' | 'B'
 ): Promise<{ status: string; courses: Course[] }> {
-  const response = await fetch(`/api/timetable/courses/${courseId}`, {
+  const response = await apiFetch(`/api/timetable/courses/${courseId}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -113,7 +154,7 @@ export async function fetchGenericList(
       }
     }
   }
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     throw new Error(`Erreur lors du chargement de la ressource ${resourceName}`);
   }
@@ -147,7 +188,7 @@ export async function fetchAllGenericItems(
 }
 
 export async function createGenericItem(resourceName: string, payload: any): Promise<any> {
-  const response = await fetch(`/api/generic/${resourceName}`, {
+  const response = await apiFetch(`/api/generic/${resourceName}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -175,7 +216,7 @@ export async function createGenericItem(resourceName: string, payload: any): Pro
 // n'importe quel modèle bénéficie automatiquement de son propre default_get() backend sans que le
 // frontend ait à connaître sa logique.
 export async function fetchDefaults(resourceName: string, context: Record<string, any> = {}): Promise<any> {
-  const response = await fetch(`/api/generic/${resourceName}/defaults`, {
+  const response = await apiFetch(`/api/generic/${resourceName}/defaults`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -189,7 +230,7 @@ export async function fetchDefaults(resourceName: string, context: Record<string
 }
 
 export async function updateGenericItem(resourceName: string, id: number, payload: any): Promise<any> {
-  const response = await fetch(`/api/generic/${resourceName}/${id}`, {
+  const response = await apiFetch(`/api/generic/${resourceName}/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -212,7 +253,7 @@ export async function updateGenericItem(resourceName: string, id: number, payloa
 }
 
 export async function deleteGenericItem(resourceName: string, id: number): Promise<any> {
-  const response = await fetch(`/api/generic/${resourceName}/${id}`, {
+  const response = await apiFetch(`/api/generic/${resourceName}/${id}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -244,7 +285,7 @@ export async function simulateChange(action: string, resourceType: string, resou
     reason: string;
   }>;
 }> {
-  const response = await fetch('/api/timetable/structures/simulate-change', {
+  const response = await apiFetch('/api/timetable/structures/simulate-change', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -262,7 +303,7 @@ export async function applyChange(action: string, resourceType: string, resource
   deplaced_sessions_count: number;
   diagnostic_history_id: number;
 }> {
-  const response = await fetch('/api/timetable/structures/apply-change', {
+  const response = await apiFetch('/api/timetable/structures/apply-change', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -281,7 +322,7 @@ export async function callInstanceMethod(
   methodName: string,
   payload: { args?: any[]; kwargs?: Record<string, any> } = {}
 ): Promise<any> {
-  const response = await fetch(`/api/generic/${resourceName}/${id}/call/${methodName}`, {
+  const response = await apiFetch(`/api/generic/${resourceName}/${id}/call/${methodName}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -300,7 +341,7 @@ export async function callClassMethod(
   methodName: string,
   payload: { args?: any[]; kwargs?: Record<string, any> } = {}
 ): Promise<any> {
-  const response = await fetch(`/api/generic/${resourceName}/call/${methodName}`, {
+  const response = await apiFetch(`/api/generic/${resourceName}/call/${methodName}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -315,7 +356,7 @@ export async function callClassMethod(
 }
 
 export async function fetchGenericActions(resourceName: string): Promise<any[]> {
-  const response = await fetch(`/api/generic/${resourceName}/actions`);
+  const response = await apiFetch(`/api/generic/${resourceName}/actions`);
   if (!response.ok) {
     throw new Error(`Erreur de chargement des actions pour ${resourceName}`);
   }

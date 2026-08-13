@@ -169,6 +169,7 @@ import { Teacher, NonTeachingStaff, Classroom, Division, Timeslot } from '../typ
 import GridContainer from './GridContainer.vue';
 import BrushPalette from './BrushPalette.vue';
 import { useTimeslotGrid, findTimeslotAt } from '../composables/useTimeslotGrid';
+import { useGenericCache } from '../composables/useGenericCache';
 
 const props = withDefaults(defineProps<{
   teachers: Teacher[];
@@ -211,9 +212,6 @@ const selectedWeekType = ref<'W' | 'A' | 'B'>('W');
 const selectedPeriodTypeId = ref<number | null>(null);
 const selectedPeriodIds = ref<number[]>([]);
 
-const allPeriodTypes = ref<any[]>([]);
-const allPeriods = ref<any[]>([]);
-
 const { currentStandardDuration, subCellCount, getCellKey, days, hours, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
 
 const resourceListMap = computed(() => ({
@@ -237,6 +235,14 @@ const activeResource = computed(() => {
 
 const schoolId = computed(() => activeResource.value?.school_id || null);
 
+// period_types (non filtré) et periods (filtré par école) via le cache partagé (voir
+// useGenericCache, architecture.md §15.T) : period_types dupliquait auparavant exactement
+// periodTypesList (App.vue), et periods son propre fetch local — désormais une seule entrée de
+// cache par clé, partagée avec App.vue/PeriodTransitionManager pour la même école.
+const { items: allPeriodTypes } = useGenericCache('period_types');
+const periodsFilter = computed(() => (schoolId.value ? { school_id: schoolId.value } : null));
+const { items: allPeriods } = useGenericCache('periods', periodsFilter, computed(() => !!schoolId.value));
+
 const filteredPeriodTypes = computed(() => {
   const activePtIds = Array.from(new Set(allPeriods.value.map(p => p.period_type_id)));
   return allPeriodTypes.value.filter(pt => activePtIds.includes(pt.id));
@@ -247,24 +253,9 @@ const periodsOfType = computed(() => {
   return allPeriods.value.filter(p => p.period_type_id === selectedPeriodTypeId.value);
 });
 
-async function loadPeriodsAndTypes() {
-  try {
-    const ptRes = await fetch('/api/generic/period_types?limit=1000').then(r => r.json());
-    allPeriodTypes.value = ptRes.items || [];
-    
-    if (schoolId.value) {
-      const pRes = await fetch(`/api/generic/periods?limit=1000&school_id=${schoolId.value}`).then(r => r.json());
-      allPeriods.value = pRes.items || [];
-    } else {
-      allPeriods.value = [];
-    }
-  } catch (err) {
-    console.error("Erreur de chargement des periodes/types", err);
-  }
-}
-
-watch(schoolId, async () => {
-  await loadPeriodsAndTypes();
+// La sélection de périodes en cours n'a plus de sens dès qu'on change d'école (allPeriods se
+// recharge de son côté, réactivement, via useGenericCache ci-dessus).
+watch(schoolId, () => {
   selectedPeriodTypeId.value = null;
   selectedPeriodIds.value = [];
 }, { immediate: true });
@@ -902,15 +893,9 @@ const handleGlobalMouseUp = () => {
   isMouseDown.value = false;
 };
 
-onMounted(async () => {
-  try {
-    const res = await fetch('/api/generic/system_settings').then(r => r.json());
-    const items = res.items || [];
-    const durationSetting = items.find((item: any) => item.key === 'STANDARD_TIMESLOT_DURATION');
-    currentStandardDuration.value = durationSetting ? Number(durationSetting.value) : 30;
-  } catch (e) {
-    console.error("Failed to load standard timeslot duration", e);
-  }
+// currentStandardDuration vient désormais de useTimeslotGrid (system_settings partagé via
+// useGenericCache) — plus de fetch local dupliqué ici.
+onMounted(() => {
   if (!props.hideSelectors) {
     onResourceChange();
   }

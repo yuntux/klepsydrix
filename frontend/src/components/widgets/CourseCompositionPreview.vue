@@ -69,10 +69,10 @@
 // CourseCompositionMapping.vue pour l'étape 1 et GenericWizard.vue pour l'orchestration.
 // modelValue est la liste des cours enfants en brouillon (déjà calculée par rpc_preview_composition
 // à l'étape précédente), éditable avant l'enregistrement définitif (rpc_save_composition).
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import SearchableMultiSelect from '../SearchableMultiSelect.vue';
-import * as api from '../../services/api';
 import { useDataStore } from '../../stores/data';
+import { useGenericCache } from '../../composables/useGenericCache';
 
 const props = defineProps<{
   modelValue: any[];
@@ -87,7 +87,6 @@ const emit = defineEmits<{
 }>();
 
 const children = ref<any[]>(Array.isArray(props.modelValue) ? props.modelValue.map((c: any) => ({ ...c })) : []);
-const periodOptions = ref<Array<{ value: number; label: string }>>([]);
 
 // Réutilise le store partagé (déjà peuplé pour la grille de l'emploi du temps) pour les
 // ressources qui y figurent déjà — évite un refetch redondant.
@@ -97,11 +96,31 @@ const classroomMap = dataStore.classroomMap;
 const divisionMap = dataStore.divisionMap;
 const nonTeachingStaffMap = dataStore.nonTeachingStaffMap;
 
-// Absentes du store partagé (propre à ce widget) : chargées localement, comme periodOptions.
-const subjectMap = ref<Record<number, any>>({});
-const classPartMap = ref<Record<number, any>>({});
-const groupMap = ref<Record<number, any>>({});
-const materialMap = ref<Record<number, any>>({});
+// Absentes du store partagé, mais présentes dans le cache generic partagé (voir useGenericCache,
+// architecture.md §15.T) — plus de fetch local dupliqué avec periodsList/subjectsList/etc.
+// (App.vue) ni avec les autres consommateurs de ces mêmes ressources.
+const { items: periodItems } = useGenericCache('periods');
+const { items: subjectItems } = useGenericCache('subjects');
+const { items: classPartItems } = useGenericCache('class_parts');
+const { items: groupItems } = useGenericCache('groups');
+const { items: materialItems } = useGenericCache('materials');
+
+function toMap(items: any[]): Record<number, any> {
+  return items.reduce((map: Record<number, any>, item: any) => { map[item.id] = item; return map; }, {});
+}
+
+const subjectMap = computed(() => toMap(subjectItems.value));
+const classPartMap = computed(() => toMap(classPartItems.value));
+const groupMap = computed(() => toMap(groupItems.value));
+const materialMap = computed(() => toMap(materialItems.value));
+
+const periodOptions = computed(() => {
+  const source = props.widgetParams?.sourceRecord || {};
+  const items = source.period_ids?.length
+    ? periodItems.value.filter((i: any) => source.period_ids.includes(i.id))
+    : periodItems.value;
+  return items.map((i: any) => ({ value: i.id, label: i.name || `Période ${i.id}` }));
+});
 
 function namesFor(ids: number[] | undefined, map: Record<number, any>): string {
   return (ids || []).map(id => map[id]?.display_name || map[id]?.name || `#${id}`).join(', ') || '—';
@@ -116,27 +135,6 @@ watch(() => props.modelValue, (val) => {
 function emitUpdate() {
   emit('update:modelValue', children.value);
 }
-
-function toMap(items: any[]): Record<number, any> {
-  return items.reduce((map: Record<number, any>, item: any) => { map[item.id] = item; return map; }, {});
-}
-
-onMounted(async () => {
-  const source = props.widgetParams?.sourceRecord || {};
-  const [periodsRes, subjectsRes, classPartsRes, groupsRes, materialsRes] = await Promise.all([
-    api.fetchAllGenericItems('periods'),
-    api.fetchAllGenericItems('subjects'),
-    api.fetchAllGenericItems('class_parts'),
-    api.fetchAllGenericItems('groups'),
-    api.fetchAllGenericItems('materials'),
-  ]);
-  const items = source.period_ids?.length ? periodsRes.items.filter((i: any) => source.period_ids.includes(i.id)) : periodsRes.items;
-  periodOptions.value = items.map((i: any) => ({ value: i.id, label: i.name || `Période ${i.id}` }));
-  subjectMap.value = toMap(subjectsRes.items);
-  classPartMap.value = toMap(classPartsRes.items);
-  groupMap.value = toMap(groupsRes.items);
-  materialMap.value = toMap(materialsRes.items);
-});
 </script>
 
 <style scoped>

@@ -13,49 +13,20 @@ from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.group import Group
 from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
 from backend.app.solver.solver import start_solve_timetable_async, SolverState
-from backend.app.api.generic import sqla_to_dict
 
 router = APIRouter(prefix="/api/timetable")
 
-@router.get("", response_model=Dict[str, Any])
-def get_timetable(school_id: Optional[int] = None, db: Session = Depends(get_db)):
-    teachers_query = select(Teacher)
-    classrooms_query = select(Classroom)
-    divisions_query = select(Division)
-    courses_query = select(Course)
-    
-    if school_id is not None:
-        teachers_query = teachers_query.filter(Teacher.school_id == school_id)
-        classrooms_query = classrooms_query.filter(Classroom.school_id == school_id)
-        divisions_query = divisions_query.filter(Division.school_id == school_id)
-        courses_query = courses_query.filter(Course.school_id == school_id)
-        
-    teachers = db.execute(teachers_query).scalars().unique().all()
-    classrooms = db.execute(classrooms_query).scalars().unique().all()
-    divisions = db.execute(divisions_query).scalars().unique().all()
-    timeslots = Timeslot.get_active_timeslots(db)
-    courses = db.execute(courses_query).scalars().unique().all()
-    non_teaching_staffs = db.execute(select(NonTeachingStaff)).scalars().unique().all()
-
-    return {
-        "teachers": [t.to_dict() if hasattr(t, "to_dict") else {"id": t.id, "display_name": t.display_name, "first_name": getattr(t, "first_name", ""), "last_name": getattr(t, "last_name", ""), "school_id": t.school_id} for t in teachers],
-        "non_teaching_staffs": [{"id": s.id, "display_name": s.display_name, "first_name": s.first_name, "last_name": s.last_name, "role": s.role, "school_id": s.school_id} for s in non_teaching_staffs],
-        "classrooms": [c.to_dict() if hasattr(c, "to_dict") else {"id": c.id, "display_name": c.display_name, "capacity": c.capacity, "school_id": c.school_id} for c in classrooms],
-        "divisions": [d.to_dict() if hasattr(d, "to_dict") else {"id": d.id, "display_name": d.display_name, "school_id": d.school_id} for d in divisions],
-        "timeslots": [ts.to_dict() if hasattr(ts, "to_dict") else {"id": ts.id, "day_of_week": ts.day_of_week, "minutes_from_midnight": ts.minutes_from_midnight, "day_of_week_str": getattr(ts, "day_of_week_str", ""), "display_name": getattr(ts, "display_name", "")} for ts in timeslots],
-        "courses": [
-            {
-                **sqla_to_dict(c),
-                "subject": c.subject_relation.short_name if c.subject_relation else "Cours",
-                "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
-            }
-            for c in courses
-        ],
-    }
+# GET "" (collation teachers/classrooms/divisions/timeslots/courses/non_teaching_staffs en un
+# round-trip) a été retiré : le frontend appelle désormais directement l'API générique pour
+# chacune de ces ressources (voir App.vue::loadData, architecture.md §15.U) — même filtre
+# school_id, mêmes données (en mieux : sqla_to_dict() sérialise plus de champs que les dicts à la
+# main que cet endpoint construisait ici). Le seul filtre non trivial (timeslots "actifs") est
+# désormais une hybrid_property générique (Timeslot.active, voir timeslot.py) plutôt qu'une
+# logique bespoke à cet endpoint.
 
 @router.get("/status")
 def get_status():
-    return {"status": SolverState.get_status()}
+    return SolverState.get_snapshot()
 
 from backend.app.solver.solver import explain_timetable_score, calculate_course_heatmap
 

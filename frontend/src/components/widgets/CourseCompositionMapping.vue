@@ -112,10 +112,12 @@
 // dépendance croisée sans machinerie supplémentaire. modelValue est un objet composite
 // {mapping, mode} ; voir CourseCompositionPreview.vue pour l'étape suivante.
 import { ref, computed, onMounted, watch } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
 import BaseButton from '../BaseButton.vue';
 import SearchableSelect from '../SearchableSelect.vue';
 import SearchableMultiSelect from '../SearchableMultiSelect.vue';
 import * as api from '../../services/api';
+import { useGenericCache, genericCacheKey } from '../../composables/useGenericCache';
 
 const props = defineProps<{
   modelValue: { mapping: any[]; mode: number | null };
@@ -129,16 +131,34 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: { mapping: any[]; mode: number | null }): void;
 }>();
 
-const teacherOptions = ref<Array<{ value: number; label: string }>>([]);
-const subjectOptions = ref<Array<{ value: number; label: string }>>([]);
-const groupOptions = ref<Array<{ value: number; label: string }>>([]);
-const classPartOptions = ref<Array<{ value: number; label: string }>>([]);
-const divisionOptions = ref<Array<{ value: number; label: string }>>([]);
-const classroomOptions = ref<Array<{ value: number; label: string }>>([]);
+// Collections partagées (voir useGenericCache, architecture.md §15.T) — plus de fetch local
+// dupliqué avec les autres consommateurs de ces mêmes ressources.
+const { items: teacherItems } = useGenericCache('teachers');
+const { items: subjectItems } = useGenericCache('subjects');
+const { items: groupItems } = useGenericCache('groups');
+const { items: classPartItems } = useGenericCache('class_parts');
+const { items: divisionItems } = useGenericCache('divisions');
+const { items: classroomItems } = useGenericCache('classrooms');
+
+const filterByIds = (items: any[], ids: number[] | undefined) => (ids && ids.length > 0 ? items.filter((i: any) => ids.includes(i.id)) : items);
+
+const teacherOptions = computed(() => filterByIds(teacherItems.value, props.widgetParams?.sourceRecord?.teacher_ids).map((i: any) => ({ value: i.id, label: `${i.first_name} ${i.last_name}` })));
+// Pas de filtrage par matière du parent : un cours composé n'a souvent aucune matière propre (ex:
+// "Pôle Sciences", subject_id NULL) — le mapping doit pouvoir choisir parmi TOUTES les matières,
+// c'est justement ce qui permet à chaque enfant d'avoir la sienne.
+const subjectOptions = computed(() => subjectItems.value.map((i: any) => ({ value: i.id, label: i.name || `Matière ${i.id}` })));
+const groupOptions = computed(() => filterByIds(groupItems.value, props.widgetParams?.sourceRecord?.group_ids).map((i: any) => ({ value: i.id, label: i.name || `Groupe ${i.id}` })));
+const classPartOptions = computed(() => filterByIds(classPartItems.value, props.widgetParams?.sourceRecord?.class_part_ids).map((i: any) => ({ value: i.id, label: i.name || `Partie ${i.id}` })));
+const divisionOptions = computed(() => filterByIds(divisionItems.value, props.widgetParams?.sourceRecord?.division_ids).map((i: any) => ({ value: i.id, label: i.name || `Classe ${i.id}` })));
+const classroomOptions = computed(() => filterByIds(classroomItems.value, props.widgetParams?.sourceRecord?.classroom_ids).map((i: any) => ({ value: i.id, label: i.name || `Salle ${i.id}` })));
+
 // teacher.id -> teacher.preferred_subject_id, pour pré-remplir la matière d'une ligne dès qu'on y
 // choisit un premier professeur (voir onTeacherChanged) — jamais recalculé de force ensuite, une
-// matière déjà choisie (par cette pré-saisie ou manuellement) n'est plus jamais écrasée.
-const teacherPreferredSubject = ref<Record<number, number>>({});
+// matière déjà choisie (par cette pré-saisie ou manuellement) n'est plus jamais écrasée (cette
+// table elle-même reste réactive, seule l'écriture sur une ligne de mapping ne l'est pas).
+const teacherPreferredSubject = computed(() => Object.fromEntries(
+  teacherItems.value.filter((t: any) => t.preferred_subject_id != null).map((t: any) => [t.id, t.preferred_subject_id])
+));
 
 const mapping = ref<Array<any>>(
   props.modelValue?.mapping?.length
@@ -175,33 +195,16 @@ function emitUpdate() {
 
 let debounceTimeout: any = null;
 
+const queryClient = useQueryClient();
+
 onMounted(async () => {
   const source = props.widgetParams?.sourceRecord || {};
-  const [teachersRes, subjectsRes, groupsRes, classPartsRes, divisionsRes, classroomsRes] = await Promise.all([
-    api.fetchAllGenericItems('teachers'),
-    api.fetchAllGenericItems('subjects'),
-    api.fetchAllGenericItems('groups'),
-    api.fetchAllGenericItems('class_parts'),
-    api.fetchAllGenericItems('divisions'),
-    api.fetchAllGenericItems('classrooms'),
-  ]);
-
-  const filterByIds = (items: any[], ids: number[]) => (ids && ids.length > 0 ? items.filter((i: any) => ids.includes(i.id)) : items);
-
-  teacherOptions.value = filterByIds(teachersRes.items, source.teacher_ids).map((i: any) => ({ value: i.id, label: `${i.first_name} ${i.last_name}` }));
-  // Pas de filtrage par matière du parent : un cours composé n'a souvent aucune matière propre
-  // (ex: "Pôle Sciences", subject_id NULL) — le mapping doit pouvoir choisir parmi TOUTES les
-  // matières, c'est justement ce qui permet à chaque enfant d'avoir la sienne.
-  subjectOptions.value = subjectsRes.items.map((i: any) => ({ value: i.id, label: i.name || `Matière ${i.id}` }));
-  teacherPreferredSubject.value = Object.fromEntries(
-    teachersRes.items.filter((t: any) => t.preferred_subject_id != null).map((t: any) => [t.id, t.preferred_subject_id])
-  );
-  groupOptions.value = filterByIds(groupsRes.items, source.group_ids).map((i: any) => ({ value: i.id, label: i.name || `Groupe ${i.id}` }));
-  classPartOptions.value = filterByIds(classPartsRes.items, source.class_part_ids).map((i: any) => ({ value: i.id, label: i.name || `Partie ${i.id}` }));
-  divisionOptions.value = filterByIds(divisionsRes.items, source.division_ids).map((i: any) => ({ value: i.id, label: i.name || `Classe ${i.id}` }));
-  classroomOptions.value = filterByIds(classroomsRes.items, source.classroom_ids).map((i: any) => ({ value: i.id, label: i.name || `Salle ${i.id}` }));
 
   if (!props.modelValue?.mapping?.length && source.teacher_ids?.length > 0) {
+    // teacherPreferredSubject dérive de teacherItems (cache partagé, voir déclarations
+    // ci-dessus) : s'assurer qu'il est chargé avant ce bootstrap ponctuel du mapping initial,
+    // qui ne doit s'exécuter qu'une seule fois (voir garde ci-dessus).
+    await queryClient.ensureQueryData({ queryKey: genericCacheKey('teachers'), queryFn: () => api.fetchAllGenericItems('teachers') });
     mapping.value = source.teacher_ids.map((teacherId: number) => ({
       teacher_ids: [teacherId],
       subject_id: teacherPreferredSubject.value[teacherId] ?? null,

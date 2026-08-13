@@ -80,6 +80,7 @@
           :teachers="teachers"
           :divisions="divisions"
           :classrooms="classrooms"
+          :subjects="subjects"
           :selectedCourseIds="selectedCourseIds"
           :currentStandardDuration="currentStandardDuration"
           @selectCourse="(id, ev) => $emit('selectCourse', id, ev)"
@@ -98,7 +99,7 @@
           :overlapIndex="getOverlapInfo(course.id).index"
           :overlapCount="getOverlapInfo(course.id).count"
           :isSelected="(selectedCourseIds || []).includes(course.id)"
-          :backgroundColor="course.color || '#cbd5e1'"
+          :subjects="subjects"
           :height="getCourseHeight(course)"
           :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
           :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
@@ -117,6 +118,15 @@
           <div class="spinner"></div>
           <div style="color: #black; font-weight: 500; font-size: 16px;">
             {{ isLoadingHeatmap ? 'Évaluation de la Heatmap...' : 'Calcul de l\'emploi du temps optimal...' }}
+          </div>
+          <!-- Progression best-effort (voir solver.py) : le score dur/doux le plus récent connu
+               peut manquer par intermittence (limitation du paquet timefold bêta), le temps
+               écoulé/limite reste lui toujours fiable. -->
+          <div v-if="!isLoadingHeatmap" class="solver-progress-info">
+            <span v-if="solverProgress">Score : {{ solverProgress.hard_score }}H / {{ solverProgress.soft_score }}S</span>
+            <span v-if="solverElapsedSeconds != null">
+              Temps écoulé : {{ Math.round(solverElapsedSeconds) }}s{{ solverTimeLimitSeconds ? ` / ${solverTimeLimitSeconds}s max` : '' }}
+            </span>
           </div>
         </div>
       </template>
@@ -143,6 +153,7 @@ import GridContainer from './GridContainer.vue';
 import Sidebar from './Sidebar.vue';
 import CourseCard from './CourseCard.vue';
 import { useTimeslotGrid, getTimeslotHour } from '../composables/useTimeslotGrid';
+import { apiFetch } from '../services/api';
 
 const props = defineProps<{
   courses: Course[];
@@ -151,6 +162,7 @@ const props = defineProps<{
   nonTeachingStaffs: NonTeachingStaff[];
   divisions: Division[];
   classrooms: Classroom[];
+  subjects?: any[];
   selectedTeacherIds: number[];
   selectedNonTeachingStaffIds: number[];
   selectedDivisionIds: number[];
@@ -161,6 +173,9 @@ const props = defineProps<{
   schools?: any[];
   schoolId?: number | null;
   scoreData?: any;
+  solverProgress?: { hard_score: number; soft_score: number } | null;
+  solverElapsedSeconds?: number | null;
+  solverTimeLimitSeconds?: number | null;
   periodTypes?: any[];
   periods?: any[];
   periodTypeId?: number | null;
@@ -256,7 +271,7 @@ watch(() => [props.placementAssistantActive, props.selectedCourseIds], async ([i
       isLoadingHeatmap.value = true;
     }, HEATMAP_SPINNER_DELAY_MS);
     try {
-      const response = await fetch(`/api/timetable/courses/${courseId}/heatmap`);
+      const response = await apiFetch(`/api/timetable/courses/${courseId}/heatmap`);
       if (response.ok) {
         const data = await response.json();
         const mappedData: Record<string, any> = {};

@@ -14,7 +14,7 @@
         :course="course"
         :isSelected="(selectedCourseIds || []).includes(course.id)"
         :isPlaced="false"
-        :backgroundColor="course.color || '#cbd5e1'"
+        :subjects="subjects"
         :height="getSidebarCourseHeight(course)"
         :teachersText="course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : ''"
         :divisionsText="course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : ''"
@@ -42,11 +42,10 @@ const props = defineProps<{
   teachers: Teacher[];
   divisions: Division[];
   classrooms?: Classroom[];
+  subjects?: any[];
   selectedCourseIds?: number[];
   currentStandardDuration?: number;
 }>();
-
-// Colors are now handled by course.color from database
 
 function getSidebarCourseHeight(course: Course) {
   const duration = course.duration_minutes || 30;

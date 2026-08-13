@@ -111,6 +111,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import * as api from '../services/api';
+import { useGenericCache } from '../composables/useGenericCache';
 
 interface School {
   id: number;
@@ -162,28 +163,28 @@ const hasSchoolDates = computed(() => {
   return !!activeSchool.value?.student_start_date && !!activeSchool.value?.student_end_date;
 });
 
-async function loadPeriods() {
-  console.log("[PeriodTransitionManager] loadPeriods - props.periodTypeId:", props.periodTypeId, "selectedSchoolId:", selectedSchoolId.value);
+// Périodes de l'école sélectionnée via le cache partagé (voir useGenericCache,
+// architecture.md §15.T) — partage sa clé/son fetch avec PreferenceGrid pour la même école, et
+// avec periodsList (App.vue) via le préfixe ['genericList','periods'] pour l'invalidation. Le
+// filtrage par periodTypeId et le tri restent une dérivation locale : localPeriods reste un
+// brouillon éditable (ajout/suppression de lignes avant enregistrement), pas un simple miroir.
+const schoolPeriodsFilter = computed(() => (selectedSchoolId.value ? { school_id: selectedSchoolId.value } : null));
+const { items: schoolPeriods } = useGenericCache('periods', schoolPeriodsFilter, computed(() => !!selectedSchoolId.value));
+
+function loadPeriods() {
   if (!props.periodTypeId || !selectedSchoolId.value) {
     localPeriods.value = [];
     deletedPeriodIds.value = [];
     return;
   }
-  try {
-    const res = await api.fetchAllGenericItems('periods', selectedSchoolId.value);
-    console.log("[PeriodTransitionManager] fetched periods list:", res.items);
-    localPeriods.value = res.items
-      .filter((p: any) => Number(p.period_type_id) === Number(props.periodTypeId))
-      .sort((a: any, b: any) => a.start_date.localeCompare(b.start_date));
-    console.log("[PeriodTransitionManager] filtered periods:", localPeriods.value);
-    deletedPeriodIds.value = [];
-    adjustPeriodsToSchoolDates();
-  } catch (e) {
-    console.error("Erreur de chargement des périodes", e);
-  }
+  localPeriods.value = schoolPeriods.value
+    .filter((p: any) => Number(p.period_type_id) === Number(props.periodTypeId))
+    .sort((a: any, b: any) => a.start_date.localeCompare(b.start_date));
+  deletedPeriodIds.value = [];
+  adjustPeriodsToSchoolDates();
 }
 
-watch([() => props.periodTypeId, selectedSchoolId], loadPeriods, { immediate: true });
+watch([() => props.periodTypeId, selectedSchoolId, schoolPeriods], loadPeriods, { immediate: true });
 watch(activeSchool, adjustPeriodsToSchoolDates);
 
 function adjustPeriodsToSchoolDates() {
@@ -311,7 +312,10 @@ async function savePeriods() {
     }
     alert("Enregistré avec succès !");
     emit('change');
-    await loadPeriods();
+    // Invalide le cache partagé 'periods' (pas de rappel local à loadPeriods() : le fetch était
+    // auparavant refait ici à la main faute de cache commun — désormais schoolPeriods se
+    // rafraîchit lui-même, et localPeriods avec, via le watch ci-dessus).
+    window.dispatchEvent(new CustomEvent('resource:mutated', { detail: { resource_name: 'periods' } }));
   } catch (e: any) {
     alert("Erreur : " + (e.message || e));
   } finally {

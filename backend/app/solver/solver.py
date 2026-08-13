@@ -16,7 +16,9 @@ from backend.app.models.preference import ResourcePreference
 from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint, SubjectToSubjectConstraint
 from backend.app.models.period import Period
 from backend.app.core.database import SessionLocal
+from backend.app.core.exclusive_mode import enter_exclusive_mode, exit_exclusive_mode_and_rotate_token, clear_exclusive_mode
 import threading
+import time
 from backend.app.solver.constraints import (
     PlanningTeacher,
     PlanningNonTeachingStaff,
@@ -37,12 +39,20 @@ class SolverState:
     _lock = threading.Lock()
     active_solver = None
     status = "NOT_SOLVING"
+    _progress = None
+    _last_progress_at = None
+    _started_at = None
+    _time_limit_seconds = None
 
     @classmethod
-    def set_solving(cls, solver):
+    def set_solving(cls, solver, time_limit_seconds=None):
         with cls._lock:
             cls.active_solver = solver
             cls.status = "SOLVING"
+            cls._progress = None
+            cls._last_progress_at = None
+            cls._started_at = time.monotonic()
+            cls._time_limit_seconds = time_limit_seconds
 
     @classmethod
     def set_solving_status(cls):
@@ -54,6 +64,10 @@ class SolverState:
         with cls._lock:
             cls.active_solver = None
             cls.status = "NOT_SOLVING"
+            cls._progress = None
+            cls._last_progress_at = None
+            cls._started_at = None
+            cls._time_limit_seconds = None
 
     @classmethod
     def get_status(cls):
@@ -68,6 +82,38 @@ class SolverState:
                     cls.active_solver.terminate_early()
                 except Exception:
                     pass
+
+    @classmethod
+    def set_progress(cls, hard_score: int, soft_score: int):
+        """
+        Throttlé à 1 mise à jour/seconde : le listener Timefold (voir _solve_timetable_job) peut
+        être notifié plusieurs fois par seconde, surtout pendant la phase de construction — écrire
+        à cette fréquence dans un état partagé verrouillé n'apporterait rien, le frontend ne
+        pollant /status que toutes les 3s (App.vue::checkStatus). La toute première notification
+        d'une résolution passe toujours immédiatement (pas d'attente initiale d'1s à vide).
+        """
+        now = time.monotonic()
+        with cls._lock:
+            if cls._last_progress_at is not None and now - cls._last_progress_at < 1.0:
+                return
+            cls._last_progress_at = now
+            cls._progress = {"hard_score": hard_score, "soft_score": soft_score}
+
+    @classmethod
+    def get_snapshot(cls):
+        """
+        Réponse complète pour /status : statut, dernier score connu, temps écoulé/limite — tout ce
+        dont le frontend a besoin pour afficher une progression, sans jamais exposer l'état interne
+        des entités de la solution (voir la mise en garde dans _solve_timetable_job).
+        """
+        with cls._lock:
+            elapsed = None if cls._started_at is None else round(time.monotonic() - cls._started_at, 1)
+            return {
+                "status": cls.status,
+                "progress": cls._progress,
+                "elapsed_seconds": elapsed,
+                "time_limit_seconds": cls._time_limit_seconds,
+            }
 
 
 def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
@@ -389,7 +435,19 @@ def _get_solver_factory():
 
 def _solve_timetable_job(db_session=None, school_id=None):
     db = db_session if db_session else SessionLocal()
+    entered_exclusive = False
     try:
+        # Mode exclusif (voir core/exclusive_mode.py, architecture.md) : bloque toute écriture
+        # concurrente (via une autre session que celle-ci) tant que la résolution tourne — sans
+        # ça, un utilisateur pourrait modifier des données que le solveur est en train
+        # d'exploiter, ou voir son écriture silencieusement écrasée par le résultat du solveur à
+        # la fin. `enter_exclusive_mode` commit immédiatement (transaction dédiée), pour que ce
+        # soit visible des AUTRES sessions dès maintenant. bypass_exclusive_mode autorise CETTE
+        # session (et elle seule) à continuer d'écrire pendant sa propre fenêtre de mode exclusif.
+        enter_exclusive_mode(db, user="admin")
+        entered_exclusive = True
+        db.info["bypass_exclusive_mode"] = True
+
         problem = _build_planning_problem(db, school_id)
         solver_factory = _get_solver_factory()
         # Limites de temps appliquées ICI, pas à la construction du SolverFactory (mise en cache
@@ -405,7 +463,38 @@ def _solve_timetable_job(db_session=None, school_id=None):
         ))
 
         # Enregistrer le solveur actif
-        SolverState.set_solving(solver)
+        SolverState.set_solving(solver, time_limit_seconds=limit_seconds)
+
+        # Notifié à chaque nouvelle "meilleure solution" trouvée pendant la résolution (pas
+        # seulement à la fin) — permet d'exposer une progression en direct (/status, voir
+        # SolverState.set_progress) sans changer l'appel bloquant solver.solve() ci-dessous.
+        # Le throttle (1 update/s) est géré côté SolverState, pas ici.
+        #
+        # DEUX LIMITATIONS CONNUES DU PAQUET timefold 1.24.0b0 (bêta) INSTALLÉ ICI, testées en
+        # conditions réelles (thread d'arrière-plan, comme en production) — best-effort assumé :
+        # 1. Ne JAMAIS lire les champs des entités de event.new_best_solution ici (ex: un
+        #    for pc in event.new_best_solution.courses: pc.timeslot, pour compter les cours
+        #    placés) : ça corrompt de façon intermittente (~1 fois sur 5 dans nos essais) la
+        #    conversion Java->Python de la solution FINALE à la sortie de solver.solve() plus bas
+        #    — un vrai risque de perdre la sauvegarde d'une résolution réussie pour un simple
+        #    affichage. event.new_best_score (un objet valeur simple, jamais un graphe d'entités)
+        #    est resté stable dans tous nos essais : seul le score est donc exposé en direct, pas
+        #    un décompte "cours placés / total" (voir architecture.md).
+        # 2. Même limité au score, ce listener ne se déclenche pas de façon fiable une fois
+        #    invoqué depuis un thread d'arrière-plan (parfois 0 appel sur toute la résolution,
+        #    de façon non déterministe — reproduit y compris en ne touchant que le score). Sans
+        #    risque de corruption (contrairement au point 1), juste une progression parfois
+        #    absente : le frontend doit donc traiter `progress: null` comme "pas encore de score
+        #    connu", jamais comme une erreur, et se rabattre sur status/elapsed_seconds (fiables à
+        #    100%, aucun accès JPype) qui restent la seule donnée de progression garantie.
+        def _on_best_solution_changed(event):
+            score = event.new_best_score
+            SolverState.set_progress(
+                score.hard_score if hasattr(score, 'hard_score') else 0,
+                score.soft_score if hasattr(score, 'soft_score') else 0,
+            )
+
+        solver.add_event_listener(_on_best_solution_changed)
 
         try:
             solution = solver.solve(problem)
@@ -475,12 +564,30 @@ def _solve_timetable_job(db_session=None, school_id=None):
 
                 db_course.recompute_status()
 
+        # exit_exclusive_mode_and_rotate_token ne commit pas elle-même : sa mise à jour (levée du
+        # mode exclusif + nouveau jeton d'écriture) part dans LE MÊME commit que les résultats du
+        # solveur ci-dessus — atomicité indispensable (voir exclusive_mode.py) pour qu'un crash
+        # entre les deux ne laisse jamais un jeton qui ne reflète pas fidèlement l'état des
+        # données.
+        exit_exclusive_mode_and_rotate_token(db)
         db.commit()
         return solution
 
     except Exception as e:
         db.rollback()
         print(f"Solver thread error: {e}")
+        if entered_exclusive:
+            # Le rollback ci-dessus défait la tentative de sortie de mode exclusif si elle avait
+            # été atteinte (ainsi que toute écriture de résultats) — mais PAS l'entrée en mode
+            # exclusif, déjà commitée séparément avant que quoi que ce soit d'autre ne commence.
+            # Sans ce rattrapage explicite, une résolution qui échoue laisserait le mode exclusif
+            # bloqué jusqu'au prochain redémarrage du process. Volontairement SANS rotation du
+            # jeton ici : aucune donnée n'a réellement changé, aucune raison d'invalider les
+            # navigateurs déjà à jour.
+            try:
+                clear_exclusive_mode(db)
+            except Exception:
+                db.rollback()
         raise e
     finally:
         if not db_session:

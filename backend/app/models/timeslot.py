@@ -3,18 +3,22 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, constrains, exposed
 
-def get_dynamic_step():
+def _get_standard_duration_minutes() -> int:
+    """STANDARD_TIMESLOT_DURATION dans une session dédiée — pour les contextes sans session déjà
+    ouverte (callback info={"step":...}, expression SQL de Timeslot.active ci-dessous)."""
     from backend.app.core.database import SessionLocal
     from backend.app.models.system_setting import SystemSetting
     db = SessionLocal()
     try:
-        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
-        duration = int(val)
-        return duration / 60.0
+        return int(SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION"))
     finally:
         db.close()
+
+def get_dynamic_step():
+    return _get_standard_duration_minutes() / 60.0
 
 class Timeslot(Base):
     __tablename__ = "timeslots"
@@ -45,18 +49,46 @@ class Timeslot(Base):
         if self.minutes_from_midnight % duration != 0:
             raise ValueError(f"L'heure du créneau (minute {self.minutes_from_midnight}) n'est pas un multiple exact de la durée standard ({duration} minutes).")
 
+    # Booléen calculé, non stocké — un créneau est "actif" quand son heure de début tombe sur un
+    # multiple exact de la durée standard courante (STANDARD_TIMESLOT_DURATION, réglable en cours
+    # de route). PAS de @exposed : ce champ n'a pas vocation à apparaître dans le JSON de chaque
+    # ligne (ce qui ouvrirait une session DB par ligne lors d'un simple listing) — seule sa
+    # filtrabilité via l'API générique est recherchée ici (?active=true), voir
+    # generic.py::make_list_endpoint, architecture.md §15.U.
+    #
+    # .expression EST une sous-requête SQL scalaire sur system_settings, PAS un fetch Python
+    # (via _get_standard_duration_minutes) : un hybrid_property.expression est un classmethod
+    # sans session en paramètre, appelé au moment de CONSTRUIRE la requête, avant toute exécution
+    # — une session ouverte à la main à cet instant pointerait sur la base "par défaut"
+    # (core.database.SessionLocal), pas forcément celle de l'appelant (ex: la base de test isolée
+    # substituée via un override FastAPI). La sous-requête, elle, s'exécute DANS la même
+    # transaction/connexion que la requête englobante, quelle que soit la session utilisée par
+    # l'appelant — correcte aussi bien en test qu'en production.
+    @hybrid_property
+    def active(self) -> bool:
+        from sqlalchemy.orm import object_session
+        from backend.app.models.system_setting import SystemSetting
+        db = object_session(self)
+        duration = (
+            int(SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION"))
+            if db is not None else _get_standard_duration_minutes()
+        )
+        return self.minutes_from_midnight % duration == 0
+
+    @active.expression
+    def active(cls):
+        from sqlalchemy import cast, Integer, select as sa_select
+        from backend.app.models.system_setting import SystemSetting
+        duration_subquery = (
+            sa_select(cast(SystemSetting.value, Integer))
+            .where(SystemSetting.key == "STANDARD_TIMESLOT_DURATION")
+            .scalar_subquery()
+        )
+        return (cls.minutes_from_midnight % duration_subquery) == 0
+
     @classmethod
     def get_active_timeslots(cls, db):
-        from backend.app.models.system_setting import SystemSetting
-        val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
-        duration = int(val)
-        
-        all_ts = db.query(cls).all()
-        active_ts = []
-        for ts in all_ts:
-            if ts.minutes_from_midnight % duration == 0:
-                active_ts.append(ts)
-        return active_ts
+        return cls.read(db, domain={"active": True})
 
 
     # Index unique composé pour empêcher les doublons de créneaux

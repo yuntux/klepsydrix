@@ -41,3 +41,9 @@ from backend.app.models.ref_function import RefFunction
 from backend.app.models.ref_support import RefSupport
 from backend.app.models.ref_support_type import RefSupportType
 from backend.app.models.ref_city import RefCity
+
+# Table de verrou "mode exclusif" (voir core/exclusive_mode.py) : PAS un modèle ORM (donc jamais
+# exposé via /api/generic), mais son import doit tout de même se produire tôt et systématiquement
+# pour que le listener before_flush qu'il enregistre soit actif dans tout contexte qui importe ce
+# paquet (API, solveur, tests) — exactement pour la même raison que tous les modèles ci-dessus.
+import backend.app.core.exclusive_mode  # noqa: E402,F401
