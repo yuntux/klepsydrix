@@ -891,6 +891,21 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
 - **`OwnedRelationField.vue`** : porte l'état brouillon (`draftRows`), hydraté une fois depuis le serveur au premier besoin (le formulaire ne reçoit initialement qu'un tableau d'ids "à plat", sans les champs — nécessaires pour l'édition en popin), puis remonté via `update:modelValue`. Filtre `display_name` (propriété calculée en lecture seule côté serveur — la renvoyer ferait planter le `setattr` sans setter) et la FK parent (calculée côté serveur, jamais fournie par le client) avant émission. Un garde anti-boucle (`lastEmittedJson`) distingue un écho de sa propre émission d'une resynchronisation externe légitime (ex: "Annuler", qui restaure `localModel` depuis son instantané initial — recapturé automatiquement à la bonne forme grâce au cycle de synchronisation `props.modelValue` ↔ `localModel` déjà existant dans `GenericForm.vue`).
 - **Colonne de liste (`GenericList.vue`) — mode différent, `liveSync`** : une ligne de liste existe déjà indépendamment de ce widget (pas de "soumission" à différer) — comportement historique conservé via un prop `liveSync` sur `OwnedRelationField.vue` : la popin reste en mode direct/serveur (persistance immédiate de chaque action), et le widget se contente d'écouter `resource:mutated` pour rafraîchir l'affichage des tags après chaque mutation externe.
 
+### J.1 Widget `relation_browser` — Parcourir/Gérer une Relation Indépendante (one2many ou many2many, jamais many2one), en Popin
+
+**Différence de fond avec la section J** : `OwnedRelationField` (ci-dessus) traite des enfants **possédés** — un `ServiceRepartition` n'a aucun sens hors de son `Service`, la FK retour est obligatoire. `relation_browser` traite l'AUTRE cas déjà identifié en tête de section J : un many-to-many vers des enregistrements **indépendants** (ex: `Teacher`, `ServiceRepartition` référencés par `TrmdLine.def_teacher_ids`/`need_ids`) — ils existent et gardent un sens complet en dehors du parent qui les référence. `SearchableMultiSelect` reste le widget par défaut pour ce cas ; `relation_browser` est une présentation alternative — un bouton icône loupe ouvrant une popin en lieu et place des tags+dropdown inline — utile quand la ressource liée a assez de champs propres pour justifier une vraie vue liste plutôt que de simples tags (cas d'usage déclencheur : les colonnes "détail" de la synthèse TRMD, `trmd_synthesis.py::_field_info`).
+
+**Déclaration explicite, jamais structurelle** : contrairement à `OwnedRelationField` (déclenché automatiquement dès que `resource`+`parentField` sont présents), `relation_browser` est un widget classique du registre (`widgets/registry.ts`, `contexts: ['list', 'form']`) — ne s'applique qu'où `"widget": "relation_browser"` est explicitement déclaré (dans `ui.json` ou, comme pour TRMD, directement dans le `info={}`/`_field_info` du modèle backend, propagé tel quel par `generic.py`).
+
+**Un seul mode, contrairement à `OwnedRelationField`, et pourquoi** : `OwnedRelationField` a besoin de deux modes (`liveSync`) parce que ses enfants dépendent du parent — en formulaire de création, le parent peut ne pas encore exister, donc aucune écriture directe n'est possible tant qu'il n'est pas sauvegardé. `relation_browser` n'a pas ce problème pour la donnée qu'il manipule : le "lien" n'est qu'une valeur de champ sur le parent (un tableau d'ids), exactement comme n'importe quel autre champ — sa persistance suit donc déjà, dans tous les contextes, le même mécanisme que n'importe quel autre champ édité (sauvegarde de la ligne en liste, ou soumission du formulaire). `RelationBrowserField.vue` fonctionne donc en un seul mode, toujours : hydrater une copie locale (`draftRows`) depuis `modelValue` (une requête `GET`, même principe que l'hydratation initiale d'`OwnedRelationField` — lire pour afficher n'a pas le problème du parent pas encore créé, seules les MUTATIONS de membership l'ont), puis ne remonter les changements que via `update:modelValue`.
+
+**La popin ne fait jamais de requête pour lier/délier** — nouvelle prop `manageMembership` sur `GenericListModal.vue`, qui réutilise presque intégralement le mode `draftItems` déjà en place (section J ci-dessus) :
+- **Délier** (`onDelete`) : **aucun changement de code** — en mode `draftItems`, `onDelete` fait déjà un filtrage 100% local + `emit('update:draftItems', ...)`, jamais d'appel `DELETE` : c'est exactement le comportement "détacher" voulu ici, gratuit.
+- **Lier un enregistrement existant** : un bandeau dédié (`SearchableSelect`, affiché seulement si `manageMembership` et que l'ajout n'est pas désactivé), alimenté par `fkOptions(resourceKey)` — le cache FK déjà chargé globalement par `App.vue::loadFkOptionsForModel` dès l'ouverture de l'onglet, donc zéro requête. Sélectionner une option pousse une ligne minimale (`{id, display_name}`) et émet `update:draftItems` (`onAttachExisting`, nouvelle fonction — distincte de `onAdd`, qui crée une ligne vierge et reste réservé au cas "enfant possédé").
+- **Éditer un champ propre d'une ligne déjà liée** : SEULE exception qui persiste immédiatement (`onUpdateItem`, condition affinée en `isDraftMode && !manageMembership` pour la branche 100% locale) — cet enregistrement existe indépendamment du parent, éditer son propre champ (ex: le nom d'un `Teacher` depuis `def_teacher_ids`) n'a aucun rapport avec l'état de sauvegarde du parent. Un `emit('update:draftItems', ...)` après succès garde la copie locale du widget appelant synchronisée (sans quoi l'édition serait perdue à la fermeture/réouverture de la popin, `RelationBrowserField.vue` ne la voyant jamais autrement).
+
+**Affichage minimal, volontairement** : juste le bouton icône loupe, sans les tags qu'affiche `OwnedRelationField` — un choix délibéré (pas une simplification par défaut) pour rester un composant compact utilisable aussi bien en cellule de tableau qu'en champ de formulaire.
+
 ### K. Dropdowns Tronqués dans une Popin Peu Remplie — Choix Délibéré de ne Pas Corriger la Cause de Fond
 
 **Le symptôme** : dans une popin peu remplie (ex: `GenericListModal` avec 2-3 lignes), un dropdown ouvert depuis une cellule (`SearchableSelect`/`SearchableMultiSelect`) ou le sélecteur de colonnes de `GenericList` peut apparaître tronqué, avec un ascenseur pour voir la fin de la liste.
@@ -1243,3 +1258,150 @@ correspond pas à cette discipline majeure, la somme complète sinon.
 paramètre de requête sur le moteur générique (`generic.py`) pour piloter ce contexte depuis une
 URL — seul du code Python interne (`trmd_synthesis.py`) le pose aujourd'hui. Rien n'empêche un
 futur besoin de réutiliser exactement le même idiome pour une autre clé de contexte.
+
+### W. Ligne de Total et Sur-en-têtes de Colonnes Génériques (`GenericList.vue`)
+
+Deux options `listConfig` génériques, ajoutées pour le premier écran TRMD (menu Pré-rentrée >
+TRMD, `resourceKey: "trmd_syntheses"`, voir spec.md « TrmdLine ») mais réutilisables par n'importe
+quel autre panneau `GenericList` — pas de composant bespoke.
+
+**Ligne de total en pied de tableau** (`listConfig.showColumnTotals: true`) : ajoute un `<tfoot>`
+sommant chaque colonne numérique visible sur les lignes **actuellement affichées**
+(`displayedItems`, la fenêtre paginée/virtualisée courante) — pas sur l'ensemble filtré, pour rester
+cohérent avec ce que l'utilisateur voit à l'écran sans requête supplémentaire. Toujours en lecture
+seule, aucun libellé "Total". Exclusion par colonne via `listConfig.columns[key].hideTotal: true`.
+Recalcul entièrement réactif (`computed` dérivé de `displayedItems`/`visibleColumns`) : se met à
+jour au tri, filtrage, scroll virtuel, édition en ligne.
+
+**Détection "colonne numérique"** : type de champ déclaré `number`, ou repli sur le type JS réel de
+la valeur affichée — SAUF pour un type déclaré `select`/`multiselect` (clé étrangère), jamais sommé
+même si ses valeurs sont des ids numériques (piège rencontré sur `discipline_id` de la synthèse
+TRMD : un id `1, 2, 3...` est un `number` JS valide, le repli le sommait par erreur avant cette
+exclusion). Seuls `number`/`select`/`multiselect` sont traités comme des déclarations faisant
+autorité contre le repli JS — tout autre type déclaré (notamment le `'text'` par défaut que
+`App.vue` assigne à un champ sans `type`/`ui_type` dans son schéma OpenAPI, cas de tout
+`related_field` sans `info={"type": ...}` explicite, ex: `Service.reduced_group_student_count`,
+`service.py`) reste soumis au repli `typeof`, pour continuer à sommer un champ numérique réel dont
+le type n'est simplement pas déclaré côté backend.
+
+**Sur-en-têtes de colonnes imbriquées** (`listConfig.columnGroups: Record<columnKey, string[]>`) :
+regroupe visuellement des colonnes sous un ou plusieurs libellés transverses (ex: « Besoins issus
+des services prévisionnels » au-dessus de 4 colonnes). Format dictionnaire clé=colonne plutôt qu'un
+arbre `{label, children}` séparé : l'ordre d'affichage réel reste piloté par `listConfig.columns`
+(seule source de vérité pour l'ordre — déjà `internalColumns`), un arbre séparé aurait obligé à
+maintenir deux ordres synchronisés. Chaque valeur va du libellé le plus englobant au plus précis
+(imbrication à N niveaux) ; colonne absente du dictionnaire ou tableau vide = pas de sur-en-tête.
+
+*Algorithme de rendu* (`headerRows`, un computed produisant une matrice `HeaderCell[][]`, une ligne
+par profondeur 0..`maxGroupDepth`) : une cellule HTML avec `rowspan` doit démarrer sur la
+**première** ligne qu'elle occupe (un rowspan ne s'étend que vers le bas, jamais vers le haut) —
+une colonne dont le chemin de groupe est plus court que `maxGroupDepth` (ou absent) place donc sa
+cellule interactive réelle (tri/redimension/glisser-déposer) à la ligne correspondant à la
+profondeur de son propre chemin, étirée jusqu'en bas via `rowspan = maxGroupDepth - depth + 1` — pas
+systématiquement sur la dernière ligne. Une fonction récursive (`processSegment`) parcourt
+`visibleColumns` en regroupant les colonnes consécutives partageant le même préfixe de chemin à
+chaque niveau (`colspan` = nombre de colonnes du groupe), et redescend d'un niveau sur ce
+sous-segment. La case à cocher de sélection groupée et la colonne Actions/sélecteur de colonnes
+sont toujours placées en ligne 0 avec `rowspan = maxGroupDepth + 1` (traitées comme "toujours
+ungrouped"). Masquer une colonne via le sélecteur recalcule automatiquement les `colspan`
+(réactif via `visibleColumns`) ; un groupe qui perd sa dernière colonne visible n'émet plus aucune
+cellule.
+
+**Incompatibilité avec le réordonnancement par glisser-déposer** : `columnGroupsActive = computed`
+(vrai dès que `columnGroups` a au moins une entrée). Quand actif, l'attribut `draggable` des `<th>`
+de colonne passe à `false` et les trois handlers (`onDragStart`/`onDragOver`/`onDrop`) sortent
+immédiatement en garde-fou — le sélecteur d'affichage/masquage des colonnes, lui, reste actif dans
+tous les cas (aucune dépendance à l'ordre, contrairement au drag & drop).
+
+**Refs de template dans une boucle imbriquée** : `selectAllCheckbox`/`dropdownRef` (case à cocher,
+sélecteur de colonnes) sont désormais rendus à l'intérieur d'un double `v-for` (lignes ×
+cellules) — Vue transforme silencieusement un `ref="nom"` classique en tableau dès qu'il est situé
+dans un `v-for`, même si une seule instance correspond réellement à la condition `v-if` qui
+l'entoure. Contournement : ref-fonction (`:ref="(el) => { selectAllCheckbox = el }"`) plutôt que
+`ref="selectAllCheckbox"`, qui affecte directement la variable sans jamais passer par un tableau.
+
+### X. Colonnes Non Triables / Non Filtrables (`sortable`/`filterable`, `GenericList.vue`)
+
+Deux options booléennes, symétriques, déclarables aux deux mêmes échelons que le reste des
+capacités de colonne de `GenericList.vue` — le champ backend (`info={}`) pour un défaut valable
+partout où la ressource est affichée, et `listConfig.columns[key]` (`ui.json`) pour une surcharge
+propre à un panneau précis. Triable/filtrable par défaut (opt-out, pas opt-in) : `true` tant que
+rien n'est déclaré, exactement comme `nullable`/`sortable` déjà en place pour d'autres options.
+
+**Propagation backend → frontend** : aucun changement nécessaire côté `generic.py` — le mécanisme
+de passthrough générique de `make_pydantic_model` (`json_schema_extra = {k: v for k, v in
+info.items() if k not in ("label", "type")}`, présent pour les trois branches : colonne SQL réelle,
+`TransientModel._field_info`, relation `_ids`) transmet déjà n'importe quelle clé `info={}`
+telle quelle, `sortable`/`filterable` y compris — même mécanisme déjà exploité par `widget`
+(section J.1) et `resource`. Côté `App.vue::getFormFieldsConfig`, chaque `FormField` embarque
+`sortable: prop.sortable !== false` et `filterable: prop.filterable !== false` (repli sur `true`
+identique à `nullable`).
+
+**Résolution de priorité** (`isColumnSortable`/`isColumnFilterable`, `GenericList.vue`) : la
+surcharge `listConfig.columns[key]` du panneau courant est prioritaire (`true` ou `false`
+explicites) ; sans surcharge, c'est le `sortable`/`filterable` du `FormField` (déclaration backend)
+qui s'applique.
+
+**Effet côté triable** : `toggleSort(key)` sort immédiatement si `!isColumnSortable(key)` — un clic
+sur l'en-tête reste sans effet. L'en-tête ne se présente plus non plus comme cliquable
+(`.th-content-not-sortable`, `cursor: default`, pas de changement de couleur au survol) : l'absence
+de réaction au clic ne doit pas surprendre l'utilisateur.
+
+**Effet côté filtrable** : la cellule de la ligne de filtrage (`filter-tr`) reste simplement vide —
+ni `<input>` texte, ni `color-swatch-picker` — plutôt que masquée ou supprimée, pour que la colonne
+garde son alignement avec l'en-tête et le corps du tableau au-dessus/en-dessous.
+
+**Indicateur de tri non réservé (`sort-indicator-placeholder` retiré)** : l'ancien `↕` affiché en
+permanence sur une colonne triable non triée (pour réserver visuellement sa place) a été retiré —
+aucune colonne, triable ou non, n'affiche plus rien tant qu'elle n'est pas activement triée (seul
+`▲`/`▼` apparaît, une fois `sortBy === cell.column.key`). Le libellé de l'en-tête profite de
+l'espace ainsi libéré. Changement purement visuel : le calcul de largeur de colonne
+(`App.vue::buildColumnsConfig`, qui prévoyait déjà une marge pour cet indicateur) reste inchangé,
+qu'il soit affiché ou non.
+
+### Y. Colonnes Figées à Gauche (`listConfig.frozenColumns`, `GenericList.vue`)
+
+Option `ListConfig.frozenColumns?: number` (défaut `0` — aucun changement pour les panneaux
+existants) : fige les N premières colonnes **visibles** à gauche, façon "volets figés" d'Excel — au
+scroll horizontal, elles restent affichées, les colonnes suivantes défilent "derrière" elles. Cas
+d'usage déclencheur : la synthèse TRMD (`trmd_setting`, `ui.json`), `frozenColumns: 1`, pour garder
+la colonne Discipline visible quel que soit le défilement horizontal parmi les nombreuses colonnes
+chiffrées du tableau.
+
+**Fige par position, pas par identité de champ** : les colonnes figées sont "les N premières de
+`visibleColumns` en ce moment", pas une liste de clés déclarée explicitement — si l'utilisateur
+réordonne les colonnes par glisser-déposer, ce sont les nouvelles N premières qui deviennent
+figées. Choix délibéré, cohérent avec le comportement d'Excel/Google Sheets (les volets figés sont
+définis par position de colonne, pas par identité).
+
+**Mécanisme : réutilisation à l'identique du `position: sticky` déjà en place pour la colonne
+Actions** (déjà figée à droite, `right: 0`, voir `.actions-th`/`.actions-td`) — même technique,
+appliquée à gauche et sur un nombre de colonnes variable :
+- `frozenColumnLeftOffsets` (computed) calcule l'offset gauche cumulé (px) de chaque colonne
+  figée, à partir des largeurs déjà connues (`col.width`, la même source que le `<colgroup>` de la
+  section W) — en partant de la largeur de la case à cocher (40px) si elle est présente et qu'au
+  moins une colonne est figée (sans quoi les colonnes figées se retrouveraient détachées à droite
+  d'une case à cocher qui a défilé).
+- `frozenLeftStyle(index)` renvoie `{ position: 'sticky', left: '<offset>px' }` pour une colonne
+  figée, `undefined` sinon — posé en style inline sur la cellule concernée (header/filtre/corps/pied
+  de tableau), le `<colgroup>` de la section W garantissant déjà que chaque colonne a une largeur
+  fixe et fiable pour ce calcul.
+- Classes `.column-frozen` (z-index + fond opaque, mêmes valeurs que `.actions-th`/`.actions-td` :
+  11 en en-tête, 9 dans le corps/filtre/pied) et `.column-frozen-last` (ombre portée sur la
+  dernière colonne figée, marquant la limite de la zone figée — le "mur" familier d'Excel/Sheets).
+  Combos hover/sélection (`.body-tr:hover`, `.body-tr.selected-row`) répliqués sur `.column-frozen`
+  pour que le fond de la cellule figée suive l'état de sa ligne comme les autres cellules.
+
+**Piège évité — combiner, pas écraser, les `box-shadow`** : `.header-th` porte déjà sa bordure via
+`box-shadow: inset ...` (section W, contournement d'un bug de rendu propre à `border-collapse` sur
+un en-tête à sur-en-têtes). Une règle `.column-frozen-last { box-shadow: ... }` générique
+écraserait cette bordure au lieu de s'y ajouter — `box-shadow` est une propriété unique, deux
+déclarations en conflit ne fusionnent pas. D'où une règle dédiée et plus spécifique
+(`.header-th.column-frozen-last`) combinant les deux ombres dans une seule déclaration
+(liste séparée par virgules) ; le corps/filtre/pied de tableau n'ont pas ce problème (bordure via
+la propriété `border-right` classique, indépendante de `box-shadow`).
+
+**Limite connue** : une cellule de sur-en-tête (`header-group-th`, colspan, voir section W) n'est
+jamais rendue figée individuellement, même si `frozenColumns` s'étend jusque dans les colonnes
+qu'elle regroupe — non bloquant pour l'usage actuel (TRMD fige `discipline_id`, hors de tout
+groupe), à traiter si un futur besoin fige une colonne à l'intérieur d'un groupe.

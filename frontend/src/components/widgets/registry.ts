@@ -20,6 +20,7 @@ import CourseCompositionMapping from './CourseCompositionMapping.vue';
 import CourseCompositionPreview from './CourseCompositionPreview.vue';
 import SystemSettingValueField from './SystemSettingValueField.vue';
 import ImageField from './ImageField.vue';
+import RelationBrowserField from './RelationBrowserField.vue';
 
 export type WidgetContext = 'list' | 'form';
 
@@ -37,6 +38,11 @@ const REGISTRY: Record<string, WidgetRegistryEntry> = {
   // afficher son contenu dans une cellule de liste, seulement un badge de présence — voir
   // GenericList.vue, branche type === 'binary'.
   image: { component: ImageField, contexts: ['form'] },
+  // Bouton "parcourir/gérer une relation" (one2many ou many2many, jamais many2one) — voir
+  // RelationBrowserField.vue. Utilisable en liste ET en formulaire : contrairement à
+  // many2many_ordered_list, ce n'est qu'un bouton compact ouvrant une popin, adapté à une cellule
+  // de tableau comme à un champ de formulaire.
+  relation_browser: { component: RelationBrowserField, contexts: ['list', 'form'] },
 };
 
 export function getWidgetForContext(name: string | undefined, context: WidgetContext): any {

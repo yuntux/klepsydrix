@@ -1192,6 +1192,21 @@ async function onConfirmImpactDelete() {
   }
 }
 
+// Mesure réelle (canvas) de la largeur d'un texte, plutôt qu'une estimation par nombre de
+// caractères (ex: longueur * 8.5px) — beaucoup trop imprécise pour une police proportionnelle
+// (largeur très variable d'un caractère à l'autre, accents français compris) : produisait des
+// colonnes visiblement plus larges que nécessaire (ex: colonne Discipline). Même police que le
+// texte réellement affiché en cellule (voir .body-td, 13px, --font-sans).
+let columnWidthMeasureCtx: CanvasRenderingContext2D | null = null;
+function measureTextWidth(text: string): number {
+  if (!columnWidthMeasureCtx) {
+    columnWidthMeasureCtx = document.createElement('canvas').getContext('2d');
+  }
+  if (!columnWidthMeasureCtx) return text.length * 7; // repli si canvas indisponible
+  columnWidthMeasureCtx.font = "13px 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  return columnWidthMeasureCtx.measureText(text).width;
+}
+
 // Configurations dynamiques de colonnes pour GenericList
 function buildColumnsConfig(model: string, items: any[]) {
   // --- GÉNÉRATION DYNAMIQUE VIA OPENAPI (LOW-CODE) ---
@@ -1205,6 +1220,13 @@ function buildColumnsConfig(model: string, items: any[]) {
         if (key === 'id' || key === 'display_name') continue; // On masque l'ID technique et display_name
 
         let colWidth = prop.list_width;
+        if (!colWidth && prop.widget === 'relation_browser') {
+          // Juste un bouton icône (voir RelationBrowserField.vue) : jamais de calcul par contenu,
+          // qui se baserait sur la liste des libellés liés (potentiellement très longue) alors que
+          // la cellule n'affiche qu'un bouton. 32px = tout juste la taille du bouton (icône 14px +
+          // padding 4px/6px), la colonne ne doit pas être plus large que la loupe elle-même.
+          colWidth = 32;
+        }
         if (!colWidth) {
           let baseType = prop.type;
           let baseFormat = prop.format;
@@ -1218,11 +1240,16 @@ function buildColumnsConfig(model: string, items: any[]) {
 
           if (baseType === 'boolean') colWidth = 100;
           else if (key === 'color') colWidth = 80;
-          else if (baseType === 'integer' || baseType === 'number') colWidth = 130;
+          // prop.ui_type en repli : un TransientModel (ex: TrmdLine) n'a pas de "type" JSON-Schema
+          // réel (Optional[Any], voir generic.py::make_pydantic_model) — seul ui_type porte
+          // l'information "nombre" pour ces champs, sans quoi ils retombaient dans le calcul par
+          // longueur de contenu ci-dessous (beaucoup trop large pour une simple valeur numérique).
+          else if (baseType === 'integer' || baseType === 'number' || prop.ui_type === 'number') colWidth = 100;
           else if (baseFormat === 'date-time' || baseFormat === 'date') colWidth = 160;
           else {
-            // Calcul dynamique basé sur le contenu réel des données
-            let maxLength = (prop.title || key).length;
+            // Calcul dynamique basé sur le contenu réel des données — largeur de texte mesurée
+            // (measureTextWidth), pas une estimation par nombre de caractères.
+            let maxTextWidth = measureTextWidth(prop.title || key);
 
             for (const item of (items || []).slice(0, 100)) {
               const val = item[key];
@@ -1246,13 +1273,15 @@ function buildColumnsConfig(model: string, items: any[]) {
                   strVal = Array.isArray(val) ? val.join(', ') : String(val);
                 }
 
-                if (strVal.length > maxLength) {
-                  maxLength = strVal.length;
+                const textWidth = measureTextWidth(strVal);
+                if (textWidth > maxTextWidth) {
+                  maxTextWidth = textWidth;
                 }
               }
             }
-            // Approx 8.5px par caractère + 60px pour marges/icones (min 150px, max 500px)
-            colWidth = Math.min(Math.max(Math.ceil(maxLength * 8.5) + 60, 150), 500);
+            // + 60px pour marges/icônes de l'en-tête (padding, indicateur de tri) — voir .header-th
+            // (min 150px, max 500px)
+            colWidth = Math.min(Math.max(Math.ceil(maxTextWidth) + 60, 150), 500);
           }
         }
 
@@ -1530,7 +1559,12 @@ function getFormFieldsConfig(resourceKey?: string) {
           default: prop.default,
           help: prop.help,
           widget: prop.widget,
-          widgetParams: prop.widgetParams
+          widgetParams: prop.widgetParams,
+          // false uniquement si déclaré explicitement (info={"sortable": False} côté backend) —
+          // même convention que nullable ci-dessus, triable par défaut.
+          sortable: prop.sortable !== false,
+          // Même principe pour la zone de saisie de la ligne de filtrage (info={"filterable": False}).
+          filterable: prop.filterable !== false
         });
       }
       return dynamicFields;

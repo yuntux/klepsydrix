@@ -1657,6 +1657,163 @@
         ]
       },
       {
+        "id": "trmd_setting",
+        "icon": "bar-chart-2",
+        "title": "TRMD",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "trmd_list",
+            "component": "GenericList",
+            "resourceKey": "trmd_syntheses",
+            "width": "100%",
+            "listConfig": {
+              "editableInline": false,
+              "allowMultiSelect": false,
+              "disableAdd": true,
+              "disableDelete": true,
+              "disableEditModal": true,
+              "showColumnTotals": true,
+              "frozenColumns": 1,
+              "columnGroups": {
+                "need_ids": [
+                  "Besoins issus des services prévisionnels"
+                ],
+                "need_raw_duration_minutes": [
+                  "Besoins issus des services prévisionnels"
+                ],
+                "need_weighted_duration_minutes": [
+                  "Besoins issus des services prévisionnels"
+                ],
+                "are_duration_minutes": [
+                  "Besoins issus des services prévisionnels"
+                ],
+                "total_needs": [
+                  "Besoins issus des services prévisionnels"
+                ],
+                "def_teacher_ids": [
+                  "Moyens définitifs"
+                ],
+                "def_teacher_count": [
+                  "Moyens définitifs"
+                ],
+                "def_teached_duration_minutes": [
+                  "Moyens définitifs"
+                ],
+                "def_given_duration_minutes": [
+                  "Moyens définitifs"
+                ],
+                "def_gap_duration_minutes": [
+                  "Moyens définitifs"
+                ],
+                "temp_teacher_ids": [
+                  "Moyens provisoires"
+                ],
+                "temp_teacher_count": [
+                  "Moyens provisoires"
+                ],
+                "temp_teached_duration_minutes": [
+                  "Moyens provisoires"
+                ],
+                "temp_given_duration_minutes": [
+                  "Moyens provisoires"
+                ],
+                "total_gap_duration_minutes": [
+                  "Bilan"
+                ],
+                "total_hsa_duration_minutes": [
+                  "Bilan"
+                ]
+              },
+              "columns": {
+                "discipline_id": {
+                  "visibleByDefault": true
+                },
+                "need_ids": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "🔍",
+                  "sortable": false,
+                  "filterable": false
+                },
+                "need_raw_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Heures enseignées"
+                },
+                "need_weighted_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Heures pondérées"
+                },
+                "are_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "ARE"
+                },
+                "total_needs": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Besoins totaux"
+                },
+                "def_teacher_ids": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "🔍",
+                  "sortable": false,
+                  "filterable": false
+                },
+                "def_teacher_count": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Nb postes déf."
+                },
+                "def_teached_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "H. enseignées déf."
+                },
+                "def_given_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Heures données déf."
+                },
+                "def_gap_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Écart déf."
+                },
+                "temp_teacher_ids": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "🔍",
+                  "sortable": false,
+                  "filterable": false
+                },
+                "temp_teacher_count": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Nb postes temp."
+                },
+                "temp_teached_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "H. enseignées temp."
+                },
+                "temp_given_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Heures données temp."
+                },
+                "total_ressource_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Moyens totaux"
+                },
+                "total_gap_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Ressource > besoin"
+                },
+                "total_hsa_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "HSA"
+                },
+                "imp_duration_minutes": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "IMP"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
         "id": "generate_courses_action",
         "icon": "wrench",
         "title": "Générer les cours",

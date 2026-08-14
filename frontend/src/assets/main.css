@@ -12,6 +12,10 @@
 
   --border-color: #E2E8F0;
   /* slate-200 — bordures discrètes */
+  --border-color-strong: #97B0D4;
+  /* slate-500 — bordures marquées (ex: séparateurs d'en-tête de tableau) : --border-color est
+     volontairement discret (proche de --bg-surface), insuffisant quand la séparation doit rester
+     lisible même sur un fond clair */
   --border-glow: #6366f1;
 
   --text-primary: #0F172A;
@@ -47,7 +51,7 @@
   --radius-lg: 6px;
   --radius-xl: 10px;
   --radius-full: 9999px;
-  
+
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 12px;
@@ -63,7 +67,10 @@
   --bg-card: #1E293B;
 
   --border-color: #475569;
-  
+  --border-color-strong: #94A3B8;
+  /* slate-400 — plus clair que la valeur de base du thème sombre (pas plus foncé) : sur un fond
+     sombre, "plus marqué" signifie plus de contraste vers le clair, pas vers le noir */
+
   --text-primary: #F8FAFC;
   --text-secondary: #CBD5E1;
   --text-muted: #94A3B8;
@@ -79,9 +86,11 @@
   --bg-secondary: #F8F9FA;
   --bg-surface: #E9ECEF;
   --bg-card: #FFFFFF;
-  
+
   --border-color: #212529;
-  
+  --border-color-strong: #212529;
+  /* déjà un contraste maximal dans ce thème — pas de variante plus marquée possible/utile */
+
   --text-primary: #000000;
   --text-secondary: #212529;
   --text-muted: #495057;
@@ -566,7 +575,8 @@ body {
    document, et l'input retombe sur le style natif du navigateur (bien plus bas). main.css est
    importé une fois pour toutes dans main.ts : cette règle de base doit y vivre pour être garantie
    disponible partout, dès le premier rendu. */
-.form-input, .form-select {
+.form-input,
+.form-select {
   width: 100%;
   box-sizing: border-box;
   background-color: var(--bg-surface);
@@ -580,7 +590,8 @@ body {
   transition: all var(--transition-fast);
 }
 
-.form-input:focus, .form-select:focus {
+.form-input:focus,
+.form-select:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }

@@ -3,92 +3,156 @@
     <!-- Conteneur de table avec scroll -->
     <div class="table-wrapper" ref="tableWrapperRef" @scroll="onScroll">
       <table class="premium-table" :style="{ minWidth: totalTableWidth + 'px' }">
+        <!-- table-layout: fixed résout normalement les largeurs de colonnes à partir des cellules de
+             la PREMIÈRE ligne — avec un en-tête à sur-en-têtes (plusieurs <tr>, rowspan/colspan
+             mêlés, voir headerRows), cette résolution devient peu fiable : une colonne étroite
+             "cachée" dans un colspan de la ligne 0 peut se retrouver bien plus large que sa largeur
+             déclarée (constaté : une colonne à width:32px rendue à ~87px). Un <colgroup> est la
+             seule source de largeur que l'algorithme "fixed" consulte AVANT toute ligne, quelle que
+             soit la structure de l'en-tête — la solution normale pour ce cas, pas un contournement. -->
+        <colgroup>
+          <col v-if="isMultiSelectAllowed" style="width: 40px;" />
+          <col v-for="col in visibleColumns" :key="'colgroup-' + col.key" :style="{ width: (col.width || 150) + 'px' }" />
+          <col style="width: 40px;" />
+        </colgroup>
         <thead>
-          <tr class="header-tr">
-            <th v-if="isMultiSelectAllowed" class="header-th checkbox-th" style="width: 40px; text-align: center; border-right: 1px solid var(--border-color); padding: 8px 4px;">
-              <input 
-                type="checkbox" 
-                :checked="isAllSelected" 
-                ref="selectAllCheckbox"
-                @change="toggleSelectAll($event.target.checked)"
-              />
-            </th>
-            <th 
-              v-for="(col, index) in visibleColumns" 
-              :key="col.key"
-              :style="{ width: col.width ? col.width + 'px' : 'auto' }"
-              class="header-th"
-              draggable="true"
-              @dragstart="onDragStart($event, index)"
-              @dragover.prevent="onDragOver($event, index)"
-              @drop="onDrop($event, index)"
-            >
-              <!-- En-tête cliquable pour le tri -->
-              <div class="th-content" @click="toggleSort(col.key)">
-                <span class="th-label">{{ col.label }}</span>
-                <span v-if="col.help" class="help-tooltip-wrapper" @click.stop>
-                  <span class="help-icon">?</span>
-                  <span class="help-tooltip tooltip-bottom" v-html="renderMarkdown(col.help)"></span>
-                </span>
-                <span class="sort-indicator" v-if="sortBy === col.key">
-                  {{ sortDesc ? '▼' : '▲' }}
-                </span>
-                <span class="sort-indicator-placeholder" v-else>↕</span>
-              </div>
-              
-              <!-- Poignée de redimensionnement manuel -->
-              <div 
-                class="resize-handle" 
-                @mousedown.stop.prevent="startResize($event, col.key)"
-              ></div>
-            </th>
-            <th class="header-th actions-th">
-              <div class="actions-header-wrapper" style="justify-content: center;">
-                
-                <!-- Sélecteur de colonnes (déplacé dans l'en-tête Action) -->
-                <div class="column-selector-wrapper" ref="dropdownRef">
-                  <button class="btn-icon-only-flat" @click.stop="toggleDropdown" title="Gérer les colonnes">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon-columns-settings" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                    </svg>
-                  </button>
+          <!-- En-tête(s) : une ligne par profondeur de sur-en-tête (voir listConfig.columnGroups /
+               headerRows) — une seule ligne, comportement inchangé, quand aucun groupe n'est déclaré. -->
+          <tr
+            v-for="(row, rowIdx) in headerRows"
+            :key="'header-row-' + rowIdx"
+            class="header-tr"
+          >
+            <template v-for="cell in row" :key="cell.kind === 'group' ? cell.key : cell.kind === 'column' ? 'col-' + cell.column.key : cell.kind">
+              <!-- Case à cocher de sélection groupée (toujours ligne 0, étirée sur toute la hauteur de l'en-tête) -->
+              <th
+                v-if="cell.kind === 'checkbox'"
+                class="header-th checkbox-th"
+                :class="{ 'column-frozen': frozenColumnCount > 0 }"
+                :rowspan="cell.rowspan"
+                :style="{ width: '40px', textAlign: 'center', padding: '8px 4px', ...(frozenColumnCount > 0 ? { position: 'sticky', left: '0px' } : {}) }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="isAllSelected"
+                  :ref="(el) => { selectAllCheckbox = el as HTMLInputElement | null }"
+                  @change="toggleSelectAll(($event.target as HTMLInputElement).checked)"
+                />
+              </th>
 
-                  <div v-if="showDropdown" class="column-dropdown glass-morphism">
-                    <div class="dropdown-header">Affichage des colonnes</div>
-                    <div class="dropdown-list">
-                      <label v-for="col in internalColumns" :key="col.key" class="dropdown-item">
-                        <input
-                          type="checkbox"
-                          :checked="col.visible"
-                          @change="toggleColumnVisibility(col.key)"
-                        />
-                        <span>{{ col.label }}</span>
-                      </label>
+              <!-- Cellule de sur-en-tête (regroupement thématique, non interactive) -->
+              <th v-else-if="cell.kind === 'group'" class="header-th header-group-th" :colspan="cell.colspan">
+                <span class="th-label">{{ cell.label }}</span>
+              </th>
+
+              <!-- Cellule de colonne réelle : tri, redimension, glisser-déposer (désactivé si
+                   columnGroupsActive), positionnée à la ligne correspondant à la profondeur de son
+                   chemin de groupe et étirée jusqu'en bas via rowspan -->
+              <th
+                v-else-if="cell.kind === 'column'"
+                :style="{ width: cell.column.width ? cell.column.width + 'px' : 'auto', ...(frozenLeftStyle(cell.index) || {}) }"
+                class="header-th"
+                :class="{ 'column-frozen': frozenLeftStyle(cell.index), 'column-frozen-last': isLastFrozenColumn(cell.index) }"
+                :rowspan="cell.rowspan"
+                :draggable="!columnGroupsActive"
+                @dragstart="onDragStart($event, cell.index)"
+                @dragover.prevent="onDragOver($event, cell.index)"
+                @drop="onDrop($event, cell.index)"
+              >
+                <!-- En-tête cliquable pour le tri (sauf si isColumnSortable renvoie false — voir
+                     FormField.sortable / ColumnConfig.sortable) -->
+                <div
+                  class="th-content"
+                  :class="{ 'th-content-not-sortable': !isColumnSortable(cell.column.key) }"
+                  @click="toggleSort(cell.column.key)"
+                >
+                  <span class="th-label">{{ cell.column.label }}</span>
+                  <span v-if="cell.column.help" class="help-tooltip-wrapper" @click.stop>
+                    <span class="help-icon">?</span>
+                    <span class="help-tooltip tooltip-bottom" v-html="renderMarkdown(cell.column.help)"></span>
+                  </span>
+                  <!-- Pas de placeholder ↕ tant que la colonne n'est pas triée : inutile de
+                       réserver sa place, le libellé profite de l'espace libéré (la largeur de la
+                       colonne, elle, reste calculée comme avant — voir App.vue::buildColumnsConfig,
+                       qui prévoit déjà une marge pour cet indicateur qu'il soit affiché ou non). -->
+                  <span class="sort-indicator" v-if="sortBy === cell.column.key">
+                    {{ sortDesc ? '▼' : '▲' }}
+                  </span>
+                </div>
+
+                <!-- Poignée de redimensionnement manuel -->
+                <div
+                  class="resize-handle"
+                  @mousedown.stop.prevent="startResize($event, cell.column.key)"
+                ></div>
+              </th>
+
+              <!-- Colonne Actions / sélecteur de colonnes (toujours ligne 0, étirée sur toute la
+                   hauteur de l'en-tête) -->
+              <th v-else-if="cell.kind === 'actions'" class="header-th actions-th" :rowspan="cell.rowspan">
+                <div class="actions-header-wrapper" style="justify-content: center;">
+
+                  <!-- Sélecteur de colonnes (déplacé dans l'en-tête Action) -->
+                  <div class="column-selector-wrapper" :ref="(el) => { dropdownRef = el as HTMLElement | null }">
+                    <button class="btn-icon-only-flat" @click.stop="toggleDropdown" title="Gérer les colonnes">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="icon-columns-settings" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                      </svg>
+                    </button>
+
+                    <div v-if="showDropdown" class="column-dropdown glass-morphism">
+                      <div class="dropdown-header">Affichage des colonnes</div>
+                      <div class="dropdown-list">
+                        <label v-for="col in internalColumns" :key="col.key" class="dropdown-item">
+                          <input
+                            type="checkbox"
+                            :checked="col.visible"
+                            @change="toggleColumnVisibility(col.key)"
+                          />
+                          <span>{{ col.label }}</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </th>
+              </th>
+            </template>
           </tr>
 
           <!-- Ligne de filtrage / recherche spécifique par colonne -->
           <tr class="filter-tr">
-            <td v-if="isMultiSelectAllowed" class="filter-td checkbox-filter-td" style="width: 40px; border-right: 1px solid var(--border-color); padding: 6px 4px;"></td>
-            <td v-for="col in visibleColumns" :key="'filter-' + col.key" class="filter-td">
-              <!-- Si c'est un champ couleur, on propose le composant swatch -->
-              <color-swatch-picker
-                v-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'"
-                :model-value="filters[col.key] || ''"
-                @change="filters[col.key] = $event"
-              />
-              <input 
-                v-else
-                type="text" 
-                :value="filters[col.key] || ''" 
-                @input="debouncedUpdateFilter(col.key, ($event.target as HTMLInputElement).value)"
-                :placeholder="'Filtrer...'" 
-                class="filter-input"
-              />
+            <td
+              v-if="isMultiSelectAllowed"
+              class="filter-td checkbox-filter-td"
+              :class="{ 'column-frozen': frozenColumnCount > 0 }"
+              :style="{ width: '40px', borderRight: '1px solid var(--border-color)', padding: '6px 4px', ...(frozenColumnCount > 0 ? { position: 'sticky', left: '0px' } : {}) }"
+            ></td>
+            <td
+              v-for="(col, index) in visibleColumns"
+              :key="'filter-' + col.key"
+              class="filter-td"
+              :class="{ 'column-frozen': frozenLeftStyle(index), 'column-frozen-last': isLastFrozenColumn(index) }"
+              :style="frozenLeftStyle(index)"
+            >
+              <!-- Pas de zone de saisie si isColumnFilterable renvoie false (voir
+                   FormField.filterable / ColumnConfig.filterable) — la cellule reste vide, la
+                   colonne du dessus garde son alignement. -->
+              <template v-if="isColumnFilterable(col.key)">
+                <!-- Si c'est un champ couleur, on propose le composant swatch -->
+                <color-swatch-picker
+                  v-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'"
+                  :model-value="filters[col.key] || ''"
+                  @change="filters[col.key] = $event"
+                />
+                <input
+                  v-else
+                  type="text"
+                  :value="filters[col.key] || ''"
+                  @input="debouncedUpdateFilter(col.key, ($event.target as HTMLInputElement).value)"
+                  :placeholder="'Filtrer...'"
+                  class="filter-input"
+                />
+              </template>
             </td>
             <td class="filter-td actions-td"></td>
           </tr>
@@ -125,18 +189,28 @@
             @click="onRowClick(item, $event)"
             @focusout="onRowFocusOut(item, $event)"
           >
-            <td v-if="isMultiSelectAllowed" class="body-td checkbox-td" style="text-align: center; width: 40px; border-right: 1px solid var(--border-color); padding: 0 4px;">
-              <input 
-                type="checkbox" 
-                :checked="selectedIds.has(item.id)" 
+            <td
+              v-if="isMultiSelectAllowed"
+              class="body-td checkbox-td"
+              :class="{ 'column-frozen': frozenColumnCount > 0 }"
+              :style="{ textAlign: 'center', width: '40px', borderRight: '1px solid var(--border-color)', padding: '0 4px', ...(frozenColumnCount > 0 ? { position: 'sticky', left: '0px' } : {}) }"
+            >
+              <input
+                type="checkbox"
+                :checked="selectedIds.has(item.id)"
                 style="pointer-events: none;"
               />
             </td>
-            <td 
-              v-for="col in visibleColumns" 
+            <td
+              v-for="(col, index) in visibleColumns"
               :key="col.key"
               class="body-td"
-              :class="{ 'has-select': getFieldDef(col.key)?.type === 'select' || getFieldDef(col.key)?.type === 'multiselect' }"
+              :class="{
+                'has-select': getFieldDef(col.key)?.type === 'select' || getFieldDef(col.key)?.type === 'multiselect',
+                'column-frozen': frozenLeftStyle(index),
+                'column-frozen-last': isLastFrozenColumn(index)
+              }"
+              :style="frozenLeftStyle(index)"
             >
               <!-- Formatage personnalisé des valeurs (Édition en ligne Airtable) -->
               <slot :name="'col-' + col.key" :item="item">
@@ -287,6 +361,30 @@
             <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }"></td>
           </tr>
         </tbody>
+
+        <!-- Ligne de total en pied de tableau (voir listConfig.showColumnTotals) : somme des
+             lignes actuellement AFFICHÉES (displayedItems), pas de l'ensemble filtré — toujours en
+             lecture seule, aucun binding d'édition contrairement au corps du tableau. -->
+        <tfoot v-if="listConfig?.showColumnTotals">
+          <tr class="footer-total-tr">
+            <td
+              v-if="isMultiSelectAllowed"
+              class="footer-total-td checkbox-td"
+              :class="{ 'column-frozen': frozenColumnCount > 0 }"
+              :style="{ width: '40px', borderRight: '1px solid var(--border-color)', ...(frozenColumnCount > 0 ? { position: 'sticky', left: '0px' } : {}) }"
+            ></td>
+            <td
+              v-for="(col, index) in visibleColumns"
+              :key="'total-' + col.key"
+              class="footer-total-td"
+              :class="{ 'column-frozen': frozenLeftStyle(index), 'column-frozen-last': isLastFrozenColumn(index) }"
+              :style="frozenLeftStyle(index)"
+            >
+              {{ columnTotals[col.key] !== undefined ? columnTotals[col.key] : '' }}
+            </td>
+            <td class="footer-total-td actions-td"></td>
+          </tr>
+        </tfoot>
       </table>
     </div>
 
@@ -383,6 +481,12 @@ interface FormField {
   parentField?: string;
   widget?: string;
   widgetParams?: any;
+  // false uniquement si déclaré explicitement côté backend (info={"sortable": False}) — triable
+  // par défaut, comme aujourd'hui.
+  sortable?: boolean;
+  // Même principe que sortable ci-dessus, pour la zone de saisie de la ligne de filtrage (voir
+  // isColumnFilterable) — false uniquement si déclaré explicitement (info={"filterable": False}).
+  filterable?: boolean;
 }
 
 interface ColumnConfig {
@@ -391,6 +495,16 @@ interface ColumnConfig {
   readOnly?: boolean;
   required?: boolean;
   help?: string;
+  // Exclut cette colonne de la ligne de total en pied de tableau (voir ListConfig.showColumnTotals)
+  // même si elle est numérique — sans effet si showColumnTotals n'est pas activé.
+  hideTotal?: boolean;
+  // Surcharge, propre à ce panneau, du sortable déclaré côté backend (FormField.sortable) — un clic
+  // sur l'en-tête ne déclenche alors pas de tri (voir isColumnSortable/toggleSort). Sans cette clé,
+  // c'est le sortable du champ (par défaut true) qui s'applique.
+  sortable?: boolean;
+  // Même principe, pour la zone de saisie de la ligne de filtrage (voir isColumnFilterable) —
+  // surcharge propre à ce panneau du filterable déclaré côté backend (FormField.filterable).
+  filterable?: boolean;
   // Pour une colonne _ids représentant une relation possédée (voir generic.py::parentField) :
   // listConfig complet de la popin CRUD ouverte sur la ressource enfant — même structure que le
   // listConfig d'un panneau GenericList classique (columns, editableInline, disableAdd, ...),
@@ -404,6 +518,21 @@ interface ListConfig {
   disableAdd?: boolean;
   disableDelete?: boolean;
   disableEditModal?: boolean;
+  // Affiche une ligne de total en pied de tableau, sommant chaque colonne numérique affichée (voir
+  // ColumnConfig.hideTotal pour exclure une colonne précise) — somme sur les lignes actuellement
+  // affichées (displayedItems), pas sur l'ensemble filtré.
+  showColumnTotals?: boolean;
+  // Sur-en-têtes de colonnes (regroupement thématique, imbriqué sur plusieurs niveaux) : une entrée
+  // par colonne concernée, du libellé le plus englobant au plus précis. Incompatible avec le
+  // réordonnancement des colonnes par glisser-déposer (désactivé automatiquement si non vide) — le
+  // sélecteur d'affichage/masquage des colonnes reste, lui, toujours actif.
+  columnGroups?: Record<string, string[]>;
+  // Fige les N premières colonnes visibles à gauche (façon "volets figés" d'Excel) : au scroll
+  // horizontal, elles restent affichées, les autres colonnes défilent "derrière" elles. Fige par
+  // POSITION, pas par identité de champ — si l'utilisateur réordonne les colonnes par
+  // glisser-déposer, ce sont les nouvelles N premières qui deviennent figées. 0/absent = aucune
+  // colonne figée (comportement actuel, inchangé). Voir frozenColumnLeftOffsets/frozenLeftStyle.
+  frozenColumns?: number;
   columns?: Record<string, ColumnConfig>;
 }
 
@@ -498,6 +627,41 @@ const totalTableWidth = computed(() => {
   return colsWidth + checkboxWidth + actionsWidth;
 });
 
+// Voir listConfig.frozenColumns.
+const frozenColumnCount = computed(() => Math.max(0, props.listConfig?.frozenColumns || 0));
+
+// Offset gauche cumulé (px) de chaque colonne visible qui EST effectivement figée (les
+// frozenColumnCount premières) — undefined pour une colonne non figée. Inclut la largeur de la
+// case à cocher (si présente) comme point de départ : dès qu'au moins une colonne est figée, la
+// case à cocher doit elle aussi rester visible, sans quoi les colonnes figées se retrouveraient
+// détachées à droite d'une case à cocher qui a défilé.
+const frozenColumnLeftOffsets = computed<(number | undefined)[]>(() => {
+  const count = frozenColumnCount.value;
+  const offsets: (number | undefined)[] = [];
+  let acc = count > 0 && isMultiSelectAllowed.value ? 40 : 0;
+  visibleColumns.value.forEach((col, idx) => {
+    if (idx < count) {
+      offsets.push(acc);
+      acc += (col.width || 150);
+    } else {
+      offsets.push(undefined);
+    }
+  });
+  return offsets;
+});
+
+// Style à appliquer à la cellule (th/td) d'index `index` dans visibleColumns si elle est figée,
+// undefined sinon — même mécanisme sticky que la colonne Actions, déjà figée à droite (voir
+// .actions-th/.actions-td), mais côté gauche et sur un nombre de colonnes variable.
+function frozenLeftStyle(index: number): { position: 'sticky'; left: string } | undefined {
+  const left = frozenColumnLeftOffsets.value[index];
+  return left === undefined ? undefined : { position: 'sticky', left: left + 'px' };
+}
+
+function isLastFrozenColumn(index: number): boolean {
+  return frozenColumnCount.value > 0 && index === frozenColumnCount.value - 1;
+}
+
 function isColumnReadOnly(key: string, item?: any): boolean {
   if (!isEditableInline.value) return true;
   const colConf = props.listConfig?.columns?.[key];
@@ -513,6 +677,24 @@ function isColumnReadOnly(key: string, item?: any): boolean {
   // Repli sur le readOnly déclaré côté backend (ex: related_field readOnly=True)
   if (getFieldDef(key)?.readOnly === true) return true;
   return false;
+}
+
+// Triable par défaut ; false uniquement si explicitement déclaré, soit dans ce panneau
+// (listConfig.columns[key].sortable — prioritaire), soit côté backend (info={"sortable": False}).
+function isColumnSortable(key: string): boolean {
+  const colConf = props.listConfig?.columns?.[key];
+  if (colConf?.sortable === false) return false;
+  if (colConf?.sortable === true) return true;
+  return getFieldDef(key)?.sortable !== false;
+}
+
+// Filtrable par défaut ; false uniquement si explicitement déclaré, soit dans ce panneau
+// (listConfig.columns[key].filterable — prioritaire), soit côté backend (info={"filterable": False}).
+function isColumnFilterable(key: string): boolean {
+  const colConf = props.listConfig?.columns?.[key];
+  if (colConf?.filterable === false) return false;
+  if (colConf?.filterable === true) return true;
+  return getFieldDef(key)?.filterable !== false;
 }
 
 function isColumnRequired(key: string): boolean {
@@ -692,42 +874,54 @@ function getContrastYIQ(hexcolor: string) {
   return (yiq >= 128) ? '#000000' : '#ffffff';
 }
 
+// Largeur par défaut pour un type de colonne intrinsèquement étroit (voir totalTableWidth/
+// startResize : sans width explicite, une colonne retombe sur un partage ~150px, beaucoup trop
+// large pour un simple nombre ou un bouton d'icône) — seulement un repli, une largeur explicite
+// (ui.json ColumnConfig.width, ou déjà posée sur la colonne d'origine) garde toujours priorité.
+function defaultColumnWidth(key: string): number | undefined {
+  const fieldDef = getFieldDef(key);
+  if (!fieldDef) return undefined;
+  if (fieldDef.widget === 'relation_browser') return 70;
+  if (fieldDef.type === 'number') return 100;
+  return undefined;
+}
+
 // Gestion des colonnes internes (pour réordonner/redimensionner localement)
 const internalColumns = ref<ColumnDef[]>([]);
 
-watch([() => props.columns, () => props.listConfig], () => {
+watch([() => props.columns, () => props.listConfig, () => props.fields], () => {
   if (props.listConfig?.columns) {
     // Si la config spécifie des colonnes précises, on filtre et on réordonne selon la config
     const configKeys = Object.keys(props.listConfig.columns);
     const mapped: ColumnDef[] = [];
-    
+
     configKeys.forEach(key => {
       const originalCol = props.columns.find(c => c.key === key);
       if (originalCol) {
         const colConf = props.listConfig.columns[key];
-        const isVisible = colConf.visibleByDefault !== undefined 
-          ? colConf.visibleByDefault 
+        const isVisible = colConf.visibleByDefault !== undefined
+          ? colConf.visibleByDefault
           : true;
-          
+
         const overrideLabel = colConf.overrideLabel || originalCol.label;
-        
+
         mapped.push({
           ...originalCol,
           label: overrideLabel,
-          width: colConf.width || originalCol.width || undefined,
+          width: colConf.width || originalCol.width || defaultColumnWidth(key) || undefined,
           visible: isVisible,
           help: colConf.help || originalCol.help
         });
       }
     });
-    
+
     internalColumns.value = mapped;
   } else {
     // Comportement par défaut (conserver toutes les colonnes d'origine)
     internalColumns.value = props.columns.map(c => {
       return {
         ...c,
-        width: c.width || undefined,
+        width: c.width || defaultColumnWidth(c.key) || undefined,
         visible: c.visible !== false,
         help: c.help
       };
@@ -818,6 +1012,7 @@ const sortBy = ref<string | null>(null);
 const sortDesc = ref(false);
 
 function toggleSort(key: string) {
+  if (!isColumnSortable(key)) return;
   if (sortBy.value === key) {
     if (!sortDesc.value) {
       sortDesc.value = true;
@@ -937,6 +1132,107 @@ const paginatedItems = computed(() => {
 });
 
 const displayedItems = computed(() => paginatedItems.value);
+
+// Somme de chaque colonne numérique visible, sur les lignes actuellement affichées
+// (displayedItems — voir listConfig.showColumnTotals). Une colonne est jugée numérique par son type
+// de champ déclaré 'number', OU par repli sur le type JS réel de la valeur — SAUF pour 'select'/
+// 'multiselect' (clé étrangère), jamais sommés même si leurs valeurs sont des ids numériques : ce
+// sont les deux seuls types où une déclaration de champ fait autorité contre le typeof runtime (une
+// relation sans "type" explicite, ex: related_field non typé, retombe sur 'text' par défaut côté
+// App.vue — un défaut de rendu de formulaire, pas une vraie déclaration — donc le repli typeof doit
+// rester actif pour ne pas cesser de sommer un champ related réellement numérique).
+// ColumnConfig.hideTotal exclut une colonne précise même si elle est numérique.
+const columnTotals = computed<Record<string, number>>(() => {
+  const totals: Record<string, number> = {};
+  if (!props.listConfig?.showColumnTotals) return totals;
+  for (const col of visibleColumns.value) {
+    if (props.listConfig?.columns?.[col.key]?.hideTotal) continue;
+    const declaredType = getFieldDef(col.key)?.type;
+    if (declaredType === 'select' || declaredType === 'multiselect') continue;
+    const isNumericColumn = declaredType === 'number'
+      || displayedItems.value.some(item => typeof item[col.key] === 'number');
+    if (!isNumericColumn) continue;
+    totals[col.key] = displayedItems.value.reduce(
+      (acc, item) => acc + (typeof item[col.key] === 'number' ? item[col.key] : 0),
+      0
+    );
+  }
+  return totals;
+});
+
+// Sur-en-têtes de colonnes (voir listConfig.columnGroups) : true dès qu'au moins une entrée est
+// déclarée, indépendamment des colonnes visibles — pilote la désactivation du glisser-déposer.
+const columnGroupsActive = computed(() => {
+  return !!(props.listConfig?.columnGroups && Object.keys(props.listConfig.columnGroups).length);
+});
+
+// Profondeur max des chemins de groupe parmi les colonnes VISIBLES (0 si columnGroupsActive est
+// faux, ou si aucune colonne visible n'a de chemin déclaré) — nombre de lignes de sur-en-tête
+// au-dessus de la ligne d'en-tête profonde.
+const maxGroupDepth = computed(() => {
+  if (!columnGroupsActive.value) return 0;
+  let max = 0;
+  for (const col of visibleColumns.value) {
+    const path = props.listConfig?.columnGroups?.[col.key] || [];
+    if (path.length > max) max = path.length;
+  }
+  return max;
+});
+
+interface HeaderGroupCell { kind: 'group'; key: string; label: string; colspan: number; }
+interface HeaderColumnCell { kind: 'column'; column: ColumnDef; index: number; rowspan: number; }
+interface HeaderCheckboxCell { kind: 'checkbox'; rowspan: number; }
+interface HeaderActionsCell { kind: 'actions'; rowspan: number; }
+type HeaderCell = HeaderGroupCell | HeaderColumnCell | HeaderCheckboxCell | HeaderActionsCell;
+
+// Matrice des lignes d'en-tête (une ligne par profondeur 0..maxGroupDepth). Un cellule HTML avec
+// rowspan doit démarrer sur la PREMIÈRE ligne qu'elle occupe (un rowspan ne s'étend que vers le
+// bas) : une colonne dont le chemin de groupe est plus court que maxGroupDepth (ou absent) place
+// donc sa cellule interactive réelle (tri, redimension, glisser-déposer) à la ligne correspondant
+// à la profondeur de son chemin, étirée jusqu'en bas via rowspan — pas systématiquement sur la
+// dernière ligne. Les cellules 'group' regroupent les colonnes visibles consécutives partageant le
+// même préfixe de chemin à ce niveau ; leur colspan se recalcule automatiquement au masquage d'une
+// colonne (réactif via visibleColumns).
+const headerRows = computed<HeaderCell[][]>(() => {
+  const depth = maxGroupDepth.value;
+  const rows: HeaderCell[][] = Array.from({ length: depth + 1 }, () => []);
+
+  function processSegment(seg: { col: ColumnDef; index: number }[], level: number) {
+    let i = 0;
+    while (i < seg.length) {
+      const path = props.listConfig?.columnGroups?.[seg[i].col.key] || [];
+      if (level < path.length) {
+        const label = path[level];
+        const members: typeof seg = [];
+        let j = i;
+        while (j < seg.length) {
+          const p2 = props.listConfig?.columnGroups?.[seg[j].col.key] || [];
+          if (level < p2.length && p2[level] === label) {
+            members.push(seg[j]);
+            j++;
+          } else {
+            break;
+          }
+        }
+        rows[level].push({ kind: 'group', key: `g-${level}-${members[0].index}`, label, colspan: members.length });
+        processSegment(members, level + 1);
+        i = j;
+      } else {
+        rows[level].push({ kind: 'column', column: seg[i].col, index: seg[i].index, rowspan: depth - level + 1 });
+        i++;
+      }
+    }
+  }
+
+  processSegment(visibleColumns.value.map((col, index) => ({ col, index })), 0);
+
+  if (isMultiSelectAllowed.value) {
+    rows[0].unshift({ kind: 'checkbox', rowspan: depth + 1 });
+  }
+  rows[0].push({ kind: 'actions', rowspan: depth + 1 });
+
+  return rows;
+});
 
 // Multisélection (Actions groupées & Raccourcis EDT p.41) dépendantes de filteredItems
 const isAllSelected = computed(() => {
@@ -1074,6 +1370,7 @@ function stopResize() {
 let draggedIdx: number | null = null;
 
 function onDragStart(event: DragEvent, index: number) {
+  if (columnGroupsActive.value) return;
   draggedIdx = index;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
@@ -1081,10 +1378,12 @@ function onDragStart(event: DragEvent, index: number) {
 }
 
 function onDragOver(event: DragEvent, index: number) {
+  if (columnGroupsActive.value) return;
   event.preventDefault();
 }
 
 function onDrop(event: DragEvent, index: number) {
+  if (columnGroupsActive.value) return;
   if (draggedIdx === null || draggedIdx === index) return;
   
   // Retrouver les colonnes réelles correspondantes
@@ -1252,7 +1551,6 @@ function onDrop(event: DragEvent, index: number) {
 
 .header-tr {
   background-color: var(--bg-surface);
-  border-bottom: 2px solid var(--border-color);
 }
 
 .header-th {
@@ -1264,14 +1562,34 @@ function onDrop(event: DragEvent, index: number) {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
-  padding: 8px 16px;
+  padding: 8px 5px;
   position: relative;
   user-select: none;
-  border-right: 1px solid var(--border-color);
+  /* box-shadow inset plutôt que border-right/border-bottom : sous border-collapse, une cellule à
+     rowspan (colonne sans groupe, étirée sur toute la hauteur de l'en-tête) et une cellule à
+     colspan (sur-en-tête) voisines ne partagent pas le même "segment" de bordure au sens de
+     l'algorithme de fusion des bordures — deux cellules déclarant pourtant la MÊME couleur peuvent
+     alors se peindre avec un gris légèrement différent selon la cellule "gagnante" du conflit à
+     chaque jonction (bug constaté, pas une différence de configuration : voir git blame). Un
+     box-shadow inset est peint par chaque cellule indépendamment, sans fusion ni conflit avec ses
+     voisines — un même --border-color-strong partout, garanti pixel pour pixel. Bénéfice
+     secondaire : plus besoin de distinguer "dernière ligne d'en-tête" (ex-.header-tr-last) pour la
+     séparation avec le corps du tableau — une cellule à rowspan porte déjà son propre bord bas
+     exactement là où elle se termine, qu'elle couvre une ou plusieurs lignes d'en-tête. */
+  box-shadow: inset -1px -1px 0 0 var(--border-color-strong);
 }
 
 .header-th:hover {
   z-index: 100;
+}
+
+/* Cellule de sur-en-tête (voir listConfig.columnGroups) : non interactive, pas de hover/cursor.
+   Bordures héritées de .header-th (--border-color-strong), pas de traitement visuel distinct —
+   un fond plus soutenu a été essayé puis abandonné (n'aidait pas à distinguer les groupes). */
+.header-group-th {
+  text-align: center;
+  cursor: default;
+  user-select: none;
 }
 
 .th-content {
@@ -1287,6 +1605,16 @@ function onDrop(event: DragEvent, index: number) {
   color: var(--text-primary);
 }
 
+/* Colonne non triable (voir isColumnSortable) : le clic ne fait rien, l'en-tête ne doit donc pas se
+   présenter comme cliquable. */
+.th-content-not-sortable {
+  cursor: default;
+}
+
+.th-content-not-sortable:hover {
+  color: inherit;
+}
+
 .th-label {
   white-space: nowrap;
   overflow: hidden;
@@ -1296,12 +1624,6 @@ function onDrop(event: DragEvent, index: number) {
 .sort-indicator {
   color: var(--accent-primary);
   font-size: 10px;
-}
-
-.sort-indicator-placeholder {
-  color: var(--text-muted);
-  font-size: 10px;
-  opacity: 0.3;
 }
 
 .resize-handle {
@@ -1325,7 +1647,7 @@ function onDrop(event: DragEvent, index: number) {
 }
 
 .filter-td {
-  padding: 6px 12px;
+  padding: 3px 6px;
   border-bottom: 1px solid var(--border-color);
   border-right: 1px solid var(--border-color);
 }
@@ -1380,6 +1702,25 @@ function onDrop(event: DragEvent, index: number) {
   overflow: visible !important;
 }
 
+.footer-total-tr {
+  background-color: var(--bg-surface);
+  border-top: 2px solid var(--border-color);
+}
+
+.footer-total-td {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--border-color);
+  /* Convention comptable, même choix que .inline-number : les colonnes non numériques restent
+     vides sur cette ligne (voir columnTotals), l'alignement n'y change donc rien de visible. */
+  text-align: right;
+}
+
 .empty-td {
   text-align: center;
   padding: 40px;
@@ -1418,6 +1759,54 @@ function onDrop(event: DragEvent, index: number) {
   display: flex;
   justify-content: center;
   gap: 8px;
+}
+
+/* Colonnes figées à gauche (voir listConfig.frozenColumns) — même mécanisme sticky que la colonne
+   Actions ci-dessus (déjà figée à droite), mais côté gauche et sur un nombre de colonnes variable ;
+   mêmes conventions de z-index/fond reprises à l'identique (au-dessus des cellules non figées de
+   la même ligne, opaque pour masquer ce qui défile en dessous). Le positionnement (left) est posé
+   en inline via frozenLeftStyle, ces règles ne portent que ce que CSS seul ne peut pas exprimer
+   (z-index, fond, conditionné par ligne/état). */
+.header-th.column-frozen {
+  z-index: 11;
+}
+
+.body-td.column-frozen {
+  z-index: 9;
+  background-color: var(--bg-card);
+}
+
+.body-tr:hover .body-td.column-frozen {
+  background-color: var(--bg-secondary);
+}
+
+.body-tr.selected-row .body-td.column-frozen {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
+
+.filter-td.column-frozen {
+  z-index: 9;
+  background-color: var(--bg-surface);
+}
+
+.footer-total-td.column-frozen {
+  z-index: 9;
+  background-color: var(--bg-surface);
+}
+
+/* Ligne de démarcation sur la dernière colonne figée (comme le "mur" entre volets figés/non figés
+   sous Excel ou Google Sheets), pour bien marquer où s'arrête la zone figée. Écrit à part pour
+   .header-th (sélecteur à deux classes, plus spécifique que .header-th seul) car .header-th porte
+   déjà sa bordure via box-shadow (voir plus haut) — un box-shadow déclaré ici écraserait l'autre au
+   lieu de s'y ajouter si on ne les combinait pas dans une seule et même déclaration. */
+.header-th.column-frozen-last {
+  box-shadow: inset -1px -1px 0 0 var(--border-color-strong), 2px 0 4px -2px rgba(0, 0, 0, 0.25);
+}
+
+.body-td.column-frozen-last,
+.filter-td.column-frozen-last,
+.footer-total-td.column-frozen-last {
+  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.25);
 }
 
 .btn-action {
@@ -1609,6 +1998,23 @@ function onDrop(event: DragEvent, index: number) {
   color: var(--text-primary) !important;
   cursor: default;
   pointer-events: none;
+}
+
+/* Convention comptable : les valeurs numériques calées à droite de leur colonne. */
+.inline-number {
+  text-align: right;
+}
+
+/* Les flèches +/- natives n'ont de sens que pour une valeur éditable — en lecture seule, elles ne
+   font qu'ajouter du bruit visuel à côté d'une valeur qu'on ne peut de toute façon pas modifier. */
+.inline-number:disabled {
+  -moz-appearance: textfield;
+}
+
+.inline-number:disabled::-webkit-inner-spin-button,
+.inline-number:disabled::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Sélecteur de couleur unifié standard */
