@@ -5,7 +5,7 @@
     </div>
     <div v-else-if="error" class="pivot-error">{{ error }}</div>
     <template v-else>
-      <div v-if="selectedServiceIds.length > 0" class="pivot-toolbar">
+      <div v-if="selectionEnabled && selectedServiceIds.length > 0" class="pivot-toolbar">
         <span class="selection-badge">{{ selectedServiceIds.length }} service(s) sélectionné(s)</span>
         <span v-if="actionError" class="pivot-action-error">{{ actionError }}</span>
         <BaseButton
@@ -44,7 +44,7 @@
               >
                 <div class="pivot-cell-inner">
                   <input
-                    v-if="hasCellContent(row.key, colVal)"
+                    v-if="selectionEnabled && hasCellContent(row.key, colVal)"
                     type="checkbox"
                     class="pivot-cell-checkbox"
                     :checked="isCellSelected(row.key, colVal)"
@@ -119,6 +119,11 @@ const props = defineProps<{
     columns?: Array<{ key: string; field: string; agg: string; overrideLabel?: string }>;
     matrix: { field: string; cell: { type: 'aggregate' | 'list'; field: string; agg?: string } };
     colorField?: string;
+    // Case à cocher + barre d'actions groupées (ex: Aligner/Désaligner) — true par défaut. À
+    // désactiver explicitement (false) pour un pivot purement informatif où sélectionner une
+    // cellule n'a pas de sens métier (ex: "Heures par discipline / MEF", qui ne fait que sommer
+    // par discipline/MEF, sans axe permettant de choisir QUELS services associer entre eux).
+    allowSelection?: boolean;
   };
 }>();
 
@@ -142,6 +147,7 @@ const fixedColumns = computed(() => props.pivotConfig?.columns || []);
 const matrixField = computed(() => props.pivotConfig?.matrix?.field);
 const matrixCell = computed(() => props.pivotConfig?.matrix?.cell || { type: 'aggregate' as const, field: '', agg: 'sum' });
 const colorField = computed(() => props.pivotConfig?.colorField);
+const selectionEnabled = computed(() => props.pivotConfig?.allowSelection !== false);
 
 const baseSchema = computed(() => openApiSpec.value?.components?.schemas?.[`${props.resourceKey}_CreatePayload`]);
 
@@ -302,6 +308,7 @@ function cellStyle(rowKey: string, colVal: string): Record<string, string> {
 }
 
 function toggleCell(rowKey: string, colVal: string) {
+  if (!selectionEnabled.value) return;
   const k = rowKey + ' ' + colVal;
   const next = new Set(selectedCells.value);
   if (next.has(k)) next.delete(k); else next.add(k);

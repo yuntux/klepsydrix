@@ -1534,7 +1534,8 @@
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum"
                 }
-              }
+              },
+              "allowSelection": false
             }
           }
         ]

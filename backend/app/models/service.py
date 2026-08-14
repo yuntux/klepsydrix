@@ -65,6 +65,13 @@ class Service(Base):
             "type": "bulk_api",
             "icon": "fa-link",
             "condition": "records.length >= 2"
+        },
+        {
+            "id": "unalign_bulk",
+            "label": "Désaligner",
+            "type": "bulk_api",
+            "icon": "fa-unlink",
+            "condition": "records.some(r => r.alignment_id)"
         }
     ]
 
@@ -243,12 +250,52 @@ class Service(Base):
         if len({_repartition_signature(s) for s in services}) > 1:
             raise ValueError("Tous les services sélectionnés doivent partager le même modèle de répartition pour être alignés.")
 
+        # Capturé AVANT réaffectation : un service déjà aligné qui rejoint un nouvel Alignment
+        # (toujours créé neuf, jamais fusionné - voir ci-dessus) quitte son Alignment précédent,
+        # qui peut alors se retrouver avec moins de 2 services (voir _cleanup_orphaned_alignments).
+        old_alignment_ids = {s.alignment_id for s in services if s.alignment_id}
+
         import uuid
         suffix = uuid.uuid4().hex[:8].upper()
         alignment = Alignment.create(db, {"code": f"AL_AUTO_{suffix}", "name": f"Alignement auto {suffix}"})
         for service in services:
             service.update(db, {"alignment_id": alignment.id})
+        _cleanup_orphaned_alignments(db, old_alignment_ids)
         return {"alignment_id": alignment.id, "alignment_code": alignment.code}
+
+    @classmethod
+    def unalign_bulk(cls, db: Session, ids: list[int]) -> dict:
+        """
+        Action groupée "Désaligner" (voir __actions__ ci-dessus) : détache les Service listés de
+        leur Alignment (alignment_id -> NULL). Un service déjà sans alignement est ignoré (pas
+        d'erreur - la sélection peut légitimement mélanger des services alignés et non alignés).
+        Même nettoyage qu'align_bulk si un Alignment tombe sous 2 membres après ce retrait (voir
+        _cleanup_orphaned_alignments).
+        """
+        services = db.query(cls).filter(cls.id.in_(ids)).all()
+        old_alignment_ids = {s.alignment_id for s in services if s.alignment_id}
+        for service in services:
+            if service.alignment_id is not None:
+                service.update(db, {"alignment_id": None})
+        _cleanup_orphaned_alignments(db, old_alignment_ids)
+        return {"unaligned_count": len(services)}
+
+
+def _cleanup_orphaned_alignments(db: Session, alignment_ids: set[int]):
+    """
+    Supprime les Alignment de `alignment_ids` qui comptent désormais moins de 2 Service liés — un
+    Alignment n'a de sens qu'à partir de 2 services (c'est tout son but : les relier), en dessous
+    c'est un reliquat inutile qui reste en base indéfiniment (et qui continue à consommer une
+    couleur de la palette, voir Alignment.create) sans qu'aucune action de l'IHM ne le retire.
+    Appelé après toute opération qui peut faire quitter un service de son Alignment (align_bulk,
+    unalign_bulk).
+    """
+    for alignment_id in alignment_ids:
+        remaining = db.query(Service).filter(Service.alignment_id == alignment_id).count()
+        if remaining < 2:
+            alignment = db.get(Alignment, alignment_id)
+            if alignment:
+                alignment.delete(db)
 
 
 def _repartition_signature(service: "Service") -> frozenset:
