@@ -44,7 +44,7 @@ def _base_setup(db, code="MATH"):
     return school, discipline, subject, mef, division, mef_division, mef_service, service
 
 
-def _make_teacher(db, school, code, discipline, discipline_minutes=1000, is_temporary_support=False):
+def _make_teacher(db, school, code, discipline, discipline_minutes=1020, is_temporary_support=False):
     teacher = Teacher.create(db, {"code": code, "last_name": f"L{code}", "school_id": school.id, "is_temporary_support": is_temporary_support})
     TeacherDiscipline.create(db, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": discipline_minutes})
     return teacher
@@ -131,12 +131,12 @@ class TestTrmdLineResources:
         school, discipline, subject, mef, division, mef_division, mef_service, service = _base_setup(db_session)
         teacher = _make_teacher(db_session, school, "T2", discipline)
         ref_mission = RefParticularMission.create(db_session, {"name": "Mission Test"})
-        TeacherParticularMission.create(db_session, {"teacher_id": teacher.id, "ref_particular_mission_id": ref_mission.id, "duration_minutes": 45})
+        TeacherParticularMission.create(db_session, {"teacher_id": teacher.id, "ref_particular_mission_id": ref_mission.id, "duration_minutes": 60})
 
         lines = TrmdLine.read(db_session)
         line = next(l for l in lines if l.discipline_id == discipline.id)
 
-        assert line.imp_duration_minutes == 45
+        assert line.imp_duration_minutes == 60
 
 
 class TestTrmdLineTotals:

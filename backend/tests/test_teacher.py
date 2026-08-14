@@ -91,7 +91,7 @@ class TestTeacherRequiresAtLeastOneDiscipline:
     def test_deleting_last_discipline_line_is_blocked(self, db_session):
         discipline = self._make_discipline(db_session)
         teacher = _make_teacher(db_session)
-        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": 10})
+        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": 30})
 
         with pytest.raises(ValueError, match="dernière discipline"):
             line.delete(db_session)
@@ -101,8 +101,8 @@ class TestTeacherRequiresAtLeastOneDiscipline:
     def test_deleting_one_of_several_discipline_lines_is_allowed(self, db_session):
         d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
         teacher = _make_teacher(db_session)
-        line1 = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
-        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 10})
+        line1 = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 30})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 30})
 
         line1.delete(db_session)
 
@@ -115,7 +115,7 @@ class TestTeacherRequiresAtLeastOneDiscipline:
         # `teacher._via_crud_mixin_delete` dans TeacherDiscipline.delete().
         discipline = self._make_discipline(db_session)
         teacher = _make_teacher(db_session)
-        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": 10})
+        TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": discipline.id, "duration_minutes": 30})
 
         teacher.delete(db_session)
 
@@ -240,25 +240,25 @@ class TestOwnedCollectionCommands:
     def test_create_teacher_with_inline_commands(self, db_session):
         discipline = self._make_discipline(db_session)
         teacher = _make_teacher(db_session, discipline_line_ids=[
-            {"discipline_id": discipline.id, "duration_minutes": 20},
+            {"discipline_id": discipline.id, "duration_minutes": 30},
         ])
         assert len(teacher.discipline_lines) == 1
         assert teacher.discipline_lines[0].teacher_id == teacher.id
-        assert teacher.discipline_lines[0].duration_minutes == 20
+        assert teacher.discipline_lines[0].duration_minutes == 30
 
     def test_update_keeps_edits_and_creates_in_one_call(self, db_session):
         d1, d2 = self._make_discipline(db_session, "GEN"), self._make_discipline(db_session, "SPE")
         teacher = _make_teacher(db_session)
-        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 10})
+        line = TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 30})
 
         teacher.update(db_session, {"discipline_line_ids": [
-            {"id": line.id, "duration_minutes": 99},
-            {"discipline_id": d2.id, "duration_minutes": 5},
+            {"id": line.id, "duration_minutes": 90},
+            {"discipline_id": d2.id, "duration_minutes": 60},
         ]})
 
         lines = {l.discipline_id: l for l in teacher.discipline_lines}
-        assert lines[d1.id].duration_minutes == 99
-        assert lines[d2.id].duration_minutes == 5
+        assert lines[d1.id].duration_minutes == 90
+        assert lines[d2.id].duration_minutes == 60
 
     def test_update_removes_line_absent_from_commands(self, db_session):
         # ara_line_ids (TeacherAra) plutôt que discipline_line_ids ici : ce test vide entièrement
@@ -268,7 +268,7 @@ class TestOwnedCollectionCommands:
         # générique testé ici (qui n'a rien de spécifique à discipline_lines).
         ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
         teacher = _make_teacher(db_session)
-        line = TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 10})
+        line = TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 30})
 
         teacher.update(db_session, {"ara_line_ids": []})
 
@@ -283,7 +283,7 @@ class TestOwnedCollectionCommands:
         # que discipline_line_ids : voir commentaire du test précédent.
         ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
         teacher = _make_teacher(db_session)
-        TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 10})
+        TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 30})
 
         teacher.update(db_session, {"ara_line_ids": []})  # ne doit pas lever d'IntegrityError
 

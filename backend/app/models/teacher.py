@@ -264,32 +264,32 @@ class Teacher(Base):
             return 0
         return sum(l.duration_minutes or 0 for l in lines)
 
-    @exposed
+    @exposed(info={"label": "Heures dans sa discipline", "type": "duration", "readOnly": True})
     @property
     def discipline_duration_minutes(self) -> int:
         return self._sum_lines_by_own_discipline(self.discipline_lines)
 
-    @exposed
+    @exposed(info={"label": "ARE", "type": "duration", "readOnly": True})
     @property
     def are_duration_minutes(self) -> int:
         return self._sum_lines_by_discipline_majeure(self.are_lines)
 
-    @exposed
+    @exposed(info={"label": "ARA", "type": "duration", "readOnly": True})
     @property
     def ara_duration_minutes(self) -> int:
         return self._sum_lines_by_discipline_majeure(self.ara_lines)
 
-    @exposed
+    @exposed(info={"label": "Mission particulière", "type": "duration", "readOnly": True})
     @property
     def particular_mission_duration_minutes(self) -> int:
         return self._sum_lines_by_discipline_majeure(self.particular_mission_lines)
 
-    @exposed
+    @exposed(info={"label": "Mission Pacte", "type": "duration", "readOnly": True})
     @property
     def pacte_mission_duration_minutes(self) -> int:
         return self._sum_lines_by_discipline_majeure(self.pacte_mission_lines)
 
-    @exposed
+    @exposed(info={"label": "Heures données à un autre établissement", "type": "duration", "readOnly": True})
     @property
     def other_school_duration_minutes(self) -> int:
         return self._sum_lines_by_discipline_majeure(self.other_school_lines)
@@ -305,10 +305,15 @@ class TeacherAra(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
     ref_ara_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_aras.id", ondelete="RESTRICT"), nullable=False, info={"label": "ARA"})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée", "type": "duration"})
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="ara_lines")
     ref_ara: Mapped["RefAra"] = relationship("RefAra")
+
+    @constrains('duration_minutes')
+    def _validate_duration(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la ligne ARA")
 
 
 class TeacherAre(Base):
@@ -317,10 +322,15 @@ class TeacherAre(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
     ref_are_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_ares.id", ondelete="RESTRICT"), nullable=False, info={"label": "ARE"})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée", "type": "duration"})
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="are_lines")
     ref_are: Mapped["RefAre"] = relationship("RefAre")
+
+    @constrains('duration_minutes')
+    def _validate_duration(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la ligne ARE")
 
 
 class TeacherDiscipline(Base):
@@ -329,10 +339,15 @@ class TeacherDiscipline(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
     discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée", "type": "duration"})
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="discipline_lines")
     discipline: Mapped["Discipline"] = relationship("Discipline")
+
+    @constrains('duration_minutes')
+    def _validate_duration(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la ligne discipline")
 
     def delete(self, db: Session):
         """
@@ -365,10 +380,15 @@ class TeacherParticularMission(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
     ref_particular_mission_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_particular_missions.id", ondelete="RESTRICT"), nullable=False, info={"label": "Mission particulière"})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée", "type": "duration"})
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="particular_mission_lines")
     ref_particular_mission: Mapped["RefParticularMission"] = relationship("RefParticularMission")
+
+    @constrains('duration_minutes')
+    def _validate_duration(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la ligne mission particulière")
 
 
 class TeacherPacteMission(Base):
@@ -377,10 +397,15 @@ class TeacherPacteMission(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
     ref_pacte_mission_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="RESTRICT"), nullable=False, info={"label": "Mission Pacte"})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée", "type": "duration"})
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="pacte_mission_lines")
     ref_pacte_mission: Mapped["RefPacteMission"] = relationship("RefPacteMission")
+
+    @constrains('duration_minutes')
+    def _validate_duration(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la ligne mission Pacte")
 
 
 class TeacherOtherSchool(Base):
@@ -389,7 +414,12 @@ class TeacherOtherSchool(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False)
     ref_external_school_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_external_schools.id", ondelete="RESTRICT"), nullable=False, info={"label": "Autre établissement"})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée (min)", "min": 0})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée", "type": "duration"})
 
     teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="other_school_lines")
     ref_external_school: Mapped["RefExternalSchool"] = relationship("RefExternalSchool")
+
+    @constrains('duration_minutes')
+    def _validate_duration(self, db: Session):
+        from backend.app.core.time_utils import validate_multiple_of_standard_timeslot
+        validate_multiple_of_standard_timeslot(db, self.duration_minutes, "La durée de la ligne autre établissement")

@@ -140,7 +140,7 @@
               <template v-if="isColumnFilterable(col.key)">
                 <!-- Si c'est un champ couleur, on propose le composant swatch -->
                 <color-swatch-picker
-                  v-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'"
+                  v-if="getFieldDef(col.key)?.type === 'color'"
                   :model-value="filters[col.key] || ''"
                   @change="filters[col.key] = $event"
                 />
@@ -224,7 +224,7 @@
                 <component
                   v-else-if="getWidgetComponent(col.key)"
                   :is="getWidgetComponent(col.key)"
-                  :modelValue="item[col.key]"
+                  :modelValue="rowSource(item)[col.key]"
                   :field="getFieldDef(col.key)"
                   :widgetParams="getFieldDef(col.key)?.widgetParams"
                   :disabled="isColumnReadOnly(col.key, item)"
@@ -235,7 +235,7 @@
                 <!-- Booléen (Switch / Checkbox en ligne) -->
                 <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
                   <BaseToggle
-                    :model-value="!!item[col.key]"
+                    :model-value="!!rowSource(item)[col.key]"
                     :disabled="isColumnReadOnly(col.key, item)"
                     @update:model-value="updateInline(item, col.key, $event)"
                   />
@@ -243,16 +243,16 @@
 
                 <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
                 <!-- Couleur : composant standard vue3-swatches -->
-                <div v-else-if="col.key === 'color' || getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': isColumnReadOnly(col.key, item) }">
+                <div v-else-if="getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': isColumnReadOnly(col.key, item) }">
                   <color-swatch-picker
-                    :model-value="item[col.key] || '#3B82F6'"
+                    :model-value="rowSource(item)[col.key] || '#3B82F6'"
                     @change="updateInline(item, col.key, $event)"
                   />
                 </div>
 
                 <SearchableSelect
                   v-else-if="getFieldDef(col.key)?.type === 'select'"
-                  :model-value="item[col.key]"
+                  :model-value="rowSource(item)[col.key]"
                   :options="getFieldDef(col.key)?.options || []"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
@@ -265,21 +265,23 @@
                      multiselect (les enregistrements ciblés n'existent pas indépendamment du
                      parent) — tags + bouton crayon ouvrant une popin CRUD générique. Widget
                      partagé avec GenericForm.vue (widgets/OwnedRelationField.vue), voir
-                     architecture.md. -->
+                     architecture.md. Persiste lui-même (liveSync) : passe par updateInline
+                     uniquement pour que le brouillon local (voir rowSource) reste cohérent avec le
+                     reste de la ligne, pas parce que ce champ a besoin d'être flushé au blur. -->
                 <OwnedRelationField
                   v-else-if="getFieldDef(col.key)?.resource && getFieldDef(col.key)?.parentField"
-                  :modelValue="item[col.key]"
+                  :modelValue="rowSource(item)[col.key]"
                   :field="getFieldDef(col.key)"
                   :widgetParams="{ listConfig: listConfig?.columns?.[col.key]?.listConfig }"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :parentRecord="item"
                   liveSync
-                  @update:modelValue="(val: any) => { item[col.key] = val; }"
+                  @update:modelValue="updateInline(item, col.key, $event)"
                 />
 
                 <SearchableMultiSelect
                   v-else-if="getFieldDef(col.key)?.type === 'multiselect'"
-                  :model-value="item[col.key]" 
+                  :model-value="rowSource(item)[col.key]"
                   :options="getFieldDef(col.key)?.options || []"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
@@ -287,11 +289,22 @@
                   @update:model-value="updateInline(item, col.key, $event)"
                 />
 
+                <!-- Durée (minutes en base, affichage/saisie Xh/XhYY — voir DurationInput.vue).
+                     Avant la branche "Nombre" ci-dessous : sa valeur est aussi un number JS brut,
+                     le repli typeof de cette dernière l'intercepterait sinon en premier. -->
+                <DurationInput
+                  v-else-if="getFieldDef(col.key)?.type === 'duration'"
+                  :modelValue="rowSource(item)[col.key]"
+                  :disabled="isColumnReadOnly(col.key, item)"
+                  :includeZero="getFieldDef(col.key)?.durationIncludeZero"
+                  @update:modelValue="updateInline(item, col.key, $event)"
+                />
+
                 <!-- Nombre -->
-                <input 
+                <input
                   v-else-if="getFieldDef(col.key)?.type === 'number' || typeof item[col.key] === 'number'"
-                  type="number" 
-                  :value="item[col.key]" 
+                  type="number"
+                  :value="rowSource(item)[col.key]"
                   :min="getFieldDef(col.key)?.min"
                   :max="getFieldDef(col.key)?.max"
                   :step="getFieldDef(col.key)?.step || '1'"
@@ -307,7 +320,7 @@
                 <input
                   v-else-if="getFieldDef(col.key)?.type === 'date'"
                   type="date"
-                  :value="item[col.key] || ''"
+                  :value="rowSource(item)[col.key] || ''"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value)"
@@ -337,7 +350,7 @@
                 <input
                   v-else
                   type="text"
-                  :value="item[col.key] || ''"
+                  :value="rowSource(item)[col.key] || ''"
                   :disabled="isColumnReadOnly(col.key, item)"
                   :required="isColumnRequired(col.key)"
                   @change="updateInline(item, col.key, $event.target.value)"
@@ -380,7 +393,7 @@
               :class="{ 'column-frozen': frozenLeftStyle(index), 'column-frozen-last': isLastFrozenColumn(index) }"
               :style="frozenLeftStyle(index)"
             >
-              {{ columnTotals[col.key] !== undefined ? columnTotals[col.key] : '' }}
+              {{ formatColumnTotal(col.key) }}
             </td>
             <td class="footer-total-td actions-td"></td>
           </tr>
@@ -448,14 +461,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
+import DurationInput from './DurationInput.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
 import { getWidgetForContext } from './widgets/registry';
+import { formatDurationMinutes } from '../utils/duration';
 
 interface ColumnDef {
   key: string;
@@ -468,7 +483,7 @@ interface ColumnDef {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'json' | 'binary';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'duration' | 'multiselect' | 'json' | 'binary';
   required?: boolean;
   readOnly?: boolean;
   placeholder?: string;
@@ -487,6 +502,9 @@ interface FormField {
   // Même principe que sortable ci-dessus, pour la zone de saisie de la ligne de filtrage (voir
   // isColumnFilterable) — false uniquement si déclaré explicitement (info={"filterable": False}).
   filterable?: boolean;
+  // Pour un champ type: "duration" dont 0 minute est une valeur valide ("modalité non utilisée") —
+  // voir DurationInput.vue::getDurationOptions.
+  durationIncludeZero?: boolean;
 }
 
 interface ColumnConfig {
@@ -835,14 +853,24 @@ function getDisplayValue(item: any, key: string): string {
   return String(val);
 }
 
-const pendingUpdates = new Map<string, any>();
+// reactive() (pas un Map brut) : les lectures via rowSource() dans le template doivent redéclencher
+// un rendu quand une édition est mise en brouillon (voir updateInline ci-dessous).
+const pendingUpdates = reactive(new Map<string, any>());
+
+// Source de lecture d'une cellule éditable : le brouillon en attente s'il existe, sinon l'item
+// lui-même. Nécessaire car `item` peut être un proxy Vue en LECTURE SEULE (ex: items sourcés depuis
+// useQuery() côté App.vue, voir son commentaire sur genericListQuery) — le muter en place échoue
+// silencieusement (avertissement "Set operation ... failed: target is readonly", sans exception),
+// ce qui envoyait jusqu'ici la valeur D'AVANT l'édition au serveur (l'ancien mécanisme mutait
+// `item` puis recopiait aussitôt cet `item` non modifié dans pendingUpdates).
+function rowSource(item: any): any {
+  return pendingUpdates.get(item.id) || item;
+}
 
 function updateInline(item: any, key: string, value: any) {
-  if (item[key] === value) return;
-  // Mettre à jour la prop directement pour la réactivité IHM
-  item[key] = value;
-  // Ajouter aux changements en attente
-  pendingUpdates.set(item.id, { ...item });
+  const current = rowSource(item);
+  if (current[key] === value) return;
+  pendingUpdates.set(item.id, { ...current, [key]: value });
 }
 
 function onRowFocusOut(item: any, event: FocusEvent) {
@@ -850,7 +878,7 @@ function onRowFocusOut(item: any, event: FocusEvent) {
   if (event.relatedTarget && tr.contains(event.relatedTarget as Node)) {
     return; // Focus is still inside the same row
   }
-  
+
   if (pendingUpdates.has(item.id)) {
     emit('update-item', pendingUpdates.get(item.id));
     pendingUpdates.delete(item.id);
@@ -1159,6 +1187,15 @@ const columnTotals = computed<Record<string, number>>(() => {
   }
   return totals;
 });
+
+// Une colonne "duration" reste sommée comme n'importe quel nombre (columnTotals ci-dessus, minutes
+// additives) — seul l'AFFICHAGE du total suit le format Xh/XhYY de la colonne, cohérent avec ses
+// propres cellules (sinon un total de minutes brutes apparaîtrait à côté de valeurs déjà formatées).
+function formatColumnTotal(key: string): string | number {
+  const total = columnTotals.value[key];
+  if (total === undefined) return '';
+  return getFieldDef(key)?.type === 'duration' ? formatDurationMinutes(total) : total;
+}
 
 // Sur-en-têtes de colonnes (voir listConfig.columnGroups) : true dès qu'au moins une entrée est
 // déclarée, indépendamment des colonnes visibles — pilote la désactivation du glisser-déposer.

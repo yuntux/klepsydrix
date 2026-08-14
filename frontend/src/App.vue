@@ -477,6 +477,20 @@ const activeAdminModel = ref('schools');
 const genericItems = ref<any[]>([]);
 const genericLoading = ref(false);
 
+// genericItems.value pointe vers le tableau réactif de la query TanStack (voir genericListQuery
+// plus bas) : TanStack Query rend ses résultats LECTURE SEULE (Vue readonly()), donc une mutation
+// par INDEX (`genericItems.value[idx] = x`) échoue silencieusement (avertissement "Set operation
+// ... failed: target is readonly", sans exception) — l'affichage local ne se met alors à jour
+// qu'au prochain refetch complet, jamais immédiatement. Remplacer le tableau ENTIER (nouvelle
+// référence) plutôt que muter un de ses éléments contourne le problème : c'est une écriture sur
+// le ref lui-même, jamais sur le tableau readonly qu'il pointait avant cet appel.
+function setGenericItemAt(idx: number, value: any) {
+  if (idx === -1) return;
+  const next = [...genericItems.value];
+  next[idx] = value;
+  genericItems.value = next;
+}
+
 // Clé de requête réactive du panneau maître générique : recalculée automatiquement dès que
 // activeAdminModel ou les filtres du panel actif changent — une vraie useQuery() (ci-dessous)
 // redéclenche son fetch nativement dès que sa clé change, sans watch() explicite à maintenir.
@@ -875,7 +889,7 @@ async function onAddGeneric() {
   isEditing.value = false;
 
   if (isListEditableInline.value) {
-    genericItems.value.unshift({ ...defaults, id: 'new_' + Date.now() });
+    genericItems.value = [{ ...defaults, id: 'new_' + Date.now() }, ...genericItems.value];
     return;
   }
 
@@ -1000,7 +1014,7 @@ async function onSubmitGeneric(value: Record<string, any>) {
         selectedParentIds.value.forEach((id, index) => {
           const idx = genericItems.value.findIndex(x => x.id === id);
           if (idx !== -1) {
-            genericItems.value[idx] = { ...genericItems.value[idx], ...(updatedItems[index] || value) };
+            setGenericItemAt(idx, { ...genericItems.value[idx], ...(updatedItems[index] || value) });
           }
         });
       }
@@ -1028,7 +1042,7 @@ async function onSubmitGeneric(value: Record<string, any>) {
       if (targetResource === activeAdminModel.value) {
         const idx = genericItems.value.findIndex(x => x.id === value.id);
         if (idx !== -1) {
-          genericItems.value[idx] = { ...genericItems.value[idx], ...updated };
+          setGenericItemAt(idx, { ...genericItems.value[idx], ...updated });
         }
       }
 
@@ -1080,7 +1094,7 @@ async function onUpdateGenericInline(item: any) {
   let oldItem = null;
   if (idx !== -1) {
     oldItem = { ...genericItems.value[idx] };
-    genericItems.value[idx] = item;
+    setGenericItemAt(idx, item);
   }
 
   try {
@@ -1089,7 +1103,7 @@ async function onUpdateGenericInline(item: any) {
       delete payload.id;
       const created = await api.createGenericItem(activeAdminModel.value, payload);
       if (idx !== -1) {
-        genericItems.value[idx] = created;
+        setGenericItemAt(idx, created);
       }
       // Pas d'invalidateFkCache direct ici : le dispatch resource:mutated en fin de fonction
       // s'en charge déjà (voir la même remarque dans onSubmitGeneric plus haut).
@@ -1102,7 +1116,7 @@ async function onUpdateGenericInline(item: any) {
       // changent) — s'en tenir au payload soumis laissait genericItems[idx] à jamais périmé.
       const updated = await api.updateGenericItem(activeAdminModel.value, item.id, item);
       if (idx !== -1) {
-        genericItems.value[idx] = updated;
+        setGenericItemAt(idx, updated);
       }
       // Pas d'invalidateFkCache direct ici non plus (voir juste au-dessus dans cette même
       // fonction) : le dispatch resource:mutated en fin de fonction s'en charge déjà.
@@ -1122,7 +1136,7 @@ async function onUpdateGenericInline(item: any) {
     showNotification('error', err.message || 'Échec de l\'enregistrement en ligne.');
     // En cas d'erreur, on restaure l'ancienne valeur, sauf si c'est une nouvelle ligne (pour ne pas perdre la saisie)
     if (idx !== -1 && oldItem && !String(item.id).startsWith('new_')) {
-      genericItems.value[idx] = oldItem;
+      setGenericItemAt(idx, oldItem);
     }
   }
 }
@@ -1239,7 +1253,11 @@ function buildColumnsConfig(model: string, items: any[]) {
           }
 
           if (baseType === 'boolean') colWidth = 100;
-          else if (key === 'color') colWidth = 80;
+          // prop.ui_type, jamais key === 'color' : un champ nommé "color" sans "type": "color"
+          // explicite côté backend doit rester un champ texte brut, pas se voir imposer un widget
+          // par magie de nommage (voir architecture.md).
+          else if (prop.ui_type === 'color') colWidth = 80;
+          else if (prop.ui_type === 'duration') colWidth = 100;
           // prop.ui_type en repli : un TransientModel (ex: TrmdLine) n'a pas de "type" JSON-Schema
           // réel (Optional[Any], voir generic.py::make_pydantic_model) — seul ui_type porte
           // l'information "nombre" pour ces champs, sans quoi ils retombaient dans le calcul par
@@ -1512,9 +1530,7 @@ function getFormFieldsConfig(resourceKey?: string) {
         else if (fieldType === 'integer' || fieldType === 'number') fieldType = 'number';
 
         if (fieldType === 'text' && baseFormat === 'date') fieldType = 'date';
-        
-        if (fieldType === 'color' || key === 'color') fieldType = 'color';
-        
+
         let options = prop.options || undefined;
         if (fieldType === 'time') { fieldType = 'select'; options = timeOptions; }
         else if ((fieldType === 'array' || fieldType === 'multiselect') && resourceName) {
@@ -1564,7 +1580,11 @@ function getFormFieldsConfig(resourceKey?: string) {
           // même convention que nullable ci-dessus, triable par défaut.
           sortable: prop.sortable !== false,
           // Même principe pour la zone de saisie de la ligne de filtrage (info={"filterable": False}).
-          filterable: prop.filterable !== false
+          filterable: prop.filterable !== false,
+          // Pour un champ "type": "duration" dont 0 minute est une valeur valide ("modalité non
+          // utilisée", voir Service/MefService.weekly_duration_*_minutes) — insère l'option
+          // "Aucune" dans la liste déroulante (voir DurationInput.vue::getDurationOptions).
+          durationIncludeZero: prop.durationIncludeZero === true
         });
       }
       return dynamicFields;

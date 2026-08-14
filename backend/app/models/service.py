@@ -1,16 +1,10 @@
 import enum
 import math
 import random
-from functools import partial
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
 from sqlalchemy import Column, Integer, Float, String, ForeignKey, Table, Enum
 from backend.app.models.base import Base, constrains, exposed, related_field
-from backend.app.core.time_utils import get_duration_options
-
-# Les 3 champs weekly_duration_*_minutes de Service/MefService valent 0 par défaut ("modalité non
-# utilisée") : contrairement à Course/ServiceRepartition, leurs options doivent inclure 0.
-_weekly_duration_options = partial(get_duration_options, include_zero=True)
 
 service_teachers = Table(
     "service_teachers",
@@ -89,9 +83,9 @@ class Service(Base):
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif", "min": 0, "max": 50})
     weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
 
-    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "select", "options": _weekly_duration_options})
-    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "select", "options": _weekly_duration_options})
-    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "select", "options": _weekly_duration_options})
+    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "duration", "durationIncludeZero": True})
+    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "duration", "durationIncludeZero": True})
+    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "duration", "durationIncludeZero": True})
 
     # Champs mirroir du MefService d'origine : copiés à la génération, comparés par
     # is_synced_with_mef_service. student_count est volontairement exclu (voir MefService.student_count).
@@ -197,7 +191,7 @@ class Service(Base):
         # n'a lui-même changé sur ce Service précis.
         _sync_reduced_pool(db, self)
 
-    @exposed
+    @exposed(info={"type": "duration", "readOnly": True})
     @property
     def total_weekly_duration_minutes(self) -> int:
         return (self.weekly_duration_full_class_minutes or 0) \
@@ -536,7 +530,7 @@ class ServiceRepartition(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     service_id: Mapped[int] = mapped_column(Integer, ForeignKey("services.id", ondelete="CASCADE"), nullable=False, info={"label": "Service"})
     occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre d'occurrences", "min": 1, "max": 20})
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "select", "options": get_duration_options})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "duration"})
     periodicity: Mapped[Any] = mapped_column(Enum(RepartitionPeriodicity, name="repartition_periodicity_enum"), nullable=False, default=RepartitionPeriodicity.WEEKLY, info={
         "label": "Périodicité", "type": "select",
         "options": [{"value": "WEEKLY", "label": "Chaque semaine"}, {"value": "BIWEEKLY", "label": "Une semaine sur deux"}],
@@ -557,8 +551,8 @@ class ServiceRepartition(Base):
     group_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nb groupes", "readOnly": True})
     # Besoin brut/pondéré en heures-professeur hebdomadaires de CETTE ligne — calculés et stockés
     # (§15.F, voir _compute_need_durations), consommés par le TRMD (trmd_synthesis.py).
-    raw_need_weekly_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Besoin brut (min)", "readOnly": True})
-    weighted_need_weekly_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Besoin pondéré (min)", "readOnly": True})
+    raw_need_weekly_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Besoin brut", "type": "duration", "readOnly": True})
+    weighted_need_weekly_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Besoin pondéré", "type": "duration", "readOnly": True})
 
     # Relations de navigation
     service: Mapped[Optional["Service"]] = relationship("Service", back_populates="repartitions")

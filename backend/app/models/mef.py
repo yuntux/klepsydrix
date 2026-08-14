@@ -1,15 +1,9 @@
 from datetime import date, datetime, time
-from functools import partial
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, constrains, exposed, related_field
-from backend.app.core.time_utils import get_duration_options
-
-# Voir backend/app/models/service.py : mêmes 3 champs (miroir), même besoin d'inclure 0 ("modalité
-# non utilisée", valeur par défaut) dans les options du menu déroulant.
-_weekly_duration_options = partial(get_duration_options, include_zero=True)
 
 class Mef(Base):
     __tablename__ = "mefs"
@@ -43,11 +37,11 @@ class Mef(Base):
                     {"key": "election_method_id", "label": "Modalité d'élection", "resource": "election_methods", "editable": True},
                     {"key": "student_count", "label": "Effectif", "editable": True},
                     {"key": "weighting_coefficient", "label": "Pondération", "editable": True},
-                    {"key": "weekly_duration_full_class_minutes", "label": "Durée classe entière (min)", "editable": True},
-                    {"key": "weekly_duration_reduced_minutes", "label": "Durée effectif réduit (min)", "editable": True},
-                    {"key": "weekly_duration_split_minutes", "label": "Durée effectif dédoublé (min)", "editable": True},
+                    {"key": "weekly_duration_full_class_minutes", "label": "Durée classe entière", "editable": True},
+                    {"key": "weekly_duration_reduced_minutes", "label": "Durée effectif réduit", "editable": True},
+                    {"key": "weekly_duration_split_minutes", "label": "Durée effectif dédoublé", "editable": True},
                     {"key": "reduced_group_student_count", "label": "Élèves effectif réduit", "editable": True},
-                    {"key": "total_weekly_duration_minutes", "label": "Durée totale (min)"}
+                    {"key": "total_weekly_duration_minutes", "label": "Durée totale"}
                 ]
             }
         }
@@ -73,9 +67,9 @@ class MefService(Base):
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif attendu par division", "min": 0, "max": 50})
     weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
 
-    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "select", "options": _weekly_duration_options})
-    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "select", "options": _weekly_duration_options})
-    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "select", "options": _weekly_duration_options})
+    weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "duration", "durationIncludeZero": True})
+    weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "duration", "durationIncludeZero": True})
+    weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "duration", "durationIncludeZero": True})
     reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
 
     # Relations de navigation
@@ -87,7 +81,7 @@ class MefService(Base):
     election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod")
     services: Mapped[list["Service"]] = relationship("Service", back_populates="mef_service", info={"label": "Services générés"})
 
-    @exposed
+    @exposed(info={"type": "duration", "readOnly": True})
     @property
     def total_weekly_duration_minutes(self) -> int:
         return (self.weekly_duration_full_class_minutes or 0) \

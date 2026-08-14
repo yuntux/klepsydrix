@@ -33,7 +33,7 @@
             <tr v-for="row in pivotRows" :key="row.key">
               <td v-for="(label, i) in row.labels" :key="'label-' + i" class="pivot-label-cell">{{ label }}</td>
               <td v-for="col in fixedColumns" :key="col.key" class="pivot-measure-cell">
-                {{ aggregateValue(row.recordIds, col.field, col.agg) }}
+                {{ formatAggregateValue(row.recordIds, col.field, col.agg) }}
               </td>
               <td
                 v-for="colVal in sortedColValues"
@@ -51,7 +51,7 @@
                     @change="toggleCell(row.key, colVal)"
                   />
                   <template v-if="matrixCell.type === 'aggregate'">
-                    <span class="pivot-cell-value">{{ aggregateValue(cellRecordIdsFor(row.key, colVal), matrixCell.field, matrixCell.agg) }}</span>
+                    <span class="pivot-cell-value">{{ formatAggregateValue(cellRecordIdsFor(row.key, colVal), matrixCell.field, matrixCell.agg) }}</span>
                   </template>
                   <template v-else>
                     <span class="pivot-cell-value pivot-cell-list-summary">{{ listCellSummary(row.key, colVal).label }}</span>
@@ -102,6 +102,7 @@ import * as api from '../services/api';
 import BaseButton from './BaseButton.vue';
 import GenericListModal from './GenericListModal.vue';
 import { genericCacheKey } from '../composables/useGenericCache';
+import { formatDurationMinutes } from '../utils/duration';
 
 const queryClient = useQueryClient();
 
@@ -258,6 +259,18 @@ function aggregateValue(recordIds: number[], field: string, agg?: string): numbe
   const vals = recordIds.map(id => Number(recordsById.value[id]?.[field]) || 0);
   if (agg === 'sum' || !agg) return vals.reduce((a, b) => a + b, 0);
   return 0;
+}
+
+function isDurationField(field: string): boolean {
+  return fieldSchemaProp(field)?.ui_type === 'duration';
+}
+
+// Le total agrégé (ex: somme de duration_minutes) reste calculé en minutes brutes (aggregateValue,
+// seule unité cohérente pour une somme) ; seul l'AFFICHAGE bascule en Xh/XhYY pour un champ de type
+// duration — même principe que formatColumnTotal dans GenericList.vue.
+function formatAggregateValue(recordIds: number[], field: string, agg?: string): string | number {
+  const total = aggregateValue(recordIds, field, agg);
+  return isDurationField(field) ? formatDurationMinutes(total) : total;
 }
 
 function listCellSummary(rowKey: string, colVal: string): { label: string; childIds: number[] } {

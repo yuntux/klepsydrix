@@ -6,7 +6,6 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, selec
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, exposed, constrains, onchange
-from backend.app.core.time_utils import get_duration_options
 
 
 class CourseWeekType(str, enum.Enum):
@@ -152,7 +151,7 @@ class Course(Base):
     period_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("period_types.id", ondelete="SET NULL"), nullable=True, info={"label": "Type de période"})
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "select", "options": get_duration_options})
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "duration"})
     name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Nom / Libellé", "placeholder": "ex: Cours de maths avancé"})
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True, info={"label": "Mémo / Note interne"})
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})

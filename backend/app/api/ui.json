@@ -1232,7 +1232,7 @@
                     },
                     "duration_minutes": {
                       "visibleByDefault": true,
-                      "overrideLabel": "Durée (min)"
+                      "overrideLabel": "Durée"
                     },
                     "week_type": {
                       "visibleByDefault": true,
@@ -1450,19 +1450,19 @@
                 },
                 "weekly_duration_full_class_minutes": {
                   "visibleByDefault": true,
-                  "overrideLabel": "Durée classe entière (min)"
+                  "overrideLabel": "Durée classe entière"
                 },
                 "weekly_duration_reduced_minutes": {
                   "visibleByDefault": true,
-                  "overrideLabel": "Durée effectif réduit (min)"
+                  "overrideLabel": "Durée effectif réduit"
                 },
                 "weekly_duration_split_minutes": {
                   "visibleByDefault": true,
-                  "overrideLabel": "Durée dédoublement (min)"
+                  "overrideLabel": "Durée dédoublement"
                 },
                 "total_weekly_duration_minutes": {
                   "visibleByDefault": true,
-                  "overrideLabel": "Durée totale (min)",
+                  "overrideLabel": "Durée totale",
                   "readOnly": true
                 },
                 "weighting_coefficient": {
@@ -1524,7 +1524,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Temps / élève hebdo (min)"
+                  "overrideLabel": "Temps / élève hebdo"
                 }
               ],
               "matrix": {
@@ -1568,7 +1568,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Temps / élève hebdo (min)"
+                  "overrideLabel": "Temps / élève hebdo"
                 }
               ],
               "matrix": {
@@ -1605,7 +1605,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Temps / élève hebdo (min)"
+                  "overrideLabel": "Temps / élève hebdo"
                 }
               ],
               "matrix": {
@@ -1641,7 +1641,7 @@
                   "key": "total_hours",
                   "field": "total_weekly_duration_minutes",
                   "agg": "sum",
-                  "overrideLabel": "Total heures (min)"
+                  "overrideLabel": "Total heures"
                 }
               ],
               "matrix": {

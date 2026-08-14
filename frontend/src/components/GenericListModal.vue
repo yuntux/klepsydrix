@@ -156,6 +156,7 @@ const fields = computed(() => {
       options,
       resource: resourceName,
       default: prop.default,
+      durationIncludeZero: prop.durationIncludeZero === true,
     });
   }
   return result;
@@ -165,7 +166,7 @@ const columns = computed(() =>
   fields.value.map((f: any) => ({
     key: f.key,
     label: f.label,
-    width: f.type === 'number' ? 100 : 160,
+    width: (f.type === 'number' || f.type === 'duration') ? 100 : 160,
     visible: true
   }))
 );

@@ -80,6 +80,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed, defineComponent, h } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
+import DurationInput from './DurationInput.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseTooltip from './BaseTooltip.vue';
@@ -125,7 +126,7 @@ function handleActionClick(action: any) {
 interface FormField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'multiselect' | 'html' | 'json' | 'binary';
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'duration' | 'multiselect' | 'html' | 'json' | 'binary';
   required?: boolean;
   requiredExpr?: string;
   invisibleExpr?: string;
@@ -139,6 +140,9 @@ interface FormField {
   options?: Array<{ value: any; label: string }>;
   help?: string;
   resource?: string;
+  // Pour un champ type: "duration" dont 0 minute est une valeur valide ("modalité non utilisée") —
+  // voir DurationInput.vue::getDurationOptions.
+  durationIncludeZero?: boolean;
 }
 interface LayoutElement {
   type: 'field' | 'group' | 'separator' | 'newline' | 'notebook' | 'page';
@@ -898,6 +902,16 @@ const FormLayoutGrid: any = defineComponent({
                   ? h('span', { class: 'color-divergent-text' }, 'Divergent (cliquez pour choisir)')
                   : null
               ]);
+            } else if (field.type === 'duration') {
+              inputElement = h(DurationInput, {
+                modelValue: gridProps.localModel[key] !== undefined ? gridProps.localModel[key] : null,
+                disabled: disabled,
+                includeZero: (field as any).durationIncludeZero,
+                style: inputStyle,
+                onChange: (val: number | null) => {
+                  gridProps.localModel[key] = val;
+                }
+              });
             } else if (field.type === 'html') {
               // Contenu HTML formaté en lecture seule (ex: message d'info/de confirmation d'un
               // wizard) — jamais un input, aucune valeur remontée dans localModel.
@@ -1177,6 +1191,16 @@ function initializeModel() {
       }
       if (field.type === 'select' && localModel.value[field.key] === undefined) {
         const defaultVal = (field as any).default !== undefined ? (field as any).default : null;
+        localModel.value[field.key] = defaultVal;
+        initialModelValue.value[field.key] = defaultVal;
+      }
+      // Tous les champs duration existants sont non-nullables avec une valeur par défaut réelle
+      // côté backend (voir backend/app/models/*.py) — pas de placeholder "-- Choisir --" dans
+      // DurationInput.vue, donc toujours seeder une valeur concrète ici (même motif que select
+      // ci-dessus), pour ne jamais laisser localModel[key] undefined le temps qu'un nouvel
+      // enregistrement soit soumis.
+      if (field.type === 'duration' && localModel.value[field.key] === undefined) {
+        const defaultVal = (field as any).default !== undefined ? (field as any).default : 0;
         localModel.value[field.key] = defaultVal;
         initialModelValue.value[field.key] = defaultVal;
       }

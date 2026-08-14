@@ -641,38 +641,58 @@ class CRUDMixin:
 class Base(DeclarativeBase, CRUDMixin):
     pass
 
-def exposed(attr):
+def exposed(attr=None, *, info=None):
     """
-    Décorateur pour exposer un champ virtuel (@property ou @hybrid_property)
-    dans la sérialisation automatique du CRUDMixin / API générique.
+    Décorateur pour exposer un champ virtuel (@property ou @hybrid_property) dans la
+    sérialisation automatique du CRUDMixin / API générique. Utilisable nu (@exposed) ou avec
+    métadonnées explicites (@exposed(info={"type": "duration", ...})) — même convention que
+    Column(info=...)/related_field(info=...), lue par generic.py via le même mécanisme de
+    passthrough générique déjà en place pour les champs virtuels (descriptor.info, voir
+    make_pydantic_model, branche _extra_fields) : aucun changement requis côté generic.py.
     """
+    if attr is not None:
+        return _exposed_impl(attr, info)
+
+    def decorator(inner_attr):
+        return _exposed_impl(inner_attr, info)
+    return decorator
+
+
+def _exposed_impl(attr, info):
     from sqlalchemy.ext.hybrid import hybrid_property
-    
+
     # 1. Si c'est un property natif (qui n'autorise pas les attributs dynamiques en C)
     if isinstance(attr, property) and not type(attr).__name__.endswith("exposed_property"):
         class custom_exposed_property(property):
             _is_exposed = True
-        return custom_exposed_property(attr.fget, attr.fset, attr.fdel, attr.__doc__)
-        
+        result = custom_exposed_property(attr.fget, attr.fset, attr.fdel, attr.__doc__)
+        result.info = info or {}
+        return result
+
     # 2. Si c'est une hybrid_property
     if isinstance(attr, hybrid_property):
         try:
             attr._is_exposed = True
+            attr.info = info or {}
             return attr
         except AttributeError:
             class custom_exposed_hybrid(hybrid_property):
                 _is_exposed = True
             expr = getattr(attr, "custom_expression", None)
-            return custom_exposed_hybrid(attr.fget, attr.fset, attr.fdel, expr=expr)
-            
+            result = custom_exposed_hybrid(attr.fget, attr.fset, attr.fdel, expr=expr)
+            result.info = info or {}
+            return result
+
     # 3. Si c'est une fonction (décorateur placé sous @property)
     if callable(attr):
         attr._is_exposed = True
+        attr.info = info or {}
         return attr
-        
+
     # 4. Par défaut, on tente de poser l'attribut
     try:
         attr._is_exposed = True
+        attr.info = info or {}
     except AttributeError:
         pass
     return attr
