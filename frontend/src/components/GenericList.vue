@@ -176,198 +176,36 @@
             </td>
           </tr>
 
-          <tr v-if="displayedItems.length === 0" class="empty-tr">
+          <tr v-if="!isGrouped && displayedItems.length === 0" class="empty-tr">
             <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="empty-td">
               Aucune donnée à afficher.
             </td>
           </tr>
-          <tr 
-            v-for="item in displayedItems" 
-            :key="item.id" 
-            class="body-tr"
-            :class="{ 'selected-row': selectedIds.has(item.id) }"
-            @click="onRowClick(item, $event)"
-            @focusout="onRowFocusOut(item, $event)"
-          >
-            <td
-              v-if="isMultiSelectAllowed"
-              class="body-td checkbox-td"
-              :class="{ 'column-frozen': frozenColumnCount > 0 }"
-              :style="{ textAlign: 'center', width: '40px', borderRight: '1px solid var(--border-color)', padding: '0 4px', ...(frozenColumnCount > 0 ? { position: 'sticky', left: '0px' } : {}) }"
-            >
-              <input
-                type="checkbox"
-                :checked="selectedIds.has(item.id)"
-                style="pointer-events: none;"
-              />
-            </td>
-            <td
-              v-for="(col, index) in visibleColumns"
-              :key="col.key"
-              class="body-td"
-              :class="{
-                'has-select': getFieldDef(col.key)?.type === 'select' || getFieldDef(col.key)?.type === 'multiselect',
-                'column-frozen': frozenLeftStyle(index),
-                'column-frozen-last': isLastFrozenColumn(index)
-              }"
-              :style="frozenLeftStyle(index)"
-            >
-              <!-- Formatage personnalisé des valeurs (Édition en ligne Airtable) -->
-              <slot :name="'col-' + col.key" :item="item">
-                <!-- ID est immuable -->
-                <span v-if="col.key === 'id'" class="immutable-id">
-                  {{ item[col.key] }}
-                </span>
+          <!-- Corps plat (regroupement inactif) : ligne de donnée extraite dans GenericListRow.vue,
+               réutilisée à l'identique par le rendu groupé (voir GenericListGroupHeaderRow.vue) —
+               contexte partagé par provide()/inject() (genericListRowContext.ts), jamais dupliqué. -->
+          <template v-if="!isGrouped">
+            <GenericListRow v-for="item in displayedItems" :key="item.id" :item="item">
+              <template v-for="(_, slotName) in $slots" #[slotName]="slotProps" :key="slotName">
+                <slot :name="slotName" v-bind="slotProps" />
+              </template>
+            </GenericListRow>
+          </template>
 
-                <!-- Widget explicite (registre partagé avec GenericForm.vue, voir widgets/registry.ts)
-                     — toujours prioritaire sur le rendu par type, comme côté formulaire. -->
-                <component
-                  v-else-if="getWidgetComponent(col.key)"
-                  :is="getWidgetComponent(col.key)"
-                  :modelValue="rowSource(item)[col.key]"
-                  :field="getFieldDef(col.key)"
-                  :widgetParams="getFieldDef(col.key)?.widgetParams"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :parentRecord="item"
-                  @update:modelValue="updateInline(item, col.key, $event)"
-                />
-
-                <!-- Booléen (Switch / Checkbox en ligne) -->
-                <div v-else-if="getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
-                  <BaseToggle
-                    :model-value="!!rowSource(item)[col.key]"
-                    :disabled="isColumnReadOnly(col.key, item)"
-                    @update:model-value="updateInline(item, col.key, $event)"
-                  />
-                </div>
-
-                <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
-                <!-- Couleur : composant standard vue3-swatches -->
-                <div v-else-if="getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': isColumnReadOnly(col.key, item) }">
-                  <color-swatch-picker
-                    :model-value="rowSource(item)[col.key] || '#3B82F6'"
-                    @change="updateInline(item, col.key, $event)"
-                  />
-                </div>
-
-                <SearchableSelect
-                  v-else-if="getFieldDef(col.key)?.type === 'select'"
-                  :model-value="rowSource(item)[col.key]"
-                  :options="getFieldDef(col.key)?.options || []"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :required="isColumnRequired(col.key)"
-                  :nullable="getFieldDef(col.key)?.nullable"
-                  :inline="true"
-                  @update:model-value="updateInline(item, col.key, $event)"
-                />
-
-                <!-- Relation 1-à-N "possédée" (ex: repartition_ids) : jamais un simple picker
-                     multiselect (les enregistrements ciblés n'existent pas indépendamment du
-                     parent) — tags + bouton crayon ouvrant une popin CRUD générique. Widget
-                     partagé avec GenericForm.vue (widgets/OwnedRelationField.vue), voir
-                     architecture.md. Persiste lui-même (liveSync) : passe par updateInline
-                     uniquement pour que le brouillon local (voir rowSource) reste cohérent avec le
-                     reste de la ligne, pas parce que ce champ a besoin d'être flushé au blur. -->
-                <OwnedRelationField
-                  v-else-if="getFieldDef(col.key)?.resource && getFieldDef(col.key)?.parentField"
-                  :modelValue="rowSource(item)[col.key]"
-                  :field="getFieldDef(col.key)"
-                  :widgetParams="{ listConfig: listConfig?.columns?.[col.key]?.listConfig }"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :parentRecord="item"
-                  liveSync
-                  @update:modelValue="updateInline(item, col.key, $event)"
-                />
-
-                <SearchableMultiSelect
-                  v-else-if="getFieldDef(col.key)?.type === 'multiselect'"
-                  :model-value="rowSource(item)[col.key]"
-                  :options="getFieldDef(col.key)?.options || []"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :required="isColumnRequired(col.key)"
-                  :inline="true"
-                  @update:model-value="updateInline(item, col.key, $event)"
-                />
-
-                <!-- Durée (minutes en base, affichage/saisie Xh/XhYY — voir DurationInput.vue).
-                     Avant la branche "Nombre" ci-dessous : sa valeur est aussi un number JS brut,
-                     le repli typeof de cette dernière l'intercepterait sinon en premier. -->
-                <DurationInput
-                  v-else-if="getFieldDef(col.key)?.type === 'duration'"
-                  :modelValue="rowSource(item)[col.key]"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :includeZero="getFieldDef(col.key)?.durationIncludeZero"
-                  @update:modelValue="updateInline(item, col.key, $event)"
-                />
-
-                <!-- Nombre -->
-                <input
-                  v-else-if="getFieldDef(col.key)?.type === 'number' || typeof item[col.key] === 'number'"
-                  type="number"
-                  :value="rowSource(item)[col.key]"
-                  :min="getFieldDef(col.key)?.min"
-                  :max="getFieldDef(col.key)?.max"
-                  :step="getFieldDef(col.key)?.step || '1'"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :required="isColumnRequired(col.key)"
-                  @change="updateInline(item, col.key, $event.target.value !== '' ? Number($event.target.value) : null)"
-                  class="inline-input inline-number"
-                />
-
-                <!-- Date : même widget que GenericForm.vue (input natif type=date), pour ne pas
-                     éditer une date en texte libre ici alors que le formulaire propose un vrai
-                     sélecteur de date. -->
-                <input
-                  v-else-if="getFieldDef(col.key)?.type === 'date'"
-                  type="date"
-                  :value="rowSource(item)[col.key] || ''"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :required="isColumnRequired(col.key)"
-                  @change="updateInline(item, col.key, $event.target.value)"
-                  class="inline-input"
-                />
-
-                <!-- Champ objet calculé côté serveur (ex: Course.underventilated_resource_ids) :
-                     jamais un input texte brut sur un objet JS — un résumé compact en lecture
-                     seule, détail en tooltip. Toujours read-only, aucun widget d'édition générique
-                     sensé pour un JSON arbitraire. -->
-                <div
-                  v-else-if="getFieldDef(col.key)?.type === 'json'"
-                  class="inline-json-summary"
-                  :title="item[col.key] && Object.keys(item[col.key]).length ? JSON.stringify(item[col.key], null, 2) : ''"
-                >{{ item[col.key] && Object.keys(item[col.key]).length ? `${Object.keys(item[col.key]).length} type(s)` : '—' }}</div>
-
-                <!-- Champ binaire (n'importe quel fichier, avec ou sans widget="image") : jamais le
-                     contenu du fichier dans une cellule de liste — juste un badge de présence, le
-                     détail/l'édition se fait dans le formulaire (BinaryFileField/ImageField). -->
-                <span
-                  v-else-if="getFieldDef(col.key)?.type === 'binary'"
-                  class="inline-binary-badge"
-                  :title="item[col.key]?.filename || ''"
-                >{{ item[col.key]?.data_base64 ? '📎 Fichier' : '—' }}</span>
-
-                <!-- Texte standard (ex: nom, code) -->
-                <input
-                  v-else
-                  type="text"
-                  :value="rowSource(item)[col.key] || ''"
-                  :disabled="isColumnReadOnly(col.key, item)"
-                  :required="isColumnRequired(col.key)"
-                  @change="updateInline(item, col.key, $event.target.value)"
-                  class="inline-input"
-                />
-              </slot>
-            </td>
-            <td class="body-td actions-td">
-              <div class="actions-group">
-                <button v-if="!listConfig?.disableDelete" class="btn-action btn-delete" @click.stop="$emit('delete', item)" title="Supprimer">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            </td>
-          </tr>
+          <!-- Corps groupé (voir listConfig.groupBy) : arbre récursif de lignes de groupe, lignes
+               feuilles rendues via GenericListRow (même composant, même comportement que ci-dessus). -->
+          <template v-else>
+            <GenericListGroupHeaderRow v-for="node in pagedGroupTree" :key="node.path" :node="node">
+              <template v-for="(_, slotName) in $slots" #[slotName]="slotProps" :key="slotName">
+                <slot :name="slotName" v-bind="slotProps" />
+              </template>
+            </GenericListGroupHeaderRow>
+            <tr v-if="pagedGroupTree.length === 0" class="empty-tr">
+              <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="empty-td">
+                Aucune donnée à afficher.
+              </td>
+            </tr>
+          </template>
 
           <!-- Espace virtuel bas -->
           <tr v-if="isVirtualMode && virtualPaddingBottom > 0">
@@ -377,8 +215,10 @@
 
         <!-- Ligne de total en pied de tableau (voir listConfig.showColumnTotals) : somme des
              lignes actuellement AFFICHÉES (displayedItems), pas de l'ensemble filtré — toujours en
-             lecture seule, aucun binding d'édition contrairement au corps du tableau. -->
-        <tfoot v-if="listConfig?.showColumnTotals">
+             lecture seule, aucun binding d'édition contrairement au corps du tableau. Masqué en
+             mode groupé (isGrouped) : les sous-totaux par groupe (voir GenericListGroupHeaderRow)
+             le rendent redondant et son calcul (displayedItems) devient sans objet. -->
+        <tfoot v-if="listConfig?.showColumnTotals && !isGrouped">
           <tr class="footer-total-tr">
             <td
               v-if="isMultiSelectAllowed"
@@ -408,6 +248,12 @@
         <span v-if="isMultiSelectAllowed && selectedIds.size > 0" class="toolbar-badge selection-badge">
           {{ selectedIds.size }} sélectionné(s)
         </span>
+        <GenericListGroupByPicker
+          v-if="listConfig?.showGroupByWidget !== false"
+          :modelValue="internalGroupBy"
+          :candidateFields="groupableFields"
+          @update:modelValue="internalGroupBy = $event"
+        />
         <label class="per-page-selector">
           Afficher
           <select v-model="perPage" class="select-custom">
@@ -461,7 +307,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted, provide } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import DurationInput from './DurationInput.vue';
 import SearchableSelect from './SearchableSelect.vue';
@@ -469,6 +315,11 @@ import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
+import GenericListRow from './GenericListRow.vue';
+import GenericListGroupHeaderRow from './GenericListGroupHeaderRow.vue';
+import GenericListGroupByPicker from './GenericListGroupByPicker.vue';
+import { GENERIC_LIST_ROW_CONTEXT } from './genericListRowContext';
+import { GENERIC_LIST_GROUP_CONTEXT } from './genericListGroupContext';
 import { getWidgetForContext } from './widgets/registry';
 import { formatDurationMinutes } from '../utils/duration';
 
@@ -551,7 +402,33 @@ interface ListConfig {
   // glisser-déposer, ce sont les nouvelles N premières qui deviennent figées. 0/absent = aucune
   // colonne figée (comportement actuel, inchangé). Voir frozenColumnLeftOffsets/frozenLeftStyle.
   frozenColumns?: number;
+  // Regroupement de lignes façon Odoo (voir GROUP_BY_GRANULARITIES / groupTree) : liste ORDONNÉE de
+  // clés de champ ("field" ou "field:granularité" pour un champ date, ex "created_at:month") — le
+  // premier niveau de nesting est le premier élément. Un champ many2many, one2many "possédé", json
+  // ou binary est silencieusement ignoré s'il apparaît ici (voir isFieldGroupable) — ce n'est qu'une
+  // valeur INITIALE, l'utilisateur peut la changer en direct via le widget (voir showGroupByWidget),
+  // sans jamais muter cette prop (voir internalGroupBy).
+  groupBy?: string[];
+  // Profondeur de regroupement dépliée par défaut au chargement (0 = tout replié, défaut). Un
+  // niveau déjà basculé manuellement par l'utilisateur (voir manuallyToggledPaths) prévaut ensuite
+  // sur cette valeur par défaut, jusqu'au prochain changement de groupBy.
+  autoExpandLevel?: number;
+  // Affiche le widget de sélection des champs de regroupement (voir GenericListGroupByPicker.vue),
+  // dans la barre de pagination, à droite du badge de sélection — true par défaut.
+  showGroupByWidget?: boolean;
   columns?: Record<string, ColumnConfig>;
+}
+
+// Granularités de troncature disponibles pour regrouper par un champ "date" (suffixe
+// "field:granularité" dans ListConfig.groupBy, voir GroupByLevel/parseGroupByLevel) — "day" est la
+// maille par défaut si omise sur un champ date.
+type DateGroupGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+// Un niveau de regroupement résolu (une entrée de `internalGroupBy`, dérivée d'une chaîne
+// ListConfig.groupBy) — `granularity` n'a de sens que pour un champ FormField.type === 'date'.
+interface GroupByLevel {
+  key: string;
+  granularity?: DateGroupGranularity;
 }
 
 function renderMarkdown(md: string | undefined): string {
@@ -760,13 +637,14 @@ function onRowClick(item: any, event: MouseEvent) {
     event.preventDefault();
     if (event.shiftKey) {
       if (lastClickedItem.value) {
-        const idx1 = filteredItems.value.findIndex(x => x.id === lastClickedItem.value.id);
-        const idx2 = filteredItems.value.findIndex(x => x.id === item.id);
+        const rangeItems = rangeSelectableItems();
+        const idx1 = rangeItems.findIndex(x => x.id === lastClickedItem.value.id);
+        const idx2 = rangeItems.findIndex(x => x.id === item.id);
         if (idx1 !== -1 && idx2 !== -1) {
           const start = Math.min(idx1, idx2);
           const end = Math.max(idx1, idx2);
           for (let i = start; i <= end; i++) {
-            selectedIds.value.add(filteredItems.value[i].id);
+            selectedIds.value.add(rangeItems[i].id);
           }
         } else {
           selectedIds.value.add(item.id);
@@ -801,13 +679,14 @@ function onRowClick(item: any, event: MouseEvent) {
   if (event.shiftKey && isMultiSelectAllowed.value) {
     event.preventDefault();
     if (lastClickedItem.value) {
-      const idx1 = filteredItems.value.findIndex(x => x.id === lastClickedItem.value.id);
-      const idx2 = filteredItems.value.findIndex(x => x.id === item.id);
+      const rangeItems = rangeSelectableItems();
+      const idx1 = rangeItems.findIndex(x => x.id === lastClickedItem.value.id);
+      const idx2 = rangeItems.findIndex(x => x.id === item.id);
       if (idx1 !== -1 && idx2 !== -1) {
         const start = Math.min(idx1, idx2);
         const end = Math.max(idx1, idx2);
         for (let i = start; i <= end; i++) {
-          selectedIds.value.add(filteredItems.value[i].id);
+          selectedIds.value.add(rangeItems[i].id);
         }
       } else {
         selectedIds.value.add(item.id);
@@ -851,6 +730,34 @@ function getDisplayValue(item: any, key: string): string {
     if (option) return option.label;
   }
   return String(val);
+}
+
+// Un champ est regroupable (listConfig.groupBy / GenericListGroupByPicker.vue) sauf s'il est
+// many2many (type === 'multiselect'), one2many "possédé" (resource + parentField tous deux
+// présents — même détection que la branche OwnedRelationField du template), ou json/binary (aucune
+// clé de regroupement stable pour un blob/fichier arbitraire). Tout le reste (text, number,
+// boolean, date, color, duration, select simple ou many2one) est regroupable.
+function isFieldGroupable(field: FormField): boolean {
+  if (field.type === 'multiselect') return false;
+  if (field.resource && field.parentField) return false;
+  if (field.type === 'json' || field.type === 'binary') return false;
+  return true;
+}
+
+const GROUP_BY_GRANULARITIES: DateGroupGranularity[] = ['day', 'week', 'month', 'quarter', 'year'];
+
+// Parse une entrée ListConfig.groupBy ("field" ou "field:granularité") en GroupByLevel, en
+// ignorant silencieusement une clé de champ inconnue ou non regroupable (voir isFieldGroupable) —
+// listConfig.groupBy n'est qu'une valeur initiale, jamais revalidée à la main par l'appelant.
+function parseGroupByEntry(entry: string): GroupByLevel | null {
+  const [key, granRaw] = entry.split(':');
+  const field = getFieldDef(key);
+  if (!field || !isFieldGroupable(field)) return null;
+  if (field.type !== 'date') return { key };
+  const granularity = GROUP_BY_GRANULARITIES.includes(granRaw as DateGroupGranularity)
+    ? (granRaw as DateGroupGranularity)
+    : 'day';
+  return { key, granularity };
 }
 
 // reactive() (pas un Map brut) : les lectures via rowSource() dans le template doivent redéclencher
@@ -960,6 +867,25 @@ watch([() => props.columns, () => props.listConfig, () => props.fields], () => {
 const visibleColumns = computed(() => {
   return internalColumns.value.filter(c => c.visible);
 });
+
+// Candidats du sélecteur de regroupement (GenericListGroupByPicker.vue) : TOUS les champs
+// regroupables, y compris ceux dont la colonne n'est pas affichée (candidats = props.fields en
+// entier, jamais visibleColumns — demandé explicitement).
+const groupableFields = computed(() => (props.fields || []).filter(isFieldGroupable));
+
+// Copie locale mutable de listConfig.groupBy (même patron que internalColumns ci-dessus) : la prop
+// n'est qu'une valeur INITIALE, l'utilisateur la change en direct via GenericListGroupByPicker.vue
+// sans jamais la muter. Une entrée invalide/non regroupable est silencieusement filtrée (voir
+// parseGroupByEntry).
+const internalGroupBy = ref<GroupByLevel[]>([]);
+
+watch([() => props.listConfig?.groupBy, () => props.fields], () => {
+  internalGroupBy.value = (props.listConfig?.groupBy || [])
+    .map(parseGroupByEntry)
+    .filter((l): l is GroupByLevel => l !== null);
+}, { immediate: true, deep: true });
+
+const isGrouped = computed(() => internalGroupBy.value.length > 0);
 
 // Dropdown colonnes
 const showDropdown = ref(false);
@@ -1106,10 +1032,202 @@ const filteredItems = computed(() => {
   return result;
 });
 
+// --- Regroupement de lignes (voir listConfig.groupBy / architecture.md) ---
+
+interface GroupNode {
+  level: number;
+  fieldKey: string;
+  rawValue: any;
+  label: string;
+  // Clé stable identifiant ce nœud à travers les reconstructions de l'arbre (computed re-exécuté à
+  // chaque changement de filteredItems, y compris une simple édition en ligne sans rapport avec le
+  // regroupement) — JSON.stringify de la liste ordonnée des valeurs BRUTES des ancêtres + celle-ci,
+  // jamais des libellés résolus (résolus en asynchrone après montage, voir loadFkOptionsForModel
+  // côté App.vue) ni une simple concaténation (collisions possibles entre chaînes différentes).
+  path: string;
+  // Nombre d'éléments du niveau IMMÉDIATEMENT inférieur — sous-groupes si ce n'est pas le dernier
+  // niveau, lignes du bucket sinon. Jamais un total récursif de lignes descendantes.
+  directChildCount: number;
+  children: GroupNode[] | null; // non-null sauf au dernier niveau de regroupement
+  rows: any[] | null;           // non-null seulement au dernier niveau de regroupement
+  subtotals: Record<string, number>;
+}
+
+const NULL_GROUP_BUCKET_KEY = ' __null__';
+
+function truncateDateForGrouping(iso: string, granularity: DateGroupGranularity): string {
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return iso;
+  switch (granularity) {
+    case 'day':
+      return iso;
+    case 'week': {
+      const dayOffset = (d.getDay() + 6) % 7; // 0 = lundi (semaine ISO)
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - dayOffset);
+      return monday.toISOString().slice(0, 10);
+    }
+    case 'month':
+      return iso.slice(0, 7);
+    case 'quarter':
+      return `${d.getFullYear()}-T${Math.floor(d.getMonth() / 3) + 1}`;
+    case 'year':
+      return String(d.getFullYear());
+  }
+}
+
+const MONTH_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+function formatDateGroupLabel(truncated: string, granularity: DateGroupGranularity): string {
+  switch (granularity) {
+    case 'day':
+      return truncated;
+    case 'week':
+      return `Semaine du ${truncated}`;
+    case 'month': {
+      const [y, m] = truncated.split('-');
+      return `${MONTH_LABELS[Number(m) - 1] || m} ${y}`;
+    }
+    case 'quarter':
+      return truncated.replace('-T', ' - T');
+    case 'year':
+      return truncated;
+  }
+}
+
+// Résout la clé de bucket (regroupe deux valeurs équivalentes ensemble), le libellé affiché et la
+// valeur "brute" normalisée (tronquée pour un champ date+granularité, telle quelle sinon) à partir
+// de la valeur brute stockée sur la ligne — null/undefined devient toujours un bucket dédié
+// "Aucune valeur", dépliable comme n'importe quel autre (jamais exclu du regroupement).
+function resolveGroupBucket(level: GroupByLevel, rawValue: any): { bucketKey: string; label: string; value: any } {
+  if (rawValue === null || rawValue === undefined) {
+    return { bucketKey: NULL_GROUP_BUCKET_KEY, label: 'Aucune valeur', value: null };
+  }
+  const field = getFieldDef(level.key);
+  if (field?.type === 'date' && level.granularity) {
+    const truncated = truncateDateForGrouping(String(rawValue), level.granularity);
+    return { bucketKey: truncated, label: formatDateGroupLabel(truncated, level.granularity), value: truncated };
+  }
+  const label = getDisplayValue({ [level.key]: rawValue }, level.key) || String(rawValue);
+  return { bucketKey: String(rawValue), label, value: rawValue };
+}
+
+interface GroupBucket { value: any; label: string; rows: any[]; }
+
+// Regroupe `rows` par la valeur résolue de `level`, en préservant l'ordre de première apparition
+// (cohérent avec le tri global actif, voir filteredItems) puis en plaçant le bucket "Aucune valeur"
+// toujours en dernier — les autres, par libellé (cohérent avec un regroupement humainement lisible,
+// ex: noms d'établissement, plutôt que par id brut).
+function bucketRows(rows: any[], level: GroupByLevel): GroupBucket[] {
+  const buckets = new Map<string, GroupBucket>();
+  for (const row of rows) {
+    const { bucketKey, label, value } = resolveGroupBucket(level, row[level.key]);
+    let bucket = buckets.get(bucketKey);
+    if (!bucket) {
+      bucket = { value, label, rows: [] };
+      buckets.set(bucketKey, bucket);
+    }
+    bucket.rows.push(row);
+  }
+  return Array.from(buckets.values()).sort((a, b) => {
+    if (a.value === null && b.value === null) return 0;
+    if (a.value === null) return 1;
+    if (b.value === null) return -1;
+    return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
+function buildGroupNode(level: number, bucket: GroupBucket, ancestorValues: any[], levels: GroupByLevel[]): GroupNode {
+  const currentLevel = levels[level];
+  const thisPath = [...ancestorValues, bucket.value];
+  const path = JSON.stringify(thisPath);
+  const isLastLevel = level === levels.length - 1;
+  const subtotals: Record<string, number> = {};
+  let children: GroupNode[] | null = null;
+  let leafRows: any[] | null = null;
+  let directChildCount: number;
+
+  if (isLastLevel) {
+    leafRows = bucket.rows;
+    directChildCount = bucket.rows.length;
+    for (const col of visibleColumns.value) {
+      if (!isSummableColumn(col.key)) continue;
+      subtotals[col.key] = bucket.rows.reduce((acc, r) => acc + (typeof r[col.key] === 'number' ? r[col.key] : 0), 0);
+    }
+  } else {
+    const childBuckets = bucketRows(bucket.rows, levels[level + 1]);
+    children = childBuckets.map(b => buildGroupNode(level + 1, b, thisPath, levels));
+    directChildCount = children.length;
+    // Bas en haut, un seul passage : somme des subtotals déjà calculés des enfants, jamais un
+    // nouveau parcours du sous-arbre complet à ce niveau.
+    for (const col of visibleColumns.value) {
+      if (!isSummableColumn(col.key)) continue;
+      subtotals[col.key] = children.reduce((acc, c) => acc + (c.subtotals[col.key] || 0), 0);
+    }
+  }
+
+  return {
+    level, fieldKey: currentLevel.key, rawValue: bucket.value, label: bucket.label,
+    path, directChildCount, children, rows: leafRows, subtotals,
+  };
+}
+
+// Arbre de regroupement — construit sur filteredItems (après filtres texte + tri existants, sur
+// l'INTÉGRALITÉ du jeu de données déjà chargé, pas seulement la page affichée : voir le contexte du
+// plan, props.items contient déjà toute la ressource). Racine = tableau de nœuds de premier niveau,
+// paginé séparément (voir pagedGroupTree) — la pagination porte sur le NOMBRE DE GROUPES de premier
+// niveau, pas sur les lignes, quand le regroupement est actif.
+const groupTree = computed<GroupNode[]>(() => {
+  if (!isGrouped.value) return [];
+  const levels = internalGroupBy.value;
+  return bucketRows(filteredItems.value, levels[0]).map(b => buildGroupNode(0, b, [], levels));
+});
+
+// État de dépli/repli — volontairement PAS une propriété sur les nœuds de groupTree : ce dernier
+// est un computed(), reconstruit (nouvelles instances d'objets) à chaque changement de
+// filteredItems, y compris une simple édition en ligne sans rapport avec le regroupement. Si l'état
+// déplié vivait sur les nœuds, toute édition en ligne replierait tous les groupes. À la place, un
+// Set des chemins (node.path) manuellement basculés par l'utilisateur — toujours réassigné (jamais
+// muté en place), même patron que selectedCells dans GenericPivot.vue.
+const manuallyToggledPaths = ref<Set<string>>(new Set());
+
+// listConfig.autoExpandLevel : profondeur dépliée par défaut (0 = tout replié). Un clic utilisateur
+// inverse cet état par défaut pour le chemin concerné — la clé stable (path, basée sur les valeurs
+// BRUTES des ancêtres) fait survivre ce choix aux reconstructions de l'arbre tant que les mêmes
+// buckets existent toujours après une édition.
+const autoExpandLevel = computed(() => props.listConfig?.autoExpandLevel ?? 0);
+
+function isNodeExpanded(node: GroupNode): boolean {
+  const manuallyToggled = manuallyToggledPaths.value.has(node.path);
+  const defaultExpanded = node.level < autoExpandLevel.value;
+  return manuallyToggled ? !defaultExpanded : defaultExpanded;
+}
+
+function toggleNodeExpanded(node: GroupNode) {
+  const next = new Set(manuallyToggledPaths.value);
+  if (next.has(node.path)) {
+    next.delete(node.path);
+  } else {
+    next.add(node.path);
+  }
+  manuallyToggledPaths.value = next;
+}
+
+// Changer les champs de regroupement (réordonner, ajouter, retirer un niveau) change ce qu'un path
+// représente conceptuellement — les anciennes entrées n'ont plus de sens et doivent être purgées,
+// sans quoi elles s'accumulent indéfiniment sur une session longue.
+watch(internalGroupBy, () => {
+  manuallyToggledPaths.value = new Set();
+});
+
 // Pagination et Virtualisation
 const tableWrapperRef = ref<HTMLElement | null>(null);
 
-const isVirtualMode = computed(() => perPage.value === 10000);
+// En mode groupé, la pagination porte sur le nombre de groupes de premier niveau (typiquement bien
+// plus petit que le nombre de lignes brutes) — le fenêtrage virtuel, conçu pour une liste PLATE de
+// nombreuses lignes, ne s'applique donc jamais en mode groupé (voir pagedGroupTree). Limitation v1
+// assumée : aucune virtualisation À L'INTÉRIEUR d'un groupe déplié, même très grand.
+const isVirtualMode = computed(() => perPage.value === 10000 && !isGrouped.value);
 const rowHeight = 44; // Hauteur estimée d'une ligne
 const overscan = 10; // Nombre de lignes pré-rendues hors écran
 
@@ -1147,6 +1265,10 @@ const virtualPaddingBottom = computed(() => {
 });
 
 const totalPages = computed(() => {
+  if (isGrouped.value) {
+    if (perPage.value === 10000) return 1;
+    return Math.ceil(groupTree.value.length / perPage.value) || 1;
+  }
   if (isVirtualMode.value) return 1;
   return Math.ceil(filteredItems.value.length / perPage.value);
 });
@@ -1161,25 +1283,74 @@ const paginatedItems = computed(() => {
 
 const displayedItems = computed(() => paginatedItems.value);
 
-// Somme de chaque colonne numérique visible, sur les lignes actuellement affichées
-// (displayedItems — voir listConfig.showColumnTotals). Une colonne est jugée numérique par son type
-// de champ déclaré 'number', OU par repli sur le type JS réel de la valeur — SAUF pour 'select'/
+// Pagination en mode groupé : porte sur le NOMBRE DE GROUPES DE PREMIER NIVEAU, pas sur le nombre
+// de lignes (demandé explicitement) — même calcul de tranche que le mode plat (paginatedItems),
+// appliqué à groupTree plutôt qu'à filteredItems. perPage === 10000 ("Tout") : tous les groupes de
+// premier niveau sur une page unique (voir isVirtualMode ci-dessus, jamais actif en mode groupé).
+const pagedGroupTree = computed<GroupNode[]>(() => {
+  if (perPage.value === 10000) return groupTree.value;
+  const start = (currentPage.value - 1) * perPage.value;
+  return groupTree.value.slice(start, start + perPage.value);
+});
+
+function flattenVisibleLeafRows(nodes: GroupNode[]): any[] {
+  const result: any[] = [];
+  for (const node of nodes) {
+    if (!isNodeExpanded(node)) continue;
+    if (node.children) {
+      result.push(...flattenVisibleLeafRows(node.children));
+    } else if (node.rows) {
+      result.push(...node.rows);
+    }
+  }
+  return result;
+}
+
+// Ordre RÉEL d'affichage des lignes feuilles actuellement visibles (page de groupes courante,
+// groupes dépliés uniquement) — nécessaire pour le shift-clic (voir onRowClick) : en mode groupé,
+// deux lignes visuellement adjacentes ne sont PLUS adjacentes dans filteredItems (le regroupement
+// les réordonne/éclate en buckets), un shift-clic basé sur filteredItems sélectionnerait donc une
+// plage arbitraire et fausse.
+const visibleLeafRowsFlat = computed<any[]>(() => {
+  if (!isGrouped.value) return [];
+  return flattenVisibleLeafRows(pagedGroupTree.value);
+});
+
+// Ensemble sur lequel calculer une plage de shift-clic (voir onRowClick) — les lignes feuilles
+// visibles aplaties en mode groupé, filteredItems sinon (comportement inchangé).
+function rangeSelectableItems(): any[] {
+  return isGrouped.value ? visibleLeafRowsFlat.value : filteredItems.value;
+}
+
+// Prédicat partagé : une colonne est "à totaliser" si son type déclaré est 'number', OU par repli
+// sur le type JS réel d'au moins une valeur de l'ensemble FILTRÉ (filteredItems, pas seulement la
+// page affichée — une colonne reste numérique même si la page courante n'en montre aucune valeur,
+// ce qui compte désormais aussi pour les sous-totaux de groupe ci-dessous) — SAUF 'select'/
 // 'multiselect' (clé étrangère), jamais sommés même si leurs valeurs sont des ids numériques : ce
 // sont les deux seuls types où une déclaration de champ fait autorité contre le typeof runtime (une
 // relation sans "type" explicite, ex: related_field non typé, retombe sur 'text' par défaut côté
 // App.vue — un défaut de rendu de formulaire, pas une vraie déclaration — donc le repli typeof doit
 // rester actif pour ne pas cesser de sommer un champ related réellement numérique).
-// ColumnConfig.hideTotal exclut une colonne précise même si elle est numérique.
+// ColumnConfig.hideTotal exclut une colonne précise même si elle est numérique. Réutilisé par
+// columnTotals (pied de page, somme sur displayedItems) ET par les sous-totaux de groupe (somme sur
+// le sous-arbre complet, voir groupTree) — même règle "colonne numérique", ensembles de lignes
+// différents.
+function isSummableColumn(key: string): boolean {
+  if (props.listConfig?.columns?.[key]?.hideTotal) return false;
+  const declaredType = getFieldDef(key)?.type;
+  if (declaredType === 'select' || declaredType === 'multiselect') return false;
+  if (declaredType === 'number') return true;
+  return filteredItems.value.some(item => typeof item[key] === 'number');
+}
+
+// Somme de chaque colonne numérique visible, sur les lignes actuellement affichées (displayedItems
+// — voir listConfig.showColumnTotals). Masqué (voir <tfoot> dans le template) dès que le
+// regroupement est actif : les sous-totaux par groupe le rendent redondant.
 const columnTotals = computed<Record<string, number>>(() => {
   const totals: Record<string, number> = {};
   if (!props.listConfig?.showColumnTotals) return totals;
   for (const col of visibleColumns.value) {
-    if (props.listConfig?.columns?.[col.key]?.hideTotal) continue;
-    const declaredType = getFieldDef(col.key)?.type;
-    if (declaredType === 'select' || declaredType === 'multiselect') continue;
-    const isNumericColumn = declaredType === 'number'
-      || displayedItems.value.some(item => typeof item[col.key] === 'number');
-    if (!isNumericColumn) continue;
+    if (!isSummableColumn(col.key)) continue;
     totals[col.key] = displayedItems.value.reduce(
       (acc, item) => acc + (typeof item[col.key] === 'number' ? item[col.key] : 0),
       0
@@ -1363,8 +1534,10 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeyDown);
 });
 
-// Reset page on filter/limit changes
-watch([filters, perPage], () => {
+// Reset page on filter/limit/grouping changes — activer/désactiver/modifier le regroupement change
+// radicalement le dénominateur de pagination (pages de groupes vs pages de lignes), sans quoi
+// l'utilisateur peut atterrir sur une page vide hors bornes.
+watch([filters, perPage, internalGroupBy], () => {
   currentPage.value = 1;
 }, { deep: true });
 
@@ -1436,18 +1609,59 @@ function onDrop(event: DragEvent, index: number) {
     const col = internalColumns.value.splice(sourceIdx, 1)[0];
     internalColumns.value.splice(targetIdx, 0, col);
   }
-  
+
   draggedIdx = null;
 }
+
+// --- Contexte partagé avec GenericListRow.vue / GenericListGroupHeaderRow.vue (voir
+// genericListRowContext.ts) : provide() une seule fois, en fin de configuration, une fois toutes
+// les fonctions/computed référencées définies plus haut dans ce fichier. ---
+
+function isRowSelected(id: number | string): boolean {
+  return selectedIds.value.has(id);
+}
+
+function onDeleteItem(item: any) {
+  emit('delete', item);
+}
+
+function columnListConfig(key: string): any {
+  return props.listConfig?.columns?.[key]?.listConfig;
+}
+
+provide(GENERIC_LIST_ROW_CONTEXT, {
+  visibleColumns: () => visibleColumns.value,
+  isMultiSelectAllowed: () => isMultiSelectAllowed.value,
+  isRowSelected,
+  disableDelete: () => !!props.listConfig?.disableDelete,
+  getFieldDef,
+  getWidgetComponent,
+  isColumnReadOnly,
+  isColumnRequired,
+  columnListConfig,
+  rowSource,
+  updateInline,
+  onRowFocusOut,
+  onRowClick,
+  onDeleteItem,
+  frozenLeftStyle,
+  isLastFrozenColumn,
+  frozenColumnCount: () => frozenColumnCount.value,
+});
+
+function formatSubtotal(key: string, value: number): string | number {
+  return getFieldDef(key)?.type === 'duration' ? formatDurationMinutes(value) : value;
+}
+
+provide(GENERIC_LIST_GROUP_CONTEXT, {
+  isNodeExpanded,
+  toggleNodeExpanded,
+  isSummableColumn,
+  formatSubtotal,
+});
 </script>
 
 <style scoped>
-/* Validation visuelle pour les champs requis */
-.inline-input:invalid, .inline-select:invalid, .inline-number:invalid {
-  border-color: var(--accent-danger) !important;
-  background-color: #fef2f2 !important;
-  outline: 2px solid #fca5a5 !important;
-}
 .generic-list-container {
   display: flex;
   flex-direction: column;
@@ -1706,38 +1920,11 @@ function onDrop(event: DragEvent, index: number) {
   border-color: var(--accent-primary);
 }
 
-/* Body */
-.body-tr {
-  border-bottom: 1px solid var(--border-color);
-  transition: background-color var(--transition-fast);
-  background-color: var(--bg-card);
-}
-
-.body-tr:hover {
-  background-color: var(--bg-secondary);
-}
-
-.body-tr.selected-row {
-  background-color: rgba(99, 102, 241, 0.12) !important;
-}
-
-.body-tr.selected-row:hover {
-  background-color: rgba(99, 102, 241, 0.18) !important;
-}
-
-.body-td {
-  padding: 0;
-  font-size: 13px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border-right: 1px solid var(--border-color);
-}
-
-.body-td.has-select {
-  overflow: visible !important;
-}
+/* .body-tr/.body-td (base + hover/selected/has-select) : déplacées dans GenericListRow.vue /
+   GenericListGroupHeaderRow.vue — plus rendues par ce composant depuis l'extraction du volet
+   regroupement (voir architecture.md, section Z) ; le CSS scoped de CE fichier ne les ciblerait
+   plus (frontière de scope Vue : un style scoped ne s'applique qu'aux éléments du template DE CE
+   composant, jamais à ceux rendus par un composant enfant). */
 
 .footer-total-tr {
   background-color: var(--bg-surface);
@@ -1792,11 +1979,11 @@ function onDrop(event: DragEvent, index: number) {
   border-left: 1px solid var(--border-color);
 }
 
-.actions-group {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
+/* .actions-group/.btn-action et les variantes .body-td.column-frozen (base + hover/selected) sont
+   déplacées dans GenericListRow.vue / GenericListGroupHeaderRow.vue, comme .body-tr/.body-td plus
+   haut — .actions-td lui-même RESTE ici (encore utilisé par les combos filter-td/footer-total-td
+   ci-dessous, propres au template de CE composant), en plus d'être dupliqué (règle purement
+   visuelle, sans risque) dans les deux composants enfants pour leur propre cellule actions. */
 
 /* Colonnes figées à gauche (voir listConfig.frozenColumns) — même mécanisme sticky que la colonne
    Actions ci-dessus (déjà figée à droite), mais côté gauche et sur un nombre de colonnes variable ;
@@ -1806,19 +1993,6 @@ function onDrop(event: DragEvent, index: number) {
    (z-index, fond, conditionné par ligne/état). */
 .header-th.column-frozen {
   z-index: 11;
-}
-
-.body-td.column-frozen {
-  z-index: 9;
-  background-color: var(--bg-card);
-}
-
-.body-tr:hover .body-td.column-frozen {
-  background-color: var(--bg-secondary);
-}
-
-.body-tr.selected-row .body-td.column-frozen {
-  background-color: rgba(99, 102, 241, 0.12) !important;
 }
 
 .filter-td.column-frozen {
@@ -1840,39 +2014,9 @@ function onDrop(event: DragEvent, index: number) {
   box-shadow: inset -1px -1px 0 0 var(--border-color-strong), 2px 0 4px -2px rgba(0, 0, 0, 0.25);
 }
 
-.body-td.column-frozen-last,
 .filter-td.column-frozen-last,
 .footer-total-td.column-frozen-last {
   box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.25);
-}
-
-.btn-action {
-  background: transparent;
-  border: none;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-}
-
-.btn-action svg {
-  width: 16px;
-  height: 16px;
-}
-
-.btn-edit:hover {
-  background-color: rgba(99, 102, 241, 0.15);
-  color: var(--accent-primary);
-}
-
-.btn-delete:hover {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: var(--accent-danger);
 }
 
 /* Badges */
@@ -1971,88 +2115,10 @@ function onDrop(event: DragEvent, index: number) {
   backdrop-filter: blur(12px);
 }
 
-/* Styles Airtable-style pour l'édition en ligne */
-.immutable-id {
-  color: var(--text-muted);
-  font-family: monospace;
-  font-weight: 600;
-  padding: 6px 10px;
-  display: block;
-}
-
-.inline-input, .inline-select {
-  width: 100%;
-  background-color: transparent;
-  border: 1px solid transparent;
-  color: var(--text-primary);
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  outline: none;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  transition: all var(--transition-fast);
-}
-
-.inline-json-summary {
-  width: 100%;
-  padding: 6px 10px;
-  box-sizing: border-box;
-  color: var(--text-muted);
-  font-style: italic;
-  font-size: 13px;
-  cursor: help;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.inline-binary-badge {
-  display: inline-block;
-  width: 100%;
-  padding: 6px 10px;
-  box-sizing: border-box;
-  color: var(--text-muted);
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.inline-input:hover, .inline-select:hover {
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-}
-
-.inline-input:focus, .inline-select:focus {
-  background-color: var(--bg-card);
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
-}
-
-.inline-input:disabled, .inline-select:disabled {
-  background-color: transparent !important;
-  border-color: transparent !important;
-  color: var(--text-primary) !important;
-  cursor: default;
-  pointer-events: none;
-}
-
-/* Convention comptable : les valeurs numériques calées à droite de leur colonne. */
-.inline-number {
-  text-align: right;
-}
-
-/* Les flèches +/- natives n'ont de sens que pour une valeur éditable — en lecture seule, elles ne
-   font qu'ajouter du bruit visuel à côté d'une valeur qu'on ne peut de toute façon pas modifier. */
-.inline-number:disabled {
-  -moz-appearance: textfield;
-}
-
-.inline-number:disabled::-webkit-inner-spin-button,
-.inline-number:disabled::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
+/* .immutable-id/.inline-input/.inline-json-summary/.inline-binary-badge/.inline-number/
+   .inline-checkbox-wrapper/.inline-color-swatch-wrapper/.readonly-swatch (styles Airtable-style
+   pour l'édition en ligne) sont déplacées dans GenericListRow.vue, comme .body-tr/.body-td plus
+   haut — même raison (frontière de scope Vue). */
 
 /* Sélecteur de couleur unifié standard */
 .inline-color-select-wrapper {
@@ -2097,20 +2163,6 @@ function onDrop(event: DragEvent, index: number) {
   font-weight: 600;
   font-size: 12px;
   padding: 4px 6px;
-}
-
-/* Switch toggle en ligne */
-.inline-checkbox-wrapper {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 10px;
-}
-
-.inline-color-swatch-wrapper {
-  padding: 4px 10px;
-  display: flex;
-  align-items: center;
 }
 
 .inline-switch {
@@ -2231,10 +2283,7 @@ input:checked + .inline-slider:before {
   pointer-events: none;
 }
 
-.readonly-swatch {
-  pointer-events: none;
-  opacity: 0.6;
-}
+/* .readonly-swatch déplacée dans GenericListRow.vue (voir le commentaire plus haut sur .body-tr). */
 
 /* Bulle d'aide (tooltip help) */
 .help-tooltip-wrapper {

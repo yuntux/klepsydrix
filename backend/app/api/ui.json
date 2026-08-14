@@ -1365,7 +1365,11 @@
             "id": "mefs_list",
             "component": "GenericList",
             "resourceKey": "mefs",
-            "width": "60%"
+            "width": "60%",
+            "listConfig": {
+              "groupBy": ["school_id", "ref_grade_id"],
+              "autoExpandLevel": 2
+            }
           },
           {
             "id": "mefs_form",

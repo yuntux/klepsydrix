@@ -1405,3 +1405,134 @@ la propriété `border-right` classique, indépendante de `box-shadow`).
 jamais rendue figée individuellement, même si `frozenColumns` s'étend jusque dans les colonnes
 qu'elle regroupe — non bloquant pour l'usage actuel (TRMD fige `discipline_id`, hors de tout
 groupe), à traiter si un futur besoin fige une colonne à l'intérieur d'un groupe.
+
+### Z. Regroupement de Lignes Façon Odoo (`listConfig.groupBy`, `GenericList.vue`)
+
+Capacité générique de regroupement arborescent multi-niveaux des lignes d'une liste, façon vue
+Liste d'Odoo — jamais un composant bespoke par ressource, comme toutes les capacités `GenericList`
+précédentes (sections W/X/Y). Cas d'usage déclencheur : la liste des MEF (`mefs_setting`, `ui.json`),
+regroupée par Établissement puis par Niveau (`groupBy: ["school_id", "ref_grade_id"]`), dépliée
+jusqu'au 2ᵉ niveau au chargement (`autoExpandLevel: 2`).
+
+**Configuration** (`ListConfig`) :
+- `groupBy?: string[]` — clés de champ **ordonnées** (premier élément = premier niveau de nesting).
+  Un champ many2many (`type === 'multiselect'`), one2many "possédé" (`resource` + `parentField`
+  tous deux présents) ou `json`/`binary` (pas de clé de regroupement stable pour un blob/fichier
+  arbitraire) est silencieusement ignoré s'il apparaît ici (voir `isFieldGroupable`) — ce n'est
+  qu'une valeur INITIALE, l'utilisateur peut la changer en direct via le widget de sélection (voir
+  plus bas), sans jamais muter cette prop.
+- Un champ `date` peut être suffixé `:granularité` (`"field:day|week|month|quarter|year"`, défaut
+  `day` si omis) pour préciser la maille de troncature du regroupement — sans quoi une colonne de
+  dates produirait quasiment un groupe par ligne.
+- `autoExpandLevel?: number` (défaut `0`, tout replié) — profondeur dépliée par défaut au
+  chargement.
+- `showGroupByWidget?: boolean` (défaut `true`) — affiche le widget de sélection des champs de
+  regroupement (voir plus bas).
+
+**Regroupe sur l'intégralité du jeu de données, pas seulement la page affichée** — contrairement à
+la ligne de total de pied de page (section W, scopée à `displayedItems`). Ceci ne nécessite AUCUN
+changement backend : `props.items` reçu par `GenericList.vue` contient déjà l'intégralité de la
+ressource en mémoire (`App.vue` charge via `api.fetchAllGenericItems`, qui boucle des pages de 500
+côté serveur jusqu'à épuisement et concatène tout) — le regroupement est un calcul 100% client, sur
+`filteredItems` (donc après les filtres texte et le tri mono-colonne existants, jamais un
+contournement d'un filtre actif).
+
+**Construction de l'arbre** (`groupTree`, computed) : bucketise récursivement `filteredItems` selon
+`internalGroupBy` (copie locale mutable de `listConfig.groupBy`, même patron que `internalColumns`
+pour la réorganisation des colonnes). Chaque bucket regroupe les lignes dont la valeur brute (ou sa
+troncature pour un champ date+granularité) est identique — `null`/`undefined` forme toujours un
+bucket dédié, libellé **"Aucune valeur"**, dépliable comme n'importe quel autre. Les buckets frères
+sont triés par libellé résolu (pas par valeur brute — un id de clé étrangère n'a aucun sens de tri
+humain), le bucket "Aucune valeur" toujours en dernier. Chaque nœud porte :
+- `directChildCount` : **exactement** le nombre d'éléments du niveau immédiatement inférieur (sous-
+  groupes si ce n'est pas le dernier niveau de regroupement, lignes du bucket sinon) — pas un total
+  récursif de lignes descendantes, affiché entre parenthèses à côté du libellé.
+- `subtotals` : calculé **de bas en haut, en un seul passage**, pendant la construction de l'arbre
+  (un nœud interne = somme des `subtotals` déjà calculés de ses enfants) — sur l'intégralité du
+  sous-arbre, indépendamment de l'état plié/déplié (le pliage est un affichage, jamais un filtre sur
+  les données). Le prédicat "colonne à totaliser" (`isSummableColumn`) est le même que celui de la
+  ligne de total de pied de page (section W) — **extrait en fonction partagée**, réutilisée par les
+  deux, appliquée à des ensembles de lignes différents. Le pied de page existant (`<tfoot>`) est
+  masqué dès que le regroupement est actif : les sous-totaux par groupe le rendent redondant.
+
+**État de dépli/repli — piège évité** : volontairement PAS une propriété portée par les nœuds de
+`groupTree` (un `computed()`, reconstruit — nouvelles instances d'objets — à chaque changement de
+`filteredItems`, y compris une simple édition en ligne sans rapport avec le regroupement). Si l'état
+déplié vivait sur les nœuds, toute édition en ligne replierait tous les groupes. À la place, un
+`ref<Set<string>>` des chemins (`node.path`, `JSON.stringify` des valeurs BRUTES de tous les
+ancêtres + celle du nœud, jamais des libellés résolus — asynchrones après montage — ni une simple
+concaténation, sujette aux collisions) manuellement basculés par l'utilisateur, toujours réassigné
+(même patron que `selectedCells` dans `GenericPivot.vue`) : `isExpanded(node) = manuallyToggled XOR
+(node.level < autoExpandLevel)`. Purgé (`watch`) à chaque changement de `internalGroupBy` — changer
+les champs de regroupement change ce qu'un `path` représente conceptuellement.
+
+**Pagination** : en mode groupé, `currentPage`/`perPage` portent sur le **nombre de groupes de
+premier niveau**, pas sur le nombre de lignes brutes (`pagedGroupTree`, même calcul de tranche que
+le mode plat, appliqué à `groupTree`). Le fenêtrage virtuel existant (`isVirtualMode`, pour
+`perPage === 10000` sur une liste plate de nombreuses lignes) ne s'applique jamais en mode groupé —
+**limitation v1 assumée** : aucune virtualisation à l'intérieur d'un groupe déplié, même très grand.
+
+**Rendu — extraction en composants, contexte partagé par `provide`/`inject`** : pour éviter de
+dupliquer la longue chaîne de rendu par type de colonne (widget/booléen/couleur/select/one2many
+possédé/multiselect/duration/nombre/date/json/binaire/texte) entre le corps plat existant et les
+lignes feuilles en mode groupé :
+- **`GenericListRow.vue`** — la ligne de donnée extraite telle quelle (un seul `<tr>`), utilisée à
+  l'identique par les deux modes. Tout l'état partagé (colonnes visibles, `getFieldDef`,
+  `isColumnReadOnly`, `rowSource`/`updateInline`/`onRowFocusOut` — les brouillons d'édition en ligne
+  restent centralisés dans `GenericList.vue`, jamais dupliqués — colonnes figées, sélection) vient
+  d'un contexte injecté (`genericListRowContext.ts`, `GENERIC_LIST_ROW_CONTEXT`) plutôt que transmis
+  en props à travers chaque niveau de récursion (voir plus bas) — un futur ajout à cette surface
+  commune ne nécessite qu'un seul point de mise à jour (`GenericList.vue`, le `provide()`), jamais
+  chaque composant intermédiaire de la récursion.
+- **`GenericListGroupHeaderRow.vue`** — ligne de groupe, auto-récursive (`defineOptions({ name })`) :
+  affiche sa propre ligne d'en-tête puis, si dépliée, soit ses sous-groupes (récursion sur
+  elle-même) soit ses lignes feuilles (`GenericListRow` en boucle). Second contexte injecté,
+  `genericListGroupContext.ts` (`GENERIC_LIST_GROUP_CONTEXT`) : `isNodeExpanded`/
+  `toggleNodeExpanded`/`isSummableColumn`/`formatSubtotal`.
+- **Comme Odoo, jamais une gouttière dédiée** : la flèche (▶/▼)/le libellé/le compteur démarrent
+  dans la colonne case-à-cocher (si `isMultiSelectAllowed`) et **fusionnent** (`colspan`) toutes les
+  colonnes visibles qui précèdent la première colonne à totaliser (même prédicat
+  `isSummableColumn`) — fonctionne aussi bien avec la multisélection désactivée (la fusion démarre
+  alors à la première colonne visible). À partir de cette première colonne à totaliser (incluse),
+  chaque colonne visible redevient sa propre cellule : sous-total si numérique et non `hideTotal`,
+  vide sinon. Si aucune colonne n'est à totaliser, la fusion couvre toute la ligne (hors colonne
+  actions, jamais fusionnée). Cas limite : si la toute première colonne visible est elle-même à
+  totaliser, la fusion est plancher à 1 colonne minimum (case à cocher, ou à défaut cette première
+  colonne — son sous-total n'est alors pas affiché sur cette ligne précise, sacrifié pour loger le
+  libellé).
+  - **Colonnes figées combinées à la fusion** — un seul `<td>` ne peut pas être à moitié
+    `position: sticky` : si la zone à fusionner déborde de la zone figée, elle est scindée en DEUX
+    cellules (`mergeCells`, `GenericListGroupHeaderRow.vue`) — un premier segment figé (`left: 0`,
+    portant l'INTÉGRALITÉ du contenu flèche/libellé/compteur, jamais coupé en deux) et un second
+    segment non figé, vide, comblant juste visuellement le reste de la zone fusionnée. Les colonnes
+    individuelles rendues après la fusion réutilisent `frozenLeftStyle(index)` sans modification
+    (ne dépend que des largeurs de `<col>` précédentes via `<colgroup>`, pas du nombre de `<td>`
+    effectivement rendus avant).
+  - Clic sur une ligne de groupe (hors case à cocher) : bascule le dépli/repli, jamais une sélection
+    de ligne — `onRowClick` n'est jamais appelé pour une ligne de groupe (géré séparément par
+    `toggleNodeExpanded`), seulement pour les lignes feuilles (`GenericListRow`).
+- **Sélection par shift-clic — corrigé, pas un "ça marche déjà"** : `onRowClick` calculait la plage
+  via `filteredItems.value.findIndex(...)`, un index **plat**. En mode groupé, deux lignes
+  visuellement adjacentes ne sont plus adjacentes dans `filteredItems` (le regroupement les
+  réordonne/éclate en buckets) — la plage sélectionnée serait arbitraire et fausse. Corrigé par
+  `rangeSelectableItems()` : en mode groupé, calcule la plage sur un ordre "lignes feuilles
+  visibles" aplati depuis l'arbre (`flattenVisibleLeafRows`, uniquement les lignes actuellement
+  affichées — page de groupes courante, groupes dépliés — dans leur ordre d'affichage réel), pas sur
+  `filteredItems`.
+- Le tri mono-colonne existant (`sortBy`/`sortDesc`) reste actif tel quel en mode groupé, mais
+  s'applique au sein de chaque groupe le plus profond (tri secondaire des lignes feuilles, puisque
+  `groupTree` bucketise `filteredItems`, déjà trié) — comportement le moins surprenant, cohérent
+  avec Odoo, ne nécessite aucune UI nouvelle.
+
+**Widget de sélection des champs de regroupement** (`GenericListGroupByPicker.vue`) — n'est PAS
+dans `widgets/registry.ts` (registre de widgets PAR COLONNE/CELLULE, keyé par `field.widget`) :
+c'est un contrôle de niveau LISTE, instancié directement par `GenericList.vue`. Modélisé sur le
+comportement de `widgets/Many2ManyOrderedList.vue` (liste ordonnée, ajout/retrait/réordonnancement,
+émission du tableau complet) mais pas son gabarit visuel (table pleine largeur, inadapté à une
+insertion dans la barre de pagination) — un bouton compact ("Regrouper par", avec le nombre de
+niveaux actifs) ouvrant un popover : liste ordonnée des champs déjà choisis (retrait, réordonnancement
+via flèches monter/descendre, sélecteur de granularité pour un champ date), et un sélecteur
+"+ Ajouter un champ" peuplé des champs compatibles (`isFieldGroupable`) non encore choisis — y
+compris ceux dont la colonne n'est pas affichée (candidats = `props.fields` en entier, jamais
+`visibleColumns`). Émet vers `internalGroupBy`, jamais vers `props.listConfig`. Positionné dans la
+barre de pagination, à droite du badge "X sélectionné(s)" (`showGroupByWidget`).
