@@ -39,6 +39,7 @@ class Division(Base):
     )
     partitions: Mapped[list["Partition"]] = relationship("Partition", back_populates="division", passive_deletes="all", info={"label": "Partitions"})
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_divisions", back_populates="divisions", passive_deletes="all", info={"label": "Cours"})
+    students: Mapped[list["Student"]] = relationship("Student", back_populates="division", info={"label": "Élèves"})
 
     # Raccourci en lecture seule vers les MEF liés (la gestion réelle du lien passe par mef_links/MefDivision)
     mefs: Mapped[list["Mef"]] = relationship("Mef", secondary="mef_divisions", viewonly=True, info={"label": "MEF liés"})

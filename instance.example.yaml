@@ -1,0 +1,138 @@
+# Configuration générale d'une instance Klepsydrix.
+#
+# Copier ce fichier en `instance.yaml` (à la racine du dépôt, gitignoré — voir .gitignore) puis
+# l'adapter. Le chemin peut être surchargé via la variable d'environnement KLEPSYDRIX_CONFIG.
+#
+# Ce fichier est complété au fil des chantiers (voir specs/).
+
+database:
+  # sqlite | postgresql
+  backend: sqlite
+
+  # --- SQLite (backend: sqlite) ---
+  # Répertoire contenant les fichiers de base (*.db). Obligatoire si backend=sqlite.
+  directory: .
+
+  # --- PostgreSQL (backend: postgresql) ---
+  # host: /var/run/postgresql   # chemin de socket local (commence par "/"), ou une IP/nom d'hôte
+  # port: 5432
+  # user: klepsydrix
+  # password: ${env:PGPASSWORD}   # jamais en clair dans ce fichier en production
+  # database_prefix: klepsydrix_
+
+server:
+  allowed_origins:
+    - http://localhost:3000
+    - http://127.0.0.1:3000
+
+  # Adresses/CIDR des reverse proxies de confiance (voir architecture.md §19.A/§20.C) — VIDE PAR
+  # DÉFAUT (aucun changement de comportement tant que non renseigné). À remplir dès qu'un reverse
+  # proxy externe (Caddy/nginx) est placé devant l'appli en prod pour terminer le HTTPS : sans ça,
+  # master_db_local_auth.ip_allowlist filtrerait sur l'IP DU PROXY, jamais celle du client réel —
+  # soit toujours refusé (IP publiques dans la liste), soit toujours accepté (IP du proxy dans la
+  # liste, ce qui annulerait la restriction pour tout le monde). Une entrée ici indique à l'appli de
+  # faire confiance à l'en-tête X-Forwarded-For envoyé par CE proxy précis (jamais par un client
+  # direct) pour retrouver l'IP réelle — suppose que le proxy écrase toujours cet en-tête lui-même
+  # plutôt que de transmettre une valeur reçue du client (comportement par défaut de Caddy/nginx
+  # correctement configurés).
+  # trusted_proxies:
+  #   - 127.0.0.1   # si le reverse proxy tourne sur la même machine que l'appli
+  #   - ::1
+
+  # URL absolue publique de CETTE instance (frontend) — nécessaire pour construire un lien cliquable
+  # dans un email de réinitialisation de mot de passe (voir §17.G) : une URL relative n'a aucun sens
+  # hors du navigateur. Dev : le frontend Vite local (valeur par défaut). Prod : le nom de domaine
+  # réel derrière le reverse proxy (§20.C), sans slash final.
+  public_base_url: http://localhost:3000
+
+# Signe les cookies de session (instance ET Authlib/OIDC, voir architecture.md) — une valeur de
+# démonstration existe déjà par défaut dans le code pour le dev, mais DOIT être surchargée en
+# production : quiconque connaît cette clé peut forger une session pour n'importe quel utilisateur.
+secret_key: ${env:KLEPSYDRIX_SECRET_KEY}
+
+# Fournisseurs d'identité de l'instance (pas par base — voir architecture.md, "Architecture Multi-
+# Base et Routage HTTP"). Le provider "local" est déjà actif par défaut dans le code même si cette
+# section est absente ; le déclarer ici permet de le désactiver (active: false) ou d'en changer le
+# libellé/logo.
+identity_providers:
+  - key: local
+    label: Compte local
+    protocol: local_password
+    active: true
+
+  # Fournisseur fédéré OIDC — paramètres FICTIFS (EduConnect n'est pas réellement joignable avec
+  # ces valeurs), présent pour documenter la forme attendue. Authlib ne récupère le document de
+  # découverte (server_metadata_url) qu'au moment réel d'une tentative de connexion : le laisser
+  # inactif (ou avec ces valeurs fictives) ne provoque aucun appel réseau au démarrage.
+  - key: educonnect
+    label: EduConnect
+    logo: https://educonnect.education.gouv.fr/idp-static/img/logo.png
+    active: false
+    protocol: oidc
+    params:
+      server_metadata_url: https://educonnect.education.gouv.fr/.well-known/openid-configuration
+      client_id: klepsydrix-fictif
+      client_secret: ${env:EDUCONNECT_CLIENT_SECRET}
+      scopes: [openid, profile, email]
+      claim_mapping:
+        sub: external_subject
+        given_name: first_name
+        family_name: last_name
+        email: email
+
+# Console d'administration d'instance (voir architecture.md §20) — super-admins nommés,
+# individuellement attribuables (identité vérifiée par un des identity_providers ci-dessus) :
+# accès à TOUTES les bases de l'instance (créer/dupliquer/sauvegarder/restaurer/supprimer). À
+# distinguer de l'appartenance au groupe "Admin" DANS une base précise, qui ne donne accès qu'à
+# cette seule base via la console (sauvegarder/restaurer/supprimer, ni créer ni dupliquer).
+super_admins: []
+# - provider_key: educonnect
+#   subject: 1234567890abcdef   # le "sub" OIDC exact de cette identité
+#
+# ⚠️ provider_key: "local" est REFUSÉ ici (erreur de config au démarrage) — voir architecture.md
+# §19.A : un admin d'une base quelconque pourrait sinon se créer lui-même un compte local avec le
+# même identifiant et usurper le statut super-admin sur toute l'instance. Seul un fournisseur OIDC
+# fédéré (son "sub", émis et contrôlé par le fournisseur externe) peut être une paire super_admins.
+
+# Authentification par mot de passe maître pour la console d'administration — voir architecture.md
+# §19.A. Nécessaire quand aucun fournisseur OIDC fédéré n'est encore actif — ce qui inclut le cas où
+# "local" est le seul provider de l'instance, structurellement incapable de fournir une paire
+# super_admins (voir ci-dessus) : sans le mot de passe maître, aucun super-admin ne pourrait alors
+# jamais s'authentifier au niveau instance. DÉSACTIVÉE PAR DÉFAUT — un secret PARTAGÉ (contrairement
+# aux paires nommées ci-dessus). Sur une instance SANS OIDC fédéré, c'est la voie normale et
+# permanente vers le statut super-admin, rien à redésactiver. Sur une instance AVEC un OIDC fédéré
+# actif (au moins une paire super_admins fonctionnelle), redésactiver reste recommandé — un second
+# point d'entrée permanent affaiblirait l'authentification fédérée déjà en place.
+master_db_local_auth:
+  enabled: false
+  # Hash Argon2id du mot de passe maître — JAMAIS en clair dans ce fichier. Générer avec :
+  #   python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('...'))"
+  password_hash: ${env:KLEPSYDRIX_MASTER_PASSWORD_HASH}
+  # Liste vide = aucune restriction d'IP. Sinon, adresses exactes ou blocs CIDR.
+  ip_allowlist: []
+  # - 10.0.0.0/8
+
+# Connexion SMTP sortante — voir architecture.md §17.G. Utilisée pour les emails de réinitialisation
+# de mot de passe (provider "local" uniquement) : demande self-service (/password-reset/request) et
+# admin désigné par email à la création d'une base (case "envoyer un lien de réinitialisation",
+# console d'administration). ABSENTE ou incomplète (host/user/password/from_address) = envoi
+# IMPOSSIBLE, erreur explicite au moment de l'envoi — jamais de repli silencieux.
+smtp:
+  host: smtp.example.com
+  port: 587   # 587 = STARTTLS (use_tls: true) ; 465 = SSL implicite (use_tls: false)
+  user: noreply@klepsydrix.example.com
+  password: ${env:SMTP_PASSWORD}   # jamais en clair dans ce fichier
+  from_address: noreply@klepsydrix.example.com
+  use_tls: true
+
+# Règles métier d'authentification transverses (pas propres à un fournisseur précis).
+auth:
+  # Durée de vie d'un lien de réinitialisation de mot de passe, en minutes.
+  password_reset_ttl_minutes: 60
+
+  # Durée maximale d'INACTIVITÉ (pas depuis la connexion) avant qu'une session instance
+  # (cookie klepsydrix_session, voir core/instance_session.py) expire et impose une reconnexion.
+  # Chaque requête authentifiée valide fait glisser cette fenêtre (le cookie est réémis avec un
+  # nouvel horodatage) — seule une période d'inactivité ininterrompue supérieure à cette valeur
+  # déclenche l'expiration. Défaut : 30 jours.
+  session_idle_timeout_minutes: 43200

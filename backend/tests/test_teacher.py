@@ -6,16 +6,15 @@ Teacher — ne pas créer un nouveau fichier test_teacher_*.py pour un prochain 
 """
 import pytest
 from datetime import date
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
     School, Teacher, RefAra, RefAre, RefCity, RefCountry, TeacherAra, TeacherAre, TeacherDiscipline,
     Discipline, SystemSetting,
 )
+from backend.tests.db_test_utils import make_test_engine
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(TEST_DATABASE_URL, echo=False)
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 

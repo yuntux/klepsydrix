@@ -1,5 +1,6 @@
 import argparse
 import random
+from argon2 import PasswordHasher
 from sqlalchemy import text
 from backend.app.core.database import SessionLocal
 from backend.app.core.init_db import init_prod_data
@@ -510,7 +511,26 @@ def seed_demo_data():
             "VALUES (:eps_id, :eps_id, 0, 4, 0, 0, 0, 'NONE', 'NONE', 'NONE')"
         ), {"eps_id": subject_ids["EPS"]})
 
+        # 14. Compte de connexion locale de démonstration (voir architecture.md, provider "local")
+        # — identifiants en clair UNIQUEMENT ici, dans un jeu de démo : le hash Argon2id est
+        # calculé au moment du seed (comme tout champ calculé-et-stocké inséré en SQL brut, voir
+        # architecture.md section F), jamais stocké en clair en base.
+        print("[SEED DEMO] Ajout du compte de connexion locale de démonstration (demo@klepsydrix.fr / demo1234)...")
+        db.execute(text("INSERT INTO users (first_name, last_name, email) VALUES ('Démo', 'Klepsydrix', 'demo@klepsydrix.fr')"))
         db.commit()
+        demo_user_id = db.execute(text("SELECT id FROM users WHERE email = 'demo@klepsydrix.fr'")).scalar()
+        password_hash = PasswordHasher().hash("demo1234")
+        db.execute(text(
+            "INSERT INTO user_identity_providers (user_id, provider_key, external_subject, password_hash) "
+            "VALUES (:user_id, 'local', 'demo@klepsydrix.fr', :password_hash)"
+        ), {"user_id": demo_user_id, "password_hash": password_hash})
+        # Membre du groupe "Admin" (créé par seed_admin_access(), voir init_prod_data() appelé en
+        # tout début de cette fonction) — sans ça, le compte de démo n'aurait plus aucun accès dès
+        # que le moteur de droits est actif (aucune ligne ir_model_access sans groupe).
+        admin_group_id = db.execute(text("SELECT id FROM res_groups WHERE name = 'Admin'")).scalar()
+        db.execute(text("INSERT INTO res_group_users (group_id, user_id) VALUES (:group_id, :user_id)"), {"group_id": admin_group_id, "user_id": demo_user_id})
+        db.commit()
+
         print(f"[SEED DEMO] Succès ! Jeu d'essai V2 généré avec : 2 établissements, 9 disciplines, 9 matières, 40 profs, {len(divisions)} divisions, {len(classrooms)} salles et {course_count} cours/séances.")
 
     except Exception as e:

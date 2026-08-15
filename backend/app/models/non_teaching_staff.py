@@ -4,8 +4,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
+from backend.app.models.user import HasUserAccount
 
-class NonTeachingStaff(Base):
+class NonTeachingStaff(HasUserAccount, Base):
     __tablename__ = "non_teaching_staffs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -13,7 +14,9 @@ class NonTeachingStaff(Base):
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
     role: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Rôle / Fonction", "placeholder": "ex: AESH"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, unique=True, info={"label": "Compte utilisateur"})
 
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="non_teaching_staff")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_non_teaching_staffs", back_populates="non_teaching_staffs", passive_deletes="all", info={"label": "Cours"})
 
     @property

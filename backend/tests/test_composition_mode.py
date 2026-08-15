@@ -3,7 +3,6 @@ Tests pour les 9 modes de composition des cours complexes.
 """
 import pytest
 from datetime import date
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
@@ -11,9 +10,9 @@ from backend.app.models import (
     Period, PeriodType, Group, Course, SystemSetting
 )
 from backend.app.models.composition_mode import CompositionModes, CompositionError
+from backend.tests.db_test_utils import make_test_engine
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(TEST_DATABASE_URL, echo=False)
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 @pytest.fixture

@@ -1,0 +1,26 @@
+# Exemple de jail fail2ban pour klepsydrix-local-login.conf — voir architecture.md §17.H.
+# Installation : voir klepsydrix-master-auth.jail.conf.example (même marche à suivre).
+#
+# ⚠️ AUCUN verrouillage applicatif en complément (décision explicite, voir §17.H) : cette jail est
+# la SEULE protection anti-brute-force de la connexion locale. Activer réellement fail2ban avec ce
+# fichier n'est donc pas optionnel pour une instance en production.
+
+[klepsydrix-local-login]
+enabled  = true
+filter   = klepsydrix-local-login
+logpath  = /var/log/klepsydrix/backend.log
+backend  = auto
+
+# Plus permissif que klepsydrix-master-auth (5/15min) — un compte local est le flux d'authentification
+# QUOTIDIEN de l'application (contrairement au mot de passe maître, une action rare) : un utilisateur
+# qui fumble son mot de passe deux ou trois fois de suite ne doit pas déclencher un bannissement
+# réseau pour ça.
+maxretry = 8
+findtime = 15m
+bantime  = 1h
+
+# bantime.increment = true
+# bantime.factor    = 4
+# bantime.maxtime   = 1w
+
+# ignoreip = 127.0.0.1/8 ::1

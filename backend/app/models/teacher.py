@@ -4,6 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Float, Boolean, Date, JSON, ForeignKey, Table
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, related_field, constrains, onchange, exposed
+from backend.app.models.user import HasUserAccount
 
 teacher_subjects = Table(
     "teacher_subjects",
@@ -12,10 +13,11 @@ teacher_subjects = Table(
     Column("subject_id", Integer, ForeignKey("subjects.id", ondelete="CASCADE"), primary_key=True),
 )
 
-class Teacher(Base):
+class Teacher(HasUserAccount, Base):
     __tablename__ = "teachers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, unique=True, info={"label": "Compte utilisateur"})
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code Enseignant", "placeholder": "ex: T1"})
     first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Prénom", "placeholder": "ex: Marc"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
@@ -83,6 +85,7 @@ class Teacher(Base):
     service_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_service_modes.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité de service"})
 
     # Relations de navigation
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="teacher")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="teachers")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all", info={"label": "Cours"})
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)

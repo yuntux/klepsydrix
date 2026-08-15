@@ -1,4 +1,8 @@
 from backend.app.models.base import Base
+from backend.app.models.user import User, UserIdentityProvider
+from backend.app.models.password_reset_token import PasswordResetToken
+from backend.app.models.access import ResGroup, IrModelAccess
+from backend.app.models.parent import Parent
 from backend.app.models.school import School
 from backend.app.models.discipline import Discipline
 from backend.app.models.family import Family

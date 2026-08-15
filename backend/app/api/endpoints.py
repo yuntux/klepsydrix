@@ -4,6 +4,7 @@ from sqlalchemy import select
 from typing import Dict, Any, Optional
 
 from backend.app.core.database import get_db
+from backend.app.core import db_registry
 from backend.app.models.teacher import Teacher
 from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
@@ -16,6 +17,25 @@ from backend.app.solver.solver import start_solve_timetable_async, SolverState
 
 router = APIRouter(prefix="/api/timetable")
 
+
+def _require_course_access(db: Session, operation: str):
+    """
+    Ces routes ne passent pas par le CRUD générique (score/heatmap/simulate calculent des données
+    dérivées, solve/stop pilotent un thread, reset/simulate/apply-change interrogent Course
+    directement plutôt que via Course.read()) — donc aucune protection automatique du moteur de
+    droits (voir base.py::CRUDMixin) ne s'applique ici. Vérification explicite, minimale (droit sur
+    le MODÈLE Course, pas par enregistrement — ces routes agissent globalement, pas sur un cours
+    précis). Mode système (db.klepsydrix_user_id absent) : toujours autorisé.
+    """
+    user_id = getattr(db, "klepsydrix_user_id", None)
+    if user_id is None:
+        return
+    from backend.app.core.access_control import access_rows_for
+    from backend.app.models.user import User
+    user = db.get(User, user_id)
+    if not access_rows_for(db, Course, user, operation):
+        raise HTTPException(status_code=403, detail=f"Droit « {operation} » refusé sur courses.")
+
 # GET "" (collation teachers/classrooms/divisions/timeslots/courses/non_teaching_staffs en un
 # round-trip) a été retiré : le frontend appelle désormais directement l'API générique pour
 # chacune de ces ressources (voir App.vue::loadData, architecture.md §15.U) — même filtre
@@ -25,31 +45,36 @@ router = APIRouter(prefix="/api/timetable")
 # logique bespoke à cet endpoint.
 
 @router.get("/status")
-def get_status():
-    return SolverState.get_snapshot()
+def get_status(db: Session = Depends(get_db)):
+    return SolverState.get_snapshot(db_registry.slug_for_session(db))
 
 from backend.app.solver.solver import explain_timetable_score, calculate_course_heatmap
 
 @router.get("/score")
 def get_score(school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    _require_course_access(db, "read")
     return explain_timetable_score(db, school_id)
 
 @router.get("/courses/{course_id}/heatmap")
 def get_course_heatmap(course_id: int, school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    _require_course_access(db, "read")
     return calculate_course_heatmap(db, course_id, school_id)
 
 @router.post("/solve")
-def solve(school_id: Optional[int] = None):
-    start_solve_timetable_async(school_id)
+def solve(school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    _require_course_access(db, "write")
+    start_solve_timetable_async(school_id, slug=db_registry.slug_for_session(db))
     return {"status": "success", "message": "Résolution asynchrone démarrée."}
 
 @router.post("/stop")
-def stop_solve():
-    SolverState.stop_solving()
+def stop_solve(db: Session = Depends(get_db)):
+    _require_course_access(db, "write")
+    SolverState.stop_solving(db_registry.slug_for_session(db))
     return {"status": "success", "message": "Résolution interrompue."}
 
 @router.post("/reset")
 def reset(db: Session = Depends(get_db)):
+    _require_course_access(db, "write")
     courses = db.execute(select(Course)).scalars().unique().all()
     for c in courses:
         c.update(db, {
@@ -69,7 +94,11 @@ class CourseUpdate(BaseModel):
 
 @router.put("/courses/{course_id}")
 def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(get_db)):
-    course = db.get(Course, course_id)
+    # Course.read() (pas db.get()) : applique le filtre de lecture du moteur de droits — un cours
+    # hors du domaine de l'utilisateur doit rester invisible (404), pas juste refuser l'écriture
+    # après avoir déjà révélé son existence/état via la sérialisation plus bas.
+    items = Course.read(db, domain={"id": course_id})
+    course = items[0] if items else None
     if not course:
         raise HTTPException(status_code=404, detail="Cours non trouvé")
     
@@ -108,12 +137,13 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
 
 @router.post("/structures/simulate-change")
 def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
+    _require_course_access(db, "read")
     action = request_data.get("action")
     resource_type = request_data.get("resource_type")
     resource_id = request_data.get("resource_id")
-    
+
     impacted = []
-    
+
     if action == "DELETE_RESOURCE" or action == "UPDATE_GROUP_PARTITION":
         courses_query = select(Course)
         if resource_type == "Teacher":
@@ -132,7 +162,10 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
                 "impacted_sessions_count": 0,
                 "impacted_sessions": []
             }
-            
+
+        # Filtre de lecture du moteur de droits (voir base.py::CRUDMixin._apply_access_read_filter)
+        # — cette requête n'exécute jamais Course.read(), donc aucune protection automatique.
+        courses_query = Course._apply_access_read_filter(db, courses_query)
         courses = db.execute(courses_query).scalars().unique().all()
         for c in courses:
             if c.timeslot_id is not None:
@@ -158,12 +191,13 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
 
 @router.post("/structures/apply-change")
 def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
+    _require_course_access(db, "write")
     action = request_data.get("action")
     resource_type = request_data.get("resource_type")
     resource_id = request_data.get("resource_id")
-    
+
     deplaced_count = 0
-    
+
     courses_query = select(Course)
     if resource_type == "Teacher":
         courses_query = courses_query.filter(Course.teachers.any(Teacher.id == resource_id))
@@ -179,7 +213,10 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
             "deplaced_sessions_count": 0,
             "diagnostic_history_id": 42
         }
-        
+
+    # Filtre de lecture du moteur de droits — défense en profondeur : la mutation elle-même reste
+    # de toute façon protégée par c.update() (chaque cours, individuellement) ci-dessous.
+    courses_query = Course._apply_access_read_filter(db, courses_query)
     courses = db.execute(courses_query).scalars().unique().all()
     for c in courses:
         if c.timeslot_id is not None:

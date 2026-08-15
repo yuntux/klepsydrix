@@ -1,5 +1,4 @@
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from backend.app.models.base import Base
 from backend.app.models.school import School
@@ -16,11 +15,9 @@ from backend.app.models.preference import ResourcePreference
 from backend.app.models.period import Period
 from backend.app.models.constraint import CourseToCourseConstraint, SubjectToSubjectConstraint, ResourceConstraint
 from backend.app.solver.solver import _solve_timetable_job
+from backend.tests.db_test_utils import make_test_engine
 
-TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(
-    TEST_SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 @pytest.fixture(scope="function")
@@ -610,7 +607,7 @@ def test_student_and_link_constraints(db_session: Session):
     d_id = d.id
 
     ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_STUD_TEST"})
-    mef = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_STUD_TEST", "name": "MEF Test", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
+    mef = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_STUDT", "name": "MEF Test", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": d_id, "forecast_student_count": 25})
 
     # Partitions
@@ -704,7 +701,7 @@ def test_student_mef_must_match_division(db_session: Session):
 
     ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_MEF_TEST"})
     mef_linked = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_LINKED", "name": "MEF Lié", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
-    mef_unrelated = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_UNRELATED", "name": "MEF Non Lié", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
+    mef_unrelated = Mef.create(db_session, {"school_id": school.id, "code_national": "MEF_UNREL", "name": "MEF Non Lié", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 25})
     MefDivision.create(db_session, {"mef_id": mef_linked.id, "division_id": d.id, "forecast_student_count": 25})
     db_session.commit()
 
@@ -1372,7 +1369,7 @@ def test_solver_pedagogic_weight_limits(db_session: Session):
     sub_math = Subject.create(db_session, {"code": f"MATH_{uai_val}", "code_nomenclature": f"M_{uai_val}", "discipline_id": disc.id, "short_name": "Math", "name": "Math", "pedagogic_weight": 2.0})
     
     ref_grade = RefGrade.create(db_session, {"name": f"NIVEAU_{uai_val}"})
-    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"MEF_{uai_val}", "name": "M", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 30})
+    mef = Mef.create(db_session, {"school_id": sch.id, "code_national": f"MW_{uai_val}", "name": "M", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 30})
     div = Division.create(db_session, {"school_id": sch.id, "code": f"DIV_{uai_val}", "name": "DIV"})
     MefDivision.create(db_session, {"mef_id": mef.id, "division_id": div.id, "forecast_student_count": 30})
 

@@ -18,6 +18,25 @@ from timefold.solver.score import constraint_provider, ConstraintFactory, Joiner
 # Patch PlanningScore to enforce HardSoftLongScore type in Java layer
 # to avoid translation type issues in JPype/Timefold
 from timefold.solver.domain._annotations import ensure_init
+
+# La JVM démarre ICI (premier `ensure_init()` réellement atteint dans tout le code — vérifié
+# empiriquement : `import timefold.solver`/`timefold.solver.config` seuls ne la démarrent PAS,
+# JPype le fait uniquement au premier `ensure_init()` explicite). Par défaut, Timefold la démarre
+# sans arguments particuliers — un crash JVM (ex: bug natif de la JVM elle-même, jamais vu en
+# pratique mais possible) écrirait alors un `hs_err_pid<N>.log` dans le répertoire COURANT du
+# process (la racine du dépôt, voir start_services.sh — uvicorn y est lancé sans `cd` préalable),
+# jamais nettoyé. `timefold.solver.init(...)`, appelé explicitement AVANT ce `ensure_init()` (qui
+# lève `RuntimeError` si appelé après que la JVM a démarré), permet de fixer `-XX:ErrorFile=...`.
+import jpype
+if not jpype.isJVMStarted():
+    from pathlib import Path
+    from _jpyinterpreter import get_default_jvm_path
+    import timefold.solver
+
+    _jvm_log_dir = Path(__file__).resolve().parents[3] / "log_jvm"
+    _jvm_log_dir.mkdir(exist_ok=True)
+    timefold.solver.init(get_default_jvm_path(), f"-XX:ErrorFile={_jvm_log_dir}/hs_err_pid%p.log")
+
 ensure_init()
 from timefold.solver._timefold_java_interop import register_python_java_type_mappings
 register_python_java_type_mappings()

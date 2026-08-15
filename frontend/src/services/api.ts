@@ -1,11 +1,12 @@
 import { Course } from '../types';
+import { getSelectedDatabase, clearSelectedDatabase } from './dbSession';
 
 // ==========================================
 // JETON D'ÉCRITURE (voir architecture.md, "mode exclusif") — apiFetch()
 // ==========================================
 // Toute requête passe par ce wrapper plutôt qu'un fetch() direct : il attache le dernier jeton
-// d'écriture connu (X-Write-Token, voir core/write_token_middleware.py côté backend) sur CHAQUE
-// requête, lecture ou écriture, et surveille le même en-tête sur CHAQUE réponse. Le backend
+// d'écriture connu (X-Write-Token, voir core/database.py::check_write_token côté backend) sur
+// CHAQUE requête, lecture ou écriture, et surveille le même en-tête sur CHAQUE réponse. Le backend
 // l'annonce systématiquement : dès qu'il diffère de ce qu'on connaissait, nos données locales
 // sont potentiellement périmées (ex: une résolution automatique vient de se terminer et a déplacé
 // des cours) — un CustomEvent 'write-token:stale' est alors émis (même pattern que
@@ -19,12 +20,81 @@ export function getWriteToken(): string | null {
   return currentWriteToken;
 }
 
+// ==========================================
+// BASE COURANTE (voir architecture.md, multi-base) — même wrapper apiFetch()
+// ==========================================
+// Extension directe du mécanisme ci-dessus, pas un nouveau pattern : l'en-tête
+// X-Klepsydrix-Database est posé depuis le cookie sur CHAQUE requête, et l'écho de cet en-tête en
+// réponse est comparé à ce qui a été envoyé. Deux anomalies distinctes, deux réactions distinctes :
+// - Le backend rejette explicitement la base (428/404, code DATABASE_REQUIRED/DATABASE_UNKNOWN) :
+//   le cookie est invalide/périmé, on redirige vers le sélecteur de base plutôt que de laisser
+//   l'utilisateur face à des erreurs en boucle sur chaque appel API.
+// - L'en-tête écho ne correspond pas à ce qui a été envoyé (course-condition, ex: un autre onglet
+//   a changé la base entretemps) : rechargement forcé, pas de tentative de réconciliation côté JS.
+function redirectToDatabaseSelection() {
+  clearSelectedDatabase();
+  const next = window.location.pathname + window.location.search;
+  window.location.href = `/select-database?next=${encodeURIComponent(next)}`;
+}
+
+// Session instance absente/expirée (voir core/instance_session.py) : redirige vers /login, en
+// portant la base déjà sélectionnée (?db=, pré-remplit le formulaire du provider local — voir
+// pages/Login.vue) et la page de provenance (?next=) pour y revenir une fois connecté.
+function redirectToLogin() {
+  const next = window.location.pathname + window.location.search;
+  const db = getSelectedDatabase();
+  const params = new URLSearchParams({ next });
+  if (db) params.set('db', db);
+  window.location.href = `/login?${params.toString()}`;
+}
+
+async function errorCode(response: Response): Promise<string | undefined> {
+  try {
+    const data = await response.clone().json();
+    return typeof data?.detail === 'object' ? data.detail?.code : undefined;
+  } catch {
+    return undefined; // Corps non-JSON ou vide.
+  }
+}
+
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers || {});
   if (currentWriteToken) {
     headers.set('X-Write-Token', currentWriteToken);
   }
+  const selectedDb = getSelectedDatabase();
+  if (selectedDb) {
+    headers.set('X-Klepsydrix-Database', selectedDb);
+  }
   const response = await fetch(input, { ...init, headers });
+
+  if (response.status === 401 && (await errorCode(response)) === 'NOT_AUTHENTICATED') {
+    redirectToLogin();
+    return response;
+  }
+
+  // Session instance valide mais issue du mot de passe maître (voir database.py::current_db_user) :
+  // cette identité ne correspond à aucun vrai compte dans aucune base — jamais une impasse
+  // silencieuse, retour à /login pour s'authentifier avec une vraie identité.
+  if (response.status === 403 && (await errorCode(response)) === 'MASTER_IDENTITY_FORBIDDEN') {
+    redirectToLogin();
+    return response;
+  }
+
+  if (selectedDb && (response.status === 428 || response.status === 404)) {
+    const code = await errorCode(response);
+    if (code === 'DATABASE_REQUIRED' || code === 'DATABASE_UNKNOWN') {
+      redirectToDatabaseSelection();
+      return response;
+    }
+  }
+
+  const echoedDb = response.headers.get('X-Klepsydrix-Database');
+  if (selectedDb && echoedDb && echoedDb !== selectedDb) {
+    window.dispatchEvent(new CustomEvent('database:mismatch', { detail: { expected: selectedDb, echoed: echoedDb } }));
+    window.location.reload();
+    return response;
+  }
 
   const serverToken = response.headers.get('X-Write-Token');
   if (serverToken && serverToken !== currentWriteToken) {
@@ -48,6 +118,16 @@ export async function fetchMenus(): Promise<any> {
   const response = await apiFetch('/api/ui/menus');
   if (!response.ok) {
     throw new Error('Erreur lors de la récupération des menus');
+  }
+  return response.json();
+}
+
+// Identité de l'utilisateur connecté sur la base courante + statut admin (super-admin d'instance OU
+// membre du groupe "Admin" DANS cette base) — voir architecture.md §19, ui_endpoints.py::whoami.
+export async function fetchWhoAmI(): Promise<{ display_name: string; email: string | null; is_admin: boolean }> {
+  const response = await apiFetch('/api/ui/whoami');
+  if (!response.ok) {
+    throw new Error("Erreur lors de la récupération de l'identité connectée");
   }
   return response.json();
 }

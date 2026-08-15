@@ -17,7 +17,7 @@ for _, module_name, _ in pkgutil.iter_modules(models_package.__path__):
 
 router = APIRouter(prefix="/api/generic")
 
-from backend.app.models.base import TransientModel, UnsupportedOperationError
+from backend.app.models.base import TransientModel, UnsupportedOperationError, AccessDeniedError
 from backend.app.core.exclusive_mode import ExclusiveModeActiveError
 
 # Génération 100% automatique de la cartographie des modèles sur la base de leur table SQL
@@ -51,8 +51,12 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
     
     fields = []
     if hasattr(obj, "__table__"):
-        fields = [c.name for c in obj.__table__.columns]
-        
+        # info={"private": True} (voir base.py) : jamais sérialisé par l'API générique, quel que
+        # soit l'appelant — réservé aux colonnes qui ne doivent JAMAIS transiter par une réponse
+        # HTTP générique (ex: UserIdentityProvider.password_hash), pas seulement en lecture par
+        # défaut comme readOnly.
+        fields = [c.name for c in obj.__table__.columns if not (c.info or {}).get("private")]
+
     extra_fields = list(getattr(obj, "_fields", [])) + list(getattr(obj, "_extra_fields", []))
     if extra_fields:
         # Pour un TransientModel, _fields/extra_fields est la source principale, pour les autres c'est en plus des colonnes
@@ -116,6 +120,10 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
 
     for column in model.__table__.columns:
         if column.name == "id":
+            continue
+        if (column.info or {}).get("private"):
+            # Jamais exposée par l'API générique — ni lue (voir sqla_to_dict) ni acceptée en
+            # entrée ici : un champ "private" n'existe tout simplement pas pour /api/generic/*.
             continue
         try:
             py_type = column.type.python_type
@@ -279,6 +287,15 @@ def make_get_endpoint(model):
         return sqla_to_dict(item)
     return get_endpoint
 
+def make_display_name_endpoint(model):
+    def display_name_endpoint(item_id: int, db: Session = Depends(get_db)):
+        from backend.app.core.access_control import get_display_name_unchecked
+        name = get_display_name_unchecked(db, model, item_id)
+        if name is None:
+            raise HTTPException(status_code=404, detail="Élément introuvable.")
+        return {"id": item_id, "display_name": name}
+    return display_name_endpoint
+
 def make_create_endpoint(model, payload_schema):
     def create_endpoint(payload: payload_schema, db: Session = Depends(get_db)):
         cleaned_payload = model.clean_payload(payload.model_dump())
@@ -291,6 +308,8 @@ def make_create_endpoint(model, payload_schema):
             return sqla_to_dict(new_item)
         except UnsupportedOperationError as e:
             raise HTTPException(status_code=405, detail=str(e))
+        except AccessDeniedError as e:
+            raise HTTPException(status_code=403, detail=str(e))
         except ExclusiveModeActiveError as e:
             raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
@@ -319,6 +338,8 @@ def make_update_endpoint(model, payload_schema):
             return sqla_to_dict(updated_item)
         except UnsupportedOperationError as e:
             raise HTTPException(status_code=405, detail=str(e))
+        except AccessDeniedError as e:
+            raise HTTPException(status_code=403, detail=str(e))
         except ExclusiveModeActiveError as e:
             raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
@@ -380,6 +401,8 @@ def make_delete_endpoint(model, resource_name: str):
             return {"status": "success", "message": f"Élément {item_id} de {resource_name} supprimé avec succès."}
         except UnsupportedOperationError as e:
             raise HTTPException(status_code=405, detail=str(e))
+        except AccessDeniedError as e:
+            raise HTTPException(status_code=403, detail=str(e))
         except ExclusiveModeActiveError as e:
             raise HTTPException(status_code=423, detail=str(e))
         except Exception as e:
@@ -402,6 +425,27 @@ def serialize_execution_result(result):
         return sqla_to_dict(result)
     return result
 
+def _check_rpc_access(model, method_name: str, func, db: Session):
+    """
+    Garde-fou RPC (voir architecture.md, moteur de droits, base.py::requires_access) : une méthode
+    appelée via /call/{method_name} n'appelle pas systématiquement create()/update()/delete() (déjà
+    protégées) — un calcul, un export, le déclenchement du solveur y échapperaient sinon totalement.
+    Refus par défaut pour toute méthode non décorée @requires_access. Mode système
+    (db.klepsydrix_user_id absent) : toujours autorisé, comme le reste du moteur de droits.
+    """
+    user_id = getattr(db, "klepsydrix_user_id", None)
+    if user_id is None:
+        return
+    required_operation = getattr(func, "_requires_access", None)
+    if required_operation is None:
+        raise HTTPException(status_code=403, detail=f"Méthode '{method_name}' non autorisée en appel distant (non décorée @requires_access).")
+    from backend.app.core.access_control import access_rows_for
+    from backend.app.models.user import User
+    user = db.get(User, user_id)
+    if not access_rows_for(db, model, user, required_operation):
+        raise HTTPException(status_code=403, detail=f"Droit « {required_operation} » refusé sur {model.__tablename__}.")
+
+
 def make_class_call_endpoint(model):
     def class_call_endpoint(
         method_name: str,
@@ -410,11 +454,13 @@ def make_class_call_endpoint(model):
     ):
         if not hasattr(model, method_name):
             raise HTTPException(status_code=404, detail=f"Méthode '{method_name}' introuvable sur le modèle {model.__name__}.")
-        
+
         func = getattr(model, method_name)
         if not callable(func):
             raise HTTPException(status_code=400, detail=f"L'attribut '{method_name}' n'est pas exécutable.")
-            
+
+        _check_rpc_access(model, method_name, func, db)
+
         args = payload.args or []
         kwargs = payload.kwargs or {}
         
@@ -454,7 +500,9 @@ def make_instance_call_endpoint(model):
         func = getattr(instance, method_name)
         if not callable(func):
             raise HTTPException(status_code=400, detail=f"L'attribut '{method_name}' n'est pas exécutable.")
-            
+
+        _check_rpc_access(model, method_name, func, db)
+
         args = payload.args or []
         kwargs = payload.kwargs or {}
         
@@ -523,7 +571,19 @@ for resource_name, model in MODEL_MAP.items():
         summary=f"Obtenir un(e) {resource_name} par ID",
         tags=[resource_name]
     )
-    
+
+    # 2bis. Libellé seul d'une ressource, en lecture privilégiée (voir architecture.md,
+    # "display_name d'une relation non lisible" — moteur de droits) — pour résoudre le libellé
+    # d'une relation que l'utilisateur courant ne peut pas lire dans son intégralité.
+    router.add_api_route(
+        path=f"/{resource_name}/{{item_id}}/display_name",
+        endpoint=make_display_name_endpoint(model),
+        methods=["GET"],
+        response_model=Dict[str, Any],
+        summary=f"Obtenir le libellé (display_name) d'un(e) {resource_name} par ID, sans contrôle de droit",
+        tags=[resource_name]
+    )
+
     # 3. Créer une nouvelle ressource (POST /api/generic/{resource_name})
     router.add_api_route(
         path=f"/{resource_name}",

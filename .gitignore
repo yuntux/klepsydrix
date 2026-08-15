@@ -151,6 +151,10 @@ activemq-data/
 .env
 .envrc
 .venv
+
+# Configuration d'instance Klepsydrix (peut porter des secrets : mots de passe SMTP/BDD, clients
+# OIDC...) — voir instance.example.yaml pour le gabarit documenté et versionné.
+instance.yaml
 env/
 venv/
 ENV/
@@ -223,6 +227,12 @@ dist/
 build/
 *.log
 .eslintcache
+
+# Playwright (voir architecture.md, lot 6 "Tests end-to-end frontend")
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
 
 # Local databases
 *.db

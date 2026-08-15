@@ -15,10 +15,14 @@ from backend.app.models.group import ClassPartLink
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint, SubjectToSubjectConstraint
 from backend.app.models.period import Period
-from backend.app.core.database import SessionLocal
+from backend.app.core.database import SessionLocal, DEFAULT_DB_NAME
+from backend.app.core import db_registry
 from backend.app.core.exclusive_mode import enter_exclusive_mode, exit_exclusive_mode_and_rotate_token, clear_exclusive_mode
+import logging
 import threading
 import time
+
+logger = logging.getLogger(__name__)
 from backend.app.solver.constraints import (
     PlanningTeacher,
     PlanningNonTeachingStaff,
@@ -35,56 +39,84 @@ from backend.app.solver.constraints import (
 )
 
 
+class _PerDbSolverState:
+    """État d'une résolution en cours pour UNE base — voir SolverState ci-dessous."""
+    __slots__ = ("lock", "active_solver", "status", "progress", "last_progress_at", "started_at", "time_limit_seconds")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.active_solver = None
+        self.status = "NOT_SOLVING"
+        self.progress = None
+        self.last_progress_at = None
+        self.started_at = None
+        self.time_limit_seconds = None
+
+
 class SolverState:
-    _lock = threading.Lock()
-    active_solver = None
-    status = "NOT_SOLVING"
-    _progress = None
-    _last_progress_at = None
-    _started_at = None
-    _time_limit_seconds = None
+    """
+    État du solveur, indexé par slug de base (voir architecture.md, multi-base) — un attribut de
+    CLASSE partagé par tout le process bloquerait à tort une résolution sur la base B pendant
+    qu'une résolution tourne sur la base A. `_states` reste néanmoins un dict en mémoire process
+    (pas en base, contrairement à exclusive_mode_state) : limite connue si Klepsydrix tournait un
+    jour en plusieurs process/instances en parallèle (load balancing) — acceptable tant qu'un seul
+    process tourne par déploiement, l'hypothèse implicite de toute l'architecture actuelle du
+    solveur (thread du même process, pas un worker séparé).
+    """
+    _states: dict = {}
 
     @classmethod
-    def set_solving(cls, solver, time_limit_seconds=None):
-        with cls._lock:
-            cls.active_solver = solver
-            cls.status = "SOLVING"
-            cls._progress = None
-            cls._last_progress_at = None
-            cls._started_at = time.monotonic()
-            cls._time_limit_seconds = time_limit_seconds
+    def _for(cls, slug: str) -> _PerDbSolverState:
+        if slug not in cls._states:
+            cls._states[slug] = _PerDbSolverState()
+        return cls._states[slug]
 
     @classmethod
-    def set_solving_status(cls):
-        with cls._lock:
-            cls.status = "SOLVING"
+    def set_solving(cls, slug: str, solver, time_limit_seconds=None):
+        state = cls._for(slug)
+        with state.lock:
+            state.active_solver = solver
+            state.status = "SOLVING"
+            state.progress = None
+            state.last_progress_at = None
+            state.started_at = time.monotonic()
+            state.time_limit_seconds = time_limit_seconds
 
     @classmethod
-    def set_not_solving(cls):
-        with cls._lock:
-            cls.active_solver = None
-            cls.status = "NOT_SOLVING"
-            cls._progress = None
-            cls._last_progress_at = None
-            cls._started_at = None
-            cls._time_limit_seconds = None
+    def set_solving_status(cls, slug: str):
+        state = cls._for(slug)
+        with state.lock:
+            state.status = "SOLVING"
 
     @classmethod
-    def get_status(cls):
-        with cls._lock:
-            return cls.status
+    def set_not_solving(cls, slug: str):
+        state = cls._for(slug)
+        with state.lock:
+            state.active_solver = None
+            state.status = "NOT_SOLVING"
+            state.progress = None
+            state.last_progress_at = None
+            state.started_at = None
+            state.time_limit_seconds = None
 
     @classmethod
-    def stop_solving(cls):
-        with cls._lock:
-            if cls.active_solver:
+    def get_status(cls, slug: str):
+        state = cls._for(slug)
+        with state.lock:
+            return state.status
+
+    @classmethod
+    def stop_solving(cls, slug: str):
+        state = cls._for(slug)
+        with state.lock:
+            if state.active_solver:
                 try:
-                    cls.active_solver.terminate_early()
+                    state.active_solver.terminate_early()
                 except Exception:
                     pass
 
     @classmethod
-    def set_progress(cls, hard_score: int, soft_score: int):
+    def set_progress(cls, slug: str, hard_score: int, soft_score: int):
         """
         Throttlé à 1 mise à jour/seconde : le listener Timefold (voir _solve_timetable_job) peut
         être notifié plusieurs fois par seconde, surtout pendant la phase de construction — écrire
@@ -93,26 +125,28 @@ class SolverState:
         d'une résolution passe toujours immédiatement (pas d'attente initiale d'1s à vide).
         """
         now = time.monotonic()
-        with cls._lock:
-            if cls._last_progress_at is not None and now - cls._last_progress_at < 1.0:
+        state = cls._for(slug)
+        with state.lock:
+            if state.last_progress_at is not None and now - state.last_progress_at < 1.0:
                 return
-            cls._last_progress_at = now
-            cls._progress = {"hard_score": hard_score, "soft_score": soft_score}
+            state.last_progress_at = now
+            state.progress = {"hard_score": hard_score, "soft_score": soft_score}
 
     @classmethod
-    def get_snapshot(cls):
+    def get_snapshot(cls, slug: str):
         """
         Réponse complète pour /status : statut, dernier score connu, temps écoulé/limite — tout ce
         dont le frontend a besoin pour afficher une progression, sans jamais exposer l'état interne
         des entités de la solution (voir la mise en garde dans _solve_timetable_job).
         """
-        with cls._lock:
-            elapsed = None if cls._started_at is None else round(time.monotonic() - cls._started_at, 1)
+        state = cls._for(slug)
+        with state.lock:
+            elapsed = None if state.started_at is None else round(time.monotonic() - state.started_at, 1)
             return {
-                "status": cls.status,
-                "progress": cls._progress,
+                "status": state.status,
+                "progress": state.progress,
                 "elapsed_seconds": elapsed,
-                "time_limit_seconds": cls._time_limit_seconds,
+                "time_limit_seconds": state.time_limit_seconds,
             }
 
 
@@ -433,8 +467,17 @@ def _get_solver_factory():
                 _SOLVER_FACTORY_CACHE = SolverFactory.create(solver_config)
     return _SOLVER_FACTORY_CACHE
 
-def _solve_timetable_job(db_session=None, school_id=None):
-    db = db_session if db_session else SessionLocal()
+def _solve_timetable_job(db_session=None, school_id=None, slug=None):
+    if db_session is not None:
+        db = db_session
+        # Un appel avec une session déjà ouverte (tests, ou tout futur appelant interne) mais sans
+        # slug explicite retombe sur le "bucket" SolverState de la base par défaut — voir
+        # db_registry.slug_for_engine : une session de test (moteur jamais enregistré dans le
+        # registre) ne peut de toute façon pas être rattachée à une base précise.
+        slug = slug or db_registry.slug_for_engine(db.bind) or DEFAULT_DB_NAME
+    else:
+        slug = slug or DEFAULT_DB_NAME
+        db = db_registry.sessionmaker_for(slug)()
     entered_exclusive = False
     try:
         # Mode exclusif (voir core/exclusive_mode.py, architecture.md) : bloque toute écriture
@@ -463,7 +506,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
         ))
 
         # Enregistrer le solveur actif
-        SolverState.set_solving(solver, time_limit_seconds=limit_seconds)
+        SolverState.set_solving(slug, solver, time_limit_seconds=limit_seconds)
 
         # Notifié à chaque nouvelle "meilleure solution" trouvée pendant la résolution (pas
         # seulement à la fin) — permet d'exposer une progression en direct (/status, voir
@@ -490,6 +533,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
         def _on_best_solution_changed(event):
             score = event.new_best_score
             SolverState.set_progress(
+                slug,
                 score.hard_score if hasattr(score, 'hard_score') else 0,
                 score.soft_score if hasattr(score, 'soft_score') else 0,
             )
@@ -499,7 +543,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
         try:
             solution = solver.solve(problem)
         finally:
-            SolverState.set_not_solving()
+            SolverState.set_not_solving(slug)
 
         # Mettre à jour les enregistrements
         # ATTENTION ARCHITECTURE : Le solveur n'appelle JAMAIS la méthode Course.update() du CRUDMixin
@@ -575,7 +619,7 @@ def _solve_timetable_job(db_session=None, school_id=None):
 
     except Exception as e:
         db.rollback()
-        print(f"Solver thread error: {e}")
+        logger.error("Solver thread error: %s", e)
         if entered_exclusive:
             # Le rollback ci-dessus défait la tentative de sortie de mode exclusif si elle avait
             # été atteinte (ainsi que toute écriture de résultats) — mais PAS l'entrée en mode
@@ -592,14 +636,15 @@ def _solve_timetable_job(db_session=None, school_id=None):
     finally:
         if not db_session:
             db.close()
-        SolverState.set_not_solving()
+        SolverState.set_not_solving(slug)
 
 
-def start_solve_timetable_async(school_id: Optional[int] = None):
-    if SolverState.get_status() == "SOLVING":
+def start_solve_timetable_async(school_id: Optional[int] = None, slug: Optional[str] = None):
+    slug = slug or DEFAULT_DB_NAME
+    if SolverState.get_status(slug) == "SOLVING":
         return
-    SolverState.set_solving_status()
-    thread = threading.Thread(target=_solve_timetable_job, kwargs={"school_id": school_id})
+    SolverState.set_solving_status(slug)
+    thread = threading.Thread(target=_solve_timetable_job, kwargs={"school_id": school_id, "slug": slug})
     thread.daemon = True
     thread.start()
 

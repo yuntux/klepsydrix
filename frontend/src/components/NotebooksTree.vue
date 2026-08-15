@@ -9,12 +9,7 @@
 
       <div class="sidebar-inner">
         <div class="sidebar-header">
-          <div class="logo">
-            <div class="logo-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14M5 21h14M7 3v3a5 5 0 0 0 5 5 5 5 0 0 0 5-5V3M7 21v-3a5 5 0 0 1 5-5 5 5 0 0 1 5 5v3"/></svg>
-            </div>
-            <span class="logo-text">Klepsydrix</span>
-          </div>
+          <BaseLogo size="sm" />
         </div>
 
         <div class="sidebar-body">
@@ -71,6 +66,30 @@
             </div>
             <span class="label">Changer de Thème</span>
             <div class="tooltip-tip">Changer le thème</div>
+          </div>
+          <div class="nav-item" role="button" tabindex="0" @click="goToDatabaseSelection" @keydown.enter="goToDatabaseSelection" title="Changer de base de données">
+            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
+              🗄️
+            </div>
+            <span class="label">{{ currentDatabase || 'Base inconnue' }}</span>
+            <a
+              v-if="whoAmI?.is_admin"
+              href="/admin"
+              class="admin-link"
+              title="Console d'administration"
+              @click.stop
+            >⚙️</a>
+            <div class="tooltip-tip">Changer de base de données ({{ currentDatabase }})</div>
+          </div>
+          <div class="nav-item" role="button" tabindex="0" @click="logout" @keydown.enter="logout">
+            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
+              🚪
+            </div>
+            <div class="label-stack">
+              <span class="label">Se déconnecter</span>
+              <span v-if="whoAmI" class="label-sub">{{ whoAmI.display_name }}</span>
+            </div>
+            <div class="tooltip-tip">Se déconnecter{{ whoAmI ? ` (${whoAmI.display_name})` : '' }}</div>
           </div>
         </div>
       </div>
@@ -146,7 +165,9 @@
 import { ref, shallowRef, onMounted, onUnmounted, watch } from 'vue';
 import SplitPanel from './SplitPanel.vue';
 import MenuIcon from './MenuIcon.vue';
-import { fetchMenus } from '../services/api';
+import BaseLogo from './BaseLogo.vue';
+import { fetchMenus, fetchWhoAmI } from '../services/api';
+import { getSelectedDatabase, clearSelectedDatabase } from '../services/dbSession';
 
 interface Panel {
   id: string;
@@ -182,6 +203,29 @@ const popupPos = ref({ top: 0, left: 0 });
 
 const themes = ['light', 'dark', 'strict'];
 const currentThemeIndex = ref(0);
+
+// Nom de la base courante, affiché sous le sélecteur de thème (voir architecture.md, multi-base).
+const currentDatabase = ref(getSelectedDatabase());
+
+// Identité connectée + statut admin (voir architecture.md §19, ui_endpoints.py::whoami) — purement
+// cosmétique (lien vers la console, identité sur le bouton de déconnexion) : un échec ici ne doit
+// jamais bloquer le reste de l'IHM, `whoAmI` reste simplement `null` (les éléments qui en dépendent
+// ne s'affichent pas, comportement identique à avant l'ajout de cet appel).
+const whoAmI = ref<{ display_name: string; email: string | null; is_admin: boolean } | null>(null);
+
+function goToDatabaseSelection() {
+  clearSelectedDatabase();
+  const next = window.location.pathname + window.location.search;
+  window.location.href = `/select-database?next=${encodeURIComponent(next)}`;
+}
+
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } finally {
+    window.location.href = '/login';
+  }
+}
 
 // Chemin d'IDs ui.json (racine -> feuille) à restaurer depuis l'URL — voir architecture.md, "URLs
 // profondes". Surveillé en continu (pas juste lu au montage) : App.vue le remet à jour sur un
@@ -295,6 +339,7 @@ function onDocClick(e: Event) {
 
 onMounted(async () => {
   document.addEventListener('click', onDocClick);
+  fetchWhoAmI().then(r => { whoAmI.value = r; }).catch(() => {});
   try {
     const data = await fetchMenus();
     config.value = data as NotebookNode[];
@@ -365,11 +410,8 @@ onUnmounted(() => {
 /* ── HEADER ── */
 .sidebar-header { display: flex; align-items: center; padding: 0 24px 0 14px; border-bottom: 1px solid var(--border-color); height: 44px; flex-shrink: 0; }
 .sidebar.collapsed .sidebar-header { padding: 0; justify-content: center; }
-.logo { display: flex; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; }
-.logo-icon { width: 26px; height: 26px; background: var(--accent-primary); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.logo-icon svg { width: 15px; height: 15px; stroke: #fff; }
-.logo-text { font-size: 15px; font-weight: 600; color: var(--text-primary); white-space: nowrap; opacity: 1; transition: opacity 0.15s; }
-.sidebar.collapsed .logo-text { opacity: 0; width: 0; margin-left: 0; gap: 0; }
+.sidebar-header :deep(.base-logo-text) { opacity: 1; transition: opacity 0.15s; }
+.sidebar.collapsed :deep(.base-logo-text) { opacity: 0; width: 0; }
 
 /* ── NAV ── */
 .sidebar-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 0; }
@@ -383,6 +425,17 @@ onUnmounted(() => {
 .sidebar.collapsed .nav-item .label { opacity: 0; width: 0; }
 .sidebar.collapsed .nav-item { padding: 10px; justify-content: center; }
 .sidebar.collapsed .nav-item.active::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; background: var(--accent-primary); border-radius: 0 3px 3px 0; }
+
+/* Bouton de déconnexion : nom+libellé sur deux lignes (voir architecture.md §19, ui_endpoints.py::whoami) */
+.label-stack { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.label-stack .label { line-height: 1.25; }
+.label-sub { font-size: 11px; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar.collapsed .label-stack { opacity: 0; width: 0; }
+
+/* Lien vers la console d'administration, affiché uniquement pour un admin (voir §19) */
+.admin-link { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--text-muted); text-decoration: none; font-size: 12px; }
+.admin-link:hover { background: var(--bg-card); color: var(--accent-primary); }
+.sidebar.collapsed .admin-link { display: none; }
 
 .tooltip-tip { position: absolute; left: 60px; top: 50%; transform: translateY(-50%); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 4px 10px; font-size: 13px; color: var(--text-primary); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.12s; z-index: 300; box-shadow: var(--shadow-md); }
 .sidebar.collapsed .nav-item:hover .tooltip-tip { opacity: 1; }

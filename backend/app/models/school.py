@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, Date, Float
 from sqlalchemy.orm import relationship
-from backend.app.models.base import Base
+from backend.app.models.base import Base, requires_access
 
 class School(Base):
     __tablename__ = "schools"
@@ -29,7 +29,10 @@ class School(Base):
 
     @classmethod
     def test_class_method(cls, db, multiplier: int):
+        # Volontairement NON décorée @requires_access — voir test_access_control.py::TestRpcGuard,
+        # exercice du refus par défaut pour toute méthode RPC non décorée.
         return db.query(cls).count() * multiplier
 
+    @requires_access("write")
     def test_instance_method(self, db, prefix: str):
         return f"{prefix} {self.name}"

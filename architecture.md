@@ -63,13 +63,65 @@ Le backend utilise un environnement virtuel local pour isoler les packages Pytho
 - **Mécanisme** : Contrairement à Python, l'écosystème Node.js isole **nativement** les dépendances. Lorsque nous exécutons `npm install` (ou `pnpm install`), toutes les dépendances de Vue 3, Vite et TypeScript sont téléchargées exclusivement dans le dossier local `node_modules` à la racine du frontend.
 - **Sécurité** : Aucun package n'est installé globalement sur ton OS. Supprimer le dossier `node_modules` suffit à nettoyer entièrement ta machine.
 
-### C. Gestion de la Configuration du Backend (`.env`)
-Le backend utilise un système de configuration par variables d'environnement centralisé dans un fichier local.
-- **Fichier** : Un fichier `.env` situé à la racine du sous-projet backend (non versionné sur Git pour la sécurité, mais documenté via un modèle `.env.example`).
-- **Chargement** : Utilisation de **Pydantic Settings** (`BaseSettings`) pour charger et valider les configurations au démarrage du serveur FastAPI.
-- **Variables minimales obligatoires pour la V1** :
-  - `DATABASE_TYPE` : Indique le type de moteur SQL (ex: `sqlite` pour le développement, `postgresql` pour la production).
-  - `DATABASE_URL` : Chaîne de connexion SQLAlchemy (ex: `sqlite:///./klepsydrix.db` en local, ou `postgresql://user:pass@host/db` en production).
+### C. Configuration Générale d'Instance (`instance.yaml`) et Compatibilité Multi-SGBD
+
+La configuration de la base de données vit dans un fichier **`instance.yaml`**, à la racine du
+dépôt (non versionné — voir `instance.example.yaml`, le gabarit documenté et versionné). Le chemin
+peut être surchargé via la variable d'environnement `KLEPSYDRIX_CONFIG`. Ce fichier accueillera au
+fil des chantiers d'autres sections indépendantes (`server`, `smtp`, `auth`, `identity_providers`,
+`super_admins`...) — une seule imbrication par domaine, un seul fichier, pas de multiplication de
+fichiers de config.
+
+**Chargement** (`backend/app/core/config.py`) : `pydantic-settings` (`BaseSettings`) avec une
+source YAML personnalisée (`YamlConfigSettingsSource`), qui reste prioritaire sur `.env` (celui-ci
+ne porte plus que `SOLVER_TIME_LIMIT_SECONDS`/`SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS`, backward
+compatible). Convention `${env:NOM_VAR}` dans une valeur YAML : substituée par la variable
+d'environnement correspondante — permet de référencer un secret (mot de passe SMTP, client OIDC...)
+sans l'écrire en clair dans le fichier, valable pour n'importe quelle section future sans code
+supplémentaire (substitution récursive sur tout le dict chargé).
+
+**Section `database` :**
+```yaml
+database:
+  backend: sqlite            # sqlite | postgresql
+  directory: .                # obligatoire si backend=sqlite (répertoire des fichiers *.db)
+  host: /var/run/postgresql   # obligatoire si backend=postgresql (socket local si commence par "/")
+  port: 5432
+  user: klepsydrix
+  password: ${env:PGPASSWORD}
+  database_prefix: klepsydrix_
+```
+Validation croisée (`DatabaseConfig`, `model_validator`) : `directory` exigé ssi `backend=sqlite`,
+`host` exigé ssi `backend=postgresql` — pas deux champs indépendamment requis.
+
+`build_database_url(db_name: str)` (`config.py`) construit l'URL SQLAlchemy selon le backend
+sélectionné, pour une base nommée `db_name` — `database.py` l'appelle aujourd'hui avec un nom fixe
+(`DEFAULT_DB_NAME = "timetable"`, reproduisant le comportement mono-base actuel) ; un futur registre
+multi-base appellera cette même fonction avec le slug de base résolu par requête, sans dupliquer la
+logique de construction d'URL.
+
+**Portabilité du code** (au-delà du simple choix d'URL) :
+- `CRUDMixin.read()` (`base.py`) applique désormais un tri explicite par défaut (`order_by(cls.id)`,
+  surchargeable par modèle via `__default_order__`) : sans lui, l'ordre de retour "semblait" suivre
+  l'ordre d'insertion sur SQLite, un hasard d'implémentation non garanti par le SGBD — et
+  effectivement non respecté par PostgreSQL.
+- Les colonnes `String(n)` sont ignorées en longueur par SQLite mais réellement appliquées par
+  PostgreSQL (`StringDataRightTruncation`) — piège rencontré et corrigé dans plusieurs jeux de
+  données de test (`backend/tests/`) qui dépassaient silencieusement la longueur déclarée.
+
+**Suite de tests rejouable sur les deux backends** (`backend/tests/db_test_utils.py`) : chaque
+fichier de test construit son moteur via `make_test_engine()` (SQLite en mémoire par défaut,
+PostgreSQL local si `KLEPSYDRIX_TEST_DB_BACKEND=postgres`) au lieu de coder en dur
+`sqlite:///:memory:` — factorise ce qui était dupliqué à l'identique dans 8 fichiers. Prérequis
+PostgreSQL local (une fois, pas de CI pour ce chantier — voir §20.B) :
+```bash
+createdb -h /var/run/postgresql klepsydrix_test
+```
+Le rôle du système d'exploitation courant (authentification "peer" par socket unix, sans mot de
+passe) est utilisé tel quel en local. `backend/tests/conftest.py` purge les tables au début de la
+session en mode PostgreSQL (filet de sécurité si une exécution précédente a été interrompue avant
+son `drop_all` — chaque fichier isole déjà correctement ses propres tests via `create_all`/
+`drop_all` en `scope="function"`).
 
 ### D. Script d'automatisation unifié (`start_services.sh`)
 Pour simplifier les redémarrages de la machine virtuelle (VM) ou de l'environnement de développement, un script d'automatisation complet est disponible à la racine du projet :
@@ -445,6 +497,28 @@ La couverture de code (Backend total à **88 %**) démontre l'excellence de la c
 ### E. Pourquoi ce système protège efficacement votre application
 * **Détection immédiate des régressions JVM/JPype** : Si un type de données converti en Python (par exemple via `to_set()`) n'était pas supporté par le moteur Java sous-jacent, le test lèverait immédiatement une erreur d'invocation de signature JPype.
 * **Rapidité** : La totalité des résolutions unitaires s'exécute en moins de 20 secondes grâce à la configuration RAM.
+
+### F. Fichiers de crash JVM (`hs_err_pid*.log`) redirigés vers `log_jvm/`
+
+Timefold démarre la JVM (via JPype) implicitement, au premier `ensure_init()` réellement atteint —
+vérifié empiriquement : `import timefold.solver`/`timefold.solver.config` seuls ne la démarrent
+PAS (aucun appel Java à ce stade, uniquement des classes Python pures/énumérations), seul le
+`ensure_init()` explicite en tête de `constraints.py` (juste avant le premier VRAI import Java,
+`from ai.timefold... import HardSoftLongScore`) le fait. Sans configuration explicite, la JVM écrit
+un `hs_err_pid<N>.log` en cas de crash natif (rare — jamais observé en usage normal, mais un bug de
+la JVM elle-même ou de l'intégration Java expérimentale de la heatmap, § ci-dessus, resterait
+possible) dans le répertoire COURANT du process — la racine du dépôt, puisque `start_services.sh`
+lance uvicorn sans `cd` préalable dans `backend/` — jamais nettoyé automatiquement.
+
+**Corrigé** : `constraints.py` appelle explicitement `timefold.solver.init(get_default_jvm_path(),
+"-XX:ErrorFile=<repo_root>/log_jvm/hs_err_pid%p.log")` AVANT le premier `ensure_init()` (qui lève
+`RuntimeError` si appelé après coup, si la JVM est déjà démarrée — d'où l'obligation de le poser
+strictement avant). `<repo_root>` est calculé depuis `Path(__file__)` (pas depuis le `cwd` du
+process) — fiable quel que soit le répertoire d'où le backend est lancé. Vérifié en conditions
+réelles (pas seulement supposé) : `ManagementFactory.getRuntimeMXBean().getInputArguments()` côté
+Java confirme bien `-XX:ErrorFile=.../log_jvm/hs_err_pid%p.log` une fois la JVM démarrée. Le
+répertoire `log_jvm/` est créé à la volée (`Path.mkdir(exist_ok=True)`) ; son contenu (`*.log`) est
+déjà couvert par la règle `*.log` du `.gitignore` racine, aucune entrée dédiée nécessaire.
 
 ---
 
@@ -1536,3 +1610,914 @@ via flèches monter/descendre, sélecteur de granularité pour un champ date), e
 compris ceux dont la colonne n'est pas affichée (candidats = `props.fields` en entier, jamais
 `visibleColumns`). Émet vers `internalGroupBy`, jamais vers `props.listConfig`. Positionné dans la
 barre de pagination, à droite du badge "X sélectionné(s)" (`showGroupByWidget`).
+
+## 16. Architecture Multi-Base et Routage HTTP
+
+Une même instance Klepsydrix peut héberger plusieurs bases indépendantes (une par établissement/
+client). Aucun registre à maintenir : les bases sont **découvertes** (`backend/app/core/
+db_registry.py`) — SQLite : chaque fichier `*.db` du répertoire `database.directory` (voir §3.C),
+le nom de fichier est le slug ; PostgreSQL : chaque base du serveur dont le nom commence par
+`database.database_prefix`. Conséquence directe : renommer une base n'a pas de sens (le nom EST
+l'identité physique) — créer/dupliquer/supprimer une base (console d'administration, lot à venir)
+revient à créer/copier/supprimer un fichier ou une base PostgreSQL, sans synchronisation
+supplémentaire.
+
+### A. Résolution de la base par requête — dépendances FastAPI, pas de middleware
+
+`resolve_database` (`backend/app/core/database.py`) lit l'en-tête **`X-Klepsydrix-Database`**,
+valide le slug contre le registre (`db_registry.is_known_slug`, avec un chemin rapide pour un slug
+déjà résolu par ce process — évite un `glob`/une requête PostgreSQL à chaque requête), échoue en
+`428 {code: "DATABASE_REQUIRED"}` ou `404 {code: "DATABASE_UNKNOWN"}`, et échoue l'en-tête en
+retour. `get_db(slug: str = Depends(resolve_database))` s'appuie dessus explicitement — le graphe de
+dépendances FastAPI garantit l'ordre d'exécution, aucun middleware ASGI n'est nécessaire, et
+`app.dependency_overrides[get_db]` (déjà utilisé par tous les tests, `backend/tests/conftest.py` et
+chaque fichier de test) continue de fonctionner tel quel : substituer `get_db` en entier substitue
+aussi sa propre dépendance déclarée (`resolve_database` n'est alors jamais appelée), donc aucune
+migration des tests existants n'a été nécessaire.
+
+`check_write_token` (même fichier) remplace l'ancien `WriteTokenMiddleware` — même comportement
+(jeton d'écriture, voir §11), mais comme dépendance FastAPI plutôt que middleware, posée en
+dépendance de routeur (`app.include_router(generic_router, dependencies=[Depends(check_write_token)])`,
+`main.py`) : puisqu'elle dépend elle-même de `get_db`, elle impose du même coup l'en-tête de base à
+toute l'API générique et non-générique, sans rien écrire par endpoint. Une dépendance FastAPI peut
+déclarer un paramètre `response: Response` et modifier ses en-têtes directement (`resolve_database`
+et `check_write_token` l'utilisent tous les deux) — c'est ce qui permet de se passer de middleware
+pour cette logique : un simple middleware ASGI minimal subsiste, purement passif, pour injecter
+`[db=<slug>]` dans les logs applicatifs (voir C ci-dessous ; le format des logs d'accès uvicorn
+lui-même n'est pas encore repris — limite connue, pas encore traitée).
+
+### B. Registre d'engines et portée des routes
+
+`db_registry.py` maintient un cache `{slug: (engine, sessionmaker)}` en mémoire process, créé
+paresseusement (`engine_for`/`sessionmaker_for`) et libéré explicitement (`dispose`, à la
+suppression d'une base). `SLUG_PATTERN` (alphanumérique/`_`/`-` seulement) empêche un slug fourni
+par le client de s'injecter dans un chemin de fichier ou une DSN construite par concaténation
+(`build_database_url`, §3.C).
+
+Deux endpoints n'exigent PAS l'en-tête de base : `GET /` (healthcheck) et `GET /api/instance/
+databases` (`instance_endpoints.py`, liste les slugs découverts) — c'est la seule requête qui
+permette au frontend de proposer un choix de base *avant* qu'une base soit sélectionnée. Ces routes
+ne sont volontairement rattachées à aucun routeur portant `check_write_token`.
+
+### C. `SolverState` par base
+
+`SolverState` (`backend/app/solver/solver.py`) était un singleton process-wide : une résolution sur
+une base aurait à tort bloqué l'IHM de toutes les autres. Chaque méthode de classe prend désormais
+un `slug` explicite et va chercher/crée son propre état isolé (`_PerDbSolverState`, verrou compris)
+dans un dict `{slug: état}`. Un appelant qui ne connaît pas le slug (tests, tout code interne
+n'ayant qu'une `Session` déjà ouverte) retombe sur `db_registry.slug_for_session(db)` — retrouve le
+slug via l'identité du moteur lié à la session, ou `DEFAULT_DB_NAME` ("timetable", la base
+historique mono-base) si ce moteur n'a jamais été enregistré dans le registre (cas de tous les
+moteurs de test, isolés par construction).
+
+**Limite assumée** : cet état reste en mémoire process, contrairement à `exclusive_mode_state` (une
+vraie table, voir §11) — insuffisant si Klepsydrix tournait un jour en plusieurs processus/instances
+en parallèle (répartition de charge). Acceptable tant qu'un seul process tourne par déploiement,
+l'hypothèse implicite de toute l'architecture actuelle du solveur (thread du même process). À
+reconsidérer sur le même modèle qu'`exclusive_mode_state` si ce besoin devient réel.
+
+### D. Frontend — cookie, écho d'en-tête, sélecteur de base
+
+`apiFetch()` (`frontend/src/services/api.ts`) pose l'en-tête `X-Klepsydrix-Database` depuis le
+cookie `klepsydrix_db` (`services/dbSession.ts`, `SameSite=Lax`, non-HttpOnly) sur chaque requête —
+extension directe du mécanisme déjà en place pour `X-Write-Token` (même wrapper, même fichier), pas
+un nouveau pattern. Deux anomalies distinctes, deux réactions distinctes :
+- Le backend rejette explicitement la base (corps `{"detail": {"code": "DATABASE_REQUIRED" |
+  "DATABASE_UNKNOWN"}}`, jamais déduit du seul code HTTP — un 404 "élément introuvable" ordinaire
+  ne doit pas déclencher cette branche) : cookie effacé, redirection vers `/select-database`.
+- L'en-tête écho ne correspond pas à ce qui a été envoyé (ex: un autre onglet a changé la base
+  entretemps) : `CustomEvent('database:mismatch')` puis rechargement forcé, pas de tentative de
+  réconciliation côté JS.
+
+`main.ts` introduit `vue-router`, strictement limité aux pages **hors** de l'application principale
+(`/select-database` pour l'instant) — `App.vue`/`NotebooksTree.vue` gardent leur navigation interne
+existante (`urlState.ts`, arborescence de menus) inchangée, montés derrière une route générique
+(`/:pathMatch(.*)*`) qui capture tout le reste. `RouterView` est utilisé directement comme
+composant racine (`createApp(RouterView)`), pas un gabarit de chaîne compilé au runtime : ce build
+de Vue est *runtime-only* (voir `vite.config.ts`), un template compilé en JS au moment du build.
+
+`SelectDatabase.vue` (`frontend/src/pages/`) appelle `GET /api/instance/databases` en `fetch()`
+direct (pas `apiFetch()` — c'est justement la page où aucune base n'est encore sélectionnée). Une
+seule base disponible : sélection automatique, l'utilisateur ne voit jamais l'écran. Le référent
+HTTP n'étant pas fiable (absent sur `pushState`, tronqué par les `Referrer-Policy` par défaut, non
+lisible en JS), la page de provenance est portée explicitement via `?next=<url encodée>`, à travers
+chaque redirection. `App.vue` redirige vers `/select-database` dès son montage si aucun cookie
+n'est présent, avant tout appel API (sans quoi ces appels échoueraient en boucle en 428).
+
+Le nom de la base courante est affiché dans `NotebooksTree.vue` (`sidebar-footer`, sous « Changer de
+Thème »), cliquable pour revenir au sélecteur.
+
+### E. Tests frontend (Vitest + Playwright) — lot 6
+
+Deux outils, deux rôles distincts (voir plan "Multi-SGBD, Multi-Base, Utilisateurs/IDP, Droits,
+Console Admin", lot 6) — aucun des deux ne remplace l'autre :
+
+**Vitest** (`frontend/vitest.config.ts`, `npm run test:unit`) : tests unitaires purs, sans serveur ni
+navigateur (`happy-dom`). `src/services/api.test.ts` couvre `apiFetch()` — le cœur du mécanisme
+multi-base/jeton d'écriture — en isolant chaque cas par `vi.resetModules()` (l'état, jeton d'écriture
+courant, vit dans une variable de module) : écho de l'en-tête `X-Klepsydrix-Database`, redirection
+401 `NOT_AUTHENTICATED` (mais pas un 401 quelconque), redirection 404/428 `DATABASE_UNKNOWN`/
+`DATABASE_REQUIRED` (mais pas un 404 applicatif quelconque — distinction cruciale depuis que
+`instance_endpoints.py` renvoie aussi des 404 en texte libre), rechargement forcé sur désaccord
+d'écho, `write-token:stale` uniquement quand le jeton était déjà connu. `src/services/dbSession.
+test.ts` couvre le cookie `klepsydrix_db` lui-même. ⚠️ Bug trouvé PAR ce test (pas par l'usage réel) :
+`getSelectedDatabase()` traitait un cookie présent mais vidé (`Max-Age=0`, non évincé immédiatement
+par tous les environnements) comme une chaîne vide plutôt que `null` — corrigé pour traiter toute
+valeur vide comme "aucune base sélectionnée", jamais un slug valide de toute façon (voir
+`db_registry.py::SLUG_PATTERN`).
+
+**Playwright** (`frontend/e2e/`, `frontend/playwright.config.ts`, `npm run test:e2e`) : parcours
+navigateur réels que Vitest/pytest ne peuvent pas vérifier honnêtement (redirections, cookies,
+aller-retours multi-pages). Pas de CI pour ce chantier (voir §20.B) — lancé manuellement contre les
+serveurs déjà démarrés par `start_services.sh`, sans serveur dédié au test (`workers: 1` — un seul
+serveur de dev partagé, plusieurs workers en parallèle contre la même instance/le même compte de
+démo se sont révélés sources de flakiness sans rapport avec le code testé).
+- `e2e/database-selection.spec.ts` : sélection automatique sur base unique, cookie posé, changement
+  de base.
+- `e2e/auth.spec.ts` : formulaire de connexion locale, échec d'authentification, déconnexion.
+- `e2e/admin-console.spec.ts` : cycle complet créer→sauvegarder→dupliquer→supprimer une base
+  JETABLE (jamais "timetable") via le compte de démo promu super-admin de l'instance de dev
+  (`instance.yaml::super_admins`, évite de dépendre du mot de passe maître désactivé par défaut) ;
+  garde de confirmation (ressaisie exacte du nom) vérifiée à la fois refusée et acceptée ; masquage
+  des actions réservées au super-admin pour un simple admin de base (réponse `/admin/databases`
+  interceptée via `page.route()`, pas de second compte de test à maintenir).
+- `e2e/helpers.ts::loginAsDemo` authentifie directement via l'API pour les tests qui ne portent pas
+  sur le flux de connexion lui-même.
+
+⚠️ Deux pièges rencontrés en écrivant `admin-console.spec.ts` (aucun des deux une régression
+applicative — corrigés dans le TEST, pas dans le code produit) :
+1. **Créer une base recrée tout le schéma** (`Base.metadata.drop_all()`+`create_all()`, voir
+   `init_db.py::init_prod_data`) — mesuré à ~3s en local contre <200ms pour dupliquer/supprimer
+   (VACUUM INTO/DROP DATABASE, bien moins coûteux). Le timeout par défaut de Playwright (5s) était
+   parfois insuffisant ; élargi explicitement (`{timeout: 10000}`) autour de cette seule étape, pas
+   globalement — pour ne pas masquer une vraie régression de lenteur ailleurs.
+2. **`BaseInput.vue` ne permet pas `getByLabel()`** : son `<label>` est un frère du `<input>`, pas un
+   parent ni lié par `for`/`id` (aucune association ARIA) — localisation par `getByPlaceholder()` à
+   la place. Boutons de formulaire dans une modale (`BaseModal.vue`) : toujours scopés à
+   `.modal-container`, jamais par texte seul — une ligne de tableau et la modale ouverte au-dessus
+   partagent souvent le même libellé ("Dupliquer", "Supprimer"), une recherche non scopée est
+   ambiguë en mode strict.
+
+⚠️ **Environnement de développement contraint (RAM)** : exécuter plusieurs suites Playwright
+complètes coup sur coup (chacune lançant plusieurs process Chromium) a fait apparaître un swap
+totalement épuisé et des `page.goto()` expirant après 30s sur ce poste de dev à ~5 Go de RAM —
+reproductible en isolant CHAQUE fichier de spec séparément juste après (tous passent alors en
+quelques secondes). Confirmé environnemental, pas applicatif : le débogage direct (script Playwright
+autonome, hors du test-runner) reproduisait le flux "changer de base" avec succès à chaque essai
+pendant l'investigation. Ne pas enchaîner plusieurs `npx playwright test` complets sans laisser la
+charge système redescendre entre deux — cohérent avec `workers: 1` (déjà en place pour la même
+raison, un seul niveau de contention en moins).
+
+⚠️ **`database-selection.spec.ts` suppose une instance de dev à UNE SEULE base** (voir son propre
+commentaire d'en-tête) : dès qu'un second fichier `*.db` traîne dans `database.directory` (créé
+manuellement en testant la console d'administration, par exemple), les 3 tests échouent tous de
+façon **déterministe**, pas par flakiness — `/select-database` cesse de sélectionner automatiquement
+puisque `known_slugs()` en renvoie alors plusieurs. Vérifié en le reproduisant à volonté avec deux
+`*.db` présents, puis en confirmant que les 3 tests repassent au vert dès qu'un seul fichier reste.
+Pas un bug de l'application ; juste une précondition d'environnement à surveiller avant de lancer
+cette suite précise.
+
+### F. Logs contextualisés par base — piège du filtre posé au mauvais endroit
+
+`core/log_context.py::attach_to_handlers(logger)` pose un `DbContextFilter` sur chaque **HANDLER**
+du logger passé, jamais sur le logger lui-même — appelé une fois dans `main.py` avec le logger
+racine. Point de vigilance découvert tardivement (pas en conception, en vérifiant un cas réel — voir
+§17.G, échec d'envoi d'email) : la première version posait le filtre via `logging.getLogger().
+addFilter(...)`, ce qui semble équivalent mais NE L'EST PAS — un filtre posé sur un **logger**
+(`Logger.filters`) ne s'applique qu'aux enregistrements qui ORIGINENT de CE logger précis
+(`Logger.handle()` ne consulte `self.filters` que pour le logger appelé directement) ; il n'est
+JAMAIS re-consulté pour les enregistrements propagés depuis un logger enfant qui remontent la
+hiérarchie (`Logger.callHandlers()` ne vérifie que les filtres des HANDLERS traversés). Concrètement
+: tout appel `logging.getLogger(__name__).info/warning/exception(...)` fait depuis n'importe quel
+module applicatif (la quasi-totalité des appels réels du code, jamais depuis le logger racine
+lui-même) échouait silencieusement à se formater (`KeyError`/`ValueError` sur le champ `db_slug`
+manquant) — remplaçant le message réellement utile par une trace de formatage de `Handler.
+handleError` (écrite sur stderr, jamais levée comme une exception Python normale : Python avale
+délibérément les erreurs de formatage de log pour ne jamais faire planter l'application à cause
+d'un problème de journalisation). Corrigé en posant le filtre sur le(s) HANDLER(S) du logger racine
+à la place — un handler traité pendant la propagation applique bien ses propres filtres, quelle que
+soit l'origine de l'enregistrement. Testé en isolation complète (`backend/tests/test_logging.py`,
+un `logging.Logger` frais à chaque cas, jamais le registre global `logging.getLogger()` que
+n'importe quel autre test de la suite peut muter) — y compris un test qui reproduit délibérément
+l'ancienne forme fautive pour servir de garde-fou si quelqu'un « simplifie » `attach_to_handlers`
+par erreur plus tard.
+
+### G. `[db=...]` toujours "-" malgré une base résolue — corrigé (`DbSlugContextMiddleware`)
+
+Second bug de contextualisation des logs, distinct du précédent (§F) — trouvé lui aussi en
+vérifiant un cas réel (voir §17.H, jamais par pytest seul) : `current_db_slug` (le `ContextVar`
+lu par `DbContextFilter`) restait à sa valeur par défaut `"-"` même quand une base était bel et bien
+résolue pour la requête (`X-Klepsydrix-Database: timetable` envoyé et accepté). **Corrigé** —
+`current_db_slug` est désormais posé par `core/log_context.py::DbSlugContextMiddleware`, un
+middleware ASGI enregistré dans `main.py`, plutôt que dans `database.py::resolve_database` (une
+dépendance FastAPI, l'endroit initialement choisi).
+
+**Cause exacte, vérifiée empiriquement avant d'écrire le correctif** (pas supposée) : FastAPI exécute
+chaque dépendance SYNCHRONE (`def`, pas `async def` — `resolve_database`/`get_db`/`login_local` en
+sont) via `anyio.to_thread.run_sync`, qui copie le `contextvars.Context` ambiant dans un THREAD
+SÉPARÉ à CHAQUE dépendance dispatchée. Une mutation faite via `ContextVar.set(...)` dans la copie
+utilisée par une dépendance ne se propage donc JAMAIS à la copie (différente) utilisée par la
+dépendance ou l'endpoint suivant — même au sein d'une seule et même requête. Reproduit avec un cas
+minimal avant toute correction :
+```python
+def dep_a(request: Request):
+    current_slug.set("resolved-in-dep-a")
+    return "a"
+
+def dep_b(a=Depends(dep_a)):
+    return current_slug.get()   # renvoie "-", PAS "resolved-in-dep-a"
+```
+Un middleware ASGI, à l'inverse, reste dans un SEUL contexte asyncio cohérent pour toute la durée
+d'une requête — un `ContextVar.set(...)` posé là est visible partout en aval, dépendances sync
+comme async, sans exception. Vérifié avec le même cas minimal, cette fois avec le `.set(...)` posé
+au niveau middleware : `dep_b` reçoit alors bien la valeur posée.
+
+**`DbSlugContextMiddleware`** (`core/log_context.py`) : middleware ASGI "brut" (pas `starlette.
+middleware.base.BaseHTTPMiddleware`, délibérément — pour rester cohérent avec `SessionMiddleware`
+déjà présent et éviter tout risque d'interaction avec une réponse en flux/tâche d'arrière-plan, ex:
+`FileResponse`+`BackgroundTask` sur la sauvegarde de base, voir §19.C). Lit l'en-tête
+`X-Klepsydrix-Database` directement depuis le scope ASGI, AVANT même la résolution des dépendances
+FastAPI. Ne fait AUCUNE validation d'EXISTENCE de la base (pas son rôle — `resolve_database`
+continue seule de porter cette responsabilité et de répondre 428/404) : seulement une validation de
+FORME (`db_registry.SLUG_PATTERN`) avant d'injecter la valeur dans les logs — sans ça, une valeur
+arbitraire dans cet en-tête (entièrement contrôlé par l'appelant) s'injecterait telle quelle dans
+chaque ligne de log (ex: un saut de ligne pour fabriquer une fausse entrée de log).
+
+`database.py::resolve_database` ne pose donc plus `current_db_slug` lui-même (mort code retiré) —
+garde `request.state.db_slug` (qui, lui, fonctionnait déjà correctement : `request` est un objet
+partagé par référence, pas sujet au même problème de copie de contexte) et sa responsabilité de
+validation/réponse 428/404.
+
+Vérifié à la fois par des tests (`backend/tests/test_db_slug_context_middleware.py` — reproduit le
+bug d'origine avec un cas minimal en garde-fou, puis vérifie que le middleware le corrige ; en-tête
+absent laisse la valeur par défaut ; en-tête malformé (ex: contenant un saut de ligne) rejeté avant
+d'atteindre les logs) ET en conditions réelles (`curl` contre le serveur de dev, avant/après) :
+```
+# Avant :
+WARNING [db=-] backend.app.api.auth_endpoints: Échec de connexion locale depuis 127.0.0.1 (base : timetable, ...)
+# Après (même requête, X-Klepsydrix-Database: timetable) :
+WARNING [db=timetable] backend.app.api.auth_endpoints: Échec de connexion locale depuis 127.0.0.1 (base : timetable, ...)
+```
+Note : `login_local` continue d'inclure explicitement la base dans le TEXTE de son message
+("base : `<slug>`", voir §17.H) — désormais redondant avec le `[db=...]` externe, corrigé, mais
+laissé tel quel (pas de risque à le garder, la duplication est inoffensive) plutôt que retouché
+sans nécessité.
+
+## 17. Utilisateurs, Fournisseurs d'Identité et Authentification
+
+### A. `User`/`UserIdentityProvider`/`Parent` et le mixin `HasUserAccount`
+
+`User` (`backend/app/models/user.py`) est le compte d'authentification — rattaché à **au plus un**
+objet-personne (`Teacher`/`NonTeachingStaff`/`Student`/`Parent`) et à un ou plusieurs
+`UserIdentityProvider` (une ligne par fournisseur utilisé pour se connecter, unique sur
+`(provider_key, external_subject)`). `Parent` (nom/prénom/email/téléphone) est nouveau ;
+`Student.parent1_id`/`parent2_id` (`ondelete="SET NULL"`) le rattachent à un ou deux responsables
+légaux.
+
+Le mixin `HasUserAccount` (même fichier) factorise, pour les 4 modèles-personnes :
+- **Synchro nom/prénom/email → User, sens unique** (`create()`/`update()` surchargés) : l'objet-
+  personne reste seul autoritaire, jamais l'inverse. Ne propage jamais une valeur `None` (`Teacher.
+  first_name` est nullable, `User.first_name` ne l'est pas) et s'adapte aux champs réellement
+  déclarés par la sous-classe (`_user_mirror_fields()`, `hasattr` — `Student` n'a pas de colonne
+  `email`, donc ne la synchronise jamais).
+- **Un `User` ne peut être pointé que par un seul objet-personne** (`@constrains("user_id")`,
+  recherche croisée dans les 3 autres modèles).
+- **Supprimer l'objet-personne supprime son `User`** ; `user_id` porte `ondelete="RESTRICT"` — la
+  garantie inverse (impossible de supprimer un `User` encore référencé) vient gratuitement du
+  mécanisme générique `CRUDMixin._cascade_delete_dependents` (§H), aucun code dédié.
+- Déclaration : `class Teacher(HasUserAccount, Base)` — le mixin **avant** `Base` dans les bases de
+  la classe, pour que `super().update()`/`super().delete()` délèguent correctement à `CRUDMixin`
+  plutôt qu'à `object`.
+
+`Course.student_ids` (`@exposed @property`, `course.py`) : élèves du cours calculés à la demande
+(union via `class_parts`/`divisions`) — confort d'affichage, indépendant du moteur de droits (qui
+traverse ces mêmes relations directement, voir un lot suivant). ⚠️ `@exposed` doit **toujours** être
+couplé à `@property` en dessous — sans lui, `sqla_to_dict()` sérialise la méthode elle-même (non
+appelée), provoquant une erreur de sérialisation Pydantic à la première requête.
+
+### B. Champ `info={"private": True}` — exclusion totale de l'API générique
+
+`UserIdentityProvider.password_hash` ne doit **jamais** transiter par une réponse HTTP générique
+(`/api/generic/*` construit son `MODEL_MAP` sur tous les mappers — sans exclusion explicite, ce
+champ fuiterait dès sa création). `info={"private": True}` sur la colonne, honoré à deux endroits de
+`generic.py` :
+- `sqla_to_dict()` : exclu de la liste des champs sérialisés.
+- `make_pydantic_model()` : exclu des schémas Create/Update/Read — n'existe tout simplement pas
+  pour `/api/generic/*`, ni en lecture ni en écriture.
+
+Un champ `private` reste lisible/modifiable par du code Python interne (ORM direct) ou une méthode
+RPC dédiée (`UserIdentityProvider.register_local_password`/`verify_local_password`, voir C) —
+l'exclusion est une frontière de l'API générique, pas une restriction au niveau du modèle.
+
+### C. Provider "local" — Argon2id, jamais de serveur OIDC maison
+
+Pas de serveur OpenID Connect local (endpoint d'autorisation, JWKS, consentement représenterait une
+surface de sécurité disproportionnée pour un aller-retour du process vers lui-même). Le provider
+"local" est une simple stratégie identifiant/mot de passe :
+- **Argon2id** (`argon2-cffi`, recommandation OWASP) : mémoire-difficile (coûteux à paralléliser sur
+  GPU/ASIC, contrairement à un simple SHA-256), sel et paramètres de coût gérés par la bibliothèque
+  — jamais de sel géré à la main. `UserIdentityProvider.register_local_password`/
+  `verify_local_password`/`set_local_password` (classmethods/method) encapsulent tout le cycle de
+  vie ; `verify_local_password` ré-empreinte silencieusement (`check_needs_rehash`) si les
+  paramètres de coût par défaut ont changé depuis le dernier hachage stocké.
+- `verify_local_password` ne distingue jamais "identifiant inconnu" de "mot de passe incorrect"
+  dans son retour (`None` dans les deux cas) — pas d'énumération de comptes.
+
+### D. Session instance vs. base courante — deux cookies distincts
+
+Deux notions séparées, deux cookies séparés (voir §16 pour le cookie de base) :
+- **`klepsydrix_session`** (`core/instance_session.py`) : prouve QUI l'utilisateur prétend être
+  (identité vérifiée par un fournisseur), indépendamment de toute base. Cookie **signé**
+  (`itsdangerous.URLSafeTimedSerializer`, `settings.secret_key`), **HttpOnly** (jamais lu par le
+  JS). Pas de table : une session n'a aucune raison de survivre différemment d'un cookie expiré,
+  contrairement à `exclusive_mode_state` qui doit être visible par tout le process.
+- **`klepsydrix_db`** : quelle base est active (§16), non-HttpOnly (lu par `apiFetch()`).
+
+**Expiration par INACTIVITÉ, pas par durée fixe depuis la connexion** — `auth.
+session_idle_timeout_minutes` (instance.yaml, défaut 30 jours = 43200 minutes, voir
+instance.example.yaml) : `require_instance_session` réémet le cookie (nouvel horodatage signé, même
+identité) une fois le jeton courant plus vieux que `_REFRESH_THRESHOLD_SECONDS` (5 minutes). La
+fenêtre glisse donc au fil de l'activité ; seule une période d'inactivité ININTERROMPUE supérieure à
+la valeur configurée laisse le cookie expirer et force une reconnexion. Lu dynamiquement à chaque
+appel (`_max_age_seconds()`, pas une constante figée au chargement du module) — cohérent avec le
+reste de la config (ex: `master_auth.py` relit `settings.master_db_local_auth` à chaque appel).
+
+⚠️ **Course avec un `/logout` concurrent, trouvée par Playwright, pas par raisonnement a priori** :
+une première version réémettait le cookie à CHAQUE requête, sans seuil. `frontend/e2e/auth.spec.ts`
+("se déconnecter efface la session...") a alors échoué — plusieurs requêtes authentifiées restent en
+vol au moment du clic sur "Se déconnecter" (chargement initial de page encore en cours) ; si l'une
+d'elles répond APRÈS que `/logout` a supprimé le cookie, son propre `Set-Cookie` (jeton encore
+valide) écrase la suppression et ressuscite silencieusement la session. Le seuil de 5 minutes rend
+cette course impossible en pratique (un jeton tout juste émis à la connexion ne déclenche plus aucun
+`Set-Cookie` lors des requêtes qui suivent immédiatement), tout en restant largement dominé par
+`session_idle_timeout_minutes` — le comportement de fenêtre glissante réel n'en est pas affecté.
+
+`require_instance_session` (dépendance FastAPI) décode et valide le cookie, lève `401
+{code: "NOT_AUTHENTICATED"}` sinon. `current_db_user` (`database.py`) compose dessus : résout **ou
+crée** le `User` de la base courante pour cette identité (`db.klepsydrix_user_id` posé — drapeau
+ambiant, §15.V — lu par le futur moteur de droits, absent = mode système) — un utilisateur inconnu
+de cette base précise est créé **sans aucun droit**, `first_name`/`last_name` repris des claims OIDC
+portés dans la session (`None` → `"?"` faute de mieux pour le provider local, qui ne fournit pas ces
+informations avant qu'un admin les édite).
+
+`api_router`/`generic_router` (`main.py`) exigent désormais `Depends(current_db_user)` **et**
+`Depends(check_write_token)` — toute route applicative (générique ou non, RPC compris) requiert une
+session ET une base valides. Test : `app.dependency_overrides[current_db_user] = lambda: None`
+(remplace la dépendance en entier, comme pour `get_db` — voir §16.A) reste suffisant pour les tests
+existants, aucune session à simuler.
+
+### E. Fournisseurs OIDC (Authlib) — ⚠️ non vérifié contre un vrai fournisseur
+
+`core/oidc.py` enregistre un client Authlib (`OAuth().register(...)`) par provider `protocol: oidc`
+de `identity_providers:` (instance.yaml) au chargement du module — sans appel réseau (le document de
+découverte n'est récupéré qu'à l'usage réel), donc un provider "fictif" (EduConnect, métadonnées non
+joignables, voir instance.example.yaml) ne casse rien tant qu'il n'est pas réellement sollicité.
+`claim_mapping` (config par provider) associe chaque claim du fournisseur à nos champs
+(`external_subject`/`first_name`/`last_name`/`email`) — lu par `/api/auth/oidc/callback/{provider}`.
+
+Une `SessionMiddleware` Starlette (`itsdangerous` en interne aussi) est nécessaire UNIQUEMENT pour
+qu'Authlib sécurise l'aller-retour vers le fournisseur (`state`/`nonce`) — cookie distinct de
+`klepsydrix_session`, aucun rapport avec l'authentification de l'utilisateur elle-même.
+
+**Non vérifié** : aucun vrai fournisseur OIDC disponible en local pour tester le round-trip complet
+(redirection → consentement → callback → échange de code). Implémentation Authlib standard, mais à
+valider dès qu'un vrai fournisseur (EduConnect réel ou tout autre) est disponible.
+
+### F. Routes `/api/auth/*` et flux de connexion — pourquoi le provider local a besoin d'un champ "base"
+
+Toutes publiques (`/logout` y compris — déconnecter un utilisateur déjà déconnecté doit rester un
+no-op réussi, pas une 401) :
+- `GET /providers` : fournisseurs actifs de l'instance (jamais `params`, qui porte les secrets
+  client OIDC).
+- `POST /login/local {identifier, password}` : voir ci-dessous.
+- `GET /oidc/login/{provider_key}` / `GET /oidc/callback/{provider_key}` : Authlib standard.
+- `POST /password-reset/request {identifier}` / `POST /password-reset/confirm {token,
+  new_password}` : voir §17.G.
+- `POST /logout`.
+
+**Tension découverte à l'implémentation, pas anticipée en conception** : la spécification initiale
+prévoyait une authentification "au niveau instance" (avant tout choix de base, pour ne pas exposer
+la liste des bases à un anonyme) — cohérent pour un provider OIDC fédéré (l'identité est vérifiée
+indépendamment de toute base), mais **pas pour le provider local**, dont le mot de passe est stocké
+dans `user_identity_providers` d'**une base précise**. Il n'y a donc pas de base contre laquelle
+vérifier un mot de passe local avant qu'une base soit choisie.
+
+**Résolution retenue** (décision explicite, pas la seule possible) : le champ "base" fait partie du
+formulaire de connexion locale lui-même (`pages/Login.vue`), pré-rempli depuis `?db=` si présent —
+pas une étape séparée avant le formulaire. `apiFetch()` (`services/api.ts`) redirige vers
+`/login?next=<page d'origine>&db=<base déjà sélectionnée>` dès qu'une réponse `401
+{code: "NOT_AUTHENTICATED"}` est reçue (même mécanisme que la redirection 428/404 vers
+`/select-database`, voir §16.D) — le champ "base" du formulaire est donc déjà rempli dans le cas le
+plus courant (l'utilisateur a déjà une base sélectionnée, juste pas de session valide). Le frontend
+envoie l'en-tête `X-Klepsydrix-Database` pour cette requête depuis la valeur du **champ du
+formulaire**, pas depuis le cookie `klepsydrix_db` habituel (`apiFetch()` n'est délibérément pas
+utilisé ici). Succès : le backend pose **les deux cookies en une seule réponse**
+(`klepsydrix_session` ET `klepsydrix_db`) — l'utilisateur a déjà choisi les deux dans le même
+formulaire, inutile de le refaire passer par `/select-database`.
+
+Conséquence : un provider OIDC fédéré n'a jamais besoin de connaître la base à l'avance (la session
+s'établit avant tout choix de base, comme prévu initialement) ; seul le provider local en a
+structurellement besoin, et c'est le formulaire lui-même qui la porte plutôt qu'une étape de
+sélection préalable dédiée.
+
+### G. Réinitialisation de mot de passe (provider "local" uniquement)
+
+Deux entrées, un seul mécanisme sous-jacent : le self-service classique (`/password-reset/request`,
+lien "Mot de passe oublié ?" sur `Login.vue`) et la création de base via la console d'administration
+avec la case "Envoyer un lien de réinitialisation de mot de passe" (`AdminConsole.vue`, visible
+seulement si `local` est actif sur l'instance) — cette dernière ajoutée précisément pour combler un
+trou : sans elle, un admin désigné à la création d'une base où `local` est le SEUL provider n'aurait
+jamais eu aucun moyen de définir un premier mot de passe (`verify_local_password` exige déjà un
+`password_hash`, rien ne permettait jusque-là de le créer soi-même en self-service).
+
+**`PasswordResetToken`** (`models/password_reset_token.py`) : jeton haché (`hashlib.sha256`, jamais
+en clair en base) — un simple hachage rapide suffit ici, contrairement à Argon2id pour un mot de
+passe : le jeton est un aléatoire cryptographique de 256 bits (`secrets.token_urlsafe(32)`), pas un
+secret à faible entropie qu'il faudrait ralentir pour résister au brute-force ; on se protège
+seulement contre une lecture directe de la base, pas contre une attaque par force brute sur le jeton
+lui-même. Expiration (`auth.password_reset_ttl_minutes`, 60 par défaut), usage unique (`used_at`).
+`info={"private": True}` sur `token_hash` (même mécanisme que `UserIdentityProvider.password_hash`,
+§17.B) — un admin de base a pourtant `perm_read`/`perm_write` sur ce modèle comme sur tout autre
+(`seed_admin_access`), rien d'autre ne l'en empêcherait.
+
+⚠️ **Piège de fuseau horaire, vérifié avant d'écrire le code définitif** : SQLite (et une colonne
+`DateTime` "naïve", le choix fait ici plutôt que `DateTime(timezone=True)`) ne conservent PAS l'info
+de fuseau horaire au sein d'une colonne — une valeur écrite avec `datetime.now(timezone.utc)` revient
+**naïve** à la lecture (`row.dt.tzinfo is None`), reproduit et confirmé avant l'implémentation. Une
+comparaison directe (`record.expires_at < datetime.now(timezone.utc)`) lève alors `TypeError: can't
+compare offset-naive and offset-aware datetimes`. Toujours écrite en UTC ici (jamais autre chose),
+donc toujours sûr de réattacher `tzinfo=utc` explicitement avant de comparer (`_as_utc()`, dans le
+même fichier).
+
+**`core/mailer.py`** : enveloppe fine autour de `fastapi-mail`. `settings.smtp` (`config.py`) absente
+ou incomplète (host/user/password/from_address) = envoi IMPOSSIBLE, `RuntimeError` explicite au
+moment de l'envoi — **jamais** de repli silencieux (journaliser le lien à la place enverrait un
+signal dangereux si oublié actif en production). Config de dev volontairement **fictive**
+(`instance.yaml`, `smtp.example.com`) — aucun serveur réel derrière, l'échec de connexion
+(`aiosmtplib.errors.SMTPConnectError`) est attrapé et journalisé (voir plus bas) sans jamais faire
+échouer la requête HTTP appelante.
+
+**`POST /api/instance/admin/databases`** (voir §19) : nouveau champ `send_password_reset: bool`. Si
+vrai, au lieu du pré-appariement habituel (`provider_key="pending"`), crée directement un compte
+`local` **sans mot de passe** pour `admin_email`, émet un jeton, envoie l'email. Un échec d'ENVOI
+(SMTP mal configuré, indisponible...) **ne fait jamais échouer la création de la base** — celle-ci
+est déjà entièrement réussie à ce stade (schéma créé, compte local créé, jeton émis) ; seul le champ
+`password_reset_email_sent` de la réponse distingue les deux issues, pour que l'admin sache s'il doit
+relancer l'envoi ou communiquer le lien autrement. Même logique dans `password_reset_request` (self-
+service) : l'échec d'envoi est journalisé (`logger.exception`) mais la réponse HTTP reste `{"status":
+"success"}` — comme pour l'énumération ci-dessous, l'appelant ne doit jamais pouvoir distinguer un
+échec d'envoi d'un identifiant inconnu.
+
+**Énumération** : `password_reset_request` retourne **toujours** la même réponse générique, qu'un
+compte local corresponde ou non à l'identifiant fourni — un email n'est envoyé que si un compte
+existe réellement, mais rien dans la réponse HTTP ne permet à l'appelant de le déduire. Même
+principe pour `password_reset_confirm` : jeton invalide, expiré, ou déjà utilisé produisent tous le
+même message générique (`PasswordResetToken.consume` ne distingue jamais la raison précise).
+
+**Bug réel trouvé en vérifiant ce mécanisme en conditions réelles** (pas par pytest seul) : voir
+§16.F — la trace de l'échec SMTP attendu (config fictive de dev) était elle-même remplacée par une
+erreur de FORMATAGE de log, masquant le message qu'on cherchait justement à lire.
+
+### H. Journalisation de la connexion locale — protection anti-brute-force ENTIÈREMENT déléguée à fail2ban
+
+Contrairement au mot de passe maître (`core/master_auth.py`, voir §19.A), `login_local` (`api/
+auth_endpoints.py`) ne journalisait RIEN jusqu'ici — un compte local pouvait être brute-forcé sans
+laisser aucune trace. Corrigé : chaque ÉCHEC est journalisé en `WARNING` (jamais un succès — le flux
+normal et quotidien de l'application, le journaliser en `WARNING` noierait le signal utile).
+`core/client_ip.py` (extrait de `master_auth.py`, réutilisé ici) résout l'IP réelle du client, avec
+la même prudence vis-à-vis d'un reverse proxy (voir §19.A).
+
+**Verrouillage applicatif ajouté PUIS retiré dans la même session, après discussion explicite avec
+l'utilisateur — raisonnement consigné ici tel qu'il a été formulé.** Un premier passage avait ajouté
+un verrouillage par IP (5 tentatives / 15 min, symétrique à un mécanisme équivalent alors présent
+dans `master_auth.py`) en plus des filtres fail2ban ci-dessous. Question posée en relecture : *"Est-ce
+que c'est pertinent d'avoir deux systèmes complémentaires sur le même sujet ? Ne faut-il pas déléguer
+la gestion complète de la sécurité brute-force à fail2ban ?"*
+
+Réponse initiale de l'assistant, listant plusieurs arguments en faveur des deux couches
+(non-instantanéité de fail2ban — délai de lecture de log —, protection contre l'épuisement de
+ressources avant le rejet applicatif, agrégation multi-workers manquante côté fail2ban). **Décision
+finale de l'utilisateur, qui l'emporte sur cette réponse initiale** :
+- La latence de réaction de fail2ban (quelques centaines de ms à quelques secondes) est un faux
+  sujet — négligeable face à la fenêtre de 15 minutes d'un brute-force réel.
+- **Un système applicatif "dégradé" en plus de fail2ban est PLUS DANGEREUX qu'utile** : sa seule
+  présence peut laisser croire à un administrateur qu'une protection existe déjà, et donc le pousser
+  à ne pas prendre au sérieux la mise en place de fail2ban — alors que, comme établi ci-dessous,
+  fail2ban reste indispensable dans tous les cas. Mieux vaut une seule ligne de défense clairement
+  identifiée comme non-optionnelle que deux, dont l'une donne un faux sentiment de sécurité si
+  l'autre n'est pas déployée.
+- Contrepartie explicitement acceptée par l'utilisateur pour que ce choix soit sûr : un test
+  automatisé (`backend/tests/test_fail2ban_filter_contracts.py`, voir plus bas) doit vérifier en
+  continu que le FORMAT des lignes de log correspond bien aux filtres fail2ban réellement déployés —
+  répond au risque de "dérive silencieuse" (un message de log modifié plus tard casse fail2ban sans
+  qu'aucune erreur ne le signale).
+
+**Conséquence** : `login_local` et `verify_master_password` (§19.A) n'ont plus AUCUN verrouillage
+propre — `core/rate_limit.py` (le module `IpLockout` introduit puis retiré) a été supprimé. Chaque
+tentative reste évaluée normalement (401 sur mot de passe incorrect, jamais un 403 de verrouillage),
+quel que soit le nombre d'échecs déjà survenus — testé explicitement (`test_no_lockout_after_many_
+failed_attempts`, `test_successive_failed_attempts_are_all_logged_without_any_lockout`). Les filtres
+fail2ban (`deploy/fail2ban/klepsydrix-local-login.conf`, `klepsydrix-master-auth.conf`) et leurs
+jails assorties portent donc désormais la **totalité** de la protection anti-brute-force — **pas
+optionnel** pour une instance en production, documenté comme tel dans les deux fichiers.
+
+**`backend/tests/test_fail2ban_filter_contracts.py`** — le garde-fou contre la dérive silencieuse
+demandé explicitement par l'utilisateur : lit les VRAIS fichiers `.conf` déployés (`configparser`,
+jamais une copie du regex dupliquée dans le test, qui pourrait dériver indépendamment du filtre réel)
+et les confronte à de vraies lignes de log produites en appelant `verify_master_password`/
+`login_local` tel quel (même `Formatter`/`Filter` que `main.py`). Vérifié en le cassant
+délibérément : reformuler un seul message de log fait échouer le test immédiatement, avec un message
+d'erreur montrant la ligne réelle qui ne matche plus aucune `failregex` — exactement le signal qui
+manquait avant.
+
+⚠️ **Bug de propagation trouvé en vérifiant ce mécanisme en conditions réelles, depuis corrigé**
+(pas par pytest seul, initialement) : le champ `[db=...]` en DÉBUT de ligne de log
+(`core/log_context.py::current_db_slug`) affichait **"-"** même quand une base était bel et bien
+résolue pour la requête — vérifié avec une vraie requête `X-Klepsydrix-Database: timetable` avant
+d'écrire le filtre fail2ban définitif, sans quoi ce bug serait passé inaperçu. Cause confirmée
+empiriquement (pas juste supposée) : `current_db_slug` était initialement posé dans
+`resolve_database`, une dépendance FastAPI SYNCHRONE (`def`, pas `async def`) — FastAPI dispatche
+chaque dépendance synchrone via `anyio.to_thread.run_sync`, qui copie le `contextvars.Context`
+ambiant dans CHAQUE thread de threadpool séparément ; une mutation faite via `ContextVar.set(...)`
+dans la copie utilisée par une dépendance ne se propage donc JAMAIS à la copie (différente) utilisée
+par la dépendance/l'endpoint suivant, contrairement à ce qu'un `ContextVar` laisse supposer à
+première vue (l'idiome marche pour du code qui reste dans le MÊME contexte asyncio, pas across
+plusieurs dispatches threadpool indépendants). **Corrigé** en posant `current_db_slug` au niveau
+middleware ASGI (`core/log_context.py::DbSlugContextMiddleware`, enregistré dans `main.py`) — voir
+§16.G pour le détail complet du correctif et sa vérification (test + `curl` en conditions réelles).
+`login_local` continue par ailleurs d'inclure la base explicitement dans le TEXTE de ses propres
+messages de log ("base : `<slug>`") — désormais redondant avec le `[db=...]` externe, corrigé, mais
+laissé tel quel (inoffensif) ; les filtres fail2ban continuent eux aussi d'accepter n'importe quelle
+valeur pour le `[db=...]` externe (`\[db=\S+\]`), par robustesse, sans plus en dépendre pour la
+raison qui avait initialement motivé ce choix.
+
+## 18. Droits et Habilitations Façon Odoo
+
+Modèle réduit par rapport à Odoo (voir plan) : `IrModelAccess` fusionne `ir.model.access` (perms
+par modèle) et le domaine par enregistrement (`ir.rule` chez Odoo) en une seule ligne — pas de
+modèle séparé, pas de `res.groups.privilege` (organisation d'IHM chez Odoo, pas un niveau de
+contrôle en plus). **Aucune ligne pour un modèle = aucun accès, pour quiconque** — le garde-fou par
+défaut.
+
+### A. `ResGroup`/`IrModelAccess` (`backend/app/models/access.py`)
+
+```
+ResGroup(id, name, implied_groups m2m→res_groups [héritage], users m2m→users)
+IrModelAccess(id, model [nom de table], group_id, perm_read/write/create/unlink, domain [JSON])
+```
+Plusieurs lignes pour un même (modèle, groupe) se combinent en **OR** ; une seule ligne **sans**
+domaine dans n'importe quel groupe de l'utilisateur suffit à lever toute restriction (elle rend le
+OR toujours vrai), même si une autre ligne, elle, porte un domaine restrictif.
+
+### B. Point d'application : `db.klepsydrix_user_id`
+
+Le drapeau ambiant déjà en place (§15.G/§15.V), posé UNE SEULE FOIS à la frontière HTTP
+(`current_db_user`, voir §17.D), lu par `CRUDMixin` :
+```python
+user_id = getattr(db, "klepsydrix_user_id", None)
+if user_id is None:
+    return query   # mode système — absent = aucun filtrage, tout le code interne (cascades,
+                    # @constrains, seed, solveur) continue de voir l'intégralité des données
+```
+Filtré/vérifié à **6 points** de `CRUDMixin` (`base.py`) :
+- `read()`/`count()` : `_apply_access_read_filter()` — filtre la requête, ou `where(false())` si
+  aucun accès (jamais une exception : une liste vide/un total à zéro, pas une erreur HTTP).
+- `create()` : `_check_class_access()` — droit `perm_create` sur le modèle, **aucune** évaluation de
+  domaine (contrairement à Odoo, un domaine restrictif n'a pas de sens sur un enregistrement qui
+  n'existe pas encore).
+- `update()`/`delete()` : `_check_instance_access()` — droit `perm_write`/`perm_unlink` sur le
+  modèle, ET si un domaine restrictif s'applique, l'enregistrement précis (`self`) doit le
+  satisfaire (requête dédiée `filter(cls.id == self.id).filter(clause)`).
+
+`HasUserAccount.update()`/`create()` (§17.A) délèguent à `CRUDMixin` via `super()` — le contrôle
+s'applique donc automatiquement, sans code dédié pour Teacher/NonTeachingStaff/Student/Parent.
+
+### C. Langage du domaine — compilateur récursif (`core/access_control.py`)
+
+Notation façon Odoo, préfixée : `['|', (champ, op, valeur), (champ, op, valeur)]`.
+```python
+['|', ('class_parts.students.user_id', '=', 'user.id'),
+      ('divisions.students.user_id', '=', 'user.id')]
+```
+(cas d'usage validé par un test dédié — "un élève ne voit que ses cours", via `Course.class_parts`/
+`Course.divisions`, `Student.class_parts`/`Student.division` (**`Division.students` ajouté à cette
+occasion** — cette relation retour n'existait pas). Compilateur récursif classique (dict/tuple →
+clause SQLAlchemy) : un chemin pointé (`a.b.c`) devient un `.any(...)` (collection) ou `.has(...)`
+(many-to-one) imbriqué par segment, la dernière étape étant une vraie colonne comparée via
+l'opérateur (`= != in "not in" > < >= <= like ilike`). Connecteurs logiques `& | !` en notation
+préfixée (comme Odoo), parsés par un descente récursive classique sur la liste à plat.
+
+**Valeurs magiques** (`value` d'un tuple) résolues contre l'utilisateur courant au moment de la
+compilation — PAS un `eval()` de code arbitraire (contrairement à Odoo) : `user.id`,
+`user.group_ids` (groupes effectifs, héritage compris), `user.teacher.id`/`user.student.id`/
+`user.non_teaching_staff.id`/`user.parent.id` (relations réciproques ajoutées sur `User`, voir §17.A,
+`viewonly=True` — simples raccourcis de lecture, la FK réelle reste portée par l'objet-personne).
+
+### D. `display_name` d'une relation non lisible
+
+`GET /api/generic/{resource}/{item_id}/display_name` (`generic.py::make_display_name_endpoint`) —
+`core/access_control.py::get_display_name_unchecked(db, model, obj_id)` lit le SEUL `display_name`
+via `db.get()`, en contournant totalement le filtre de lecture. Décision de sécurité assumée : le
+nom d'un objet lié reste toujours visible, jamais ses autres champs — sans elle, tout formulaire/
+liste/widget relation casserait dès qu'un droit restrictif existe (l'utilisateur ne pourrait plus
+voir le nom d'une ressource qu'il ne peut pas lire en entier, ex: le professeur d'un cours qu'il
+peut consulter). **Frontend non câblé sur cet endpoint pour l'instant** — `useGenericCache.ts`
+continue d'appeler la liste générique standard (filtrée) pour peupler les options de relation ;
+faire en sorte que le frontend bascule automatiquement sur ce nouvel endpoint quand une valeur de
+relation est absente des options chargées reste à faire (pas de groupe restrictif réellement
+utilisé aujourd'hui pour l'exercer, seul le groupe "Admin", sans restriction, existe).
+
+### E. Garde-fou RPC (`base.py::requires_access`, `generic.py::_check_rpc_access`)
+
+`/api/generic/{resource}/call/{method}` (classe et instance) exécute n'importe quelle méthode
+Python du modèle — contourne totalement le CRUD. `@requires_access("read"|"write"|"create"|
+"unlink")` marque une méthode comme RPC-appelable ; **refus par défaut (403)** pour toute méthode
+non décorée. Nécessaire en plus des contrôles déjà dans `create()`/`update()`/`delete()` :
+certaines méthodes RPC (calcul, export, déclenchement du solveur) n'appellent AUCUNE d'elles et y
+échapperaient sinon totalement.
+
+💬 **Comparaison avec Odoo** : Odoo n'a **pas** de garde automatique universelle sur ses méthodes
+métier personnalisées — il compte sur les appels internes à `write()`/`create()`/`unlink()` (protégés)
+et sur des appels manuels explicites à `check_access_rights()` qu'un développeur doit penser à
+ajouter. Une méthode métier sans écriture interne et sans vérification explicite n'est donc pas
+protégée non plus dans Odoo — le refus par défaut retenu ici est délibérément **plus strict** que le
+comportement réel d'Odoo, pas un simple alignement dessus.
+
+### F. Audit des contournements du CRUD (`backend/app/api/endpoints.py`)
+
+`/api/timetable/*` (score, heatmap, solve/stop/reset, structures/simulate-change/apply-change) ne
+passe jamais par le CRUD générique — deux traitements distincts, selon que la route mute des
+données ou non :
+- **Routes qui mutent déjà via `Course.update()`** (`PUT /courses/{id}`, `apply-change`) :
+  héritent automatiquement du contrôle d'instance — mais leur LECTURE initiale utilisait `db.get()`/
+  une requête brute, contournant le filtre de lecture. Corrigé : `Course.read(db, domain=...)` (pas
+  `db.get()`) pour `update_course`, `Course._apply_access_read_filter()` appliqué à la requête brute
+  de `apply_change`/`simulate_change` — un cours hors du domaine de l'utilisateur reste invisible
+  (404), pas juste protégé en écriture après avoir déjà révélé son existence.
+- **Routes sans équivalent CRUD** (`score`, `heatmap`, `simulate-change`, `solve`, `stop`, `reset`) :
+  vérification explicite et légère (`_require_course_access(db, "read"|"write")`, droit sur le
+  MODÈLE Course, pas par enregistrement — ces routes agissent globalement).
+
+**Limite connue, documentée plutôt que dissimulée** : les `db.query()`/`db.execute()` internes aux
+modèles (cascades, `@constrains`, propriétés `@exposed` type synthèse TRMD) tournent "en système"
+par construction — pas de risque nouveau pour ce cas. Une méthode `@exposed`/RPC qui retournerait
+elle-même des données agrégées d'un AUTRE modèle échapperait, elle, au filtrage ligne par ligne —
+hors du périmètre "droits par modèle" retenu ici (pas de droit au niveau champ).
+
+### G. Amorçage structurel (`init_db.py::seed_admin_access`)
+
+Groupe "Admin", droits complets sur **tous** les modèles — tables ORM réelles
+(`Base.registry.mappers`, comme `MODEL_MAP` dans `generic.py`) **et** ressources virtuelles
+(`TransientModel`, ex: `WizardCourseGeneration`, `TrmdLine` — jamais dans `Base.registry.mappers`,
+qui ne connaît que les classes mappées sur une vraie table). Découverte par parcours, pas une liste
+écrite à la main : tout futur modèle est couvert automatiquement. Un test dédié
+(`test_access_control.py::TestAdminSeedCoverage`) échoue si un modèle (réel ou virtuel) n'a pas sa
+ligne — le vrai garde-fou est ce test, pas la mémoire du développeur. `ir_model_access`/`res_groups`
+sont eux-mêmes mappés, donc inclus par la même boucle.
+
+⚠️ **Deux pièges rencontrés en vérifiant en conditions réelles** (aucun des deux détecté par
+`pytest` seul — la raison précise pour laquelle la vérification `curl`/navigateur reste obligatoire
+en plus des tests) :
+1. Le compte de démonstration (`demo@klepsydrix.fr`, voir §17) n'était initialement rattaché à
+   AUCUN `ResGroup` — dès que le moteur de droits est devenu actif sur `app_router`, ce compte se
+   serait retrouvé sans aucun accès. Corrigé dans `init_demo.py` : ajouté explicitement au groupe
+   "Admin" au moment du seed.
+2. **Découverte incomplète des `TransientModel` en dehors du process applicatif normal** :
+   `backend/app/models/__init__.py` n'importe pas TOUS les fichiers du paquet (`wizard_course_
+   generation.py`/`trmd_synthesis.py` n'y sont jamais réexportés — seul `generic.py`, via son
+   parcours `pkgutil.iter_modules` au chargement du process API, les importe réellement). Résultat :
+   lancé comme script autonome (`python -m backend.app.core.init_demo`, le flux normal de reseed —
+   voir §17), `TransientModel.__subclasses__()` ne voyait PAS ces deux classes (jamais exécutées),
+   donc aucune ligne `ir_model_access` générée pour elles — deux entrées de menu (génération des
+   cours, TRMD) invisibles même pour Admin dès que le lot 4bis (filtrage du menu, voir H) est devenu
+   actif. Ce test `pytest` passait pourtant : la suite de tests importe `generic.py` ailleurs dans
+   la même session process, ce qui déclenche accidentellement la découverte complète pour TOUS les
+   tests suivants — masquant exactement le chemin qui casse en usage réel (le script `init_demo.py`
+   seul, sans jamais importer `generic.py`). Corrigé : `seed_admin_access()` reproduit désormais le
+   même parcours `pkgutil.iter_modules` que `generic.py`, au lieu d'un simple `import backend.app.
+   models`.
+
+### H. Filtrage du menu par droits, lecture seule automatique (`ui_endpoints.py::filter_menu_for_user`)
+
+`GET /api/ui/menus` exige désormais `Depends(current_db_user)` (route dédiée, pas au niveau routeur
+— voir `main.py`) : le menu dépend de l'identité, il ne peut plus être une simple lecture de fichier
+statique. Filtrage **bottom-up** de l'arbre `ui.json`, appliqué après `validate_menu_ids` :
+- **Nœud intermédiaire** (`children`) : affiché seulement si au moins un enfant filtré subsiste.
+- **Feuille `panels`** : affichée seulement si l'utilisateur a un droit de **lecture** sur **chaque**
+  `resourceKey` référencé par ses panels — un panel sans `resourceKey` (`TimetableGrid`,
+  `PreferenceGrid`, `PeriodTransitionManager`) n'est jamais gatable, toujours affiché par défaut.
+  Chaque panel avec `resourceKey` reçoit en plus `panel.access.readOnly` (pas de droit
+  d'**écriture** sur cette ressource).
+- **Feuille `action`** (ex: "Générer les cours") : affichée seulement si l'utilisateur a un droit
+  d'**écriture** (pas juste lecture) sur son `resourceKey` — une action est par nature une opération
+  de mutation, pas une simple consultation.
+- **Balise `"groups": ["Nom de ResGroup", ...]`**, sur N'IMPORTE QUEL nœud (intermédiaire ou
+  feuille) : condition **supplémentaire**, pas un remplacement des règles ci-dessus — l'utilisateur
+  doit appartenir à au moins un des groupes nommés (héritage `implied_groups` compris,
+  `resolve_effective_group_objects()`) pour que la branche entière soit affichée. Comparaison par
+  **nom** de groupe (`ResGroup.name`), pas par id — un fichier `ui.json` statique référence un nom
+  stable, jamais un id qui varierait d'une base à l'autre.
+
+**Frontend** (`App.vue::accessAwareListConfig`/`accessAwareFormConfig`) : aucun nouveau composant —
+`panel.access.readOnly` est fusionné dans les flags `listConfig`/`formConfig` déjà existants
+(`editableInline`/`disableAdd`/`disableDelete` — architecture.md §15.E ; `editableForm`/`deletable`
+— déjà supportés par `GenericForm.vue`, découverts en cherchant un mécanisme réutilisable plutôt que
+d'en écrire un nouveau, conformément à la règle projet). Le filtrage lui-même se fait **côté
+serveur** : une branche non autorisée n'est jamais envoyée au navigateur, pas juste masquée en CSS.
+
+⚠️ Limite assumée : `filter_menu_for_user` réévalue les droits de chaque `resourceKey` à chaque
+appel de `/api/ui/menus` (rechargement de page) — négligeable pour le nombre de menus actuel, à
+surveiller si l'arbre grossit beaucoup.
+
+## 19. Console d'Administration d'Instance
+
+Voir plan "Klepsydrix — Multi-SGBD, Multi-Base, Utilisateurs/IDP, Droits, Console Admin", lot 5.
+Deux niveaux d'accès distincts, jamais confondus :
+
+| | Super-admin (`super_admins` nommés, ou mot de passe maître) | Admin d'une base précise |
+|---|---|---|
+| Bases visibles | **Toutes** les bases de l'instance | Uniquement celles où il est membre du groupe `Admin` |
+| Créer / dupliquer une base | ✅ | ❌ (réservé, évite la prolifération incontrôlée) |
+| Sauvegarder / restaurer / supprimer | ✅ (toutes) | ✅ (uniquement ses bases) |
+
+### A. Super-admins nommés et mot de passe maître (`core/instance_admin.py`, `core/master_auth.py`)
+
+`settings.super_admins: list[SuperAdminPair]` (`provider_key`+`subject`) — une identité déjà
+authentifiée par un `identity_providers` normal de l'instance, individuellement attribuable.
+`is_super_admin(session)` compare la session instance courante à cette liste.
+
+⚠️ **`provider_key: "local"` est REFUSÉ dans `super_admins`** (`SuperAdminPair`, validation Pydantic
+à la lecture de `instance.yaml` — erreur de config explicite, pas un simple avertissement). Trouvé en
+relecture, pas en usage réel : un admin d'une base quelconque a le droit `create`/`write` complet sur
+`user_identity_providers` (comme sur tout modèle, pour le groupe "Admin") et peut donc se créer
+LUI-MÊME un compte local avec l'`external_subject` de son choix — y compris une valeur identique à
+une paire `super_admins` configurée. `login_local` (`auth_endpoints.py`) fixe la session avec
+`subject = payload.identifier` **sans jamais retenir dans quelle base ce couple a été vérifié** : un
+admin d'une base quelconque pourrait donc usurper le statut super-admin sur **toute l'instance**, pas
+seulement sur sa propre base. Un fournisseur OIDC fédéré n'a pas ce problème : le `sub` est émis et
+contrôlé par le fournisseur externe, hors de portée d'un admin de base Klepsydrix — seul `local` est
+concerné, pas les identity providers en général.
+
+**Le trou qui justifie un second mécanisme** : si le seul provider actif de l'instance est `local`
+(par nature lié à UNE base précise, voir §17.F) — et donc, depuis ce qui précède, **structurellement
+incapable de fournir une paire `super_admins`** — aucun super-admin ne peut s'authentifier au niveau
+*instance* (avant tout choix de base) pour accéder à la console. `master_db_local_auth` (`core/
+master_auth.py`) comble ce trou — authentification par mot de passe partagé, **désactivée par
+défaut** (`enabled: false`), traitée avec la prudence d'un compte root cloud. Sur une instance sans
+fournisseur OIDC fédéré actif, ce n'est pas un simple filet de secours occasionnel : c'est la SEULE
+voie, normale et permanente, vers le statut super-admin (voir plus haut) :
+- Identité fantôme réservée (`provider_key="__master__"`), jamais produite par un vrai fournisseur
+  ni rapprochée d'une ligne `user_identity_providers` réelle d'aucune base — `database.py::
+  current_db_user` la rejette explicitement (403) : elle ne donne accès qu'à `instance_router`
+  (console), jamais aux données applicatives d'une base.
+- Hash Argon2id (jamais en clair dans `instance.yaml`), liste blanche d'IP optionnelle (CIDR,
+  `ipaddress`), et **toute** tentative journalisée en `WARNING` (succès compris) — un niveau de log
+  impossible à manquer, pour qu'une relecture des journaux révèle immédiatement un usage du mot de
+  passe maître. `_ip_allowed`/`ipaddress` gèrent IPv4 et IPv6 de façon uniforme (une entrée IPv4 comparée
+  à une adresse IPv6, ou l'inverse, renvoie simplement `False` — jamais d'exception) : `127.0.0.1`
+  et `::1` peuvent coexister dans la même `ip_allowlist` sans risque.
+- ⚠️ **Aucun verrouillage anti-brute-force applicatif** — retiré délibérément après discussion
+  explicite avec l'utilisateur, voir §17.H pour le raisonnement complet (pourquoi un système
+  applicatif "dégradé" en plus de fail2ban serait plus dangereux qu'utile) : la protection contre le
+  brute-force est ENTIÈREMENT déléguée à `deploy/fail2ban/klepsydrix-master-auth.conf`, qui lit les
+  lignes `WARNING` ci-dessus — **pas optionnel** pour une instance en production. Un test dédié
+  (`backend/tests/test_fail2ban_filter_contracts.py`) garantit que le format de ces lignes reste
+  compatible avec ce filtre.
+- **`server.trusted_proxies`** (`config.py`, vide par défaut) : une fois le reverse proxy externe en
+  place (§20.C), `request.client.host` devient l'IP DU PROXY, jamais celle du client réel —
+  `ip_allowlist` filtrerait alors soit toujours à tort (IP publiques dedans, plus jamais vues),
+  soit plus du tout (IP du proxy dedans, ce qui annule la restriction pour n'importe qui). `_client_ip`
+  (`core/master_auth.py`) ne lit `X-Forwarded-For` QUE si la connexion TCP directe vient d'une entrée
+  de `trusted_proxies` — jamais depuis un client direct, sans quoi n'importe qui pourrait fixer cet
+  en-tête lui-même (un en-tête HTTP ordinaire, entièrement sous son contrôle) pour usurper une IP
+  autorisée. Hypothèse assumée : un SEUL reverse proxy devant l'appli, configuré pour toujours
+  écraser cet en-tête plutôt que de transmettre une valeur reçue du client (comportement par défaut
+  de Caddy/nginx correctement configurés) — la première valeur de la liste est alors la vraie IP
+  client, injectée par ce proxy de confiance.
+- **Recommandation opérationnelle** (pas appliquée par le code) : sur une instance SANS OIDC fédéré,
+  c'est la voie normale — rien à redésactiver. Sur une instance AVEC un OIDC fédéré actif (au moins
+  une paire `super_admins` fonctionnelle), redésactiver `master_db_local_auth` reste recommandé — un
+  second point d'entrée permanent affaiblirait l'authentification fédérée déjà en place.
+
+Côté IHM (`frontend/src/pages/MasterLogin.vue`, route `/login/master`) : formulaire volontairement
+séparé du flux de connexion normal, accessible seulement via un lien discret en bas de `Login.vue`
+("Mot de passe maître (administrateur d'instance)") — jamais listé par `/api/auth/providers`.
+
+### B. Pré-appariement par email (`database.py::current_db_user`)
+
+À la création d'une base, l'admin désigné (saisi par email dans le formulaire de création) n'a pas
+encore de `sub` OIDC connu (identifiant opaque, jamais deviné à l'avance). `instance_endpoints.py::
+create_database` crée à sa place un `User` + `UserIdentityProvider(provider_key="pending",
+external_subject=<email>)`, et l'ajoute directement au groupe `Admin` de la nouvelle base. À la
+première VRAIE connexion (n'importe quel provider) dont `session.email` correspond à cette ligne
+"en attente", `current_db_user` la **promeut** (provider/sub réels) plutôt que de créer un second
+`User` en doublon — testé explicitement (`backend/tests/test_instance_admin.py::
+TestPendingPairingPromotion`).
+
+### C. Opérations physiques sur une base (`core/db_admin_ops.py`)
+
+- **Créer** : SQLite — rien à faire à part (le fichier est créé à la volée par `create_engine()`) ;
+  PostgreSQL — `CREATE DATABASE` via une connexion de maintenance dédiée (`AUTOCOMMIT`, base
+  "postgres", jamais mise en cache dans `db_registry`). Suivi de `init_db.py::init_prod_data(slug=
+  ...)` (schéma + réglages + groupe Admin) et du pré-appariement ci-dessus.
+- **Dupliquer** (super-admin uniquement) : SQLite — `VACUUM INTO` vers un nouveau fichier ;
+  PostgreSQL — `CREATE DATABASE new WITH TEMPLATE old` (exige qu'aucune AUTRE connexion ne soit
+  ouverte sur le modèle — `db_registry.dispose(source_slug)` libère celles de ce process avant).
+- **Sauvegarder** : SQLite — `VACUUM INTO` (copie cohérente, contrairement à un `cp` qui peut
+  capturer un fichier en cours d'écriture) ; PostgreSQL — `pg_dump -Fc` (sous-processus). Téléchargé
+  via `FileResponse`/`Content-Disposition: attachment` — flux HTTP standard du navigateur, aucune
+  logique JS bespoke (`AdminConsole.vue::downloadBackup` ouvre directement l'URL, le cookie de
+  session httpOnly est envoyé automatiquement par le navigateur pour cette navigation same-origin).
+- **Restaurer** : "annule et remplace" — aussi destructif qu'une suppression, donc **même exigence
+  de confirmation par ressaisie exacte du nom de la base**, vérifiée côté serveur (`confirm` en
+  query param, comparé au `slug` — jamais une simple case à cocher côté client).
+- **Supprimer** : `db_registry.dispose(slug)` d'abord (ferme les connexions en cache), puis
+  suppression physique (fichier SQLite, `DROP DATABASE` PostgreSQL). Même exigence de confirmation
+  que restaurer.
+
+### D. Routes (`api/instance_endpoints.py`) et IHM (`frontend/src/pages/AdminConsole.vue`, route `/admin`)
+
+`GET /api/instance/databases` reste la seule route publique (liste brute, pas de session requise —
+nécessaire pour le sélecteur de base, §16.D). Toutes les routes `/api/instance/admin/*` exigent une
+session instance valide ; `POST`/`duplicate` exigent en plus `require_super_admin`, `backup`/
+`restore`/`DELETE` exigent `require_admin_of(slug)` (super-admin OU admin de CETTE base précise).
+IHM en une seule page (`AdminConsole.vue`, montée par le même routeur `vue-router` que `/login`/
+`/select-database` — §16.D — pas de second point d'entrée Vite `admin.html` séparé comme envisagé
+initialement dans le plan : inutile, `vue-router` gère déjà proprement une page hors-app sans lui).
+
+⚠️ Limite assumée (documentée dans le plan) : `administrable_databases()` pour un admin non-super
+ouvre une session par base découverte pour vérifier son appartenance au groupe `Admin` — acceptable
+pour des dizaines de bases, à mettre en cache au-delà si besoin.
+
+**Vérification effectuée** : suite dédiée (`backend/tests/test_instance_admin.py` — `master_auth` :
+mot de passe correct/incorrect, désactivé par défaut, aucun verrouillage même après de nombreux
+échecs (voir §17.H), liste blanche d'IP ; `instance_admin` : résolution super-admin/admin de base ;
+pré-appariement par email) ; `backend/tests/test_fail2ban_filter_contracts.py` (format des lignes de
+log conforme aux filtres fail2ban réellement déployés) ; flux complet (créer → dupliquer →
+sauvegarder → restaurer → supprimer une base jetable) vérifié via curl ET via le navigateur
+(dérogation exceptionnelle de ce chantier, voir plan) — formulaire de création, confirmation de
+suppression désactivée tant que la ressaisie ne correspond pas exactement au nom de la base,
+déconnexion, redirection `/admin` → `/login` sans session.
+
+## 20. Idées pour Plus Tard
+
+Pistes identifiées mais délibérément écartées du périmètre actuel — à reconsidérer si le contexte
+qui les rend inutiles aujourd'hui change.
+
+### A. Alembic (migrations de schéma)
+
+Envisagé lors du chantier multi-base/multi-SGBD (voir `specs/`, plan "Klepsydrix — Multi-SGBD,
+Multi-Base, Utilisateurs/IDP, Droits, Console Admin") puis explicitement écarté : le modèle de
+données bouge encore très souvent en phase de conception active, et `init_db.py`
+(`Base.metadata.drop_all()` + `create_all()`) reste le flux le plus rapide tant qu'aucune base de
+production ne contient de données réelles à préserver entre deux changements de modèle.
+
+**À reconsidérer** : dès qu'une vraie base de production (créée via la console d'administration
+d'instance) contient des données qui doivent survivre à un changement de schéma. Alembic est
+l'outil standard pour SQLAlchemy : une suite ordonnée de scripts versionnés
+(`upgrade()`/`downgrade()`), une table `alembic_version` par base retenant la dernière migration
+appliquée — permet de faire évoluer un schéma sans repartir de zéro. La première migration servirait
+de "photo" du schéma à l'instant où elle est introduite.
+
+### B. Intégration continue (CI)
+
+Aucune CI n'existe dans ce repo (`.github/workflows` absent) — écarté pour le chantier
+multi-base/multi-SGBD ci-dessus : les tests PostgreSQL (marqueur `pytest -m postgres`, contre le
+PostgreSQL local déjà installé sur la machine de dev) et les tests frontend Vitest/Playwright
+tournent en local, lancés manuellement.
+
+**À reconsidérer** : dès que plusieurs personnes contribuent au code en parallèle, ou que le rythme
+de déploiement rend une vérification manuelle systématique trop coûteuse. Mettrait en place au
+minimum : un service PostgreSQL du pipeline (pas de conteneur Docker géré à la main, cohérent avec
+l'environnement de dev actuel), l'exécution de `pytest backend/tests/` (SQLite et PostgreSQL) et des
+suites frontend à chaque push/PR.
+
+### C. HTTPS en production
+
+Aucune configuration TLS dans le code ni dans `instance.yaml`/`instance.example.yaml` à ce jour —
+`start_services.sh` lance uvicorn en HTTP simple (`--host 0.0.0.0 --port 8000`), cohérent avec un
+usage de développement local uniquement.
+
+**Décision de principe (à affiner le jour du déploiement)** : le HTTPS sera terminé par un
+**reverse proxy externe**, jamais par l'application elle-même — pratique standard pour une appli
+ASGI Python (uvicorn/Gunicorn). Le proxy détient le certificat et la clé, écoute sur le port 443, et
+relaie en HTTP simple vers uvicorn en local (`127.0.0.1:8000`, jamais exposé directement sur le
+réseau en prod — à la différence du `0.0.0.0` actuel, qui n'a de sens qu'en dev). Conséquence directe
+pour `instance.yaml` : **pas** de `cert_path`/`key_path` à ajouter à `server:` — cette responsabilité
+reste entièrement hors de la configuration applicative, gérée au niveau du proxy/infra, découplée du
+déploiement du code Python (un certificat renouvelé ne nécessite alors aucun redémarrage de
+l'application). `server.allowed_origins` (voir §16, CORS) est déjà pensé pour ce scénario : une vraie
+origine de production (`https://klepsydrix.mon-etablissement.fr`, sans port explicite car 443 est le
+port HTTPS implicite), à la place des valeurs de dev `localhost:3000`/`127.0.0.1:3000`.
+
+**Options de reverse proxy, aucune tranchée pour l'instant** :
+- **Caddy** : HTTPS automatique (obtention ET renouvellement du certificat Let's Encrypt sans
+  intervention manuelle, dès qu'un nom de domaine est déclaré), configuration très concise
+  (Caddyfile). Bon candidat par défaut vu l'absence de Docker/CI dans ce projet et un déploiement
+  probablement simple (une VM par établissement) — moins de pièces mobiles à opérer à la main que
+  l'alternative ci-dessous.
+- **nginx** (+ `certbot` pour Let's Encrypt) : plus répandu, plus de documentation/contrôle fin, mais
+  le TLS y est un ajout manuel (obtention initiale + configuration d'un renouvellement périodique via
+  cron/systemd timer), pas automatique par défaut comme avec Caddy.
+
+**À reconsidérer** : au moment du premier déploiement réel hors machine de développement.

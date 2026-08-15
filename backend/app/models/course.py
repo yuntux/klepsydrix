@@ -208,6 +208,36 @@ class Course(Base):
             return False
         except ValueError:
             return True
+
+    @exposed
+    @property
+    def student_ids(self) -> list[int]:
+        """
+        Élèves du cours — calculé à la demande, jamais stocké : union des élèves des parties de
+        classe et des divisions entières associées au cours (deux façons distinctes de rattacher
+        un cours à des élèves, voir Course.divisions/Course.class_parts). Confort d'affichage
+        (roster du cours) uniquement — le moteur de droits (voir architecture.md) traverse
+        class_parts/divisions directement, il ne dépend pas de ce champ.
+        """
+        from sqlalchemy import or_
+        from sqlalchemy.orm import object_session
+        from backend.app.models.student import Student
+        from backend.app.models.group import ClassPart
+
+        db = object_session(self)
+        if not db:
+            return []
+        class_part_ids = [cp.id for cp in self.class_parts]
+        division_ids = [d.id for d in self.divisions]
+        if not class_part_ids and not division_ids:
+            return []
+        conditions = []
+        if class_part_ids:
+            conditions.append(Student.class_parts.any(ClassPart.id.in_(class_part_ids)))
+        if division_ids:
+            conditions.append(Student.division_id.in_(division_ids))
+        return list(db.execute(select(Student.id).where(or_(*conditions)).distinct()).scalars().all())
+
     # Relations de ressources (hors matière) prises en compte pour la ventilation composé/enfants
     # — associées au champ _ids correspondant, seul nom que le front connaît (voir
     # Course.underventilated_resource_ids et _RESOURCE_FIELD_BY_RELATION un peu plus bas, qui

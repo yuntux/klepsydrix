@@ -3,7 +3,6 @@ Tests pour TrmdLine.read() (backend/app/models/trmd_synthesis.py, volet E) : agr
 besoins (MefService/Service/ServiceRepartition) et des moyens (Teacher) par Discipline.
 """
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
@@ -13,9 +12,9 @@ from backend.app.models import (
 )
 from backend.app.models.mef import MefService
 from backend.app.models.trmd_synthesis import TrmdLine
+from backend.tests.db_test_utils import make_test_engine
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(TEST_DATABASE_URL, echo=False)
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 

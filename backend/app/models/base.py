@@ -1,7 +1,10 @@
+import logging
 from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy import select, func
 from sqlalchemy.ext.hybrid import hybrid_property
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 
 class UnsupportedOperationError(Exception):
@@ -13,6 +16,32 @@ class UnsupportedOperationError(Exception):
     que le 400 générique réservé aux erreurs de validation métier (ValueError).
     """
     pass
+
+
+class AccessDeniedError(Exception):
+    """
+    Levée par le moteur de droits (core/access_control.py) quand l'utilisateur courant
+    (db.klepsydrix_user_id) n'a pas le droit demandé sur un modèle, ou que l'enregistrement visé ne
+    satisfait pas le domaine restrictif applicable. Le moteur générique (generic.py) l'attrape pour
+    répondre 403, plutôt que le 400 générique réservé aux erreurs de validation métier (ValueError).
+    """
+    pass
+
+
+def requires_access(operation: str):
+    """
+    Marque une méthode comme appelable via /api/generic/{resource}/call/{method} ou
+    /{resource}/{id}/call/{method} (voir architecture.md, moteur de droits) — `operation` ∈
+    {"read", "write", "create", "unlink"}, le droit minimal exigé sur le MODÈLE (pas
+    l'enregistrement précis visé) avant d'exécuter la méthode. Nécessaire en plus des contrôles
+    déjà dans create()/update()/delete() : certaines méthodes RPC (calcul, export, déclenchement du
+    solveur) ne passent par AUCUNE d'elles et échapperaient sinon à tout contrôle. Refus par défaut
+    (generic.py) pour toute méthode non décorée.
+    """
+    def decorator(func):
+        func._requires_access = operation
+        return func
+    return decorator
 
 
 def constrains(*args):
@@ -252,10 +281,46 @@ class CRUDMixin:
         return {}
 
     @classmethod
+    def _check_class_access(cls, db: Session, operation: str):
+        """
+        Vérifie que l'utilisateur courant a le droit `operation` sur ce modèle, SANS enregistrement
+        précis à confronter à un domaine (création — voir architecture.md : contrairement à
+        Odoo, un domaine restrictif n'est jamais évalué à la création, seul perm_create compte).
+        Mode système (db.klepsydrix_user_id absent) : toujours autorisé.
+        """
+        user_id = getattr(db, "klepsydrix_user_id", None)
+        if user_id is None:
+            return
+        from backend.app.core.access_control import access_rows_for
+        from backend.app.models.user import User
+        user = db.get(User, user_id)
+        if not access_rows_for(db, cls, user, operation):
+            raise AccessDeniedError(f"Droit « {operation} » refusé sur {cls.__tablename__}.")
+
+    def _check_instance_access(self, db: Session, operation: str):
+        """Pendant instance de _check_class_access, pour update()/delete() : vérifie EN PLUS que
+        `self` satisfait le domaine restrictif applicable (voir access_control.access_domain_clause)."""
+        user_id = getattr(db, "klepsydrix_user_id", None)
+        if user_id is None:
+            return
+        from backend.app.core.access_control import access_domain_clause
+        from backend.app.models.user import User
+        cls = self.__class__
+        user = db.get(User, user_id)
+        has_access, clause = access_domain_clause(db, cls, user, operation)
+        if not has_access:
+            raise AccessDeniedError(f"Droit « {operation} » refusé sur {cls.__tablename__}.")
+        if clause is not None:
+            exists = db.query(cls.id).filter(cls.id == self.id).filter(clause).first()
+            if exists is None:
+                raise AccessDeniedError(f"Droit « {operation} » refusé sur cet enregistrement de {cls.__tablename__}.")
+
+    @classmethod
     def create(cls, db: Session, vals: dict):
         """
         Méthode de création standard surchargeable avec gestion des related_fields.
         """
+        cls._check_class_access(db, "create")
         try:
             original_vals_keys = set(vals.keys())
             # 1. Inspecter et extraire les relations de type collection (Many-to-Many / One-to-Many)
@@ -381,6 +446,30 @@ class CRUDMixin:
         return query
 
     @classmethod
+    def _apply_access_read_filter(cls, db: Session, query):
+        """
+        Filtre de lecture du moteur de droits (voir core/access_control.py, architecture.md) —
+        appliqué par read() ET count() pour rester cohérent (une pagination ne doit jamais annoncer
+        un total supérieur à ce que read() peut réellement renvoyer). `db.klepsydrix_user_id`
+        absent (drapeau ambiant, posé UNIQUEMENT à la frontière HTTP par current_db_user, voir
+        database.py) = mode système, aucun filtrage — tout le code interne (cascades, @constrains,
+        seed, solveur) continue de voir l'intégralité des données.
+        """
+        user_id = getattr(db, "klepsydrix_user_id", None)
+        if user_id is None:
+            return query
+        from sqlalchemy import false
+        from backend.app.core.access_control import access_domain_clause
+        from backend.app.models.user import User
+        user = db.get(User, user_id)
+        has_access, clause = access_domain_clause(db, cls, user, "read")
+        if not has_access:
+            return query.where(false())
+        if clause is not None:
+            query = query.where(clause)
+        return query
+
+    @classmethod
     def read(cls, db: Session, domain: dict = None, limit: int = None, offset: int = None):
         """
         Lit des enregistrements à partir de la base de données.
@@ -389,6 +478,17 @@ class CRUDMixin:
         query = select(cls)
         if domain:
             query = cls._apply_domain(query, domain)
+        query = cls._apply_access_read_filter(db, query)
+        # Tri par défaut explicite : sans lui, l'ordre de retour n'est garanti par aucun SGBD (il
+        # « semble » suivre l'ordre d'insertion sur SQLite, mais c'est un hasard d'implémentation,
+        # pas une garantie — non déterministe sur PostgreSQL). Surchargeable par modèle via
+        # `__default_order__` (ex: un tri par nom plutôt que par id) ; silencieusement absent pour
+        # un modèle sans colonne `id` (aucun cas dans ce projet à ce jour).
+        order_by = getattr(cls, "__default_order__", None)
+        if order_by is None and hasattr(cls, "id"):
+            order_by = cls.id
+        if order_by is not None:
+            query = query.order_by(order_by)
         if offset is not None:
             query = query.offset(offset)
         if limit is not None:
@@ -405,6 +505,7 @@ class CRUDMixin:
         query = select(func.count()).select_from(cls)
         if domain:
             query = cls._apply_domain(query, domain)
+        query = cls._apply_access_read_filter(db, query)
         return db.scalar(query)
 
     @classmethod
@@ -469,6 +570,7 @@ class CRUDMixin:
         """
         Méthode de mise à jour standard surchargeable avec gestion des related_fields.
         """
+        self._check_instance_access(db, "write")
         try:
             original_vals_keys = set(vals.keys())
             # 1. Inspecter et extraire les relations de type collection (Many-to-Many / One-to-Many)
@@ -627,6 +729,7 @@ class CRUDMixin:
         """
         Marque l'objet pour suppression. Le commit est géré par l'endpoint.
         """
+        self._check_instance_access(db, "unlink")
         self._via_crud_mixin_delete = True
         self._cascade_delete_dependents(db)
         try:
@@ -783,7 +886,7 @@ def receive_before_update(mapper, connection, target):
         from sqlalchemy import inspect
         insp = inspect(target)
         modified = [c.key for c in insp.mapper.column_attrs if get_history(target, c.key).has_changes()]
-        print(f"======> MODIFIED ATTRS for {target.__class__.__name__} {obj_id}: {modified}")
+        logger.warning("Mise à jour directe interdite pour %s (ID: %s), attributs modifiés : %s", target.__class__.__name__, obj_id, modified)
         raise RuntimeError(f"Mise à jour directe interdite pour {target.__class__.__name__} (ID: {obj_id}). Utilisez la méthode update() de CRUDMixin.")
 
 @event.listens_for(Base, 'before_delete', propagate=True)

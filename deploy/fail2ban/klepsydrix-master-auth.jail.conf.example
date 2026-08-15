@@ -1,0 +1,40 @@
+# Exemple de jail fail2ban pour klepsydrix-master-auth.conf — voir architecture.md §19.A/§16.F.
+#
+# ⚠️ AUCUN verrouillage applicatif en complément (décision explicite, voir §19.A) : cette jail est
+# la SEULE protection anti-brute-force du mot de passe maître. Activer réellement fail2ban avec ce
+# fichier n'est donc pas optionnel pour une instance en production.
+#
+# Installation :
+#   sudo cp klepsydrix-master-auth.jail.conf.example /etc/fail2ban/jail.d/klepsydrix-master-auth.conf
+#   # adapter logpath ci-dessous au chemin réel (voir start_services.sh en dev ; en prod, plus
+#   # probablement un fichier écrit par le service systemd de l'application, ou journald — voir la
+#   # remarque "backend = systemd" plus bas).
+#   sudo systemctl restart fail2ban
+#   sudo fail2ban-client status klepsydrix-master-auth   # vérifier que la jail est bien chargée
+
+[klepsydrix-master-auth]
+enabled  = true
+filter   = klepsydrix-master-auth
+# Chemin du log applicatif Klepsydrix — EN DEV : backend.log à la racine du dépôt (voir
+# start_services.sh). EN PROD : dépend de comment le process est réellement supervisé (unité
+# systemd avec redirection vers un fichier, ou journald — dans ce dernier cas, remplacer les 3
+# lignes logpath/backend/journalmatch par :
+#   backend = systemd
+#   journalmatch = _SYSTEMD_UNIT=klepsydrix-backend.service
+logpath  = /var/log/klepsydrix/backend.log
+backend  = auto
+
+maxretry = 5
+findtime = 15m
+bantime  = 1h
+
+# Optionnel (fail2ban >= 0.11) : allonge le bannissement à chaque récidive après la levée du ban
+# précédent — utile contre un attaquant qui revient tenter sa chance après expiration.
+# bantime.increment = true
+# bantime.factor    = 4
+# bantime.maxtime   = 1w
+
+# Ne JAMAIS bannir les IP de confiance déclarées côté application (proxy interne, IP fixe
+# d'administration...) — cohérent avec server.trusted_proxies (voir config.py) si le reverse proxy
+# tourne sur une IP dédiée : à adapter selon le réseau réel.
+# ignoreip = 127.0.0.1/8 ::1

@@ -3,7 +3,6 @@ Tests pour la génération en masse des Course à partir de la répartition
 Service/ServiceRepartition/Alignment (voir backend/app/models/wizard_course_generation.py).
 """
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
@@ -13,9 +12,9 @@ from backend.app.models import (
 from backend.app.models.mef import MefService
 from backend.app.models.group import Partition, ClassPart
 from backend.app.models.wizard_course_generation import generate_courses_from_services, WizardCourseGeneration
+from backend.tests.db_test_utils import make_test_engine
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(TEST_DATABASE_URL, echo=False)
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 

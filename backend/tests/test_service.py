@@ -3,7 +3,6 @@ Tests pour le modèle Service / ServiceRepartition / Alignment et leur articulat
 avec MefService (gabarit réglementaire).
 """
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
@@ -13,9 +12,9 @@ from backend.app.models import (
 )
 from backend.app.models.service import RepartitionPeriodicity, RepartitionGroupType
 from backend.app.core.time_utils import minutes_to_hours
+from backend.tests.db_test_utils import make_test_engine
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(TEST_DATABASE_URL, echo=False)
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 

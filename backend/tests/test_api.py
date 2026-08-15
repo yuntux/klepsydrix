@@ -14,19 +14,13 @@ from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
 from backend.app.models.group import Partition, ClassPart, Group
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from backend.app.core.database import get_db
+from backend.app.core.database import get_db, current_db_user
+from backend.tests.db_test_utils import make_test_engine
 
-from sqlalchemy.pool import StaticPool
-
-# Moteur en mémoire vive SQLite partagé via StaticPool pour éviter le gotcha des connexions multiples
-TEST_SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(
-    TEST_SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool
-)
+# Voir db_test_utils.py : SQLite en mémoire (StaticPool, un seul connexion partagée) par défaut,
+# PostgreSQL local si KLEPSYDRIX_TEST_DB_BACKEND=postgres.
+test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 def override_get_db():
@@ -43,14 +37,19 @@ def override_get_db():
 @pytest.fixture(scope="function", autouse=True)
 def setup_dependency_overrides():
     app.dependency_overrides[get_db] = override_get_db
+    # current_db_user exige une session instance (voir main.py) — hors périmètre de ces tests
+    # (authentification), substitué en entier comme get_db pour ne pas avoir à simuler une vraie
+    # connexion à chaque appel HTTP via le TestClient.
+    app.dependency_overrides[current_db_user] = lambda: None
     yield
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(current_db_user, None)
 
 import backend.app.solver.solver
-def mock_start_solve(school_id=None):
+def mock_start_solve(school_id=None, slug=None):
     db = TestSessionLocal()
     try:
-        backend.app.solver.solver._solve_timetable_job(db, school_id)
+        backend.app.solver.solver._solve_timetable_job(db, school_id, slug=slug)
     finally:
         db.close()
         
@@ -905,6 +904,7 @@ def test_generic_update_endpoint_persists_late_recompute(db_session: Session):
         "subject_id": subject.id, "school_id": school.id, "parent_id": parent.id, "teacher_ids": [teacher.id],
     })
     assert parent.decomposition_status == "FULLY_VENTILATED"
+    db_session.commit()
 
     response = client.patch(f"/api/generic/courses/{parent.id}", json={"memo": "note sans rapport"})
     assert response.status_code == 200

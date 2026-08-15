@@ -82,7 +82,7 @@
             :columns="detailColumnsConfig"
             :fields="getFormFieldsConfig(panel.resourceKey)"
             :items="detailListItems"
-            :listConfig="panel.listConfig"
+            :listConfig="accessAwareListConfig(panel)"
             @add="onAddDetailGeneric"
             @update-item="onUpdateDetailGenericInline"
           />
@@ -100,7 +100,7 @@
             :columns="columnsConfig"
             :fields="formFieldsConfig"
             :items="genericItems"
-            :listConfig="panel.listConfig"
+            :listConfig="accessAwareListConfig(panel)"
             :initial-selected-ids="urlSelectedIds"
             @add="onAddGeneric"
             @edit="onEditGeneric"
@@ -143,7 +143,7 @@
             :fields="getFormFieldsConfig(panel.resourceKey)"
             v-model="formModel"
             :inline="true"
-            :formConfig="panel.formConfig"
+            :formConfig="accessAwareFormConfig(panel)"
             :selectedRecords="selectedRelatedRecords"
             :resourceKey="panel.resourceKey || activeAdminModel"
             @submit="onSubmitGeneric"
@@ -244,6 +244,7 @@ import { useDataStore } from './stores/data';
 import { getTimeslotHour } from './composables/useTimeslotGrid';
 import { genericCacheKey } from './composables/useGenericCache';
 import { useNotificationStore } from './stores/notifications';
+import { getSelectedDatabase } from './services/dbSession';
 import { useQueryClient, useQuery } from '@tanstack/vue-query';
 
 const dataStore = useDataStore();
@@ -1457,6 +1458,20 @@ async function onUpdateDetailGenericInline(item: any) {
   }
 }
 
+// Lecture seule automatique pilotée par les droits (voir architecture.md, moteur de droits) :
+// /api/ui/menus calcule panel.access.readOnly par panel (pas de droit d'écriture sur la ressource
+// visée) — fusionné ici dans les flags listConfig/formConfig déjà existants (architecture.md
+// §15.E/W), jamais un nouveau mécanisme : GenericList.vue/GenericForm.vue n'ont besoin d'aucune
+// modification, ils honorent déjà ces flags depuis leur configuration ui.json statique.
+function accessAwareListConfig(panel: any) {
+  if (!panel?.access?.readOnly) return panel?.listConfig;
+  return { ...panel.listConfig, editableInline: false, disableAdd: true, disableDelete: true };
+}
+function accessAwareFormConfig(panel: any) {
+  if (!panel?.access?.readOnly) return panel?.formConfig;
+  return { ...panel.formConfig, editableForm: false, deletable: false };
+}
+
 // Configurations dynamiques de champs pour GenericForm
 function getFormFieldsConfig(resourceKey?: string) {
   const model = resourceKey || activeAdminModel.value;
@@ -1908,6 +1923,15 @@ async function refreshActiveGenericPanelIfMatches(resource: string) {
 }
 
 onMounted(async () => {
+  // Aucune base sélectionnée (premier accès, cookie expiré/effacé) : redirection vers le
+  // sélecteur avant toute autre chose — sans ça, tous les appels API qui suivent échoueraient en
+  // boucle (428, voir services/api.ts::apiFetch) sans que l'utilisateur comprenne pourquoi.
+  if (!getSelectedDatabase()) {
+    const next = window.location.pathname + window.location.search;
+    window.location.href = `/select-database?next=${encodeURIComponent(next)}`;
+    return;
+  }
+
   await loadOpenApiSpec();
   await loadTimeslotConfig();
   reloadAllData();
