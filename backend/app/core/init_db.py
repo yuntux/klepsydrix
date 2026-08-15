@@ -113,7 +113,7 @@ def init_prod_data(slug: str = None):
         db.commit()
 
         # Tables de référence RH (fiche enseignant) — simples listes en texte libre. ref_country,
-        # ref_inspector, ref_support, ref_ara, ref_are, ref_particular_mission, ref_pacte_mission,
+        # ref_inspector, ref_ara, ref_are, ref_particular_mission, ref_pacte_mission,
         # ref_external_school, ref_city sont volontairement créées vides (aucune valeur de seed
         # demandée) : seules les tables ci-dessous ont un contenu initial connu.
         ref_titles_data = ["Monsieur", "Madame"]
@@ -161,6 +161,19 @@ def init_prod_data(slug: str = None):
         ref_support_types_data = ["Principal", "Secondaire", "Gelé"]
         for name in ref_support_types_data:
             db.execute(text("INSERT INTO ref_support_types (name) VALUES (:name)"), {"name": name})
+
+        ref_support_data = [
+            "CSR - Complément de service reçu",
+            "BMP - Bloc de moyens provisoires",
+            "CLR - Classe relais",
+            "IS - Instituteur spécialisé de collèges",
+            "ISES - Instituteur SES",
+            "ISMF - Instituteur maître formateur",
+            "PEGC - Poste de pegc des collèges",
+            "UPI - Unité pédagogique d'intégration",
+        ]
+        for name in ref_support_data:
+            db.execute(text("INSERT INTO ref_supports (name) VALUES (:name)"), {"name": name})
 
         # Niveaux de formation (RefGrade) — nomenclature nationale, présente dans TOUTE base de
         # production (contrairement aux tables ref_* ci-dessus, laissées vides) : frontière de

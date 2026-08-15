@@ -60,10 +60,10 @@ def seed_demo_data():
         ]
         for code, short_label, long_label in election_methods_data:
             db.execute(text(
-                "INSERT INTO election_methods (code, name, export_code) VALUES (:code, :name, :export_code)"
+                "INSERT INTO ref_election_methods (code, name, export_code) VALUES (:code, :name, :export_code)"
             ), {"code": code, "name": long_label, "export_code": short_label})
         db.commit()
-        election_method_s_id = db.execute(text("SELECT id FROM election_methods WHERE code = 'S'")).scalar()
+        election_method_s_id = db.execute(text("SELECT id FROM ref_election_methods WHERE code = 'S'")).scalar()
 
         # 3. Création des Budgets TRMD pour les deux écoles
         for code, d_id in discipline_ids.items():

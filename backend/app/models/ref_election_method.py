@@ -5,8 +5,8 @@ from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
 
-class ElectionMethod(Base):
-    __tablename__ = "election_methods"
+class RefElectionMethod(Base):
+    __tablename__ = "ref_election_methods"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     code: Mapped[str] = mapped_column(String(10), unique=True, index=True, nullable=False, info={"label": "Code de la méthode", "placeholder": "ex: STS"})

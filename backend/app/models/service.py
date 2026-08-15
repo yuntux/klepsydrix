@@ -84,7 +84,7 @@ class Service(Base):
     group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True, info={"label": "Groupe"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False, info={"label": "Matière"})
     discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
-    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
+    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
     alignment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alignments.id", ondelete="SET NULL"), nullable=True, info={"label": "Alignement"})
 
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif", "min": 0, "max": 50})
@@ -123,7 +123,7 @@ class Service(Base):
     group: Mapped[Optional["Group"]] = relationship("Group")
     subject: Mapped[Optional["Subject"]] = relationship("Subject")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
-    election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod")
+    election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
     alignment: Mapped[Optional["Alignment"]] = relationship("Alignment", back_populates="services")
     teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=service_teachers, info={"label": "Enseignants"})
     # Pas de cascade="delete-orphan" ici : la suppression en cascade des ServiceRepartition est

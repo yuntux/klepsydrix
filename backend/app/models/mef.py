@@ -34,7 +34,7 @@ class Mef(Base):
                 "columns": [
                     {"key": "subject_id", "label": "Matière", "editable": True},
                     {"key": "discipline_id", "label": "Discipline", "resource": "disciplines", "editable": True},
-                    {"key": "election_method_id", "label": "Modalité d'élection", "resource": "election_methods", "editable": True},
+                    {"key": "election_method_id", "label": "Modalité d'élection", "resource": "ref_election_methods", "editable": True},
                     {"key": "student_count", "label": "Effectif", "editable": True},
                     {"key": "weighting_coefficient", "label": "Pondération", "editable": True},
                     {"key": "weekly_duration_full_class_minutes", "label": "Durée classe entière", "editable": True},
@@ -62,7 +62,7 @@ class MefService(Base):
     mef_id: Mapped[int] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="CASCADE"), nullable=False, info={"label": "MEF"})
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False, info={"label": "Matière"})
     discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
-    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
+    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
 
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif attendu par division", "min": 0, "max": 50})
     weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
@@ -78,7 +78,7 @@ class MefService(Base):
     ref_grade_id = related_field("mef", "ref_grade_id", info={"label": "Niveau", "resource": "ref_grades", "readOnly": True})
     subject: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="mef_services")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
-    election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod")
+    election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
     services: Mapped[list["Service"]] = relationship("Service", back_populates="mef_service", info={"label": "Services générés"})
 
     @exposed(info={"type": "duration", "readOnly": True})

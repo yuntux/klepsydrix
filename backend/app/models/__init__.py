@@ -13,8 +13,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.teacher import Teacher, TeacherAra, TeacherAre, TeacherDiscipline, TeacherParticularMission, TeacherPacteMission, TeacherOtherSchool
 from backend.app.models.division import Division
 from backend.app.models.material import Material
-from backend.app.models.mission import Mission
-from backend.app.models.election_method import ElectionMethod
+from backend.app.models.ref_election_method import RefElectionMethod
 from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
 from backend.app.models.student import Student
 from backend.app.models.period import Period

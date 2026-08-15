@@ -1877,48 +1877,6 @@
         ]
       },
       {
-        "id": "missions_setting",
-        "icon": "target",
-        "title": "Missions",
-        "borderColor": "#F43F5E",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "missions_list",
-            "component": "GenericList",
-            "resourceKey": "missions",
-            "width": "60%"
-          },
-          {
-            "id": "missions_form",
-            "component": "GenericForm",
-            "resourceKey": "missions",
-            "width": "40%"
-          }
-        ]
-      },
-      {
-        "id": "election_methods_setting",
-        "icon": "box",
-        "title": "Élections",
-        "borderColor": "#10B981",
-        "layout": "VERTICAL",
-        "panels": [
-          {
-            "id": "election_methods_list",
-            "component": "GenericList",
-            "resourceKey": "election_methods",
-            "width": "60%"
-          },
-          {
-            "id": "election_methods_form",
-            "component": "GenericForm",
-            "resourceKey": "election_methods",
-            "width": "40%"
-          }
-        ]
-      },
-      {
         "id": "periods_setting",
         "icon": "calendar",
         "title": "Périodes",
@@ -1959,6 +1917,299 @@
             "component": "GenericForm",
             "resourceKey": "system_settings",
             "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "referentiels_root",
+        "icon": "box",
+        "title": "Référentiels",
+        "borderColor": "#0EA5E9",
+        "children": [
+          {
+            "id": "ref_administrative_groups_setting",
+            "icon": "box",
+            "title": "Corps",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_administrative_groups_list",
+                "component": "GenericList",
+                "resourceKey": "ref_administrative_groups",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_affectation_modes_setting",
+            "icon": "box",
+            "title": "Modalités d'affectation",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_affectation_modes_list",
+                "component": "GenericList",
+                "resourceKey": "ref_affectation_modes",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_aras_setting",
+            "icon": "box",
+            "title": "ARA",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_aras_list",
+                "component": "GenericList",
+                "resourceKey": "ref_aras",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_ares_setting",
+            "icon": "box",
+            "title": "ARE",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_ares_list",
+                "component": "GenericList",
+                "resourceKey": "ref_ares",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_cities_setting",
+            "icon": "box",
+            "title": "Villes",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_cities_list",
+                "component": "GenericList",
+                "resourceKey": "ref_cities",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_countries_setting",
+            "icon": "box",
+            "title": "Pays",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_countries_list",
+                "component": "GenericList",
+                "resourceKey": "ref_countries",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_degrees_setting",
+            "icon": "box",
+            "title": "Diplômes",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_degrees_list",
+                "component": "GenericList",
+                "resourceKey": "ref_degrees",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_election_methods_setting",
+            "icon": "box",
+            "title": "Modes d'élection",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_election_methods_list",
+                "component": "GenericList",
+                "resourceKey": "ref_election_methods",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_external_schools_setting",
+            "icon": "box",
+            "title": "Autres établissements",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_external_schools_list",
+                "component": "GenericList",
+                "resourceKey": "ref_external_schools",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_functions_setting",
+            "icon": "box",
+            "title": "Fonctions",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_functions_list",
+                "component": "GenericList",
+                "resourceKey": "ref_functions",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_grades_setting",
+            "icon": "box",
+            "title": "Niveaux",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_grades_list",
+                "component": "GenericList",
+                "resourceKey": "ref_grades",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_inspectors_setting",
+            "icon": "box",
+            "title": "Inspecteurs",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_inspectors_list",
+                "component": "GenericList",
+                "resourceKey": "ref_inspectors",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_levels_setting",
+            "icon": "box",
+            "title": "Grades",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_levels_list",
+                "component": "GenericList",
+                "resourceKey": "ref_levels",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_pacte_missions_setting",
+            "icon": "box",
+            "title": "Missions Pacte",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_pacte_missions_list",
+                "component": "GenericList",
+                "resourceKey": "ref_pacte_missions",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_particular_missions_setting",
+            "icon": "box",
+            "title": "Missions particulières",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_particular_missions_list",
+                "component": "GenericList",
+                "resourceKey": "ref_particular_missions",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_service_modes_setting",
+            "icon": "box",
+            "title": "Modalités de service",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_service_modes_list",
+                "component": "GenericList",
+                "resourceKey": "ref_service_modes",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_supports_setting",
+            "icon": "box",
+            "title": "Supports",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_supports_list",
+                "component": "GenericList",
+                "resourceKey": "ref_supports",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_support_types_setting",
+            "icon": "box",
+            "title": "Types de support",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_support_types_list",
+                "component": "GenericList",
+                "resourceKey": "ref_support_types",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
+          },
+          {
+            "id": "ref_titles_setting",
+            "icon": "box",
+            "title": "Civilités",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_titles_list",
+                "component": "GenericList",
+                "resourceKey": "ref_titles",
+                "width": "100%",
+                "listConfig": { "editableInline": true }
+              }
+            ]
           }
         ]
       }

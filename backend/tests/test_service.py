@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
-    School, Discipline, Subject, Mef, MefDivision, Division, ElectionMethod,
+    School, Discipline, Subject, Mef, MefDivision, Division,
     Group, Service, ServiceRepartition, Alignment, SystemSetting, RefGrade
 )
 from backend.app.models.service import RepartitionPeriodicity, RepartitionGroupType

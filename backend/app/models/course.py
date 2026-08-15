@@ -164,8 +164,8 @@ class Course(Base):
     # enfant, ou FULLY_VENTILATED.
     underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées", "type": "json", "readOnly": True})
     
-    mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
-    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
+    mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
+    election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
 
@@ -180,8 +180,8 @@ class Course(Base):
     subject_relation: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="courses")
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
-    mission: Mapped[Optional["Mission"]] = relationship("Mission", back_populates="courses")
-    election_method: Mapped[Optional["ElectionMethod"]] = relationship("ElectionMethod", back_populates="courses")
+    mission: Mapped[Optional["RefPacteMission"]] = relationship("RefPacteMission", back_populates="courses")
+    election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod", back_populates="courses")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
     
