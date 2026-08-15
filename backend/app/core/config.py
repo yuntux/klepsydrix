@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, YamlConfigSettingsSource
 
 # backend/app/core/config.py -> racine du dépôt (4 parents : core, app, backend, racine)
@@ -195,6 +195,29 @@ class Settings(BaseSettings):
     # Limite de temps pour le solveur Timefold en secondes
     SOLVER_TIME_LIMIT_SECONDS: int = 300
     SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS: int = 10
+
+    # Nombre de résolutions Timefold autorisées à tourner EN MÊME TEMPS, toutes bases confondues
+    # (voir architecture.md, "Concurrence des résolutions") — au-delà, une nouvelle demande passe
+    # en file d'attente (SolverState, statut QUEUED) plutôt que de démarrer immédiatement. Chaque
+    # résolution étant mono-thread côté Timefold et CPU-intensive, aligner cette valeur sur le
+    # nombre de cœurs disponibles évite de diluer le CPU entre trop de résolutions à la fois — ce
+    # qui dégraderait leur qualité (le solveur s'arrête sur un budget de TEMPS, pas d'itérations :
+    # moins de CPU réel par résolution = moins d'itérations dans le même budget, pas une résolution
+    # plus longue). Défaut : nombre de cœurs de la machine (`os.cpu_count()`), avec un repli à 4 si
+    # indéterminable — à ajuster à la baisse si l'API doit rester réactive avec une marge de cœurs
+    # dédiés (rien ne garantit ici une priorité OS à l'API face aux résolutions, une seule limite
+    # de comptage — voir architecture.md pour la nuance).
+    SOLVER_MAX_CONCURRENT_SOLVES: int = Field(default_factory=lambda: os.cpu_count() or 4)
+
+    # Borne explicite du tas JVM (-Xmx, en Mo — voir solver/constraints.py::timefold.solver.init).
+    # Sans cette borne, la JVM (partagée par
+    # toutes les résolutions du process, voir architecture.md §9.F) utilise par défaut jusqu'à 1/4
+    # de la RAM de la machine (comportement par défaut de la JVM, indépendant du nombre de
+    # résolutions réellement en cours) — un plafond explicite protège contre l'épuisement de la RAM
+    # de l'hôte si plusieurs résolutions volumineuses tournent en même temps (le pire scénario :
+    # swap, largement plus dommageable pour la réactivité de l'API qu'une simple contention CPU,
+    # déjà observé sur ce poste de dev avec Playwright).
+    SOLVER_JVM_MAX_HEAP_MB: int = 2048
 
     model_config = SettingsConfigDict(
         yaml_file=os.environ.get("KLEPSYDRIX_CONFIG", str(REPO_ROOT / "instance.yaml")),

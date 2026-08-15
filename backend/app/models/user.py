@@ -19,6 +19,10 @@ _password_hasher = PasswordHasher()
 
 class User(Base):
     __tablename__ = "users"
+    # Gestion des comptes/de la sécurité, orthogonale aux données de planning que le mode exclusif
+    # protège (voir core/exclusive_mode.py::_check_exclusive_mode, architecture.md §16.G) — une
+    # création/mise à jour de compte ne doit jamais être bloquée par une résolution en cours ailleurs.
+    __exclusive_mode_exempt__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom"})
@@ -50,6 +54,10 @@ class UserIdentityProvider(Base):
     __table_args__ = (
         UniqueConstraint("provider_key", "external_subject", name="uq_user_identity_provider_subject"),
     )
+    # Voir User.__exclusive_mode_exempt__ ci-dessus — couvre notamment last_login_at, mis à jour à
+    # CHAQUE requête authentifiée (voir database.py::current_db_user), y compris pendant une
+    # résolution automatique en cours sur cette même base.
+    __exclusive_mode_exempt__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, info={"label": "Utilisateur"})

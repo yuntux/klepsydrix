@@ -40,7 +40,7 @@ from backend.app.solver.constraints import (
 
 
 class _PerDbSolverState:
-    """État d'une résolution en cours pour UNE base — voir SolverState ci-dessous."""
+    """État d'une résolution en cours (ou en file d'attente) pour UNE base — voir SolverState."""
     __slots__ = ("lock", "active_solver", "status", "progress", "last_progress_at", "started_at", "time_limit_seconds")
 
     def __init__(self):
@@ -53,6 +53,15 @@ class _PerDbSolverState:
         self.time_limit_seconds = None
 
 
+# Sémaphore GLOBAL (toutes bases confondues), pas par base — voir architecture.md, "Concurrence des
+# résolutions" : chaque résolution Timefold est mono-thread côté JVM et CPU-intensive tout le temps
+# de son budget (le solveur s'arrête sur une durée, pas un nombre d'itérations — diluer le CPU
+# entre trop de résolutions à la fois ne les fait pas durer plus longtemps, ça dégrade leur QUALITÉ
+# dans le même budget de temps). Taille fixée une fois au démarrage du process (comme
+# _SOLVER_FACTORY_CACHE ci-dessous), sur `settings.SOLVER_MAX_CONCURRENT_SOLVES`.
+_SOLVE_SEMAPHORE = threading.Semaphore(settings.SOLVER_MAX_CONCURRENT_SOLVES)
+
+
 class SolverState:
     """
     État du solveur, indexé par slug de base (voir architecture.md, multi-base) — un attribut de
@@ -62,14 +71,75 @@ class SolverState:
     jour en plusieurs process/instances en parallèle (load balancing) — acceptable tant qu'un seul
     process tourne par déploiement, l'hypothèse implicite de toute l'architecture actuelle du
     solveur (thread du même process, pas un worker séparé).
+
+    `_queue_order`/`_cancel_requested` : suivi de la file d'attente (voir _SOLVE_SEMAPHORE), séparé
+    de l'état par base ci-dessus — une file est par nature une notion transverse à toutes les
+    bases, pas un état qui appartient à une seule d'entre elles.
     """
     _states: dict = {}
+    _queue_lock = threading.Lock()
+    _queue_order: list = []
+    _cancel_requested: set = set()
 
     @classmethod
     def _for(cls, slug: str) -> _PerDbSolverState:
         if slug not in cls._states:
             cls._states[slug] = _PerDbSolverState()
         return cls._states[slug]
+
+    @classmethod
+    def enqueue(cls, slug: str):
+        """
+        Place `slug` en file d'attente — appelé à la fois par `start_solve_timetable_async` (tout
+        de suite, dans le thread de la requête HTTP, pour que `/status` reflète l'état QUEUED sans
+        attendre que le thread de résolution démarre réellement) et par `_solve_timetable_job`
+        elle-même (idempotent : `_queue_order` n'accumule jamais deux fois le même slug) — pour que
+        les appelants directs de `_solve_timetable_job` (tests) passent par le même chemin.
+        """
+        state = cls._for(slug)
+        with state.lock:
+            state.status = "QUEUED"
+            state.progress = None
+            state.last_progress_at = None
+            state.started_at = None
+            state.time_limit_seconds = None
+        with cls._queue_lock:
+            cls._cancel_requested.discard(slug)
+            if slug not in cls._queue_order:
+                cls._queue_order.append(slug)
+
+    @classmethod
+    def dequeue(cls, slug: str):
+        """Retire `slug` de la file — un emplacement vient d'être obtenu (ou la file d'attente a
+        été annulée)."""
+        with cls._queue_lock:
+            if slug in cls._queue_order:
+                cls._queue_order.remove(slug)
+            cls._cancel_requested.discard(slug)
+
+    @classmethod
+    def request_cancel_queued(cls, slug: str) -> bool:
+        """Demande l'annulation d'un job encore EN FILE (pas encore démarré) — voir stop_solving.
+        Retourne False si `slug` n'est plus dans la file (déjà démarré, ou déjà terminé/annulé) :
+        l'appelant doit alors essayer d'interrompre une résolution active à la place."""
+        with cls._queue_lock:
+            if slug in cls._queue_order:
+                cls._cancel_requested.add(slug)
+                return True
+            return False
+
+    @classmethod
+    def is_cancel_requested(cls, slug: str) -> bool:
+        with cls._queue_lock:
+            return slug in cls._cancel_requested
+
+    @classmethod
+    def queue_snapshot(cls, slug: str):
+        """Position 1-based dans la file (None si pas en file) et longueur totale de la file —
+        pour l'affichage IHM (« en file d'attente, position X sur Y »)."""
+        with cls._queue_lock:
+            position = cls._queue_order.index(slug) + 1 if slug in cls._queue_order else None
+            return position, len(cls._queue_order)
 
     @classmethod
     def set_solving(cls, slug: str, solver, time_limit_seconds=None):
@@ -107,6 +177,16 @@ class SolverState:
 
     @classmethod
     def stop_solving(cls, slug: str):
+        """
+        Deux cas distincts, essayés dans cet ordre : `slug` encore EN FILE (pas encore démarré) →
+        annulé sans jamais avoir lu la base ni bloqué l'écriture (voir _solve_timetable_job) ;
+        `slug` déjà EN COURS de résolution → interruption « à la Timefold » via terminate_early()
+        (comportement inchangé). Rien à faire si ni l'un ni l'autre (déjà terminé, ou fenêtre très
+        étroite entre la sortie de file et l'enregistrement de active_solver — best-effort, comme
+        le reste du suivi de progression, voir set_progress ci-dessous).
+        """
+        if cls.request_cancel_queued(slug):
+            return
         state = cls._for(slug)
         with state.lock:
             if state.active_solver:
@@ -135,19 +215,26 @@ class SolverState:
     @classmethod
     def get_snapshot(cls, slug: str):
         """
-        Réponse complète pour /status : statut, dernier score connu, temps écoulé/limite — tout ce
-        dont le frontend a besoin pour afficher une progression, sans jamais exposer l'état interne
-        des entités de la solution (voir la mise en garde dans _solve_timetable_job).
+        Réponse complète pour /status : statut, dernier score connu, temps écoulé/limite, position
+        dans la file — tout ce dont le frontend a besoin pour afficher une progression, sans jamais
+        exposer l'état interne des entités de la solution (voir la mise en garde dans
+        _solve_timetable_job). `queue_position`/`queue_length` valent None/0 hors statut QUEUED.
         """
         state = cls._for(slug)
         with state.lock:
             elapsed = None if state.started_at is None else round(time.monotonic() - state.started_at, 1)
-            return {
-                "status": state.status,
-                "progress": state.progress,
-                "elapsed_seconds": elapsed,
-                "time_limit_seconds": state.time_limit_seconds,
-            }
+            status = state.status
+            time_limit_seconds = state.time_limit_seconds
+            progress = state.progress
+        queue_position, queue_length = cls.queue_snapshot(slug)
+        return {
+            "status": status,
+            "progress": progress,
+            "elapsed_seconds": elapsed,
+            "time_limit_seconds": time_limit_seconds,
+            "queue_position": queue_position,
+            "queue_length": queue_length,
+        }
 
 
 def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
@@ -478,6 +565,43 @@ def _solve_timetable_job(db_session=None, school_id=None, slug=None):
     else:
         slug = slug or DEFAULT_DB_NAME
         db = db_registry.sessionmaker_for(slug)()
+
+    # File d'attente (voir SolverState/_SOLVE_SEMAPHORE ci-dessus, architecture.md "Concurrence des
+    # résolutions") : la BDD n'est lue (_build_planning_problem) et l'écriture bloquée
+    # (enter_exclusive_mode, juste en dessous) qu'une fois un emplacement RÉELLEMENT obtenu — jamais
+    # à l'entrée dans la file. Deux raisons : (1) une base dont le solve est seulement en attente
+    # reste normalement modifiable, exactement comme si aucun solve n'avait été demandé ; (2) une
+    # fois la résolution effectivement lancée, elle travaille toujours sur les données les plus
+    # fraîches à cet instant, jamais un instantané pris au moment de la demande (potentiellement
+    # périmé après une longue attente derrière d'autres bases). `enqueue` est idempotent : appelé
+    # une première fois de façon synchrone par `start_solve_timetable_async` (pour que /status
+    # reflète QUEUED sans attendre que ce thread démarre réellement), puis à nouveau ici — ce qui
+    # couvre aussi un appel direct de `_solve_timetable_job` (tests, `db_session` fourni) qui n'est
+    # jamais passé par `start_solve_timetable_async`.
+    SolverState.enqueue(slug)
+    acquired = False
+    try:
+        while not acquired:
+            acquired = _SOLVE_SEMAPHORE.acquire(timeout=0.5)
+            if not acquired and SolverState.is_cancel_requested(slug):
+                # Annulé alors qu'il n'avait pas encore démarré (voir SolverState.stop_solving) —
+                # aucune donnée lue, aucune écriture jamais bloquée pour cette base.
+                SolverState.dequeue(slug)
+                SolverState.set_not_solving(slug)
+                return None
+        SolverState.dequeue(slug)
+        SolverState.set_solving_status(slug)
+        return _run_solve(db, db_session, school_id, slug)
+    finally:
+        if acquired:
+            _SOLVE_SEMAPHORE.release()
+
+
+def _run_solve(db, db_session, school_id, slug):
+    """Corps de la résolution proprement dite — exécuté une fois un emplacement du sémaphore
+    obtenu (voir _solve_timetable_job). Séparé dans sa propre fonction pour que le try/finally de
+    libération du sémaphore, au-dessus, n'ait pas à s'entremêler avec celui-ci (portées disjointes,
+    plus lisible que tout empiler dans un seul bloc)."""
     entered_exclusive = False
     try:
         # Mode exclusif (voir core/exclusive_mode.py, architecture.md) : bloque toute écriture
@@ -641,9 +765,12 @@ def _solve_timetable_job(db_session=None, school_id=None, slug=None):
 
 def start_solve_timetable_async(school_id: Optional[int] = None, slug: Optional[str] = None):
     slug = slug or DEFAULT_DB_NAME
-    if SolverState.get_status(slug) == "SOLVING":
+    if SolverState.get_status(slug) in ("SOLVING", "QUEUED"):
         return
-    SolverState.set_solving_status(slug)
+    # Mise en file synchrone, dans le thread de LA REQUÊTE HTTP elle-même — pas dans le thread
+    # spawné plus bas : sans ça, un /status appelé juste après la réponse de /solve pourrait encore
+    # lire NOT_SOLVING (fenêtre entre le retour de cette fonction et le premier tour du thread).
+    SolverState.enqueue(slug)
     thread = threading.Thread(target=_solve_timetable_job, kwargs={"school_id": school_id, "slug": slug})
     thread.daemon = True
     thread.start()
@@ -680,6 +807,19 @@ def explain_timetable_score(db: Session, school_id: Optional[int] = None) -> dic
     }
 
 def calculate_course_heatmap(db: Session, course_id: int, school_id: Optional[int] = None) -> dict:
+    """
+    ⚠️ Ne passe JAMAIS par `_SOLVE_SEMAPHORE`/la file d'attente (voir architecture.md, "Concurrence
+    des résolutions") — délibéré, pas un oubli. La heatmap n'exécute aucune résolution complète
+    (jamais `solver.solve()`, jamais de phase de recherche locale) : elle appelle directement
+    `HeatmapEvaluator.calculateIsofunctionalHeatmap` sur le `ScoreDirectorFactory`, un simple calcul
+    de score répété sur chaque créneau candidat — nettement moins coûteux en CPU qu'une résolution
+    complète, et surtout SYNCHRONE dans le thread de la requête HTTP elle-même (pas de thread
+    d'arrière-plan comme `_solve_timetable_job`) : la mettre derrière la même file d'attente
+    qu'un solve de plusieurs minutes la ferait attendre potentiellement aussi longtemps, alors
+    qu'elle doit rester réactive (l'IHM l'appelle en direct au survol/à la sélection d'un cours).
+    Reste néanmoins soumise à la contention CPU RÉELLE d'un solve concurrent en cours sur une AUTRE
+    base (même JVM partagée par tout le process, voir §9.F/G) — ralentie, jamais mise en attente.
+    """
     problem = _build_planning_problem(db, school_id)
     solver_factory = _get_solver_factory()
     

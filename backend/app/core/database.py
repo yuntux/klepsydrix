@@ -122,7 +122,7 @@ def current_db_user(
         if pending:
             idp = pending.update(db, {
                 "provider_key": session.provider_key, "external_subject": session.subject,
-                "first_login_at": datetime.now(timezone.utc), "last_login_at": datetime.now(timezone.utc),
+                "first_login_at": session.logged_in_at, "last_login_at": session.logged_in_at,
             })
         else:
             user = User.create(db, {
@@ -132,10 +132,21 @@ def current_db_user(
             })
             idp = UserIdentityProvider.create(db, {
                 "user_id": user.id, "provider_key": session.provider_key, "external_subject": session.subject,
-                "first_login_at": datetime.now(timezone.utc), "last_login_at": datetime.now(timezone.utc),
+                "first_login_at": session.logged_in_at, "last_login_at": session.logged_in_at,
             })
     else:
-        idp.update(db, {"last_login_at": datetime.now(timezone.utc)})
+        # Identité déjà connue de cette base : `last_login_at` doit avancer une fois PAR VRAI LOGIN
+        # (session.logged_in_at, fixé une seule fois à la connexion — voir instance_session.py),
+        # jamais à chaque requête (voir architecture.md §9.I — le bug d'origine, et pourquoi
+        # `login_local` ne le fait plus elle-même : ce mécanisme générique suffit désormais pour
+        # local ET OIDC, qui n'ont donc plus besoin d'un traitement séparé chacun de leur côté).
+        # DateTime "naïve" en base (voir password_reset_token.py::_as_utc, même piège) : toujours
+        # écrite en UTC ici, donc toujours sûr de réattacher tzinfo=utc avant de comparer.
+        current = idp.last_login_at
+        if current is not None and current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        if current is None or current < session.logged_in_at:
+            idp.update(db, {"last_login_at": session.logged_in_at})
 
     db.klepsydrix_user_id = idp.user_id
     return idp.user

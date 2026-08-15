@@ -25,17 +25,26 @@ from timefold.solver.domain._annotations import ensure_init
 # sans arguments particuliers — un crash JVM (ex: bug natif de la JVM elle-même, jamais vu en
 # pratique mais possible) écrirait alors un `hs_err_pid<N>.log` dans le répertoire COURANT du
 # process (la racine du dépôt, voir start_services.sh — uvicorn y est lancé sans `cd` préalable),
-# jamais nettoyé. `timefold.solver.init(...)`, appelé explicitement AVANT ce `ensure_init()` (qui
-# lève `RuntimeError` si appelé après que la JVM a démarré), permet de fixer `-XX:ErrorFile=...`.
+# jamais nettoyé ; et sans `-Xmx` explicite, la JVM (partagée par TOUTES les résolutions du
+# process, voir solver.py) se laisse par défaut jusqu'à 1/4 de la RAM de la machine — un risque de
+# swap si plusieurs résolutions volumineuses tournent en même temps (voir architecture.md,
+# "Concurrence des résolutions"). `timefold.solver.init(...)`, appelé explicitement AVANT ce
+# `ensure_init()` (qui lève `RuntimeError` si appelé après que la JVM a démarré), permet de fixer
+# les deux (`-XX:ErrorFile=...`, `-Xmx...`).
 import jpype
 if not jpype.isJVMStarted():
     from pathlib import Path
     from _jpyinterpreter import get_default_jvm_path
     import timefold.solver
+    from backend.app.core.config import settings
 
     _jvm_log_dir = Path(__file__).resolve().parents[3] / "log_jvm"
     _jvm_log_dir.mkdir(exist_ok=True)
-    timefold.solver.init(get_default_jvm_path(), f"-XX:ErrorFile={_jvm_log_dir}/hs_err_pid%p.log")
+    timefold.solver.init(
+        get_default_jvm_path(),
+        f"-XX:ErrorFile={_jvm_log_dir}/hs_err_pid%p.log",
+        f"-Xmx{settings.SOLVER_JVM_MAX_HEAP_MB}m",
+    )
 
 ensure_init()
 from timefold.solver._timefold_java_interop import register_python_java_type_mappings

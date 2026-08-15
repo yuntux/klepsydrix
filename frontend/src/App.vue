@@ -33,6 +33,9 @@
             :solverProgress="solverProgress"
             :solverElapsedSeconds="solverElapsedSeconds"
             :solverTimeLimitSeconds="solverTimeLimitSeconds"
+            :solverIsQueued="solverIsQueued"
+            :solverQueuePosition="solverQueuePosition"
+            :solverQueueLength="solverQueueLength"
             :selectedCourseIds="selectedCourseIds"
             @move="onMoveCourse"
             @unassign="onUnassignCourse"
@@ -287,6 +290,12 @@ const loading = ref<boolean>(false);
 const solverProgress = ref<{ hard_score: number; soft_score: number } | null>(null);
 const solverElapsedSeconds = ref<number | null>(null);
 const solverTimeLimitSeconds = ref<number | null>(null);
+// QUEUED : une résolution est demandée mais n'a pas encore obtenu d'emplacement (voir
+// solver.py::SolverState, "Concurrence des résolutions") — la base reste normalement modifiable
+// tant que ce statut dure, seul SOLVING bloque l'écriture (mode exclusif, côté backend).
+const solverIsQueued = ref<boolean>(false);
+const solverQueuePosition = ref<number | null>(null);
+const solverQueueLength = ref<number>(0);
 
 import { useGridStore } from './stores/grid';
 import { storeToRefs } from 'pinia';
@@ -1793,11 +1802,14 @@ let pollingInterval: number | undefined;
 async function checkStatus() {
   try {
     const res = await api.fetchTimetableStatus();
-    if (res.status === 'SOLVING') {
+    if (res.status === 'SOLVING' || res.status === 'QUEUED') {
       loading.value = true;
+      solverIsQueued.value = res.status === 'QUEUED';
       solverProgress.value = res.progress;
       solverElapsedSeconds.value = res.elapsed_seconds;
       solverTimeLimitSeconds.value = res.time_limit_seconds;
+      solverQueuePosition.value = res.queue_position;
+      solverQueueLength.value = res.queue_length;
       if (!pollingInterval) {
         pollingInterval = window.setInterval(checkStatus, 3000);
       }
@@ -1806,9 +1818,12 @@ async function checkStatus() {
         loading.value = false;
         loadData();
       }
+      solverIsQueued.value = false;
       solverProgress.value = null;
       solverElapsedSeconds.value = null;
       solverTimeLimitSeconds.value = null;
+      solverQueuePosition.value = null;
+      solverQueueLength.value = 0;
       if (pollingInterval) {
         window.clearInterval(pollingInterval);
         pollingInterval = undefined;

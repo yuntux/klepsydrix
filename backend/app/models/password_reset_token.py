@@ -25,6 +25,9 @@ def _as_utc(dt: datetime) -> datetime:
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
+    # Gestion de la sécurité, orthogonale aux données de planning que le mode exclusif protège —
+    # voir User.__exclusive_mode_exempt__ (models/user.py), core/exclusive_mode.py.
+    __exclusive_mode_exempt__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_identity_provider_id: Mapped[int] = mapped_column(

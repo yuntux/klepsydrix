@@ -22,7 +22,7 @@ lors des requêtes qui suivent immédiatement — la course ne peut plus se prod
 temps très court, tout en conservant un vrai comportement de fenêtre glissante sur la durée réelle
 d'une session (le seuil est très petit devant `session_idle_timeout_minutes`, largement dominé).
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from fastapi import HTTPException, Request, Response
@@ -46,6 +46,17 @@ def _max_age_seconds() -> int:
 class InstanceSession:
     provider_key: str
     subject: str
+    # Horodatage du VRAI parcours de connexion (soumission du formulaire local, ou retour du
+    # fournisseur OIDC) — fixé UNE SEULE FOIS par set_session_cookie, jamais recalculé lors des
+    # réémissions par glissement de la fenêtre d'inactivité (voir require_instance_session, qui le
+    # reporte tel quel). Lu par database.py::current_db_user pour décider si `last_login_at` (par
+    # base, sur UserIdentityProvider) doit avancer — le même mécanisme sert local ET OIDC, qui
+    # n'ont donc plus besoin d'un traitement séparé chacun de leur côté (voir architecture.md §9.I).
+    # Défaut (instant présent) utilisé UNIQUEMENT par les appelants qui construisent une
+    # InstanceSession sans passer par require_instance_session/set_session_cookie (ex: les tests
+    # qui exercent une autre logique que le suivi de connexion) — le chemin réel passe toujours
+    # explicitement par require_instance_session, qui la fixe/reporte lui-même.
+    logged_in_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     # Connus au moment de la connexion (claims OIDC, ou None pour le provider local) — utilisés
     # UNIQUEMENT pour peupler un User nouvellement auto-créé sur une base qui ne le connaît pas
     # encore (voir database.py::current_db_user) ; jamais resynchronisés sur les requêtes suivantes.
@@ -57,10 +68,19 @@ class InstanceSession:
 def set_session_cookie(
     response: Response, provider_key: str, subject: str,
     first_name: str | None = None, last_name: str | None = None, email: str | None = None,
+    logged_in_at: datetime | None = None,
 ) -> None:
+    """
+    `logged_in_at` : ne le passer QUE pour reporter une valeur déjà existante (réémission par
+    glissement, voir require_instance_session) — laissé à None (défaut) partout ailleurs, un VRAI
+    login (login_local, oidc_callback, login_master) fixe ainsi toujours l'instant présent.
+    """
+    if logged_in_at is None:
+        logged_in_at = datetime.now(timezone.utc)
     token = _serializer.dumps({
         "provider_key": provider_key, "subject": subject,
         "first_name": first_name, "last_name": last_name, "email": email,
+        "logged_in_at": logged_in_at.isoformat(),
     })
     response.set_cookie(
         COOKIE_NAME, token, max_age=_max_age_seconds(), httponly=True, samesite="lax", path="/",
@@ -79,16 +99,22 @@ def require_instance_session(request: Request, response: Response) -> InstanceSe
         data, issued_at = _serializer.loads(token, max_age=_max_age_seconds(), return_timestamp=True)
     except (BadSignature, SignatureExpired):
         raise HTTPException(status_code=401, detail={"code": "NOT_AUTHENTICATED"})
+    # `logged_in_at` absent : cookie émis avant l'introduction de ce champ — repli sur l'horodatage
+    # de signature itsdangerous (`issued_at`), une approximation raisonnable pour une session déjà
+    # en cours (pas pire que l'ancien comportement, qui n'avait aucune notion de "date de login").
+    logged_in_at = datetime.fromisoformat(data["logged_in_at"]) if "logged_in_at" in data else issued_at
     session = InstanceSession(
-        provider_key=data["provider_key"], subject=data["subject"],
+        provider_key=data["provider_key"], subject=data["subject"], logged_in_at=logged_in_at,
         first_name=data.get("first_name"), last_name=data.get("last_name"), email=data.get("email"),
     )
     # Fenêtre glissante, mais throttlée (voir docstring du module) : ne réémet le cookie que si le
-    # jeton courant a plus de _REFRESH_THRESHOLD_SECONDS d'ancienneté.
+    # jeton courant a plus de _REFRESH_THRESHOLD_SECONDS d'ancienneté. `logged_in_at` est reporté
+    # TEL QUEL (jamais recalculé ici) — un glissement n'est pas une reconnexion.
     age = datetime.now(timezone.utc) - issued_at
     if age > timedelta(seconds=_REFRESH_THRESHOLD_SECONDS):
         set_session_cookie(
             response, provider_key=session.provider_key, subject=session.subject,
             first_name=session.first_name, last_name=session.last_name, email=session.email,
+            logged_in_at=session.logged_in_at,
         )
     return session

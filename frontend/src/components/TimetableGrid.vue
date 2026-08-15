@@ -117,16 +117,29 @@
         <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
           <div class="spinner"></div>
           <div style="color: #black; font-weight: 500; font-size: 16px;">
-            {{ isLoadingHeatmap ? 'Évaluation de la Heatmap...' : 'Calcul de l\'emploi du temps optimal...' }}
+            {{ isLoadingHeatmap
+              ? 'Évaluation de la Heatmap...'
+              : (solverIsQueued ? 'En file d\'attente...' : 'Calcul de l\'emploi du temps optimal...') }}
           </div>
           <!-- Progression best-effort (voir solver.py) : le score dur/doux le plus récent connu
                peut manquer par intermittence (limitation du paquet timefold bêta), le temps
-               écoulé/limite reste lui toujours fiable. -->
+               écoulé/limite reste lui toujours fiable. Tant que la résolution est seulement en
+               file d'attente (voir solver.py::SolverState, "Concurrence des résolutions"), ni le
+               score ni le temps écoulé n'ont de sens (la résolution n'a pas encore démarré) —
+               seule la position dans la file est affichée. -->
           <div v-if="!isLoadingHeatmap" class="solver-progress-info">
-            <span v-if="solverProgress">Score : {{ solverProgress.hard_score }}H / {{ solverProgress.soft_score }}S</span>
-            <span v-if="solverElapsedSeconds != null">
-              Temps écoulé : {{ Math.round(solverElapsedSeconds) }}s{{ solverTimeLimitSeconds ? ` / ${solverTimeLimitSeconds}s max` : '' }}
+            <span v-if="solverIsQueued">
+              Position {{ solverQueuePosition }} sur {{ solverQueueLength }}
             </span>
+            <template v-else>
+              <span v-if="solverProgress">Score : {{ solverProgress.hard_score }}H / {{ solverProgress.soft_score }}S</span>
+              <span v-if="solverElapsedSeconds != null">
+                Temps écoulé : {{ Math.round(solverElapsedSeconds) }}s{{ solverTimeLimitSeconds ? ` / ${solverTimeLimitSeconds}s max` : '' }}
+              </span>
+            </template>
+            <BaseButton variant="danger" size="sm" @click="$emit('stop-solve')">
+              Arrêter le calcul
+            </BaseButton>
           </div>
         </div>
       </template>
@@ -176,6 +189,9 @@ const props = defineProps<{
   solverProgress?: { hard_score: number; soft_score: number } | null;
   solverElapsedSeconds?: number | null;
   solverTimeLimitSeconds?: number | null;
+  solverIsQueued?: boolean;
+  solverQueuePosition?: number | null;
+  solverQueueLength?: number;
   periodTypes?: any[];
   periods?: any[];
   periodTypeId?: number | null;
@@ -549,6 +565,9 @@ function onDrop(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B
 </script>
 
 <style scoped>
+.solver-progress-info .btn {
+  margin-top: 8px;
+}
 .unassign-btn {
   background: transparent;
   border: none;

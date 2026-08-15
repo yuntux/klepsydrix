@@ -64,13 +64,18 @@ def get_course_heatmap(course_id: int, school_id: Optional[int] = None, db: Sess
 def solve(school_id: Optional[int] = None, db: Session = Depends(get_db)):
     _require_course_access(db, "write")
     start_solve_timetable_async(school_id, slug=db_registry.slug_for_session(db))
-    return {"status": "success", "message": "Résolution asynchrone démarrée."}
+    # Le message reste volontairement générique : selon la charge (voir SolverState/
+    # _SOLVE_SEMAPHORE, solver.py), la résolution démarre peut-être immédiatement, ou passe d'abord
+    # en file d'attente — /status (queue_position/queue_length) distingue précisément les deux.
+    return {"status": "success", "message": "Résolution demandée."}
 
 @router.post("/stop")
 def stop_solve(db: Session = Depends(get_db)):
     _require_course_access(db, "write")
     SolverState.stop_solving(db_registry.slug_for_session(db))
-    return {"status": "success", "message": "Résolution interrompue."}
+    # Annule aussi bien une résolution encore en file d'attente qu'une résolution déjà en cours
+    # (voir SolverState.stop_solving) — message générique pour les deux cas.
+    return {"status": "success", "message": "Résolution annulée."}
 
 @router.post("/reset")
 def reset(db: Session = Depends(get_db)):

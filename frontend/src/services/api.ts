@@ -135,12 +135,16 @@ export async function fetchWhoAmI(): Promise<{ display_name: string; email: stri
 // progress/elapsed_seconds/time_limit_seconds : null tant qu'aucune résolution n'est en cours (ou
 // pas encore de score connu pour `progress` — voir solver.py::_on_best_solution_changed, le
 // listener Timefold ne se déclenche pas de façon garantie, à traiter comme "pas encore de
-// donnée", jamais comme une erreur).
+// donnée", jamais comme une erreur). status peut valoir NOT_SOLVING/QUEUED/SOLVING (voir
+// solver.py::SolverState, "Concurrence des résolutions") — queue_position/queue_length ne sont
+// significatifs que pour QUEUED (null/0 sinon).
 export async function fetchTimetableStatus(): Promise<{
   status: string;
   progress: { hard_score: number; soft_score: number } | null;
   elapsed_seconds: number | null;
   time_limit_seconds: number | null;
+  queue_position: number | null;
+  queue_length: number;
 }> {
   const response = await apiFetch('/api/timetable/status');
   if (!response.ok) {

@@ -123,10 +123,25 @@ def _check_exclusive_mode(session, flush_context, instances):
     sa propre session (session.info), le même principe que les flags _via_crud_mixin_* existants
     — jamais une vérification de rôle/utilisateur, juste "est-ce la session qui a légitimement le
     droit d'écrire pendant SA PROPRE fenêtre de mode exclusif".
+
+    Écritures EXEMPTÉES par MODÈLE (`__exclusive_mode_exempt__ = True`, voir models/user.py,
+    models/access.py, models/password_reset_token.py) : le mode exclusif protège les données de
+    PLANNING dont le solveur dépend (cours, contraintes, préférences...) — pas la gestion des
+    comptes/de la sécurité (connexion, jeton de réinitialisation, appartenance à un groupe), qui
+    doit continuer à fonctionner normalement PENDANT une résolution (ex: le simple fait de
+    consulter /status met à jour last_login_at à chaque requête, voir database.py::
+    current_db_user — bloquer cette écriture cassait le polling de statut lui-même, trouvé en
+    conditions réelles). Exemption tout ou rien PAR FLUSH, pas par écriture individuelle : si les
+    objets en attente sont TOUS exemptés, le flush entier passe ; dès qu'UN SEUL objet ne l'est
+    pas (ex: une écriture mêlée touchant aussi une donnée de planning), le blocage habituel
+    s'applique à tout le flush — plus sûr que de trier écriture par écriture.
     """
     if session.info.get("bypass_exclusive_mode"):
         return
-    if not (session.new or session.dirty or session.deleted):
+    pending = list(session.new) + list(session.dirty) + list(session.deleted)
+    if not pending:
+        return
+    if all(getattr(obj, "__exclusive_mode_exempt__", False) for obj in pending):
         return
     if is_exclusive_mode_active(session):
         raise ExclusiveModeActiveError(

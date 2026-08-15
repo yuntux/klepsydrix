@@ -511,14 +511,168 @@ possible) dans le répertoire COURANT du process — la racine du dépôt, puisq
 lance uvicorn sans `cd` préalable dans `backend/` — jamais nettoyé automatiquement.
 
 **Corrigé** : `constraints.py` appelle explicitement `timefold.solver.init(get_default_jvm_path(),
-"-XX:ErrorFile=<repo_root>/log_jvm/hs_err_pid%p.log")` AVANT le premier `ensure_init()` (qui lève
-`RuntimeError` si appelé après coup, si la JVM est déjà démarrée — d'où l'obligation de le poser
-strictement avant). `<repo_root>` est calculé depuis `Path(__file__)` (pas depuis le `cwd` du
-process) — fiable quel que soit le répertoire d'où le backend est lancé. Vérifié en conditions
-réelles (pas seulement supposé) : `ManagementFactory.getRuntimeMXBean().getInputArguments()` côté
-Java confirme bien `-XX:ErrorFile=.../log_jvm/hs_err_pid%p.log` une fois la JVM démarrée. Le
-répertoire `log_jvm/` est créé à la volée (`Path.mkdir(exist_ok=True)`) ; son contenu (`*.log`) est
-déjà couvert par la règle `*.log` du `.gitignore` racine, aucune entrée dédiée nécessaire.
+"-XX:ErrorFile=<repo_root>/log_jvm/hs_err_pid%p.log", "-Xmx<SOLVER_JVM_MAX_HEAP_MB>m")` AVANT le
+premier `ensure_init()` (qui lève `RuntimeError` si appelé après coup, si la JVM est déjà démarrée —
+d'où l'obligation de le poser strictement avant). `<repo_root>` est calculé depuis `Path(__file__)`
+(pas depuis le `cwd` du process) — fiable quel que soit le répertoire d'où le backend est lancé.
+Vérifié en conditions réelles (pas seulement supposé) : `ManagementFactory.getRuntimeMXBean().
+getInputArguments()` côté Java confirme bien `-XX:ErrorFile=.../log_jvm/hs_err_pid%p.log` et
+`-Xmx2048m` (valeur par défaut) une fois la JVM démarrée. Le répertoire `log_jvm/` est créé à la
+volée (`Path.mkdir(exist_ok=True)`) ; son contenu (`*.log`) est déjà couvert par la règle `*.log` du
+`.gitignore` racine, aucune entrée dédiée nécessaire. Le `-Xmx` (`settings.SOLVER_JVM_MAX_HEAP_MB`,
+défaut 2048 Mo, `.env`) protège contre l'épuisement de la RAM de l'hôte si plusieurs résolutions
+volumineuses tournaient en même temps — voir § G ci-dessous pour la limite qui borne justement ce
+risque en amont.
+
+### G. Concurrence des résolutions — sémaphore global, file d'attente
+
+Timefold s'arrête sur un budget de **temps** (`SOLVER_TIME_LIMIT_SECONDS`/
+`SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS`), pas un nombre d'itérations, et chaque résolution est
+mono-thread côté JVM mais CPU-intensive pendant toute sa durée. Sans limite, une dizaine de bases
+qui demandent une résolution à la même seconde lanceraient une dizaine de threads Java concurrents,
+qui se partageraient les mêmes cœurs CPU — la résolution ne durerait pas plus longtemps (le budget
+de temps reste fixe), mais chacune recevrait proportionnellement moins de calcul RÉEL dans ce même
+budget, donc un score final probablement moins bon pour tout le monde (vérifié empiriquement avant
+d'écrire ce correctif : JPype libère le GIL Python pendant un appel Java bloquant — 4 `Thread.sleep`
+concurrents prennent bien ~2s au total, pas 8s — donc rien n'empêchait techniquement la contention
+CPU réelle de s'installer sans un tel garde-fou).
+
+**`_SOLVE_SEMAPHORE`** (`solver.py`) : sémaphore global (toutes bases confondues, pas par base),
+taille `settings.SOLVER_MAX_CONCURRENT_SOLVES` (défaut : nombre de cœurs de la machine, `.env`) —
+créé une fois au démarrage du process, comme `_SOLVER_FACTORY_CACHE`. Au-delà de cette limite, une
+nouvelle demande passe en file d'attente plutôt que de démarrer immédiatement.
+
+**À quel moment les données sont-elles lues, et l'écriture bloquée ?** — question posée explicitement
+avant l'implémentation, tranchée ainsi : **seulement une fois un emplacement du sémaphore réellement
+obtenu, jamais à l'entrée dans la file.** `_solve_timetable_job` (solver.py) enregistre d'abord le
+statut `QUEUED` (`SolverState.enqueue`), puis attend le sémaphore (boucle `acquire(timeout=0.5)`,
+voir plus bas pour l'annulation) — `enter_exclusive_mode`/`_build_planning_problem` ne sont appelés
+qu'APRÈS cette attente, jamais avant. Deux raisons :
+1. Une base dont la résolution est seulement en attente reste **normalement modifiable** — aucune
+   raison de bloquer l'écriture d'une base qui n'a même pas commencé à résoudre, juste parce que
+   d'autres bases occupent tous les emplacements du sémaphore. Vérifié en conditions réelles (pas
+   seulement supposé) : avec `SOLVER_MAX_CONCURRENT_SOLVES=1`, deux bases en concurrence, un
+   `PATCH /api/generic/teachers/1` sur la base encore `QUEUED` répond bien `200 OK` pendant que
+   l'autre `SOLVING` bloquerait la même requête avec `423`.
+2. Une fois la résolution effectivement lancée, elle travaille toujours sur les données les plus
+   FRAÎCHES à cet instant précis — jamais un instantané pris au moment de la demande, potentiellement
+   périmé après une longue attente derrière d'autres bases.
+
+**Annulation d'une résolution encore en file** (`SolverState.stop_solving`) : `POST /api/timetable/
+stop` essaie d'abord `request_cancel_queued(slug)` — si la base est encore dans `_queue_order`, son
+attente est interrompue (la boucle `acquire(timeout=0.5)` sort dès que `is_cancel_requested` devient
+vrai) SANS jamais avoir lu la base ni bloqué son écriture ; sinon (déjà en cours), retombe sur
+`active_solver.terminate_early()` (comportement inchangé). Vérifié en conditions réelles : annuler une
+base encore `QUEUED` la ramène directement à `NOT_SOLVING`, sans qu'aucune ligne `Solving started`
+n'apparaisse jamais pour elle dans les logs Timefold.
+
+**IHM** (`App.vue::checkStatus`, `TimetableGrid.vue`) : `/api/timetable/status` expose désormais
+`queue_position`/`queue_length` en plus de `status` (`NOT_SOLVING`/`QUEUED`/`SOLVING`). L'overlay de
+chargement affiche « En file d'attente... » + la position pendant `QUEUED`, bascule sur le message de
+calcul + score/temps écoulé une fois `SOLVING`. Un bouton « Arrêter le calcul » apparaît directement
+sous cette information (pas seulement dans la barre d'outils, potentiellement masquée par l'overlay
+lui-même) — émet le même événement `stop-solve` que le bouton « Arrêter » existant, fonctionne aussi
+bien pour annuler une attente que pour interrompre une résolution en cours.
+
+⚠️ **Ce que cette limite NE garantit PAS** : c'est un simple compteur, pas une priorité OS. Tous les
+threads (requêtes API comme résolutions) restent égaux devant l'ordonnanceur Linux — rien n'empêche
+`SOLVER_MAX_CONCURRENT_SOLVES` résolutions simultanées de ralentir l'API par contention CPU (pas de
+blocage dur, juste une latence accrue). Une garantie dure ("l'API reste réactive quoi qu'il arrive")
+nécessiterait d'isoler les résolutions dans un process séparé (cgroups/`nice`, applicables au niveau
+process, jamais à des threads individuels d'un même process) — décision explicite de ne PAS faire ce
+choix pour l'instant, tout reste dans le même process.
+
+**La heatmap (`GET /courses/{id}/heatmap`, `calculate_course_heatmap`) NE PASSE JAMAIS par
+`_SOLVE_SEMAPHORE`/cette file d'attente** — délibéré, question posée explicitement avant de conclure
+(pas juste supposé) : elle n'exécute aucune résolution complète (jamais `solver.solve()`), seulement
+un calcul de score répété sur chaque créneau candidat via `HeatmapEvaluator.
+calculateIsofunctionalHeatmap` — nettement moins coûteux qu'une résolution, et surtout SYNCHRONE
+dans le thread de la requête HTTP (pas un thread d'arrière-plan comme `_solve_timetable_job`) : la
+mettre derrière la même file qu'un solve de plusieurs minutes la ferait attendre potentiellement
+aussi longtemps, alors qu'elle doit rester réactive (appelée en direct par l'IHM au survol/à la
+sélection d'un cours). **Deux queues séparées n'ont donc pas été nécessaires : il n'y en a qu'une
+seule, et la heatmap n'y entre jamais.** Elle reste néanmoins soumise à la contention CPU RÉELLE
+d'une résolution concurrente sur une AUTRE base (même JVM partagée par tout le process) — ralentie
+le cas échéant, jamais mise en attente.
+
+### H. Écritures exemptées du mode exclusif — gestion des comptes et de la sécurité
+
+**Erreur commise puis corrigée, à ne pas reproduire** : une première version faisait échapper
+`last_login_at` (voir § G, le "bug" alors documenté ici) en l'IGNORANT purement et simplement
+pendant le mode exclusif — silencieusement, sans jamais écrire la donnée. Signalé comme faux dès la
+relecture : le mode exclusif protège les données de PLANNING dont le solveur dépend (cours,
+contraintes, préférences...), pas la gestion des comptes ou de la sécurité — ce sont deux
+préoccupations orthogonales. Une connexion, un jeton de réinitialisation de mot de passe, un
+changement d'appartenance à un groupe doivent rester des écritures RÉELLES, y compris pendant une
+résolution en cours ailleurs — jamais des écritures silencieusement perdues.
+
+**Corrigé à la racine** : `__exclusive_mode_exempt__ = True`, posé sur les modèles
+`User`/`UserIdentityProvider` (`models/user.py`), `PasswordResetToken` (`models/
+password_reset_token.py`), `ResGroup`/`IrModelAccess` (`models/access.py`) — lu par
+`core/exclusive_mode.py::_check_exclusive_mode` (le listener `before_flush`, voir § D/§16.F) :
+```python
+pending = list(session.new) + list(session.dirty) + list(session.deleted)
+if all(getattr(obj, "__exclusive_mode_exempt__", False) for obj in pending):
+    return  # tout écrit normalement, mode exclusif ou pas
+```
+Exemption **tout ou rien PAR FLUSH**, pas par écriture individuelle : si TOUS les objets en attente
+sont exemptés, le flush entier passe sans même consulter `is_exclusive_mode_active` ; dès qu'UN SEUL
+objet ne l'est pas (une écriture mêlant, par exemple, une donnée de compte et une donnée de
+planning dans le même flush), le blocage habituel s'applique à tout le flush — plus sûr que de
+trier écriture par écriture au sein d'un même flush.
+
+Vérifié en conditions réelles (pas seulement supposé) : une écriture sur un modèle exempté (voir §I
+juste en dessous — `login_local`, qui met à jour `last_login_at`) réussit bien pendant qu'une
+résolution est active sur cette même base ; aucune `ExclusiveModeActiveError`/500 sur ce chemin.
+
+### I. `last_login_at` — date du dernier PARCOURS DE CONNEXION, pas de la dernière requête
+
+**Deuxième erreur, distincte de celle du § H, sur le même champ** : le correctif du § H avait bien
+réglé le blocage par le mode exclusif, mais laissait intacte la cause racine du problème —
+`current_db_user` (`database.py`) mettait à jour `last_login_at` sur **CHAQUE requête authentifiée**
+pour une identité déjà connue de la base, y compris un simple `GET /api/timetable/status` pollé
+toutes les 3 secondes. Signalé en relecture : `last_login_at` désigne la date du dernier PARCOURS DE
+CONNEXION (soumission du formulaire local, ou retour du fournisseur OIDC) — jamais une date
+"dernière requête vue", que `current_db_user` (une dépendance qui tourne sur PRESQUE toutes les
+routes, voir `main.py`) n'a de toute façon aucune raison de connaître.
+
+**Décalage constaté ensuite entre local et OIDC, et corrigé à la racine** : une première version de
+ce correctif faisait avancer `last_login_at` directement dans `login_local` — correct pour le
+provider local (qui connaît la base dès la connexion, voir §17.F), mais sans aucun équivalent pour
+OIDC, qui authentifie au niveau INSTANCE, avant tout choix de base (`oidc_callback` ne touche jamais
+le `UserIdentityProvider` d'une base précise). Signalé comme un décalage à ne pas garder tel quel —
+corrigé en unifiant les deux providers derrière **un seul mécanisme, porté par la session
+elle-même** plutôt que dupliqué par provider :
+
+- `InstanceSession` (`core/instance_session.py`) porte désormais un champ `logged_in_at` — fixé
+  **une seule fois**, par `set_session_cookie`, au moment du VRAI parcours de connexion
+  (`login_local`, `oidc_callback`, `login_master`). La fenêtre glissante (§17.D) le REPORTE tel quel
+  à chaque réémission du cookie (`require_instance_session`) — un glissement d'inactivité n'est pas
+  une reconnexion, `logged_in_at` ne doit pas en être affecté.
+- `current_db_user` (`database.py`), pour une identité déjà connue de la base, compare
+  `idp.last_login_at` à `session.logged_in_at` : si plus ancien (ou `None`), il avance
+  `last_login_at` sur la valeur de la SESSION (pas `datetime.now()`, pour que l'horodatage reflète
+  le moment réel du login, pas celui — potentiellement un peu plus tardif — de la première
+  résolution sur cette base précise) — une seule fois par connexion, quelle que soit la base,
+  **local et OIDC traités de façon identique**, sans code séparé pour chacun.
+- `login_local` n'écrit donc plus RIEN elle-même : dès la requête suivante sur cette base (le
+  rechargement de page qui suit immédiatement le login), `current_db_user` s'en charge via le
+  mécanisme générique ci-dessus.
+
+**Corrigé au passage, trouvé en creusant ce décalage** : `oidc_callback` déclarait `db: Session =
+Depends(get_db)` sans jamais l'utiliser dans son corps — vestige qui exigeait l'en-tête
+`X-Klepsydrix-Database` (`resolve_database`, sinon `428`) alors que ce callback est atteint par une
+redirection NAVIGATEUR classique (retour du fournisseur d'identité), qui ne peut porter aucun
+en-tête personnalisé. Ce chemin était donc structurellement inatteignable tel quel. Retiré — ce
+callback n'a de toute façon besoin d'aucune base (il opère au niveau instance). Vérifié en
+conditions réelles : `curl` direct sur `/api/auth/oidc/callback/educonnect` échoue désormais sur
+`MismatchingStateError` (Authlib, attendu — CSRF `state` absent hors du vrai flux de redirection),
+plus sur le `428 DATABASE_REQUIRED` d'avant ce correctif.
+
+Vérifié en conditions réelles (provider local, le seul testable sans dépendance externe) :
+`last_login_at` avance à la connexion, reste STRICTEMENT identique après plusieurs requêtes
+authentifiées supplémentaires sans nouvelle connexion, puis avance de nouveau après une seconde
+connexion réelle.
 
 ---
 

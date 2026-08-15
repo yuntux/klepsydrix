@@ -62,6 +62,11 @@ def login_local(payload: LocalLoginPayload, request: Request, response: Response
         logger.warning("Échec de connexion locale depuis %s (base : %s, identifiant : %s)", ip, slug, payload.identifier)
         raise HTTPException(status_code=401, detail="Identifiant ou mot de passe incorrect.")
 
+    # last_login_at n'est PAS mise à jour ici — mécanisme générique désormais commun à local ET
+    # OIDC (voir database.py::current_db_user, architecture.md §9.I) : dès la prochaine requête sur
+    # cette base (le rechargement de page qui suit immédiatement ce login), current_db_user la fait
+    # avancer à session.logged_in_at, fixé par set_session_cookie ci-dessous.
+
     # identifier sert aussi d'email pour le pré-appariement par email (voir database.py::
     # current_db_user) : convention du provider local, ses identifiants sont par nature des emails.
     set_session_cookie(response, provider_key="local", subject=payload.identifier, email=payload.identifier)
@@ -124,12 +129,22 @@ async def oidc_login(provider_key: str, request: Request, next: str = "/"):
 
 
 @router.get("/oidc/callback/{provider_key}", name="oidc_callback")
-async def oidc_callback(provider_key: str, request: Request, response: Response, next: str = "/", db: Session = Depends(get_db)):
+async def oidc_callback(provider_key: str, request: Request, response: Response, next: str = "/"):
     """
     ⚠️ Non vérifié contre un vrai fournisseur OIDC (EduConnect n'est configuré qu'avec des
     paramètres fictifs dans instance.example.yaml, voir architecture.md) — implémentation Authlib
     standard (échange de code, validation id_token), à valider dès qu'un vrai fournisseur est
     disponible.
+
+    Pas de dépendance `db`/`get_db` ici (contrairement à login_local) — délibéré, pas un oubli :
+    ce callback opère au niveau INSTANCE, avant tout choix de base (voir architecture.md §17.F),
+    donc n'a besoin de résoudre aucune base. Une version antérieure déclarait
+    `db: Session = Depends(get_db)` sans jamais l'utiliser dans son corps — vestige qui exigeait
+    l'en-tête X-Klepsydrix-Database (voir database.py::resolve_database) alors que ce callback est
+    atteint par une redirection NAVIGATEUR classique (retour du fournisseur d'identité), qui ne
+    peut porter aucun en-tête personnalisé. Corrigé : ce chemin est désormais réellement atteignable
+    (voir architecture.md §9.I pour l'historique complet de ce correctif, trouvé en creusant le
+    décalage last_login_at entre local et OIDC, pas par un test dédié).
     """
     client = oauth.create_client(provider_key)
     if client is None:

@@ -30,6 +30,9 @@ res_group_users = Table(
 
 class ResGroup(Base):
     __tablename__ = "res_groups"
+    # Gestion des utilisateurs/de la sécurité, orthogonale aux données de planning que le mode
+    # exclusif protège — voir User.__exclusive_mode_exempt__ (models/user.py), core/exclusive_mode.py.
+    __exclusive_mode_exempt__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, info={"label": "Nom du groupe"})
@@ -52,6 +55,8 @@ class ResGroup(Base):
 
 class IrModelAccess(Base):
     __tablename__ = "ir_model_access"
+    # Voir ResGroup.__exclusive_mode_exempt__ ci-dessus.
+    __exclusive_mode_exempt__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     model: Mapped[str] = mapped_column(String(100), nullable=False, index=True, info={"label": "Modèle (nom de table)"})
