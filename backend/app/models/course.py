@@ -181,7 +181,7 @@ class Course(Base):
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["RefPacteMission"]] = relationship("RefPacteMission", back_populates="courses")
-    election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod", back_populates="courses")
+    election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
     
