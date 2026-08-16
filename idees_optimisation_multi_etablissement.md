@@ -112,7 +112,7 @@ Comparaison :
   * Inconvénient : Deux fichiers d'interface à gérer, et double compilation java à chaque modification du solver.
 
 **Étape pour mettre en place ce paradigme 6** :
-1. **Chantier de réorganisation du code :**
+1. **Chantier préalable de réorganisation du code et traduction des contraintes en java :**
   1.1 S'assurer que les tests unitaire de constriant.py et solver.py sont robustes et totalement couvrants. Les compléter si nécessaire.
   1.2 Traduire contraint.py en contraint.java et solver.py en solver.java. Exécuter tous les tests unitaires pour s'assurer de la non régression lors dde la traduction Python > Java. **Point à clarifier : peut-on garder tous les tests unitaires côté python ou faut-il en recoder une partie en java (ne agrder que les tests d'intégration côté Python), et si oui pour quel coût en temps lors de la modif du code java ?**
   1.3 Adapter solver.py pour qu'il soit réduit à construire le dictionnaire du problème et à appeler le solveur Java (en local), et à écrire les résultats en base, et à faire passe-plat vers le solver.java pour les fonctions stop / step...
@@ -124,6 +124,7 @@ Comparaison :
   2.4 Ajouter au code java l'interface pour wasm.
   2.5 Compiler le code java en wasm en utilisant graalvm
   2.6 Tester le solving en local et coder un test Playright qui vérifie que les deux modes de calcul (local ou serveur) fonctionnent.
+  2.7 Calculer et documenter le **gain** de temps de réponse de bout en bout pour la heatmap entre le solving serveur et le solving local via un ensemble de test Playright (moyenne des gains sur 20 répétitions).
 3. **Chantier d'extention à l'option 2 : solving server avec mini-serveur gRPC**
   3.1 Ajouter au code java l'interface gRPC.
   3.2 Adapter solver.py pour qu'il appelle le solver java via gRPC (au lieu de l'appeler via le pontage Python/Java existant).
@@ -132,6 +133,7 @@ Comparaison :
   3.5 Adapter le script start_services.sh pour qu'il lance le server java.
   3.6 Tester le solving en utilisant le mini-serveur java. Les tests python existant permettent déjà de garantir la non régression.
   3.7 Garantir des ressources CPU/RAM au processus sytème Pyhton qui porte l'API.
+  3.8 Calculer et documenter la **perte** de temps de réponse de bout en bout pour la heatmap entre le solving serveur via gRPC et le solving serveur via le pontage Python/Java existant (moyenne des gains sur 20 répétitions). Faire la mesure dans le code Python.
 
 
 ## 5. Notes transversales aux paradigmes 5 et 6
