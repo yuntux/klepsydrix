@@ -2638,7 +2638,98 @@ sauvegarder → restaurer → supprimer une base jetable) vérifié via curl ET 
 suppression désactivée tant que la ressaisie ne correspond pas exactement au nom de la base,
 déconnexion, redirection `/admin` → `/login` sans session.
 
-## 20. Idées pour Plus Tard
+## 20. Affectation Automatique des Besoins aux Professeurs — Algorithme Classique (Flot à Coût Minimal)
+
+Module d'automatisation de la phase pré-rentrée (`backend/app/solver/teacher_assignment.py` +
+`backend/app/models/wizard_teacher_assignment.py`) qui propose une affectation `Teacher` →
+`Service` (non verrouillé) sur l'ensemble de l'établissement. Historique de conception complet :
+`specs/002-yearly-timetabling-core/teacher-assignment-proposal.md`. Argumentaire classique vs
+Timefold : `spec.md`, section « Affectation automatique des besoins aux professeurs ».
+
+### A. Pourquoi un flot à coût minimal, pas un glouton
+
+Le problème est un transport/affectation généralisée sous capacité (besoins pondérés par
+`Service` × discipline, professeurs à capacité bornée), pas un problème de planification
+temporelle — aucun lien avec Timefold, aucune entité de planification, aucun score. L'exigence
+produit déterminante est la **minimisation globale des HSA** de l'établissement : un glouton par
+ordre de priorité ne la garantit pas (un besoin traité en premier peut accaparer un professeur
+préféré sans en avoir réellement besoin, gâchant sa capacité et forçant un besoin suivant à
+déborder en HSA évitable — l'ordre de traitement change le résultat). Un flot à coût minimal à
+deux paliers de capacité par professeur la garantit **par construction**, indépendamment de tout
+ordre de traitement : le palier « normal » (coût quasi nul) est nécessairement saturé avant que la
+moindre unité de flot ne passe par le palier HSA (coût volontairement écrasant, dominant toute
+combinaison de coûts de priorité/compatibilité horaire à l'intérieur d'un même palier).
+
+### B. Structure du graphe
+
+- Un nœud « besoin » par `Service` non verrouillé, alimenté par `SOURCE` à hauteur du besoin
+  pondéré (`Σ ServiceRepartition.weighted_need_weekly_duration_minutes`), avec un arc de secours
+  systématique vers un puits « non couvert » (coût le plus élevé des trois paliers) — le flot
+  reste toujours faisable même quand aucun professeur qualifié n'a de capacité disponible ; un
+  besoin non couvert devient un avertissement, jamais une exception.
+- Un nœud « palier 1 » par couple (professeur, discipline), capacité = `assignable_capacity(T, D)`
+  (voir §C), coût quasi nul.
+- Un nœud « pool HSA » par professeur, **partagé entre toutes ses disciplines** (le débordement de
+  chaque palier 1 y converge), capacité = `Teacher.max_hsa_duration_minutes`, coût écrasant.
+- Un nœud intermédiaire par (professeur, niveau) borne le **nombre de divisions distinctes** (pas
+  un volume horaire) via `TeacherGradePreference.max_class_count` — capacité entrante = ce
+  plafond, subdivisée en un arc de capacité 1 par division du niveau.
+- Arêtes besoin → professeur uniquement entre disciplines qualifiées (`TeacherDiscipline`).
+- Coût pairwise = priorité de niveau (`TeacherGradePreference.priority`, 1 à 5) + un signal de
+  compatibilité horaire (proportion de créneaux `Unsuited` en commun entre le professeur et la
+  division, via `ResourcePreference`) — un coût d'arête, pas une garantie de faisabilité (cette
+  garantie reste le rôle de `COURSE_PLACEMENT`, en aval).
+
+Résolu via `networkx.min_cost_flow` (seule nouvelle dépendance de ce module, `backend/
+requirements.txt`) — le sous-problème reste petit (échelle d'un établissement, pas de dimension
+temporelle), un flot à coût minimal s'y résout instantanément.
+
+### C. Capacité palier 1 — cohérence avec le TRMD
+
+`assignable_capacity(T, D) = discipline_duration_minutes − ara_duration_minutes +
+are_duration_minutes − other_school_duration_minutes`, calculée sous le contexte ambiant
+`db.filter_discipline_id` (même mécanisme que `trmd_synthesis.py`, voir §15.G) — ARA/ARE/CSD sont
+attribuées à la discipline majeure du professeur par ce même mécanisme, sans code spécifique.
+Cohérente terme à terme avec `TrmdLine.def_teached_duration_minutes`/`def_given_duration_minutes`
+(ARA et CSD soustraits, identique) — une seule divergence assumée : ARE, ajoutée ici (jamais
+décrémentée), quand le TRMD la range côté besoin plutôt que côté ressource (raisonnement en masse
+par discipline, pas du point de vue d'un professeur précis affecté à un `Service` réel). Ce
+plafond est un **plafond heuristique** qui guide le flot — il n'a pas besoin d'être l'image miroir
+exacte de `Teacher.hsa_duration_minutes`, qui est une vérité rétrospective calculée sur les
+`Course` réels une fois l'affectation faite, pas une entrée du flot.
+
+### D. Réparation par re-résolution contrainte (incompatibilités, plafond de classes)
+
+Les incompatibilités entre professeurs (portée : jamais dans la même équipe pédagogique, donc
+jamais deux professeurs incompatibles affectés à des `Service` de la même division) et le
+dépassement de `TeacherGradePreference.max_class_count` ne sont pas représentables proprement dans
+le graphe de flot (couplage entre décisions simultanées sur une même division/un même niveau).
+Traités par une passe de réparation après résolution, **pas par un essai heuristique borné** :
+interdire temporairement l'arête du professeur en conflit et **relancer la résolution complète**
+du flot sous cette contrainte. Un flot à coût minimal est un algorithme exact : s'il existe une
+réaffectation possible — même en cascade sur plusieurs professeurs — le solveur la trouve
+nativement, sans recherche combinatoire séparée à écrire. Si ça échoue, tentative symétrique sur
+l'autre professeur du conflit. Seulement si les deux tentatives échouent — une certitude garantie
+par l'optimalité du flot, pas une estimation — le conflit est surfacé comme avertissement à
+l'utilisateur, non bloquant. Garde-fou implémenté : une "résolution" qui laisse le service du
+professeur interdit sans aucun remplaçant n'en est pas une (transformerait silencieusement le
+conflit en besoin non couvert) — vérifié explicitement avant d'accepter une réparation.
+
+### E. Wizard (simulate/apply) et aperçu de liste transitoire
+
+`WizardTeacherAssignment` (`TransientModel` + `__actions__`, même patron que
+`WizardCourseGeneration`) : trois étapes — simulation (`rpc_simulate`, ne modifie rien en base),
+review (`rpc_apply`, écrit dans `Service.teacher_ids`, ignore tout `Service` verrouillé
+entre-temps), résultat. L'étape de review affiche les propositions via un nouveau type de champ
+`list_preview` (`frontend/src/components/widgets/ListPreviewField.vue`) — un aperçu de lignes déjà
+en mémoire (jamais récupérées depuis `/api/generic/{resource}`), habillage léger autour de
+`GenericList` : **aucun changement n'a été nécessaire dans `GenericList.vue`**, qui ne fait déjà
+que rendre le tableau `items` qu'on lui donne (aucune logique de fetch n'y vit, c'est toujours
+l'appelant qui la porte) — la sélection multiple déjà existante de `GenericList` (cases à cocher,
+toutes cochées par défaut) est détournée en "à valider" plutôt qu'en action groupée classique :
+décocher une ligne la retire de `modelValue`, donc de ce que `rpc_apply` recevra à la validation.
+
+## 21. Idées pour Plus Tard
 
 Pistes identifiées mais délibérément écartées du périmètre actuel — à reconsidérer si le contexte
 qui les rend inutiles aujourd'hui change.

@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 from typing import Optional, Any
 import enum
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event, JSON
+from sqlalchemy import Column, Integer, Float, String, ForeignKey, Boolean, Text, select, Enum, Table, event, JSON
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, exposed, constrains, onchange, requires_access
@@ -147,6 +147,12 @@ class Course(Base):
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "duration"})
+    # Copié depuis Service.weighting_coefficient à la génération (voir wizard_course_generation.py)
+    # — jamais une FK vivante vers Service (Course n'en a et ne doit pas en avoir, cohérent avec le
+    # reste de la génération, qui copie plutôt que référence). Reste à 1.0 pour un cours créé
+    # manuellement, sans Service d'origine. Sert au calcul de weighted_duration_minutes ci-dessous,
+    # consommé par Teacher.hsa_duration_minutes (voir teacher-assignment-proposal.md §6).
+    weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
     name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Nom / Libellé", "placeholder": "ex: Cours de maths avancé"})
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True, info={"label": "Mémo / Note interne"})
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})
@@ -207,6 +213,11 @@ class Course(Base):
             return False
         except ValueError:
             return True
+
+    @exposed(info={"label": "Durée pondérée", "type": "duration", "readOnly": True})
+    @property
+    def weighted_duration_minutes(self) -> int:
+        return round(self.duration_minutes * self.weighting_coefficient)
 
     @exposed
     @property

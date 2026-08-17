@@ -12,6 +12,7 @@ from backend.app.models.trmd_budget import TrmdBudget
 from backend.app.models.ref_classroom_type import RefClassroomType
 from backend.app.models.classroom import Classroom
 from backend.app.models.teacher import Teacher, TeacherAra, TeacherAre, TeacherDiscipline, TeacherParticularMission, TeacherPacteMission, TeacherOtherSchool
+from backend.app.models.teacher_grade_preference import TeacherGradePreference
 from backend.app.models.division import Division
 from backend.app.models.material import Material
 from backend.app.models.ref_election_method import RefElectionMethod

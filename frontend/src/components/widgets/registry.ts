@@ -21,6 +21,7 @@ import CourseCompositionPreview from './CourseCompositionPreview.vue';
 import SystemSettingValueField from './SystemSettingValueField.vue';
 import ImageField from './ImageField.vue';
 import RelationBrowserField from './RelationBrowserField.vue';
+import ListPreviewField from './ListPreviewField.vue';
 
 export type WidgetContext = 'list' | 'form';
 
@@ -43,6 +44,10 @@ const REGISTRY: Record<string, WidgetRegistryEntry> = {
   // many2many_ordered_list, ce n'est qu'un bouton compact ouvrant une popin, adapté à une cellule
   // de tableau comme à un champ de formulaire.
   relation_browser: { component: RelationBrowserField, contexts: ['list', 'form'] },
+  // Aperçu de liste transitoire (lignes déjà en mémoire, jamais fetchées) — voir
+  // ListPreviewField.vue. 'form' uniquement : utilisé comme champ d'étape de wizard
+  // (GenericWizard.vue délègue déjà à GenericForm, même contrat que tout autre widget de champ).
+  list_preview: { component: ListPreviewField, contexts: ['form'] },
 };
 
 export function getWidgetForContext(name: string | undefined, context: WidgetContext): any {

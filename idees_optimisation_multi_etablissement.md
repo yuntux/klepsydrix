@@ -112,26 +112,45 @@ Comparaison :
   * Inconvénient : Deux fichiers d'interface à gérer, et double compilation java à chaque modification du solver.
 
 **Étape pour mettre en place ce paradigme 6** :
+
+⚠️ Depuis la première rédaction de ce plan, un second domaine Timefold a été ajouté au projet :
+`room_constraints.py`/`room_solver.py` (domaine CLASSROOM_ASSIGNMENT — attribution des salles,
+exécuté après le placement horaire), à côté du domaine historique `constraints.py`/`solver.py`
+(COURSE_PLACEMENT). `room_constraints.py` réutilise des entités Timefold définies dans
+`constraints.py` (`PlanningClassroom`, `PlanningPreference`) — les deux domaines sont donc liés,
+pas indépendants. Le plan ci-dessous couvre désormais les deux.
+
 1. **Chantier préalable de réorganisation du code et traduction des contraintes en java :**
-  1.1 S'assurer que les tests unitaire de constriant.py et solver.py sont robustes et totalement couvrants. Les compléter si nécessaire.
-  1.2 Traduire contraint.py en contraint.java et solver.py en solver.java. Exécuter tous les tests unitaires pour s'assurer de la non régression lors dde la traduction Python > Java. **Point à clarifier : peut-on garder tous les tests unitaires côté python ou faut-il en recoder une partie en java (ne agrder que les tests d'intégration côté Python), et si oui pour quel coût en temps lors de la modif du code java ?**
-  1.3 Adapter solver.py pour qu'il soit réduit à construire le dictionnaire du problème et à appeler le solveur Java (en local), et à écrire les résultats en base, et à faire passe-plat vers le solver.java pour les fonctions stop / step...
-  1.4 S'assurer que tout fonctionne correctement.
+  1.1 S'assurer que les tests unitaires de `constraints.py`/`solver.py` (COURSE_PLACEMENT) ET de
+      `room_constraints.py`/`room_solver.py` (CLASSROOM_ASSIGNMENT) sont robustes et totalement
+      couvrants. Les compléter si nécessaire.
+  1.2 Traduire `constraints.py` en `constraints.java` et `solver.py` en `solver.java`, PUIS
+      `room_constraints.py` en `room_constraints.java` et `room_solver.py` en `room_solver.java`
+      — dans cet ordre, puisque `room_constraints.py` dépend d'entités déjà définies dans
+      `constraints.py`. Exécuter tous les tests unitaires après chaque traduction pour s'assurer
+      de la non régression lors de la traduction Python > Java, pour les deux domaines. **Point à
+      clarifier : peut-on garder tous les tests unitaires côté python ou faut-il en recoder une
+      partie en java (ne garder que les tests d'intégration côté Python), et si oui pour quel coût
+      en temps lors de la modif du code java ?**
+  1.3 Adapter `solver.py` ET `room_solver.py` pour qu'ils soient réduits à construire le
+      dictionnaire du problème et à appeler le solveur Java correspondant (en local), à écrire les
+      résultats en base, et à faire passe-plat vers le Java pour les fonctions stop / step...
+  1.4 S'assurer que tout fonctionne correctement, pour les deux domaines.
 2. **Chantier d'implémentation de l'option 1 : solving local wasm**
   2.1 Dans la classe Global settings du backend, ajouter un attribut qui permet de choisir si le solving se fait en local (wasm dans le navigateur) ou sur le serveur.
   2.2 Dans le frontend, créer une couche d'abstration qui gère le choix de l'utilisateur et appelle le solveur local ou le solveur serveur. Conformément au chapitre 5, si le solving se fait en local, et que l'on souhaite calculer la heatmap, le frontend construit lui-même le dictionnaire du problème. Sinon, il demande au serveur le dictionnaire du problème.
   2.3 Ajouter un mécanisme qui permet au frontend de recharger le module wasm s'il a évoluer (gérer un hash ou un numéro de version du module wasm)
-  2.4 Ajouter au code java l'interface pour wasm.
-  2.5 Compiler le code java en wasm en utilisant graalvm
-  2.6 Tester le solving en local et coder un test Playright qui vérifie que les deux modes de calcul (local ou serveur) fonctionnent.
+  2.4 Ajouter au code java l'interface pour wasm, pour les deux domaines (COURSE_PLACEMENT et CLASSROOM_ASSIGNMENT).
+  2.5 Compiler le code java des deux domaines en wasm en utilisant graalvm.
+  2.6 Tester le solving en local (les deux domaines) et coder un test Playright qui vérifie que les deux modes de calcul (local ou serveur) fonctionnent.
   2.7 Calculer et documenter le **gain** de temps de réponse de bout en bout pour la heatmap entre le solving serveur et le solving local via un ensemble de test Playright (moyenne des gains sur 20 répétitions).
 3. **Chantier d'extention à l'option 2 : solving server avec mini-serveur gRPC**
-  3.1 Ajouter au code java l'interface gRPC.
-  3.2 Adapter solver.py pour qu'il appelle le solver java via gRPC (au lieu de l'appeler via le pontage Python/Java existant).
-  3.3 Ajouter un mécanisme qui permet au solver Java de pousser la progression du calcul au solver.py.
-  3.4 Compiler le code java en .jar de façon optimale pour la JVM.
+  3.1 Ajouter au code java l'interface gRPC, pour les deux domaines.
+  3.2 Adapter solver.py ET room_solver.py pour qu'ils appellent le solver java correspondant via gRPC (au lieu de l'appeler via le pontage Python/Java existant).
+  3.3 Ajouter un mécanisme qui permet au solver Java de pousser la progression du calcul au solver.py, pour les deux domaines.
+  3.4 Compiler le code java des deux domaines en .jar de façon optimale pour la JVM.
   3.5 Adapter le script start_services.sh pour qu'il lance le server java.
-  3.6 Tester le solving en utilisant le mini-serveur java. Les tests python existant permettent déjà de garantir la non régression.
+  3.6 Tester le solving en utilisant le mini-serveur java, pour les deux domaines. Les tests python existant permettent déjà de garantir la non régression.
   3.7 Garantir des ressources CPU/RAM au processus sytème Pyhton qui porte l'API.
   3.8 Calculer et documenter la **perte** de temps de réponse de bout en bout pour la heatmap entre le solving serveur via gRPC et le solving serveur via le pontage Python/Java existant (moyenne des gains sur 20 répétitions). Faire la mesure dans le code Python.
 

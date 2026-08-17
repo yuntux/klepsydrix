@@ -166,10 +166,10 @@ def seed_demo_data():
             last_name = f"Teacher_{i}"
             code = f"T{i}"
             db.execute(text(
-                "INSERT INTO teachers (code, first_name, last_name, max_weekly_hours, school_id, "
+                "INSERT INTO teachers (code, first_name, last_name, max_hsa_duration_minutes, school_id, "
                 "photo_diffusion_authorized, phone_diffusion_authorized, email_diffusion_authorized, "
                 "is_board_member, is_temporary_support) "
-                "VALUES (:code, :first_name, :last_name, 18.0, :school_id, 0, 0, 0, 0, 0)"
+                "VALUES (:code, :first_name, :last_name, 120, :school_id, 0, 0, 0, 0, 0)"
             ), {"code": code, "first_name": first_name, "last_name": last_name, "school_id": school_idx})
             db.commit()
             t_id = db.execute(text("SELECT id FROM teachers WHERE code = :code"), {"code": code}).scalar()
@@ -178,7 +178,7 @@ def seed_demo_data():
         # 8a2. Rattachement à une discipline (TeacherDiscipline) : chaque enseignant doit toujours
         # être rattaché à au moins une discipline (Volet C, "discipline obligatoire partout" —
         # évite une ligne "Sans discipline" dans le TRMD, voir architecture.md) — répartition
-        # round-robin sur les disciplines nationales, 18h/semaine (= max_weekly_hours) par défaut.
+        # round-robin sur les disciplines nationales, apport de 18h/semaine par défaut.
         discipline_codes = list(discipline_ids.keys())
         for idx, (t_id, _school_idx) in enumerate(teachers):
             d_id = discipline_ids[discipline_codes[idx % len(discipline_codes)]]
@@ -186,6 +186,21 @@ def seed_demo_data():
                 "INSERT INTO teacher_disciplines (teacher_id, discipline_id, duration_minutes) "
                 "VALUES (:teacher_id, :discipline_id, 1080)"
             ), {"teacher_id": t_id, "discipline_id": d_id})
+        db.commit()
+
+        # 8a3. TeacherGradePreference (voir teacher_grade_preference.py) : le seed insère en SQL
+        # brut, donc ne passe jamais par Teacher.create()/RefGrade.create() — la cascade qui
+        # génère normalement une ligne par (professeur, niveau) ne se déclenche donc pas ici (même
+        # raison que teacher_disciplines juste au-dessus, cohérent avec le reste du seed qui
+        # contourne systématiquement la logique métier ORM). On reproduit donc à la main ce que la
+        # cascade aurait produit : priorité neutre 2, aucun plafond de classes, pour chaque couple.
+        ref_grade_ids = [row[0] for row in db.execute(text("SELECT id FROM ref_grades")).all()]
+        for t_id, _school_idx in teachers:
+            for rg_id in ref_grade_ids:
+                db.execute(text(
+                    "INSERT INTO teacher_grade_preferences (teacher_id, ref_grade_id, priority) "
+                    "VALUES (:teacher_id, :ref_grade_id, 2)"
+                ), {"teacher_id": t_id, "ref_grade_id": rg_id})
         db.commit()
 
         # 8b. Création de personnel non enseignant (AESH, Labo, etc.)
@@ -289,8 +304,8 @@ def seed_demo_data():
             db.execute(text(
                 "INSERT INTO services (mef_service_id, mef_division_id, subject_id, discipline_id, election_method_id, student_count, "
                 "weighting_coefficient, weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, "
-                "weekly_duration_split_minutes, alignment_id) "
-                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, :alignment_id)"
+                "weekly_duration_split_minutes, alignment_id, teachers_locked) "
+                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, :alignment_id, 0)"
             ), {"mef_service_id": mef_service_6_id, "mef_division_id": mef_division_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "election_method_id": election_method_s_id, "alignment_id": alignment_id})
             db.commit()
             service_id = db.execute(text("SELECT id FROM services WHERE mef_division_id = :mef_division_id"), {"mef_division_id": mef_division_id}).scalar()
@@ -422,8 +437,8 @@ def seed_demo_data():
                 duration = 60
 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
+                    "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :duration_minutes, 1.0, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "duration_minutes": duration,
@@ -474,8 +489,8 @@ def seed_demo_data():
 
             # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
             db.execute(text(
-                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, election_method_id, parent_timeslot_offset) "
-                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', :election_method_id, 0)"
+                "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, election_method_id, parent_timeslot_offset) "
+                "VALUES (NULL, 90, 1.0, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', :election_method_id, 0)"
             ), {"school_id": s_id, "election_method_id": election_method_s_id})
             parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
             course_count += 1
@@ -497,8 +512,8 @@ def seed_demo_data():
                 duration = 90
 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
+                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :parent_id, :duration_minutes, 1.0, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "parent_id": parent_id,
@@ -519,8 +534,8 @@ def seed_demo_data():
                 t_id = random.choice(teacher_pool)
 
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, 60, 0, 0, :week_type, 0, 0, :school_id, :election_method_id, 0)"
+                    "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, 60, 1.0, 0, 0, :week_type, 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "week_type": w_type,

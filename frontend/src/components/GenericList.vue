@@ -387,6 +387,13 @@ interface ListConfig {
   disableAdd?: boolean;
   disableDelete?: boolean;
   disableEditModal?: boolean;
+  // Sélectionne toutes les lignes par défaut dès leur premier chargement (voir le watch sur
+  // `items` plus bas) — défaut false, sans effet si allowMultiSelect est false. Premier
+  // consommateur : ListPreviewField.vue (widget "list_preview", étape de review du wizard
+  // d'affectation des professeurs), où tout est proposé pré-coché et l'utilisateur décoche ce
+  // qu'il veut exclure — mais c'est un paramètre générique de listConfig, réutilisable par
+  // n'importe quel autre panneau/widget qui voudrait le même comportement.
+  selectAllLine?: boolean;
   // Affiche une ligne de total en pied de tableau, sommant chaque colonne numérique affichée (voir
   // ColumnConfig.hideTotal pour exclure une colonne précise) — somme sur les lignes actuellement
   // affichées (displayedItems), pas sur l'ensemble filtré.
@@ -939,18 +946,29 @@ watch(selectedIds, (newVal) => {
 const hasAppliedInitialSelection = ref(false);
 watch(() => props.items, (newItems) => {
   if (hasAppliedInitialSelection.value) return;
-  if (!props.initialSelectedIds || props.initialSelectedIds.length === 0) return;
   if (!newItems || newItems.length === 0) return;
-  const validIds = newItems
-    .map(item => item.id)
-    .filter(id => props.initialSelectedIds!.some(rid => String(rid) === String(id)));
-  hasAppliedInitialSelection.value = true;
-  emit('initial-selection-applied');
-  if (validIds.length === 0) return;
-  // Une vue non multi-sélectionnable ne garde jamais que la première valeur valide, comme pour
-  // un simple clic (voir onRowClick) — sans quoi une URL fournissant plusieurs ids sur une liste
-  // à sélection unique laisserait un Set incohérent avec ce que l'UI peut normalement produire.
-  selectedIds.value = new Set(isMultiSelectAllowed.value ? validIds : validIds.slice(0, 1));
+
+  if (props.initialSelectedIds && props.initialSelectedIds.length > 0) {
+    const validIds = newItems
+      .map(item => item.id)
+      .filter(id => props.initialSelectedIds!.some(rid => String(rid) === String(id)));
+    hasAppliedInitialSelection.value = true;
+    emit('initial-selection-applied');
+    if (validIds.length === 0) return;
+    // Une vue non multi-sélectionnable ne garde jamais que la première valeur valide, comme pour
+    // un simple clic (voir onRowClick) — sans quoi une URL fournissant plusieurs ids sur une liste
+    // à sélection unique laisserait un Set incohérent avec ce que l'UI peut normalement produire.
+    selectedIds.value = new Set(isMultiSelectAllowed.value ? validIds : validIds.slice(0, 1));
+    return;
+  }
+
+  // listConfig.selectAllLine (voir son commentaire dans l'interface ListConfig) : à défaut de
+  // restauration depuis l'URL, sélectionne tout par défaut — sans effet si le multi-select est
+  // désactivé, une vue à sélection unique n'a pas de notion cohérente de "tout sélectionné".
+  if (props.listConfig?.selectAllLine && isMultiSelectAllowed.value) {
+    hasAppliedInitialSelection.value = true;
+    selectedIds.value = new Set(newItems.map(item => item.id));
+  }
 }, { immediate: true });
 
 // Pagination

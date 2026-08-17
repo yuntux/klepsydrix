@@ -180,7 +180,6 @@ def test_teacher_constraints_crud(db_session: Session):
         "first_name": "Pedro",
         "last_name": "Martinez",
         "name": "M. Martinez",
-        "max_weekly_hours": 18.0,
         "school_id": school.id,
         # Contraintes:
         "max_hours_per_day": 8.0,

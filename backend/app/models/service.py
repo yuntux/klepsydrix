@@ -3,7 +3,7 @@ import math
 import random
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
-from sqlalchemy import Column, Integer, Float, String, ForeignKey, Table, Enum
+from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey, Table, Enum
 from backend.app.models.base import Base, constrains, exposed, related_field
 
 service_teachers = Table(
@@ -89,6 +89,12 @@ class Service(Base):
 
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif", "min": 0, "max": 50})
     weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
+    # Verrouillage explicite pour l'algorithme d'affectation automatique des professeurs (voir
+    # backend/app/solver/teacher_assignment.py, teacher-assignment-proposal.md §4.5) : quand True,
+    # l'algorithme n'écrit jamais dans Service.teachers pour cette ligne, qu'elle soit vide ou déjà
+    # pourvue (couvre aussi le verrouillage partiel d'un co-enseignement). Purement une consigne
+    # pour cet algorithme précis — n'empêche pas une édition manuelle de teachers via l'IHM/l'API.
+    teachers_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Professeurs verrouillés"})
 
     weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "duration", "durationIncludeZero": True})
     weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "duration", "durationIncludeZero": True})

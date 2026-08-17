@@ -419,12 +419,6 @@
                               "col": 2,
                               "children": [
                                 {
-                                  "key": "max_weekly_hours",
-                                  "overrideLabel": "Heures de cours max par semaine",
-                                  "required": true,
-                                  "readOnly": false
-                                },
-                                {
                                   "key": "school_id",
                                   "overrideLabel": "Établissement principal",
                                   "required": true,
@@ -669,6 +663,54 @@
                                       "visibleByDefault": true
                                     },
                                     "duration_minutes": {
+                                      "visibleByDefault": true
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "page",
+                          "string": "Préférences d'affectation",
+                          "children": [
+                            {
+                              "key": "max_hsa_duration_minutes",
+                              "readOnly": false
+                            },
+                            {
+                              "key": "incompatible_teacher_ids",
+                              "overrideLabel": "Incompatibilités (équipe pédagogique)",
+                              "widget": "relation_browser",
+                              "readOnly": false,
+                              "widgetParams": {
+                                "listConfig": {
+                                  "columns": {
+                                    "last_name": {
+                                      "visibleByDefault": true
+                                    },
+                                    "first_name": {
+                                      "visibleByDefault": true
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "key": "grade_preference_line_ids",
+                              "overrideLabel": "Préférences par niveau",
+                              "readOnly": false,
+                              "widgetParams": {
+                                "listConfig": {
+                                  "columns": {
+                                    "ref_grade_id": {
+                                      "visibleByDefault": true
+                                    },
+                                    "priority": {
+                                      "visibleByDefault": true
+                                    },
+                                    "max_class_count": {
                                       "visibleByDefault": true
                                     }
                                   }
@@ -1345,6 +1387,15 @@
             ]
           }
         ]
+      },
+      {
+        "id": "optimize_timetable_action",
+        "icon": "wrench",
+        "title": "Optimiser l'emploi du temps",
+        "action": {
+          "resourceKey": "wizard_optimize_timetables",
+          "actionId": "start_optimize"
+        }
       }
     ]
   },
@@ -1476,6 +1527,14 @@
                 "reduced_group_student_count": {
                   "visibleByDefault": true,
                   "overrideLabel": "Élèves en effectif réduit"
+                },
+                "teacher_ids": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Professeur(s)"
+                },
+                "teachers_locked": {
+                  "visibleByDefault": true,
+                  "overrideLabel": "Professeurs verrouillés"
                 },
                 "repartition_ids": {
                   "visibleByDefault": true,
@@ -1828,12 +1887,12 @@
         }
       },
       {
-        "id": "optimize_timetable_action",
+        "id": "assign_teachers_action",
         "icon": "wrench",
-        "title": "Optimiser l'emploi du temps",
+        "title": "Affecter les professeurs",
         "action": {
-          "resourceKey": "wizard_optimize_timetables",
-          "actionId": "start_optimize"
+          "resourceKey": "wizard_teacher_assignments",
+          "actionId": "assign_teachers"
         }
       }
     ]

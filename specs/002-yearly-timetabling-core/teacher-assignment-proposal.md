@@ -1,12 +1,13 @@
 # Proposition : Affectation automatique des besoins aux professeurs
 
-**Statut** : brouillon de conception, non validé pour implémentation. Ce document consolide un
-échange de conception complet ; il est écrit pour devenir la base des sections correspondantes de
-`spec.md` (et d'une nouvelle section d'`architecture.md`), **mais n'y a pas encore été fusionné** —
-volontairement, pour ne pas entrer en conflit avec `plan.md`/`spec.md`, activement utilisés par un
-autre chantier en cours sur cette branche (`GenericList.vue`, refonte `groupBy`, non commité au
-moment de l'écriture de ce document). Fusion à faire une fois cet autre chantier atterri, et après
-validation explicite du contenu ci-dessous.
+**Statut** : implémenté et fusionné. Ce document reste comme trace de l'historique de conception
+(décisions actées §11) ; la référence à jour est désormais `spec.md` (« Affectation automatique des
+besoins aux professeurs », entités 3/3quinquies/4quinquies/1.) et `architecture.md` §20. Code :
+`backend/app/solver/teacher_assignment.py`, `backend/app/models/wizard_teacher_assignment.py`,
+`backend/app/models/teacher_grade_preference.py`, `backend/tests/test_teacher_assignment.py`,
+`frontend/src/components/widgets/ListPreviewField.vue`. Vérifié par la suite de tests complète
+(405 tests, backend/tests/), un reseed complet (`init_db`/`init_demo`) et une vérification
+end-to-end par `curl` (simulate + apply) sur la base de démonstration.
 
 **Portée** : Lot 3 (Pré-rentrée), sous-chantier « couche Service » (voir mémoire
 `project_service_layer`). S'appuie entièrement sur `MefService`/`Service`/`ServiceRepartition`/

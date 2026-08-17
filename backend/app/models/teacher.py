@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Float, Boolean, Date, JSON, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Boolean, Date, JSON, ForeignKey, Table
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, related_field, constrains, onchange, exposed
 from backend.app.models.user import HasUserAccount
@@ -13,6 +13,19 @@ teacher_subjects = Table(
     Column("subject_id", Integer, ForeignKey("subjects.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# Incompatibilité entre deux enseignants (portée : jamais dans la même équipe pédagogique, voir
+# backend/app/solver/teacher_assignment.py) — stockée dans UN SEUL sens (teacher_id ->
+# incompatible_teacher_id) ; Teacher._mirror_incompatibilities maintient le sens inverse en
+# écriture directe sur cette table (pas de contrainte d'ordre canonique a<b ici, contrairement à
+# ClassPartLink : la relation ORM self-référentielle a besoin d'un sens fixe pour rester simple à
+# écrire via le mécanisme générique de collection _ids, voir CRUDMixin).
+teacher_incompatibilities = Table(
+    "teacher_incompatibilities",
+    Base.metadata,
+    Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True),
+    Column("incompatible_teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True),
+)
+
 class Teacher(HasUserAccount, Base):
     __tablename__ = "teachers"
 
@@ -21,7 +34,10 @@ class Teacher(HasUserAccount, Base):
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code Enseignant", "placeholder": "ex: T1"})
     first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Prénom", "placeholder": "ex: Marc"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
-    max_weekly_hours: Mapped[float] = mapped_column(Float, nullable=False, default=18.0, info={"label": "Heures max hebdomadaires", "min": 1.0, "max": 40.0, "step": "0.5"})
+    # Plafond HSA (palier 2 de capacité, voir backend/app/solver/teacher_assignment.py) — distinct
+    # de l'apport déclaré par discipline (TeacherDiscipline.duration_minutes, palier 1), qui n'a
+    # pas d'équivalent scalaire ici (remplace l'ancien max_weekly_hours, retiré, voir plus bas).
+    max_hsa_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=120, info={"label": "Plafond HSA", "type": "duration"})
 
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement Principal"})
     # Nullable : un prof peut ne déclarer aucune matière préférée, même s'il a des matières
@@ -130,6 +146,66 @@ class Teacher(HasUserAccount, Base):
     particular_mission_lines: Mapped[list["TeacherParticularMission"]] = relationship("TeacherParticularMission", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Missions particulières"})
     pacte_mission_lines: Mapped[list["TeacherPacteMission"]] = relationship("TeacherPacteMission", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Missions Pacte"})
     other_school_lines: Mapped[list["TeacherOtherSchool"]] = relationship("TeacherOtherSchool", back_populates="teacher", passive_deletes="all", info={"label": "Lignes Autres établissements"})
+    # Relation possédée (voir architecture.md §15.J) : une ligne par RefGrade existant, générée
+    # automatiquement à la création (voir Teacher.create()/RefGrade.create() ci-dessous).
+    grade_preference_lines: Mapped[list["TeacherGradePreference"]] = relationship("TeacherGradePreference", back_populates="teacher", passive_deletes="all", info={"label": "Préférences par niveau"})
+    # Relation indépendante many2many (widget relation_browser, voir architecture.md §15.J.1) —
+    # symétrique par construction (voir _mirror_incompatibilities ci-dessous), jamais many2one.
+    incompatible_teachers: Mapped[list["Teacher"]] = relationship(
+        "Teacher", secondary=teacher_incompatibilities,
+        primaryjoin="Teacher.id == teacher_incompatibilities.c.teacher_id",
+        secondaryjoin="Teacher.id == teacher_incompatibilities.c.incompatible_teacher_id",
+        info={"label": "Incompatibilités (équipe pédagogique)", "resource": "teachers"},
+    )
+
+    @constrains("incompatible_teacher_ids")
+    def _mirror_incompatibilities(self, db: Session):
+        """
+        teacher_incompatibilities n'est stockée que dans un sens (self -> incompatible_teachers,
+        voir la déclaration de la table) — cette méthode maintient le sens inverse visible pour
+        chaque enseignant lié, en écriture DIRECTE sur la table d'association (pas via la
+        relation ORM de l'autre enseignant, pour ne pas redéclencher cette même méthode en
+        cascade sur lui). Une incompatibilité doit être visible des deux côtés, quel que soit
+        celui des deux enseignants édité en premier (portée §4.4 de la proposition : jamais dans
+        la même équipe pédagogique).
+        """
+        if any(t.id == self.id for t in self.incompatible_teachers):
+            raise ValueError("Un enseignant ne peut pas être déclaré incompatible avec lui-même.")
+
+        from sqlalchemy import select, insert, delete
+        current_ids = {t.id for t in self.incompatible_teachers}
+        mirrored_ids = {
+            row[0] for row in db.execute(
+                select(teacher_incompatibilities.c.teacher_id)
+                .where(teacher_incompatibilities.c.incompatible_teacher_id == self.id)
+            ).all()
+        }
+        to_add = current_ids - mirrored_ids
+        to_remove = mirrored_ids - current_ids
+        if to_add:
+            db.execute(insert(teacher_incompatibilities), [
+                {"teacher_id": tid, "incompatible_teacher_id": self.id} for tid in to_add
+            ])
+        if to_remove:
+            db.execute(delete(teacher_incompatibilities).where(
+                teacher_incompatibilities.c.teacher_id.in_(to_remove),
+                teacher_incompatibilities.c.incompatible_teacher_id == self.id,
+            ))
+
+    @classmethod
+    def create(cls, db: Session, vals: dict):
+        """
+        Cascade de création symétrique à RefGrade.create() (même patron que
+        MefService/MefDivision -> Service, architecture.md §15.G) : un nouvel enseignant reçoit
+        automatiquement une ligne TeacherGradePreference (priorité neutre 2, aucun plafond de
+        classes) pour chaque RefGrade déjà existant.
+        """
+        instance = super().create(db, vals)
+        from backend.app.models.ref_grade import RefGrade
+        from backend.app.models.teacher_grade_preference import TeacherGradePreference
+        for ref_grade in db.query(RefGrade).all():
+            TeacherGradePreference.generate_default(db, instance, ref_grade)
+        return instance
 
     @constrains("subject_ids", "preferred_subject_id")
     def _sync_preferred_subject(self, db: Session):
@@ -298,6 +374,47 @@ class Teacher(HasUserAccount, Base):
     @property
     def other_school_duration_minutes(self) -> int:
         return self._sum_lines_by_discipline_majeure(self.other_school_lines)
+
+    # --- HSA/sous-service réels (voir teacher-assignment-proposal.md §6) ---
+    #
+    # Calculées à la demande, jamais stockées : elles dépendent de Course (via course_teachers)
+    # et des lignes ARA/ARE/CSD/discipline, qui vivent toutes sur d'autres tables — rien ne
+    # déclencherait leur recalcul si elles étaient stockées sur Teacher (éditer un Course ou une
+    # ligne ARA ne déclenche aucune @constrains() ici). Portée volontairement GLOBALE (pas de
+    # contexte db.filter_discipline_id positionné) : contrairement à discipline_duration_minutes
+    # et consorts ci-dessus, ces trois propriétés totalisent toutes les disciplines du professeur.
+
+    @exposed(info={"label": "Heures enseignées (brutes)", "type": "duration", "readOnly": True})
+    @property
+    def taught_raw_duration_minutes(self) -> int:
+        """Cours réels (placés ou non) rattachés au professeur, hors cours composés parents (voir
+        Course.children) : seuls les cours SANS enfant portent une durée réelle."""
+        return sum(c.duration_minutes for c in self.courses if not c.children)
+
+    @exposed(info={"label": "Heures enseignées (pondérées)", "type": "duration", "readOnly": True})
+    @property
+    def taught_weighted_duration_minutes(self) -> int:
+        return sum(c.weighted_duration_minutes for c in self.courses if not c.children)
+
+    @exposed(info={"label": "HSA (surservice, si > 0) / Sous-service (si < 0)", "type": "duration", "readOnly": True})
+    @property
+    def hsa_duration_minutes(self) -> int:
+        """
+        > 0 : surservice, HSA à payer. < 0 : sous-service. ARE et ARA sont toutes deux AJOUTÉES
+        (jamais décrémentées) : ce sont deux crédits qui comptent comme du service déjà rendu
+        sans passer par un vrai Course, donc réduisent d'autant l'écart par rapport à l'apport
+        déclaré (ORS) une fois additionnées au volume de cours réellement enseigné. CSD (heures
+        données à un autre établissement) compte de la même façon : c'est du service délivré,
+        ailleurs. Volontairement PAS l'image miroir exacte du plafond de capacité de
+        teacher_assignment.py (voir teacher-assignment-proposal.md §5.2/§6) : cette propriété est
+        une vérité rétrospective sur les Course réels, l'autre un plafond heuristique qui guide
+        l'algorithme en amont — les deux n'ont pas besoin de coïncider.
+        """
+        return (
+            self.taught_weighted_duration_minutes
+            + self.are_duration_minutes + self.ara_duration_minutes + self.other_school_duration_minutes
+            - self.discipline_duration_minutes
+        )
 
 
 # Objets de liaison à volume horaire (teacher_id CASCADE, ref_*_id RESTRICT) — dans ce fichier
