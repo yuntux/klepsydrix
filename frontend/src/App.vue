@@ -36,12 +36,16 @@
             :solverIsQueued="solverIsQueued"
             :solverQueuePosition="solverQueuePosition"
             :solverQueueLength="solverQueueLength"
+            :solverKind="solverKind"
+            :solverPipelineStep="solverPipelineStep"
+            :solverPipelineTotalSteps="solverPipelineTotalSteps"
             :selectedCourseIds="selectedCourseIds"
             @move="onMoveCourse"
             @unassign="onUnassignCourse"
             @togglePin="onTogglePinCourse"
             @selectCourse="toggleCourseSelection"
-            @solve="onSolve"
+            @course-placement="onCoursePlacement"
+            @classroom-assignment="onClassroomAssignment"
             @stop-solve="onStopSolve"
             @reset="onReset"
           />
@@ -296,6 +300,12 @@ const solverTimeLimitSeconds = ref<number | null>(null);
 const solverIsQueued = ref<boolean>(false);
 const solverQueuePosition = ref<number | null>(null);
 const solverQueueLength = ref<number>(0);
+// kind/pipeline_step/pipeline_total_steps (voir plan salles §4) : enrichissent l'overlay de
+// TimetableGrid pour distinguer placement/attribution des salles/optimisation, y compris les 2
+// phases du pipeline /optimize.
+const solverKind = ref<string | null>(null);
+const solverPipelineStep = ref<number>(1);
+const solverPipelineTotalSteps = ref<number>(1);
 
 import { useGridStore } from './stores/grid';
 import { storeToRefs } from 'pinia';
@@ -323,7 +333,7 @@ function toggleCourseSelection(id: number, event?: MouseEvent) {
         selectedTeacherIds.value = [...(course.teacher_ids || [])];
         selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
         selectedDivisionIds.value = [...(course.division_ids || [])];
-        selectedClassroomIds.value = [...(course.classroom_ids || [])];
+        selectedClassroomIds.value = [...(dataStore.courseClassroomIdsMap[course.id] || [])];
       }
     } else {
       // Si on a tout désélectionné
@@ -601,13 +611,18 @@ const scoreData = ref<{ hard_score: number; soft_score: number; summary: string;
 // dans l'ancien endpoint dédié.
 async function loadData() {
   try {
-    const [teachersRes, classroomsRes, divisionsRes, nonTeachingRes, coursesRes, timeslotsRes] = await Promise.all([
+    const [teachersRes, classroomsRes, divisionsRes, nonTeachingRes, coursesRes, timeslotsRes, classroomRequirementsRes] = await Promise.all([
       queryClient.fetchQuery({ queryKey: genericCacheKey('teachers'), queryFn: () => api.fetchAllGenericItems('teachers') }),
       queryClient.fetchQuery({ queryKey: genericCacheKey('classrooms'), queryFn: () => api.fetchAllGenericItems('classrooms') }),
       queryClient.fetchQuery({ queryKey: genericCacheKey('divisions'), queryFn: () => api.fetchAllGenericItems('divisions') }),
       queryClient.fetchQuery({ queryKey: genericCacheKey('non_teaching_staffs'), queryFn: () => api.fetchAllGenericItems('non_teaching_staffs') }),
       queryClient.fetchQuery({ queryKey: genericCacheKey('courses'), queryFn: () => api.fetchAllGenericItems('courses') }),
       queryClient.fetchQuery({ queryKey: genericCacheKey('timeslots', { active: true }), queryFn: () => api.fetchAllGenericItems('timeslots', undefined, { active: true }) }),
+      // course_classroom_requirements : chargé aux côtés de courses (même cycle de vie — toute
+      // résolution qui réécrit l'un réécrit potentiellement l'autre, voir plan salles §1.4/§4) pour
+      // résoudre course.classroom_requirement_ids (ids de ligne) en classroom_id réels côté
+      // affichage/filtrage grille (dataStore.courseClassroomIdsMap).
+      queryClient.fetchQuery({ queryKey: genericCacheKey('course_classroom_requirements'), queryFn: () => api.fetchAllGenericItems('course_classroom_requirements') }),
     ]);
 
     // Remplir le store pour accès O(1)
@@ -617,6 +632,7 @@ async function loadData() {
     dataStore.setNonTeachingStaffs(nonTeachingRes.items);
     dataStore.setDivisions(divisionsRes.items);
     dataStore.setClassrooms(classroomsRes.items);
+    dataStore.setCourseClassroomRequirements(classroomRequirementsRes.items);
 
     courses.value = coursesRes.items;
     timeslots.value = timeslotsRes.items;
@@ -1711,7 +1727,7 @@ async function onMoveCourse(courseId: number, timeslotId: number, weekType?: 'A'
         const unsuitedPref = prefRes.find((p: any) => 
           p.preference_level === 'Unsuited' && (
             (p.resource_type === 'Teacher' && courseObj.teacher_ids && courseObj.teacher_ids.includes(p.resource_id)) ||
-            (p.resource_type === 'Classroom' && courseObj.classroom_ids && courseObj.classroom_ids.includes(p.resource_id)) ||
+            (p.resource_type === 'Classroom' && (dataStore.courseClassroomIdsMap[courseObj.id] || []).includes(p.resource_id)) ||
             (p.resource_type === 'Division' && courseObj.division_ids && courseObj.division_ids.includes(p.resource_id))
           )
         );
@@ -1810,6 +1826,9 @@ async function checkStatus() {
       solverTimeLimitSeconds.value = res.time_limit_seconds;
       solverQueuePosition.value = res.queue_position;
       solverQueueLength.value = res.queue_length;
+      solverKind.value = res.kind;
+      solverPipelineStep.value = res.pipeline_step;
+      solverPipelineTotalSteps.value = res.pipeline_total_steps;
       if (!pollingInterval) {
         pollingInterval = window.setInterval(checkStatus, 3000);
       }
@@ -1824,6 +1843,9 @@ async function checkStatus() {
       solverTimeLimitSeconds.value = null;
       solverQueuePosition.value = null;
       solverQueueLength.value = 0;
+      solverKind.value = null;
+      solverPipelineStep.value = 1;
+      solverPipelineTotalSteps.value = 1;
       if (pollingInterval) {
         window.clearInterval(pollingInterval);
         pollingInterval = undefined;
@@ -1838,14 +1860,25 @@ async function checkStatus() {
   }
 }
 
-async function onSolve() {
+async function onCoursePlacement() {
   try {
-    const result = await api.solveTimetable();
-    showNotification('success', result.message || 'Résolution démarrée en arrière-plan.');
+    const result = await api.startCoursePlacement();
+    showNotification('success', result.message || 'Placement automatique démarré en arrière-plan.');
     loading.value = true;
     checkStatus();
   } catch (err: any) {
-    showNotification('error', err.message || 'Erreur lors du lancement de la résolution');
+    showNotification('error', err.message || 'Erreur lors du lancement du placement automatique');
+  }
+}
+
+async function onClassroomAssignment() {
+  try {
+    const result = await api.startClassroomAssignment();
+    showNotification('success', result.message || 'Attribution des salles démarrée en arrière-plan.');
+    loading.value = true;
+    checkStatus();
+  } catch (err: any) {
+    showNotification('error', err.message || "Erreur lors du lancement de l'attribution des salles");
   }
 }
 
@@ -1865,7 +1898,9 @@ async function onReset() {
     await api.resetTimetable();
     courses.value.forEach(c => {
       c.timeslot_id = null;
-      c.classroom_ids = [];
+      // Pas de c.classroom_requirement_ids = [] ici : POST /reset (endpoints.py) ne touche que
+      // timeslot_id/is_pinned, jamais les exigences de salle (voir plan salles §4) — les 2
+      // domaines sont indépendants depuis la séparation COURSE_PLACEMENT/CLASSROOM_ASSIGNMENT.
     });
     await refreshScoreAndNotify(oldScore, 'Tous les cours ont été retirés de la grille.');
   } catch (err: any) {

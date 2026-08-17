@@ -1826,6 +1826,15 @@
           "resourceKey": "wizard_course_generations",
           "actionId": "generate_courses"
         }
+      },
+      {
+        "id": "optimize_timetable_action",
+        "icon": "wrench",
+        "title": "Optimiser l'emploi du temps",
+        "action": {
+          "resourceKey": "wizard_optimize_timetables",
+          "actionId": "start_optimize"
+        }
       }
     ]
   },

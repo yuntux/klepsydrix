@@ -50,6 +50,26 @@
           <ConsolidatedChip v-for="chip in consolidateResource(rt.key, rt.nameFn)" :key="chip.label" v-bind="chip" />
         </div>
       </div>
+
+      <!-- Salles : section séparée, voir commentaire de RESOURCE_TYPES ci-dessus. -->
+      <div class="consolidated-section">
+        <div class="section-title">{{ classroomRequirementCount }} 🏢 Salles</div>
+        <div v-if="isSingle" class="editable-field">
+          <OwnedRelationField
+            :modelValue="classroomRequirementIds"
+            :field="classroomRequirementField"
+            :widgetParams="classroomRequirementWidgetParams"
+            :parentRecord="singleCourse"
+            liveSync
+            highlightField="classroom_id"
+            :highlightValues="underventilatedClassroomIds"
+            @update:modelValue="onClassroomRequirementIdsUpdated"
+          />
+        </div>
+        <div v-else class="chips-container">
+          <ConsolidatedChip v-for="chip in consolidatedClassroomRequirements" :key="chip.label" v-bind="chip" />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -60,13 +80,17 @@
 // + surlignage des ressources insuffisamment ventilées) n'est actif qu'à 1 seul cours sélectionné
 // — au-delà, l'ambiguïté d'une édition en masse (quel cours modifier ? quel enfant surligner ?)
 // n'a pas de réponse évidente, donc on garde l'affichage consolidé existant.
-import { ref, computed, onMounted, inject } from 'vue';
+import { ref, computed, onMounted, inject, watch } from 'vue';
 import ConsolidatedChip from './ConsolidatedChip.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
+import OwnedRelationField from './widgets/OwnedRelationField.vue';
 import { Course, Teacher, NonTeachingStaff, Division, Classroom, Timeslot, Group, ClassPart, Material, Period } from '../types';
 import { getTeacherName, getDivisionName, getClassroomName, getNonTeachingStaffName } from '../utils/resourceFormatters';
+import { useDataStore } from '../stores/data';
 import * as api from '../services/api';
+
+const dataStore = useDataStore();
 
 const props = defineProps<{
   show: boolean;
@@ -152,22 +176,103 @@ const teacherOptions = computed(() => props.teachers.map((t: any) => ({ value: t
 const divisionOptions = computed(() => props.divisions.map((d: any) => ({ value: d.id, label: d.display_name })));
 const groupOptions = computed(() => props.groups.map((g: any) => ({ value: g.id, label: g.display_name })));
 const classPartOptions = computed(() => props.classParts.map((cp: any) => ({ value: cp.id, label: cp.display_name })));
-const classroomOptions = computed(() => props.classrooms.map((cr: any) => ({ value: cr.id, label: cr.display_name })));
 const nonTeachingStaffOptions = computed(() => props.nonTeachingStaffs.map((s: any) => ({ value: s.id, label: s.display_name })));
 const materialOptions = computed(() => props.materials.map((m: any) => ({ value: m.id, label: m.display_name || m.name })));
 
-// Pilote les 7 sections de ressources N-N (ordre demandé : Enseignants, Divisions, Groupes,
-// Parties de classe, Salles, Personnel, Matériels) — un seul bloc de template les parcourt tous
-// plutôt que 7 blocs copiés-collés. `nameFn` sert uniquement au mode consolidé (2+ cours).
+// Pilote les 6 sections de ressources N-N à plat (ordre demandé : Enseignants, Divisions,
+// Groupes, Parties de classe, Personnel, Matériels) — un seul bloc de template les parcourt tous
+// plutôt que 6 blocs copiés-collés. `nameFn` sert uniquement au mode consolidé (2+ cours).
+// Salles : section séparée ci-dessous (classroom_requirement_ids n'est plus une simple liste
+// d'ids de Classroom mais une collection possédée de CourseClassroomRequirement avec quantity —
+// voir plan salles §1.4/§1.5/§1.7 — rendue par OwnedRelationField, pas SearchableMultiSelect).
 const RESOURCE_TYPES = [
   { key: 'teacher_ids', label: 'Enseignants', icon: '👨‍🏫', options: teacherOptions, nameFn: (id: number) => getTeacherName(props.teachers, id) },
   { key: 'division_ids', label: 'Divisions', icon: '🎒', options: divisionOptions, nameFn: (id: number) => getDivisionName(props.divisions, id) },
   { key: 'group_ids', label: 'Groupes', icon: '👥', options: groupOptions, nameFn: (id: number) => props.groups.find((g: any) => g.id === id)?.display_name || 'Inconnu' },
   { key: 'class_part_ids', label: 'Parties de classe', icon: '🧩', options: classPartOptions, nameFn: (id: number) => props.classParts.find((cp: any) => cp.id === id)?.display_name || 'Inconnu' },
-  { key: 'classroom_ids', label: 'Salles', icon: '🏢', options: classroomOptions, nameFn: (id: number) => getClassroomName(props.classrooms, id) },
   { key: 'non_teaching_staff_ids', label: 'Personnel', icon: '🧑‍💼', options: nonTeachingStaffOptions, nameFn: (id: number) => getNonTeachingStaffName(props.nonTeachingStaffs, id) },
   { key: 'material_ids', label: 'Matériels', icon: '📦', options: materialOptions, nameFn: (id: number) => props.materials.find((m: any) => m.id === id)?.display_name || 'Inconnu' },
 ];
+
+// SECTION SALLES — voir commentaire ci-dessus. `field.options` embarque classroom_id (en plus de
+// value/label) : nécessaire en mode liveSync d'OwnedRelationField, qui ne charge jamais les lignes
+// complètes lui-même (voir son commentaire de tête) — c'est ce qui permet au surlignage
+// (highlightField="classroom_id") de fonctionner sans aller-retour serveur supplémentaire ici.
+function classroomRequirementLabel(classroomId: number, quantity: number): string {
+  const name = getClassroomName(props.classrooms, classroomId);
+  return quantity > 1 ? `${name} ×${quantity}` : name;
+}
+
+const classroomRequirementField = computed(() => ({
+  resource: 'course_classroom_requirements',
+  parentField: 'course_id',
+  label: 'Salles',
+  options: dataStore.courseClassroomRequirements.map(r => ({
+    value: r.id,
+    label: classroomRequirementLabel(r.classroom_id, r.quantity),
+    classroom_id: r.classroom_id,
+  })),
+}));
+
+// listConfig explicite (voir OwnedRelationField.vue, `:listConfig="widgetParams?.listConfig"`) :
+// classroom_id n'est modifiable qu'à la création d'une ligne (voir
+// CourseClassroomRequirement._validate_classroom_id_immutable, backend) — une ligne pas encore
+// créée porte un id provisoire "new_<timestamp>" (voir GenericListModal.vue::onAdd), jamais un id
+// numérique avant sa création serveur, d'où l'expression. Lister `quantity` explicitement ici
+// aussi est nécessaire : dès que listConfig.columns est fourni, GenericList.vue n'affiche QUE les
+// colonnes qu'il énumère (voir GenericList.vue::internalColumns) — un comportement de liste normal,
+// pas un cas particulier à contourner.
+const classroomRequirementWidgetParams = {
+  listConfig: {
+    columns: {
+      classroom_id: { readOnly: "model.id != null && !String(model.id).startsWith('new_')" },
+      quantity: {},
+    },
+  },
+};
+
+const classroomRequirementCount = computed(() => {
+  const set = new Set<number>();
+  props.courses.forEach(c => (dataStore.courseClassroomIdsMap[c.id] || []).forEach(id => set.add(id)));
+  return set.size;
+});
+
+// Écart de quantité non ventilé, {classroom_id: quantité manquante} — voir plan salles §1.5,
+// contrairement aux 6 autres relations (simple liste d'ids manquants).
+const underventilatedClassroomIds = computed<number[]>(() => {
+  if (!showUnderventilatedHighlight.value) return [];
+  const dict = singleCourse.value.underventilated_resource_ids?.classroom_requirement_ids;
+  return dict ? Object.keys(dict).map(Number) : [];
+});
+
+// OwnedRelationField (mode liveSync) persiste lui-même via GenericListModal, mais ne connaît pas
+// la ligne complète — il émet update:modelValue avec les ids frais après chaque mutation (voir
+// GenericListRow.vue pour le même pattern) : sans relayer cet évènement vers un état local, ses
+// tags resteraient figés sur l'instantané initial de classroom_requirement_ids après un
+// ajout/retrait de salle depuis la popin d'édition.
+const classroomRequirementIds = ref<number[]>([]);
+watch(() => singleCourse.value?.classroom_requirement_ids, (val) => {
+  classroomRequirementIds.value = val || [];
+}, { immediate: true });
+
+function onClassroomRequirementIdsUpdated(ids: number[]) {
+  classroomRequirementIds.value = ids;
+}
+
+const consolidatedClassroomRequirements = computed(() => {
+  const counts: Record<string, number> = {};
+  props.courses.forEach(c => {
+    const ids = dataStore.courseClassroomIdsMap[c.id] || [];
+    if (ids.length === 0) return;
+    const label = ids.map(id => getClassroomName(props.classrooms, id)).join(', ');
+    counts[label] = (counts[label] || 0) + 1;
+  });
+  const total = props.courses.length;
+  return Object.entries(counts).map(([label, count]) => ({
+    label, count, total, isDivergent: count < total,
+  })).sort((a, b) => b.count - a.count);
+});
+
 
 // SURLIGNAGE DES RESSOURCES INSUFFISAMMENT VENTILÉES — n'a de sens que pour un cours composé avec
 // des enfants pas encore FULLY_VENTILATED (voir Course.underventilated_resource_ids, recalculé

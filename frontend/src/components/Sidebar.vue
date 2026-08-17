@@ -18,7 +18,7 @@
         :height="getSidebarCourseHeight(course)"
         :teachersText="course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : ''"
         :divisionsText="course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : ''"
-        :classroomsText="course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : ''"
+        :classroomsText="(dataStore.courseClassroomIdsMap[course.id] || []).map(id => getClassroomName(id)).join(', ')"
         @dragstart="onDragStart"
         @dragend="$emit('dragend')"
         @click="(id, ev) => $emit('selectCourse', id, ev)"
@@ -36,6 +36,9 @@ import { computed } from 'vue';
 import { Course, Teacher, Division, Classroom } from '../types';
 import CourseCard from './CourseCard.vue';
 import { useTimeslotGrid } from '../composables/useTimeslotGrid';
+import { useDataStore } from '../stores/data';
+
+const dataStore = useDataStore();
 
 const props = defineProps<{
   courses: Course[];

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, select, Enum, Table, event, JSON
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
-from backend.app.models.base import Base, exposed, constrains, onchange
+from backend.app.models.base import Base, exposed, constrains, onchange, requires_access
 
 
 class CourseWeekType(str, enum.Enum):
@@ -31,13 +31,8 @@ course_teachers = Table(
     extend_existing=True
 )
 
-course_classrooms = Table(
-    "course_classrooms",
-    Base.metadata,
-    Column("course_id", Integer, ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-    Column("classroom_id", Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), primary_key=True),
-    extend_existing=True
-)
+## course_classrooms (M2M, PK composite) supprimée — remplacée par CourseClassroomRequirement
+## (course_classroom_requirement.py), une vraie entité avec quantity, cf. plan salles §1.4.
 
 course_non_teaching_staffs = Table(
     "course_non_teaching_staffs",
@@ -188,7 +183,11 @@ class Course(Base):
     # Ressources N..N pures
     teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=course_teachers, back_populates="courses", info={"label": "Enseignants"})
     non_teaching_staffs: Mapped[list["NonTeachingStaff"]] = relationship("NonTeachingStaff", secondary=course_non_teaching_staffs, back_populates="courses", info={"label": "Personnels non-enseignants"})
-    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", secondary=course_classrooms, info={"label": "Salles de classe"})
+    classroom_requirements: Mapped[list["CourseClassroomRequirement"]] = relationship(
+        "CourseClassroomRequirement", back_populates="course",
+        cascade="all, delete-orphan", passive_deletes=True,
+        info={"label": "Salles requises"}
+    )
     materials: Mapped[list["Material"]] = relationship("Material", secondary=course_materials, info={"label": "Matériels"})
     divisions: Mapped[list["Division"]] = relationship("Division", secondary=course_divisions, back_populates="courses", info={"label": "Classes / Divisions"})
     periods: Mapped[list["Period"]] = relationship("Period", secondary=course_periods, info={"label": "Périodes"})
@@ -245,12 +244,17 @@ class Course(Base):
     _VENTILATION_RELATIONS = (
         ('teachers', 'teacher_ids'),
         ('non_teaching_staffs', 'non_teaching_staff_ids'),
-        ('classrooms', 'classroom_ids'),
         ('divisions', 'division_ids'),
         ('groups', 'group_ids'),
         ('materials', 'material_ids'),
         ('class_parts', 'class_part_ids'),
     )
+    # classroom_requirements n'est PAS dans ce tuple : c'est la seule relation de ressources
+    # quantité-consciente (une même salle/groupe peut être nécessaire plusieurs fois), la
+    # comparaison générique par différence d'ensembles d'ids serait incorrecte pour elle. Voir
+    # CourseClassroomRequirement._cascade_decrement_parent_group_line pour son propre mécanisme
+    # de cascade/ventilation (plan salles §1.5). L'affichage rouge de la carte cours pour les
+    # salles reste à câbler séparément (plan salles, risque #7) — pas encore fait ici.
 
     def _missing_resource_ids_by_type(self, children_list) -> dict:
         """
@@ -455,7 +459,7 @@ class Course(Base):
         if self.parent_id is not None and self.subject_id is None:
             raise ValueError("Un cours enfant doit obligatoirement avoir une matière.")
 
-    @constrains('teacher_ids', 'non_teaching_staff_ids', 'classroom_ids', 'division_ids', 'group_ids', 'material_ids', 'class_part_ids')
+    @constrains('teacher_ids', 'non_teaching_staff_ids', 'classroom_requirement_ids', 'division_ids', 'group_ids', 'material_ids', 'class_part_ids')
     def validate_has_at_least_one_resource(self, db):
         """
         Un cours doit toujours conserver au moins une ressource, tous types confondus (profs,
@@ -464,7 +468,7 @@ class Course(Base):
         effet rétroactif sur un cours existant modifié sans toucher à ses ressources, ni sur une
         création qui ne fixe aucun de ces champs (cours "coquille" avant première affectation).
         """
-        total = sum(len(getattr(self, rel)) for rel in self._RESOURCE_RELATIONS)
+        total = sum(len(getattr(self, rel)) for rel in self._RESOURCE_RELATIONS) + len(self.classroom_requirements)
         if total == 0:
             raise ValueError("Impossible de retirer la dernière ressource d'un cours : au moins un professeur, personnel non enseignant, salle, classe, groupe, matériel ou partie de classe doit rester.")
 
@@ -544,6 +548,16 @@ class Course(Base):
                         result.append(item.id)
             return result
 
+        # Cas particulier : classroom_requirements porte une quantity (voir
+        # course_classroom_requirement.py), pas une simple présence — on prend le MAX de quantity
+        # par classroom_id plutôt qu'une simple union d'ids.
+        def union_classroom_requirements():
+            by_classroom_id = {}
+            for c in courses:
+                for req in c.classroom_requirements:
+                    by_classroom_id[req.classroom_id] = max(by_classroom_id.get(req.classroom_id, 0), req.quantity)
+            return [{"classroom_id": cid, "quantity": qty} for cid, qty in by_classroom_id.items()]
+
         # Création du cours parent via CRUDMixin.create() pour passer par tous les hooks
         parent = cls.create(db, {
             'is_composed': True,
@@ -553,7 +567,7 @@ class Course(Base):
             'week_type': first_course.week_type,
             'teacher_ids': union_ids('teachers'),
             'non_teaching_staff_ids': union_ids('non_teaching_staffs'),
-            'classroom_ids': union_ids('classrooms'),
+            'classroom_requirement_ids': union_classroom_requirements(),
             'division_ids': union_ids('divisions'),
             'group_ids': union_ids('groups'),
             'material_ids': union_ids('materials'),
@@ -580,7 +594,7 @@ class Course(Base):
         if self.is_pinned and self.timeslot_id is None:
             raise ValueError("Impossible d'épingler un cours qui n'est pas placé sur un créneau.")
 
-    @constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_ids', 'division_ids', 'non_teaching_staff_ids')
+    @constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_requirement_ids', 'division_ids', 'non_teaching_staff_ids')
     def validate_placement_conflicts(self, db):
         target_ts_id = self.timeslot_id
         if target_ts_id is None:
@@ -597,6 +611,7 @@ class Course(Base):
         from backend.app.models.timeslot import Timeslot
         from backend.app.models.teacher import Teacher
         from backend.app.models.classroom import Classroom
+        from backend.app.models.course_classroom_requirement import CourseClassroomRequirement
         from backend.app.models.division import Division
         from backend.app.models.non_teaching_staff import NonTeachingStaff
 
@@ -675,9 +690,12 @@ class Course(Base):
             if get_conflict_query(Course.non_teaching_staffs.any(NonTeachingStaff.id.in_(s_ids))).first():
                 raise ValueError("Conflit : Le membre du personnel est déjà occupé sur ce créneau (chevauchement)")
 
-        c_ids = [c.id for c in self.classrooms]
-        if c_ids:
-            if get_conflict_query(Course.classrooms.any(Classroom.id.in_(c_ids))).first():
+        # Uniquement les exigences sur salle-feuille précise (pas d'enfant dans l'arbre) : une
+        # exigence de groupe n'a pas d'équivalent « conflit immédiat » à la saisie manuelle, sa
+        # faisabilité relève du solveur (COURSE_PLACEMENT/CLASSROOM_ASSIGNMENT), pas de ce contrôle.
+        cr_ids = [r.classroom_id for r in self.classroom_requirements if not r.classroom.children_classrooms]
+        if cr_ids:
+            if get_conflict_query(Course.classroom_requirements.any(CourseClassroomRequirement.classroom_id.in_(cr_ids))).first():
                 raise ValueError("Conflit : La salle est déjà occupée sur ce créneau (chevauchement)")
 
         d_ids = [d.id for d in self.divisions]
@@ -727,11 +745,12 @@ class Course(Base):
 
     # Ressources (hors matière, qui suit ses propres règles) partagées entre un cours et son
     # parent — voir _cascade_resources_to_parent / _cascade_resource_removal_to_children.
-    _RESOURCE_RELATIONS = ('teachers', 'non_teaching_staffs', 'classrooms', 'divisions', 'groups', 'materials', 'class_parts')
+    # classroom_requirements EXCLUE (voir _VENTILATION_RELATIONS ci-dessus) : sa propre cascade
+    # quantité-consciente vit dans CourseClassroomRequirement._cascade_decrement_parent_group_line.
+    _RESOURCE_RELATIONS = ('teachers', 'non_teaching_staffs', 'divisions', 'groups', 'materials', 'class_parts')
     _RESOURCE_FIELD_BY_RELATION = {
         'teachers': 'teacher_ids',
         'non_teaching_staffs': 'non_teaching_staff_ids',
-        'classrooms': 'classroom_ids',
         'divisions': 'division_ids',
         'groups': 'group_ids',
         'materials': 'material_ids',
@@ -895,7 +914,7 @@ class Course(Base):
         if self.is_pinned and new_is_pinned:
             if 'timeslot_id' in vals and vals['timeslot_id'] != self.timeslot_id:
                 raise ValueError("Impossible de déplacer un cours épinglé : déverrouillez-le d'abord.")
-            if 'classroom_ids' in vals:
+            if 'classroom_requirement_ids' in vals:
                 raise ValueError("Impossible de changer la salle d'un cours épinglé : déverrouillez-le d'abord.")
             if 'week_type' in vals and str(vals['week_type']) != str(self.week_type.value):
                 raise ValueError("Impossible de changer la semaine d'un cours épinglé : déverrouillez-le d'abord.")
@@ -985,18 +1004,21 @@ class Course(Base):
             "count": len(children),
         }
 
+    @requires_access("read")
     def rpc_get_available_modes(self, db: Session, mapping: list[dict]) -> dict:
         """Retourne la liste des modes de composition applicables."""
         from backend.app.models.composition_mode import CompositionModes
         modes = CompositionModes.get_available_modes(db, self, mapping)
         return {"status": "ok", "available_modes": modes}
 
+    @requires_access("write")
     def rpc_preview_composition(self, db: Session, mode: int, mapping: list[dict]) -> dict:
         """Génère l'aperçu des enfants sans les sauvegarder."""
         from backend.app.models.composition_mode import CompositionModes
         children_vals = CompositionModes.apply(db, self, mode, mapping, preview=True)
         return {"status": "ok", "children_vals": children_vals}
 
+    @requires_access("write")
     def rpc_cancel_composition(self, db: Session) -> dict:
         """
         Appelée quand l'utilisateur quitte l'assistant sans valider. "Générer l'aperçu" a pu créer
@@ -1009,6 +1031,7 @@ class Course(Base):
         cleanup_orphaned_resources(db, [cp.id for cp in self.class_parts], [g.id for g in self.groups])
         return {"status": "ok"}
 
+    @requires_access("write")
     def rpc_save_composition(self, db: Session, children_vals: list[dict]) -> dict:
         """Sauvegarde définitivement les enfants modifiés par l'utilisateur."""
         # 1. Supprimer les anciens enfants proprement sans déclencher de synchronisation intermédiaire sur le parent

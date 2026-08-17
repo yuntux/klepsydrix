@@ -12,6 +12,17 @@ class WeekType(str, enum.Enum):
     B = "B"
     W = "W"
 
+class PreferenceLevel(str, enum.Enum):
+    """
+    Les 4 niveaux réellement utilisés (voir BrushPalette.vue) — Unsuited (rouge, contrainte dure
+    d'indisponibilité), Undesirable (orange, pénalité douce), Preferred (vert, bonus doux), Neutral
+    (gomme, aucun effet). Convertit en enum un champ auparavant un String(15) libre.
+    """
+    UNSUITED = "Unsuited"
+    UNDESIRABLE = "Undesirable"
+    PREFERRED = "Preferred"
+    NEUTRAL = "Neutral"
+
 # Table de jointure Many-to-Many pour Preference <-> Period
 preference_periods = Table(
     "preference_periods",
@@ -27,7 +38,20 @@ class ResourcePreference(Base):
     resource_type: Mapped[str] = mapped_column(String(30), nullable=False) # 'Teacher', 'Classroom', 'Division', 'NonTeachingStaff', 'Course'
     resource_id: Mapped[int] = mapped_column(Integer, nullable=False)
     timeslot_id: Mapped[int] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="CASCADE"), nullable=False)
-    preference_level: Mapped[str] = mapped_column(String(15), nullable=False) # 'Unsuited', 'Undesirable', 'Preferred', 'Neutral'
+    # values_callable : indispensable dès qu'un membre a un .name différent de son .value (ex.
+    # UNSUITED="Unsuited") — sans lui, SQLAlchemy stocke/relit .name (ex. "UNSUITED") alors que
+    # tout le reste du code (comparaisons Python type `level == "Neutral"`, options ci-dessous,
+    # BrushPalette.vue, et les INSERT bruts de init_demo.py) écrit/attend .value ("Unsuited").
+    # WeekType n'a jamais eu ce problème (A="A", B="B", W="W" : .name == .value par coïncidence).
+    preference_level: Mapped[Any] = mapped_column(Enum(PreferenceLevel, name="preference_level_enum", values_callable=lambda enum_cls: [e.value for e in enum_cls]), nullable=False, info={
+        "label": "Niveau", "type": "select",
+        "options": [
+            {"value": "Preferred", "label": "Préféré"},
+            {"value": "Undesirable", "label": "Indésirable"},
+            {"value": "Unsuited", "label": "Indisponible"},
+            {"value": "Neutral", "label": "Neutre"},
+        ],
+    })
     week_type: Mapped[Any] = mapped_column(Enum(WeekType, name="week_type_enum"), nullable=False, default=WeekType.W) # 'A', 'B', 'W'
 
     # Navigation

@@ -345,6 +345,47 @@ def seed_demo_data():
             ), {"teacher_id": t_id, "subject_id": maths_id})
         db.commit()
 
+        # 10e. Référentiel des types de salles (nomenclature ministérielle) — pas de contrainte
+        # d'unicité sur code (voir ref_classroom_type.py) : la donnée de référence fournie contient
+        # 4 lignes de code "22", reproduites telles quelles.
+        ref_classroom_types_data = [
+            ("01", "COURS DE RECREATION", "Cours de récréation"),
+            ("02", "ESPACE DES PERSONNEL", "Espace de travail et de convivialité des personnels"),
+            ("03", "SALLE ENS. GENERAL", "Salle d'enseignement général"),
+            ("04", "ESPACE PROFESSIONNEL", "Espace professionnel, plateaux technique et ateliers d'application"),
+            ("05", "SANITAIRES ELEVE", "Sanitaires élèves"),
+            ("06", "ATELIERS MAINTENANCE", "Atelier de maintenance"),
+            ("07", "BUREAUX ADMINIS.", "Bureau de direction et espace administratifs"),
+            ("08", "ESPACE CIRCULATION", "Hall et espace de circulation"),
+            ("09", "ESPACE VIE SCOLAIRE", "Espace vie scolaire"),
+            ("10", "ESPACE PARENTS", "Espace parents"),
+            ("11", "ESPACE SANTE", "Espace santé"),
+            ("12", "SERVICE SOCIAL", "Espace service social"),
+            ("13", "FOYERS DES ELEVES", "Foyers des élèves"),
+            ("14", "CUISINE", "Office ou cuisine de restauration"),
+            ("15", "PARVIS ET ENCEINTES", "Parvis et enceinte"),
+            ("16", "SALLE PHYS&SPORTIVE", "Salle d'activités physiques et sportives"),
+            ("17", "SALLE D'ARTS", "Salle d'arts plastiques-arts appliqués et culture artistique"),
+            ("18", "SALLE DE MUSIQUE", "Salle d'éducation musicale - salle de musique"),
+            ("19", "SALLE RESTAURATION", "Salle de restauration"),
+            ("20", "SALLE D'ETUDE", "Salle d'étude"),
+            ("21", "SALLE POLYVALENTE", "Salle polyvalente"),
+            ("22", "SALLE SCIENTIFIQUE", "Salle scientifique et technologique"),
+            ("22", "SALLE ENS. TECHNO", "Salle d'enseignement technologique"),
+            ("22", "SALLE DE TP", "Salle de travaux pratiques"),
+            ("22", "SALLE INFORMATIQUE", "Salle informatique"),
+            ("23", "SANITAIRES ADULTES", "Sanitaire adulte"),
+            ("24", "VESTIAIRES", "Vestiaire et local d'entretien"),
+            ("25", "SALLE VIRTUELLE", "Salle virtuelle"),
+            ("26", "CDI", "Centre de documentation et d'information"),
+        ]
+        for code, name, long_name in ref_classroom_types_data:
+            db.execute(text(
+                "INSERT INTO ref_classroom_types (code, name, long_name) VALUES (:code, :name, :long_name)"
+            ), {"code": code, "name": name, "long_name": long_name})
+        db.commit()
+        salle_type_id = db.execute(text("SELECT id FROM ref_classroom_types WHERE name = 'SALLE ENS. GENERAL'")).scalar()
+
         # 11. Création des Salles de Classe (10 salles)
         classrooms = []
         for i in range(1, 11):
@@ -352,9 +393,9 @@ def seed_demo_data():
             name = f"Salle {100 + i}"
             code = f"S{100 + i}"
             db.execute(text(
-                "INSERT INTO classrooms (code, name, capacity, quantity, school_id) "
-                "VALUES (:code, :name, 35, 1, :school_id)"
-            ), {"code": code, "name": name, "school_id": school_idx})
+                "INSERT INTO classrooms (code, name, capacity, school_id, ref_classroom_type_id) "
+                "VALUES (:code, :name, 35, :school_id, :ref_classroom_type_id)"
+            ), {"code": code, "name": name, "school_id": school_idx, "ref_classroom_type_id": salle_type_id})
             db.commit()
             c_id = db.execute(text("SELECT id FROM classrooms WHERE code = :code"), {"code": code}).scalar()
             classrooms.append((c_id, school_idx))
@@ -443,7 +484,7 @@ def seed_demo_data():
             for t_id in selected_teachers:
                 db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:c_id, :t_id)"), {"c_id": parent_id, "t_id": t_id})
             for r_id in selected_rooms:
-                db.execute(text("INSERT INTO course_classrooms (course_id, classroom_id) VALUES (:c_id, :r_id)"), {"c_id": parent_id, "r_id": r_id})
+                db.execute(text("INSERT INTO course_classroom_requirements (course_id, classroom_id, quantity) VALUES (:c_id, :r_id, 1)"), {"c_id": parent_id, "r_id": r_id})
             for g_id in div_groups:
                 db.execute(text("INSERT INTO course_groups (course_id, group_id) VALUES (:c_id, :g_id)"), {"c_id": parent_id, "g_id": g_id})
 
@@ -468,7 +509,7 @@ def seed_demo_data():
                 course_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
 
                 db.execute(text("INSERT INTO course_teachers (course_id, teacher_id) VALUES (:course_id, :teacher_id)"), {"course_id": course_id, "teacher_id": t_id})
-                db.execute(text("INSERT INTO course_classrooms (course_id, classroom_id) VALUES (:course_id, :r_id)"), {"course_id": course_id, "r_id": r_id})
+                db.execute(text("INSERT INTO course_classroom_requirements (course_id, classroom_id, quantity) VALUES (:course_id, :r_id, 1)"), {"course_id": course_id, "r_id": r_id})
                 db.execute(text("INSERT INTO course_groups (course_id, group_id) VALUES (:course_id, :g_id)"), {"course_id": course_id, "g_id": g_id})
 
             # 4. Cours alternés (Semaine A / Semaine B)

@@ -12,6 +12,7 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.course_classroom_requirement import CourseClassroomRequirement
 from backend.app.models.group import Partition, ClassPart, Group
 
 from sqlalchemy.orm import sessionmaker
@@ -46,15 +47,31 @@ def setup_dependency_overrides():
     app.dependency_overrides.pop(current_db_user, None)
 
 import backend.app.solver.solver
-def mock_start_solve(school_id=None, slug=None):
+from backend.app.core.config import settings
+
+def mock_start_course_placement(school_id=None, slug=None):
+    """Remplace start_course_placement_async pour ces tests HTTP : exécute la même orchestration
+    (_run_job_phases, une seule phase COURSE_PLACEMENT) de façon synchrone dans le thread de
+    l'appelant, plutôt que dans un thread d'arrière-plan — pour que l'assertion suivant l'appel
+    HTTP n'ait pas à sonder /status en boucle."""
     db = TestSessionLocal()
     try:
-        backend.app.solver.solver._solve_timetable_job(db, school_id, slug=slug)
+        phases = [{
+            "kind": "COURSE_PLACEMENT",
+            "build_fn": backend.app.solver.solver._build_course_placement_problem,
+            "solver_factory_fn": backend.app.solver.solver._get_solver_factory,
+            "termination_config": backend.app.solver.solver._course_placement_termination_config(
+                best_score_feasible=True, spent_limit_seconds=settings.SOLVER_COURSE_PLACEMENT_CEILING_SECONDS,
+            ),
+            "write_back_fn": lambda db, sid, sol: backend.app.solver.solver._write_back_course_placement(db, sid, sol),
+        }]
+        backend.app.solver.solver.SolverState.enqueue(slug, kind="COURSE_PLACEMENT", pipeline_total_steps=1)
+        backend.app.solver.solver._run_job_phases(db, db, school_id, slug, "COURSE_PLACEMENT", phases)
     finally:
         db.close()
-        
+
 import backend.app.api.endpoints
-backend.app.api.endpoints.start_solve_timetable_async = mock_start_solve
+backend.app.api.endpoints.start_course_placement_async = mock_start_course_placement
 
 client = TestClient(app)
 
@@ -129,15 +146,15 @@ def test_generic_timeslots_active_filter(db_session: Session):
     assert now_inactive_ts.id in ids
     assert still_active_ts.id not in ids
 
-def test_solve_timetable(db_session: Session):
+def test_course_placement_endpoint(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
-    
+
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
-    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
-    
+
     t._via_crud_mixin_create = True
     c._via_crud_mixin_create = True
     d._via_crud_mixin_create = True
@@ -150,28 +167,24 @@ def test_solve_timetable(db_session: Session):
     db_session.add(course)
     db_session.commit()
 
-    response = client.post("/api/timetable/solve")
+    response = client.post("/api/timetable/course-placement")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    
-    import time
-    for _ in range(15):
-        status_resp = client.get("/api/timetable/status")
-        if status_resp.json()["status"] == "NOT_SOLVING":
-            break
-        time.sleep(1)
-        
+
     db_session.refresh(course)
     assert course.timeslot_id is not None
-    assert (course.classrooms[0].id if course.classrooms else None) is not None
+    # Ce cours n'a aucune CourseClassroomRequirement (aucune salle demandée), et de toute façon
+    # /course-placement (domaine COURSE_PLACEMENT) ne résout et n'écrit jamais la salle — voir
+    # plan salles §2 : la salle est du seul ressort de /classroom-assignment.
+    assert (course.classroom_requirements[0].classroom_id if course.classroom_requirements else None) is None
 
 def test_reset_timetable(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
-    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     
@@ -183,7 +196,9 @@ def test_reset_timetable(db_session: Session):
     db_session.commit()
 
     # Créer un cours déjà planifié
-    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], timeslot_id=ts.id, classrooms=[c], school_id=school.id)
+    req = CourseClassroomRequirement(classroom_id=c.id, quantity=1)
+    req._via_crud_mixin_create = True
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], timeslot_id=ts.id, classroom_requirements=[req], school_id=school.id)
     course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
@@ -196,14 +211,14 @@ def test_reset_timetable(db_session: Session):
     # Vérifier que le cours a bien été remis à NULL en base
     db_session.refresh(course)
     assert course.timeslot_id is None
-    assert (course.classrooms[0].id if course.classrooms else None) == c.id
+    assert (course.classroom_requirements[0].classroom_id if course.classroom_requirements else None) == c.id
 
 def test_update_course_success(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
-    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
@@ -221,19 +236,19 @@ def test_update_course_success(db_session: Session):
     db_session.add(course)
     db_session.commit()
 
-    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id, "classroom_ids": [c.id]})
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id, "classroom_requirement_ids": [{"classroom_id": c.id, "quantity": 1}]})
     assert response.status_code == 200
     db_session.refresh(course)
     assert course.timeslot_id == ts.id
-    assert (course.classrooms[0].id if course.classrooms else None) == c.id
+    assert (course.classroom_requirements[0].classroom_id if course.classroom_requirements else None) == c.id
 
 def test_update_course_conflict(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
-    c1 = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
-    c2 = Classroom(code="SALLE_B", name="Salle B", capacity=25, quantity=1, school_id=school.id)
+    c1 = Classroom(code="SALLE_A", name="Salle A", capacity=30, school_id=school.id)
+    c2 = Classroom(code="SALLE_B", name="Salle B", capacity=25, school_id=school.id)
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
@@ -250,7 +265,9 @@ def test_update_course_conflict(db_session: Session):
     db_session.commit()
 
     # Le premier cours occupe Prof A sur le créneau ts
-    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts.id, classrooms=[c1], school_id=school.id)
+    req1 = CourseClassroomRequirement(classroom_id=c1.id, quantity=1)
+    req1._via_crud_mixin_create = True
+    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts.id, classroom_requirements=[req1], school_id=school.id)
     # Le second cours est Prof A avec la classe d2 (actuellement non placé)
     course2 = Course(subject_id=subject.id, teachers=[t], divisions=[d2], school_id=school.id)
     
@@ -260,34 +277,35 @@ def test_update_course_conflict(db_session: Session):
     db_session.commit()
 
     # Tenter de placer le second cours sur le même créneau avec la même prof (Conflit !)
-    response = client.put(f"/api/timetable/courses/{course2.id}", json={"timeslot_id": ts.id, "classroom_ids": [c2.id]})
+    response = client.put(f"/api/timetable/courses/{course2.id}", json={"timeslot_id": ts.id, "classroom_requirement_ids": [{"classroom_id": c2.id, "quantity": 1}]})
     assert response.status_code == 409
     assert "conflit" in response.json()["detail"].lower()
 
-def test_solve_pinned_course(db_session: Session):
+def test_course_placement_respects_pin(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
-    
+
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
-    c1 = Classroom(code="SALLE_1", name="Salle 1", capacity=30, quantity=1, school_id=school.id)
-    c2 = Classroom(code="SALLE_2", name="Salle 2", capacity=30, quantity=1, school_id=school.id)
+    c1 = Classroom(code="SALLE_1", name="Salle 1", capacity=30, school_id=school.id)
     d1 = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     d2 = Division(code="DIV_6B", name="6B", student_count=25, color="#CCCCCC", school_id=school.id)
     ts1 = Timeslot(day_of_week=1, minutes_from_midnight=480)
     ts2 = Timeslot(day_of_week=1, minutes_from_midnight=540)
-    
+
     t._via_crud_mixin_create = True
     c1._via_crud_mixin_create = True
-    c2._via_crud_mixin_create = True
     d1._via_crud_mixin_create = True
     d2._via_crud_mixin_create = True
     ts1._via_crud_mixin_create = True
     ts2._via_crud_mixin_create = True
-    db_session.add_all([t, c1, c2, d1, d2, ts1, ts2])
+    db_session.add_all([t, c1, d1, d2, ts1, ts2])
     db_session.commit()
 
-    # Le cours 1 est verrouillé (pinned) sur ts1 et c1
-    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts1.id, classrooms=[c1], is_pinned=True, school_id=school.id, duration_minutes=30)
+    # Le cours 1 est verrouillé (pinned) sur ts1, avec une exigence de salle précise (jamais
+    # touchée par /course-placement, qui ne résout que timeslot/week_type — voir plan salles §2).
+    req1 = CourseClassroomRequirement(classroom_id=c1.id, quantity=1)
+    req1._via_crud_mixin_create = True
+    course1 = Course(subject_id=subject.id, teachers=[t], divisions=[d1], timeslot_id=ts1.id, classroom_requirements=[req1], is_pinned=True, school_id=school.id, duration_minutes=30)
     # Le cours 2 est libre
     course2 = Course(subject_id=subject.id, teachers=[t], divisions=[d2], school_id=school.id, duration_minutes=30)
 
@@ -296,25 +314,18 @@ def test_solve_pinned_course(db_session: Session):
     db_session.add_all([course1, course2])
     db_session.commit()
 
-    # Résoudre avec Timefold
-    response = client.post("/api/timetable/solve")
+    response = client.post("/api/timetable/course-placement")
     assert response.status_code == 200
-    
-    import time
-    for _ in range(15):
-        status_resp = client.get("/api/timetable/status")
-        if status_resp.json()["status"] == "NOT_SOLVING":
-            break
-        time.sleep(1)
-    
+
     # Vérifier que le cours 1 n'a pas été déplacé par le solveur
     db_session.refresh(course1)
     db_session.refresh(course2)
-    
+
     assert course1.timeslot_id == ts1.id
-    assert (course1.classrooms[0].id if course1.classrooms else None) == c1.id
+    # Jamais résolu ni écrit par /course-placement — reste simplement tel qu'en base avant l'appel.
+    assert (course1.classroom_requirements[0].classroom_id if course1.classroom_requirements else None) == c1.id
     assert course1.is_pinned is True
-    
+
     # Le cours 2 a dû être planifié sur ts2 puisqu'il y a conflit enseignant sur ts1
     assert course2.timeslot_id == ts2.id
 
@@ -324,7 +335,7 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     subject = db_session.query(Subject).first()
     
     t = Teacher(code="PROF_A", first_name="Prof", last_name="A", school_id=school.id)
-    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, quantity=1, school_id=school.id)
+    c = Classroom(code="SALLE_A", name="Salle A", capacity=30, school_id=school.id)
     d = Division(code="DIV_6A", name="6A", student_count=25, color="#CCCCCC", school_id=school.id)
     ts = Timeslot(day_of_week=1, minutes_from_midnight=480)
     
@@ -335,7 +346,9 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     db_session.add_all([t, c, d, ts])
     db_session.commit()
 
-    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], timeslot_id=ts.id, classrooms=[c], school_id=school.id)
+    req = CourseClassroomRequirement(classroom_id=c.id, quantity=1)
+    req._via_crud_mixin_create = True
+    course = Course(subject_id=subject.id, teachers=[t], divisions=[d], timeslot_id=ts.id, classroom_requirements=[req], school_id=school.id)
     course._via_crud_mixin_create = True
     db_session.add(course)
     db_session.commit()
@@ -370,7 +383,7 @@ def test_structures_simulate_and_apply_change(db_session: Session):
     # 3. Vérifier que la séance a bien été dépositionnée (timeslot_id et classroom_id à None)
     db_session.refresh(course)
     assert course.timeslot_id is None
-    assert (course.classrooms[0].id if course.classrooms else None) is None
+    assert (course.classroom_requirements[0].classroom_id if course.classroom_requirements else None) is None
 
 
 def test_preferences_crud(db_session: Session):
@@ -604,9 +617,11 @@ def test_pinned_course_cannot_be_moved_manually(db_session: Session):
     db_session.add_all([ts1, ts2, ts_end])
     db_session.commit()
 
+    req1 = CourseClassroomRequirement(classroom_id=classroom1.id, quantity=1)
+    req1._via_crud_mixin_create = True
     course = Course(
         subject_id=subject.id, school_id=school.id, week_type="A",
-        timeslot_id=ts1.id, classrooms=[classroom1], is_pinned=True,
+        timeslot_id=ts1.id, classroom_requirements=[req1], is_pinned=True,
     )
     course._via_crud_mixin_create = True
     db_session.add(course)
@@ -620,10 +635,10 @@ def test_pinned_course_cannot_be_moved_manually(db_session: Session):
     assert course.timeslot_id == ts1.id
 
     # Salle : refusé tant que le cours reste épinglé.
-    response = client.put(f"/api/timetable/courses/{course.id}", json={"classroom_ids": [classroom2.id]})
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"classroom_requirement_ids": [{"classroom_id": classroom2.id, "quantity": 1}]})
     assert response.status_code == 409
     db_session.refresh(course)
-    assert [c.id for c in course.classrooms] == [classroom1.id]
+    assert [r.classroom_id for r in course.classroom_requirements] == [classroom1.id]
 
     # Semaine (via le CRUD générique — PATCH, pas PUT — week_type n'est pas encore exposé sur
     # l'endpoint de placement dédié /api/timetable/courses/{id}, voir
@@ -1637,3 +1652,190 @@ def test_course_resource_removal_from_parent_blocked_if_it_would_empty_a_child(d
     with pytest.raises(ValueError, match="dernière ressource"):
         parent.update(db_session, {"teacher_ids": [t2.id]})
     db_session.rollback()
+
+
+# =====================================================================================
+# CourseClassroomRequirement — cascade de décrémentation quantité-consciente (plan salles §1.5),
+# distincte du mécanisme générique _VENTILATION_RELATIONS des 6 autres relations de ressources
+# (classroom_requirements en est explicitement exclu, voir course.py — une même salle/groupe peut
+# être nécessaire plusieurs fois, la comparaison par différence d'ensembles d'ids ne s'applique
+# pas). Aucune couverture directe avant ces tests : seul le chemin heureux (résolution complète
+# 3/3 par le solveur CLASSROOM_ASSIGNMENT) était exercé, dans test_solver.py.
+# =====================================================================================
+
+def test_classroom_requirement_leaf_quantity_must_be_one(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_CCRQ1", "first_name": "Prof", "last_name": "Ccrq1", "school_id": school.id})
+    room = Classroom.create(db_session, {"code": "CCR_LEAF", "name": "Salle", "school_id": school.id})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id]})
+
+    with pytest.raises(ValueError, match="quantity=1"):
+        CourseClassroomRequirement.create(db_session, {"course_id": course.id, "classroom_id": room.id, "quantity": 2})
+    db_session.rollback()
+
+
+def test_classroom_requirement_group_quantity_can_exceed_one(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_CCRQ2", "first_name": "Prof", "last_name": "Ccrq2", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "CCR_GRP1", "name": "Groupe", "school_id": school.id})
+    Classroom.create(db_session, {"code": "CCR_GRP1_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": group.id})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id]})
+
+    req = CourseClassroomRequirement.create(db_session, {"course_id": course.id, "classroom_id": group.id, "quantity": 3})
+    assert req.quantity == 3
+
+
+def test_classroom_requirement_child_leaf_room_cascades_to_parent_and_decrements_group_line(db_session: Session):
+    """
+    Exemple de référence du plan salles §3.1 : un enfant qui reçoit une salle-feuille précise
+    appartenant au groupe déjà déclaré sur le parent doit voir cette salle recopiée sur le parent
+    (comme les 6 autres relations de ressources) ET la ligne de groupe du parent décrémentée
+    d'autant.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_CASC1", "first_name": "Prof", "last_name": "Casc1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_CASC2", "first_name": "Prof", "last_name": "Casc2", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "CCR_CASC_GRP", "name": "Labos", "school_id": school.id})
+    l1 = Classroom.create(db_session, {"code": "CCR_CASC_L1", "name": "Labo1", "school_id": school.id, "parent_classroom_id": group.id})
+    Classroom.create(db_session, {"code": "CCR_CASC_L2", "name": "Labo2", "school_id": school.id, "parent_classroom_id": group.id})
+
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    parent_group_req = CourseClassroomRequirement.create(db_session, {"course_id": parent.id, "classroom_id": group.id, "quantity": 2})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    CourseClassroomRequirement.create(db_session, {"course_id": child.id, "classroom_id": l1.id, "quantity": 1})
+
+    # 1. Copié sur le parent, comme les 6 autres relations (teachers, divisions, ...).
+    parent_leaf_lines = db_session.query(CourseClassroomRequirement).filter(
+        CourseClassroomRequirement.course_id == parent.id, CourseClassroomRequirement.classroom_id == l1.id
+    ).all()
+    assert len(parent_leaf_lines) == 1
+    assert parent_leaf_lines[0].quantity == 1
+
+    # 2. La ligne de groupe du parent est décrémentée de 2 à 1 (pas supprimée : il en reste).
+    db_session.refresh(parent_group_req)
+    assert parent_group_req.quantity == 1
+
+
+def test_classroom_requirement_group_line_deleted_when_quantity_reaches_zero(db_session: Session):
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_CASC3", "first_name": "Prof", "last_name": "Casc3", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_CASC4", "first_name": "Prof", "last_name": "Casc4", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "CCR_ZERO_GRP", "name": "Grp", "school_id": school.id})
+    only_leaf = Classroom.create(db_session, {"code": "CCR_ZERO_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": group.id})
+
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    parent_group_req = CourseClassroomRequirement.create(db_session, {"course_id": parent.id, "classroom_id": group.id, "quantity": 1})
+    parent_group_req_id = parent_group_req.id
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    CourseClassroomRequirement.create(db_session, {"course_id": child.id, "classroom_id": only_leaf.id, "quantity": 1})
+
+    assert db_session.get(CourseClassroomRequirement, parent_group_req_id) is None
+
+
+def test_classroom_requirement_child_leaf_room_outside_group_still_copies_but_does_not_decrement(db_session: Session):
+    """Une salle-feuille précise reçue par un enfant mais qui n'appartient PAS au groupe déclaré
+    sur le parent : toujours recopiée sur le parent (règle générique, inconditionnelle), mais la
+    ligne de groupe du parent reste intacte (aucun lien de filiation entre les deux salles)."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_CASC5", "first_name": "Prof", "last_name": "Casc5", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_CASC6", "first_name": "Prof", "last_name": "Casc6", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "CCR_OUT_GRP", "name": "Grp", "school_id": school.id})
+    Classroom.create(db_session, {"code": "CCR_OUT_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": group.id})
+    unrelated_room = Classroom.create(db_session, {"code": "CCR_OUT_UNREL", "name": "Salle sans rapport", "school_id": school.id})
+
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    parent_group_req = CourseClassroomRequirement.create(db_session, {"course_id": parent.id, "classroom_id": group.id, "quantity": 2})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    CourseClassroomRequirement.create(db_session, {"course_id": child.id, "classroom_id": unrelated_room.id, "quantity": 1})
+
+    parent_leaf_lines = db_session.query(CourseClassroomRequirement).filter(
+        CourseClassroomRequirement.course_id == parent.id, CourseClassroomRequirement.classroom_id == unrelated_room.id
+    ).all()
+    assert len(parent_leaf_lines) == 1  # toujours copiée (règle générique inconditionnelle)
+
+    db_session.refresh(parent_group_req)
+    assert parent_group_req.quantity == 2  # inchangée : unrelated_room n'est pas sous ce groupe
+
+
+def test_classroom_requirement_child_subgroup_requirement_decrements_parent_line_without_copy(db_session: Session):
+    """Un enfant qui reçoit sa PROPRE exigence de sous-groupe (pas encore une salle précise) pour
+    un sous-groupe imbriqué dans le groupe déclaré sur le parent : décrémente quand même la ligne
+    du parent (évite le double-comptage transitoire tant qu'aucune des deux n'est résolue), mais
+    n'est PAS recopiée sur le parent (ce n'est pas une salle-feuille — is_leaf=False)."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_CASC7", "first_name": "Prof", "last_name": "Casc7", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_CASC8", "first_name": "Prof", "last_name": "Casc8", "school_id": school.id})
+    top_group = Classroom.create(db_session, {"code": "CCR_SUB_TOP", "name": "Top", "school_id": school.id})
+    sub_group = Classroom.create(db_session, {"code": "CCR_SUB_SUB", "name": "Sous-groupe", "school_id": school.id, "parent_classroom_id": top_group.id})
+    Classroom.create(db_session, {"code": "CCR_SUB_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": sub_group.id})
+
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    parent_group_req = CourseClassroomRequirement.create(db_session, {"course_id": parent.id, "classroom_id": top_group.id, "quantity": 2})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+
+    CourseClassroomRequirement.create(db_session, {"course_id": child.id, "classroom_id": sub_group.id, "quantity": 1})
+
+    # Pas de ligne "sub_group" copiée sur le parent (is_leaf=False, étape 1 sautée).
+    parent_subgroup_lines = db_session.query(CourseClassroomRequirement).filter(
+        CourseClassroomRequirement.course_id == parent.id, CourseClassroomRequirement.classroom_id == sub_group.id
+    ).all()
+    assert len(parent_subgroup_lines) == 0
+
+    db_session.refresh(parent_group_req)
+    assert parent_group_req.quantity == 1
+
+
+def test_classroom_requirement_no_cascade_when_course_has_no_parent(db_session: Session):
+    """Sanity check : un cours SANS parent (le cas le plus courant) ne doit jamais lever ni
+    modifier quoi que ce soit hors de sa propre ligne — la cascade ne se déclenche que
+    `course.parent_id is not None`."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_CASC9", "first_name": "Prof", "last_name": "Casc9", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "CCR_NOPARENT_GRP", "name": "Grp", "school_id": school.id})
+    Classroom.create(db_session, {"code": "CCR_NOPARENT_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": group.id})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id]})
+
+    req = CourseClassroomRequirement.create(db_session, {"course_id": course.id, "classroom_id": group.id, "quantity": 1})
+    assert req.quantity == 1
+
+
+def test_classroom_requirement_parent_quantity_manual_reduction_does_not_cascade_to_children(db_session: Session):
+    """
+    ⚠️ Documente le comportement RÉEL actuel, qui dévie du plan salles §1.5 (« cascade parent ->
+    enfants sur réduction manuelle de la quantité du parent : le premier enfant perd l'unité
+    correspondante »). _cascade_decrement_parent_group_line ne se déclenche que quand la ligne
+    MODIFIÉE appartient à un cours qui a un parent (`course.parent_id is not None`) — une
+    réduction manuelle de la ligne de groupe DU PARENT lui-même (qui n'a pas de parent) ne
+    déclenche donc aucune cascade vers ses enfants. Ce test fige ce comportement pour éviter
+    qu'il ne change silencieusement ; à confirmer avec l'équipe s'il s'agit d'un gap à combler ou
+    d'un choix d'implémentation qui a remplacé cette partie du plan.
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_CASC10", "first_name": "Prof", "last_name": "Casc10", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_CASC11", "first_name": "Prof", "last_name": "Casc11", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "CCR_MANUAL_GRP", "name": "Grp", "school_id": school.id})
+    l1 = Classroom.create(db_session, {"code": "CCR_MANUAL_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": group.id})
+
+    parent = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [t1.id, t2.id]})
+    parent_group_req = CourseClassroomRequirement.create(db_session, {"course_id": parent.id, "classroom_id": group.id, "quantity": 2})
+    child = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "duration_minutes": 30, "teacher_ids": [t1.id]})
+    CourseClassroomRequirement.create(db_session, {"course_id": child.id, "classroom_id": l1.id, "quantity": 1})
+
+    parent_group_req.update(db_session, {"quantity": 1})
+
+    # Aucune ligne du child n'a été touchée par cette réduction manuelle côté parent.
+    child_lines = db_session.query(CourseClassroomRequirement).filter(CourseClassroomRequirement.course_id == child.id).all()
+    assert len(child_lines) == 1
+    assert child_lines[0].classroom_id == l1.id
+    assert child_lines[0].quantity == 1

@@ -5,7 +5,7 @@ métier associée) est préfixé wizard_ (voir architecture.md), regroupé dans 
 que scindé logique/modèle.
 """
 from sqlalchemy.orm import Session
-from backend.app.models.base import TransientModel
+from backend.app.models.base import TransientModel, requires_access
 from backend.app.models.course import Course
 from backend.app.models.division import Division
 from backend.app.models.subject import Subject
@@ -187,6 +187,7 @@ class WizardCourseGeneration(TransientModel):
             html += f"<p><strong>{count} cours existant(s) seront supprimés.</strong></p>"
         return [cls(id=1, info_html=html)]
 
+    @requires_access("write")
     def rpc_generate_courses(self, db: Session) -> dict:
         result = generate_courses_from_services(db)
         html = f"<p><strong>{result['generated_count']} cours générés</strong> ({result['deleted_count']} supprimés).</p>"

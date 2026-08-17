@@ -250,7 +250,7 @@ class CompositionModes:
             'non_teaching_staff_ids': [],
             # Ressources spatiales fournies par le mapping (ou liste vide si omis)
             'teacher_ids': map_row.get('teacher_ids', []),
-            'classroom_ids': map_row.get('classroom_ids', []),
+            'classroom_requirement_ids': map_row.get('classroom_requirement_ids', []),
             'division_ids': map_row.get('division_ids', []),
             'class_part_ids': map_row.get('class_part_ids', []),
             'group_ids': map_row.get('group_ids', []),

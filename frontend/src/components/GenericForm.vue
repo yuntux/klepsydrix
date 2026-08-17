@@ -757,7 +757,16 @@ const FormLayoutGrid: any = defineComponent({
                 }
               });
             } else if (isFk) {
-              const options = field.options || [];
+              // Auto-exclusion d'un champ FK auto-référent (ex: Classroom.parent_classroom_id,
+              // Course.parent_id) : un enregistrement ne peut jamais se désigner lui-même comme
+              // son propre parent — exclu des options plutôt que laissé au seul rejet serveur
+              // tardif (@constrains côté backend, voir classroom.py::_validate_and_sync_
+              // classroom_tree). Ne couvre que le cas direct (soi-même) : un cycle indirect via un
+              // descendant reste seulement rejeté côté serveur, pas filtré ici (voir plan salles
+              // §5, risque #7 — choix délibéré, pas une limite oubliée).
+              const options = (field.resource === props.resourceKey && gridProps.localModel.id != null)
+                ? (field.options || []).filter((o: any) => String(o.value) !== String(gridProps.localModel.id))
+                : (field.options || []);
               inputElement = h(SearchableSelect, {
                 modelValue: gridProps.localModel[key] !== undefined && gridProps.localModel[key] !== null ? gridProps.localModel[key] : null,
                 options: options,

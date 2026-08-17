@@ -66,7 +66,7 @@ def _prepare_parent_course(db, extra_teachers=0, extra_groups=0, extra_divisions
         'duration_minutes': 120,
         'week_type': 'W',
         'teacher_ids': [t.id for t in teachers],
-        'classroom_ids': [r.id for r in classrooms],
+        'classroom_requirement_ids': [{"classroom_id": r.id, "quantity": 1} for r in classrooms],
         'division_ids': [d.id for d in divisions],
         'group_ids': [g.id for g in groups_gen],
         'period_ids': [p.id for p in periods],
@@ -74,8 +74,8 @@ def _prepare_parent_course(db, extra_teachers=0, extra_groups=0, extra_divisions
     })
     
     mock_mapping = [
-        {"teacher_ids": [teachers[0].id], "group_ids": [groups_gen[0].id], "classroom_ids": [classrooms[0].id], "subject_id": subjects[0].id},
-        {"teacher_ids": [teachers[1].id], "group_ids": [groups_gen[1].id], "classroom_ids": [classrooms[1].id], "subject_id": subjects[0].id}
+        {"teacher_ids": [teachers[0].id], "group_ids": [groups_gen[0].id], "classroom_requirement_ids": [{"classroom_id": classrooms[0].id, "quantity": 1}], "subject_id": subjects[0].id},
+        {"teacher_ids": [teachers[1].id], "group_ids": [groups_gen[1].id], "classroom_requirement_ids": [{"classroom_id": classrooms[1].id, "quantity": 1}], "subject_id": subjects[0].id}
     ]
 
     return parent, teachers, groups_gen, divisions, periods, mock_mapping
@@ -90,9 +90,9 @@ class TestCompositionModes:
         children = CompositionModes.apply(db_session, parent, 1, mapping)
         assert len(children) == 2
         # Assertions d'orthogonalité
-        assert len(children[0].classrooms) == 1
-        assert len(children[1].classrooms) == 1
-        assert children[0].classrooms[0].id != children[1].classrooms[0].id
+        assert len(children[0].classroom_requirements) == 1
+        assert len(children[1].classroom_requirements) == 1
+        assert children[0].classroom_requirements[0].classroom_id != children[1].classroom_requirements[0].classroom_id
         assert children[0].teachers[0].id == teachers[0].id
         assert children[1].teachers[0].id == teachers[1].id
 
@@ -125,7 +125,7 @@ class TestCompositionModes:
 
     def test_mode_6_three_groups_two_classes(self, db_session):
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_groups=1, extra_teachers=1)
-        mapping.append({"teacher_ids": [teachers[2].id], "group_ids": [groups[2].id], "classroom_ids": [], "subject_id": parent.subject_id})
+        mapping.append({"teacher_ids": [teachers[2].id], "group_ids": [groups[2].id], "classroom_requirement_ids": [], "subject_id": parent.subject_id})
         children = CompositionModes.apply(db_session, parent, 6, mapping)
         assert len(children) == 4
 
@@ -144,8 +144,8 @@ class TestCompositionModes:
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_periods=2)
         # Mapping spécifique pour le mode 9 (1 seul groupe qui change de prof)
         mapping_m9 = [
-            {"teacher_ids": [teachers[0].id], "group_ids": [groups[0].id], "classroom_ids": [], "subject_id": parent.subject_id},
-            {"teacher_ids": [teachers[1].id], "group_ids": [groups[0].id], "classroom_ids": [], "subject_id": parent.subject_id}
+            {"teacher_ids": [teachers[0].id], "group_ids": [groups[0].id], "classroom_requirement_ids": [], "subject_id": parent.subject_id},
+            {"teacher_ids": [teachers[1].id], "group_ids": [groups[0].id], "classroom_requirement_ids": [], "subject_id": parent.subject_id}
         ]
         children = CompositionModes.apply(db_session, parent, 9, mapping_m9)
         # Contrairement au mode 8 (qui crée une barrette de N cours par période), 
@@ -161,7 +161,7 @@ class TestCompositionModes:
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
         # Mapping avec 2 professeurs sur la même ligne
         mapping_coteaching = [
-            {"teacher_ids": [teachers[0].id, teachers[1].id], "group_ids": [groups[0].id], "classroom_ids": [], "subject_id": parent.subject_id}
+            {"teacher_ids": [teachers[0].id, teachers[1].id], "group_ids": [groups[0].id], "classroom_requirement_ids": [], "subject_id": parent.subject_id}
         ]
         # Application du Mode 1
         children = CompositionModes.apply(db_session, parent, 1, mapping_coteaching)
@@ -188,8 +188,8 @@ class TestCompositionModes:
         # ligne de mapping d'origine.
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_teachers=1)
         mapping_rotation = [
-            {"teacher_ids": [teachers[0].id, teachers[2].id], "group_ids": [groups[0].id], "classroom_ids": [], "subject_id": parent.subject_id},
-            {"teacher_ids": [teachers[1].id], "group_ids": [groups[1].id], "classroom_ids": [], "subject_id": parent.subject_id},
+            {"teacher_ids": [teachers[0].id, teachers[2].id], "group_ids": [groups[0].id], "classroom_requirement_ids": [], "subject_id": parent.subject_id},
+            {"teacher_ids": [teachers[1].id], "group_ids": [groups[1].id], "classroom_requirement_ids": [], "subject_id": parent.subject_id},
         ]
         children = CompositionModes.apply(db_session, parent, 5, mapping_rotation)
         by_week_and_group = {(c.week_type.value, c.groups[0].id): c for c in children}
@@ -211,7 +211,7 @@ class TestCompositionModes:
         cp2 = ClassPart.create(db_session, {"name": "P2", "partition_id": partition.id})
         
         mapping_dynamic = [
-            {"teacher_ids": [teachers[0].id], "class_part_ids": [cp1.id, cp2.id], "classroom_ids": [], "subject_id": parent.subject_id}
+            {"teacher_ids": [teachers[0].id], "class_part_ids": [cp1.id, cp2.id], "classroom_requirement_ids": [], "subject_id": parent.subject_id}
         ]
         
         children = CompositionModes.apply(db_session, parent, 1, mapping_dynamic)
@@ -242,7 +242,7 @@ class TestCompositionModes:
         discipline_id = db_session.query(Subject).first().discipline_id
         other_subject = Subject.create(db_session, {"code": "SUBX", "code_nomenclature": "NX", "short_name": "SubX", "name": "Espagnol", "discipline_id": discipline_id})
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
         children_1 = CompositionModes.apply(db_session, parent, 1, mapping_1)
         assert len(children_1) == 1
         assert len(children_1[0].class_parts) == 1
@@ -255,7 +255,7 @@ class TestCompositionModes:
         parent_subject = db_session.get(Subject, subject_id)
         assert children_1[0].class_parts[0].partition.name == parent_subject.code
 
-        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_ids": []}]
+        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
         children_2 = CompositionModes.apply(db_session, parent, 1, mapping_2)
         assert len(children_2) == 1
         assert children_2[0].class_parts[0].id == children_1[0].class_parts[0].id
@@ -274,14 +274,14 @@ class TestCompositionModes:
         _set_setting(db_session, "DIVISION_PART_NAME_NUMBER_FORMAT", "alphabetique")
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         children_1 = CompositionModes.apply(db_session, parent, 1, mapping_1)
         assert children_1[0].class_parts[0].name == "XA"
 
         from backend.app.models.subject import Subject
         discipline_id = db_session.query(Subject).first().discipline_id
         other_subject = Subject.create(db_session, {"code": "AUTREMAT", "code_nomenclature": "NY", "short_name": "AutreMat", "name": "Autre matière", "discipline_id": discipline_id})
-        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_ids": []}]
+        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
         children_2 = CompositionModes.apply(db_session, parent, 1, mapping_2)
         # Même préfixe "X" (codes désactivés) : 2e lettre de la séquence, malgré une matière différente.
         assert children_2[0].class_parts[0].name == "XB"
@@ -299,7 +299,7 @@ class TestCompositionModes:
             "teacher_ids": [teachers[0].id],
             "division_ids": [divisions[0].id, divisions[1].id],
             "subject_id": parent.subject_id,
-            "classroom_ids": [],
+            "classroom_requirement_ids": [],
         }]
         children = CompositionModes.apply(db_session, parent, 1, mapping_2div)
         assert children[0].groups[0].name == "YA"
@@ -314,8 +314,8 @@ class TestCompositionModes:
         subjects = db_session.query(Subject).order_by(Subject.code).all()
 
         mapping_pole = [
-            {"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": subjects[0].id, "classroom_ids": []},
-            {"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": subjects[1].id, "classroom_ids": []},
+            {"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": subjects[0].id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": subjects[1].id, "classroom_requirement_ids": []},
         ]
         children = CompositionModes.apply(db_session, parent, 1, mapping_pole)
         assert len(children) == 2
@@ -337,7 +337,7 @@ class TestCompositionModes:
             "teacher_ids": [teachers[0].id],
             "division_ids": [divisions[0].id, divisions[1].id],
             "subject_id": parent.subject_id,
-            "classroom_ids": [],
+            "classroom_requirement_ids": [],
         }]
         children = CompositionModes.apply(db_session, parent, 1, mapping_multi_division)
         assert len(children) == 1
@@ -371,7 +371,7 @@ class TestCompositionModes:
         assert db_session.get(ClassPart, manual_cp.id) is not None
 
         # Auto-générée mais toujours utilisée par un cours réel : pas de suppression.
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         children = CompositionModes.apply(db_session, parent, 1, mapping_1)
         used_cp_id = children[0].class_parts[0].id
         cleanup_orphaned_class_part(db_session, used_cp_id)
@@ -381,7 +381,7 @@ class TestCompositionModes:
         from backend.app.models.group import ClassPart
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         children_1 = CompositionModes.apply(db_session, parent, 1, mapping_1)
         class_part_id = children_1[0].class_parts[0].id
 
@@ -395,7 +395,7 @@ class TestCompositionModes:
         from backend.app.models.group import ClassPart
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         result = parent.rpc_preview_composition(db_session, 1, mapping_1)
         class_part_id = result["children_vals"][0]["class_part_ids"][0]
         assert db_session.get(ClassPart, class_part_id) is not None

@@ -1,7 +1,7 @@
 <template>
   <div class="owned-relation-field">
     <div class="owned-relation-tags">
-      <span v-for="tag in tags" :key="tag.key" class="tag-badge">
+      <span v-for="tag in tags" :key="tag.key" class="tag-badge" :class="{ 'tag-badge-highlight': tag.highlighted }">
         <span class="tag-label">{{ tag.label }}</span>
       </span>
       <span v-if="tags.length === 0" class="owned-relation-empty">—</span>
@@ -65,6 +65,13 @@ const props = defineProps<{
   disabled?: boolean;
   parentRecord?: any;
   liveSync?: boolean;
+  // Surlignage générique d'un sous-ensemble de lignes (ex: exigences de salle encore insuffisamment
+  // ventilées, voir CoursePopin.vue/Course.underventilated_resource_ids) — teste
+  // row[highlightField] contre highlightValues, PAS l'id de la ligne elle-même par défaut (une
+  // ligne de groupe non résolue EST la ligne à surligner, voir plan salles §1.5 : sa quantity
+  // restante est déjà la quantité manquante, pas besoin de la recalculer).
+  highlightField?: string;
+  highlightValues?: any[];
 }>();
 
 const emit = defineEmits<{
@@ -148,21 +155,31 @@ onUnmounted(() => window.removeEventListener('resource:mutated', onResourceMutat
 
 // --- Affichage (tags), commun aux deux modes ---
 
+// isHighlighted : teste obj[highlightField] contre highlightValues. En mode liveSync, `obj` est
+// l'option (pas la ligne brute, jamais chargée ici) — le champ à tester doit donc être embarqué
+// par l'appelant directement dans field.options (ex: {value, label, classroom_id}, voir
+// CoursePopin.vue), pas seulement value/label. En mode formulaire, `obj` est la ligne brute
+// (draftRows), qui porte déjà tous ses champs.
+function isHighlighted(obj: any): boolean {
+  if (!props.highlightField || !props.highlightValues?.length || !obj) return false;
+  return props.highlightValues.some((v: any) => String(v) === String(obj[props.highlightField!]));
+}
+
 const tags = computed(() => {
   const options = props.field?.options || [];
   if (props.liveSync) {
     const ids = Array.isArray(props.modelValue) ? props.modelValue : [];
     return ids.map((id: any) => {
       const opt = options.find((o: any) => String(o.value) === String(id));
-      return { key: id, label: opt ? opt.label : String(id) };
+      return { key: id, label: opt ? opt.label : String(id), highlighted: isHighlighted(opt) };
     });
   }
   return draftRows.value.map((row: any, idx: number) => {
     if (typeof row.id === 'number') {
       const opt = options.find((o: any) => String(o.value) === String(row.id));
-      return { key: row.id, label: opt ? opt.label : String(row.id) };
+      return { key: row.id, label: opt ? opt.label : String(row.id), highlighted: isHighlighted(row) };
     }
-    return { key: `new_${idx}`, label: 'Nouveau' };
+    return { key: `new_${idx}`, label: 'Nouveau', highlighted: false };
   });
 });
 </script>
@@ -196,6 +213,14 @@ const tags = computed(() => {
   font-size: 13px;
   font-weight: 500;
   user-select: none;
+}
+
+/* Même habillage que SearchableMultiSelect.vue::.tag-badge-highlight, pour rester cohérent avec
+   le surlignage des ressources insuffisamment ventilées ailleurs dans la Fiche T. */
+.tag-badge-highlight {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--accent-danger, #dc2626);
 }
 
 .owned-relation-empty {

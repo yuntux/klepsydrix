@@ -1,0 +1,254 @@
+"""
+Domaine Timefold CLASSROOM_ASSIGNMENT (voir plan salles §3) — attribution des salles précises
+au sein d'un groupe, une fois le placement horaire (COURSE_PLACEMENT, constraints.py) terminé.
+Fichier séparé de constraints.py (déjà ~1600 lignes) — même style/conventions.
+
+Pourquoi Timefold plutôt qu'un algorithme classique ici (§3.0 du plan, à reprendre tel quel dans
+les spécifications) : sans la notion de continuité (limiter les déplacements de salle d'un même
+professeur/d'une même division), ce serait un problème d'affectation biparti classique,
+résoluble exactement par un algorithme de matching pondéré. La continuité couple les créneaux
+entre eux (minimiser le nombre de salles distinctes par professeur n'est pas un coût additif par
+affectation individuelle) — un algorithme classique la prenant en compte correctement (flot à
+coûts fixes, ILP dédié) n'a plus rien de simple à écrire ni maintenir. Rester dans Timefold : (1)
+les Constraint Streams expriment nativement ce type de contrainte molle transversale, (2) le
+sous-problème reste petit (timeslot/week_type déjà figés par COURSE_PLACEMENT), (3) un seul
+paradigme à faire évoluer dans le temps plutôt que deux.
+"""
+from dataclasses import dataclass, field
+from typing import List, Annotated, Optional
+
+from timefold.solver.domain import (
+    planning_entity,
+    planning_solution,
+    PlanningVariable,
+    PlanningId,
+    ProblemFactCollectionProperty,
+    PlanningEntityCollectionProperty,
+    PlanningScore,
+    ValueRangeProvider,
+)
+from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore
+
+from backend.app.solver.constraints import (
+    PlanningClassroom,
+    PlanningPreference,
+    weeks_overlap,
+    periods_overlap,
+)
+
+
+@dataclass
+class PlanningFixedRoomBooking:
+    """
+    Fait : occupation déjà connue d'une salle-feuille — soit une exigence salle-feuille précise
+    d'un cours quelconque (parent ou enfant), soit une exigence de groupe déjà résolue par un run
+    antérieur de CLASSROOM_ASSIGNMENT (write-back = mécanisme de sortie de domaine, voir §3.4).
+    """
+    classroom_id: int
+    day_of_week: int
+    minutes_from_midnight: int
+    duration_minutes: int
+    week_type: str
+    period_mask: int
+
+
+@planning_entity
+@dataclass
+class PlanningRoomAssignment:
+    id: Annotated[int, PlanningId]  # requirement.id * 100 + index d'unité (quantity <= 20)
+    course_id: int
+    day_of_week: int
+    minutes_from_midnight: int
+    duration_minutes: int
+    week_type: str = "W"
+    period_mask: int = 0
+    timeslot_id: int = 0
+    teacher_ids: List[int] = field(default_factory=list)
+    division_ids: List[int] = field(default_factory=list)
+    teacher_preferred_classroom_ids: List[int] = field(default_factory=list)
+    division_preferred_classroom_ids: List[int] = field(default_factory=list)
+    effective_headcount: Optional[int] = None
+    candidate_classrooms: Annotated[List[PlanningClassroom], ValueRangeProvider(id='candidateClassroomsRange')] = field(default_factory=list)
+    classroom: Annotated[Optional[PlanningClassroom], PlanningVariable(value_range_provider_refs=['candidateClassroomsRange'], allows_unassigned=True)] = None
+
+
+@planning_solution
+@dataclass
+class PlanningRoomTimetable:
+    classrooms: Annotated[List[PlanningClassroom], ProblemFactCollectionProperty] = field(default_factory=list)
+    fixed_bookings: Annotated[List[PlanningFixedRoomBooking], ProblemFactCollectionProperty] = field(default_factory=list)
+    preferences: Annotated[List[PlanningPreference], ProblemFactCollectionProperty] = field(default_factory=list)
+    assignments: Annotated[List[PlanningRoomAssignment], PlanningEntityCollectionProperty] = field(default_factory=list)
+    score: Annotated[HardSoftScore, PlanningScore] = None
+
+
+def _rooms_overlap(day1, week1, period1, start1, dur1, day2, week2, period2, start2, dur2) -> bool:
+    """Les 5 conditions de chevauchement (mêmes que leaf_classroom_conflict, constraints.py),
+    factorisées ici en fonction nommée à args scalaires — pas de lambda générateur (voir la
+    ClassCastException JPype rencontrée et corrigée dans constraints.py, même précaution)."""
+    if day1 != day2:
+        return False
+    if not weeks_overlap(week1, week2):
+        return False
+    if not periods_overlap(period1, period2):
+        return False
+    end1 = start1 + dur1
+    end2 = start2 + dur2
+    return start1 < end2 and start2 < end1
+
+
+def _assignments_overlap(a1: PlanningRoomAssignment, a2: PlanningRoomAssignment) -> bool:
+    return _rooms_overlap(
+        a1.day_of_week, a1.week_type, a1.period_mask, a1.minutes_from_midnight, a1.duration_minutes,
+        a2.day_of_week, a2.week_type, a2.period_mask, a2.minutes_from_midnight, a2.duration_minutes,
+    )
+
+
+def _assignment_overlaps_booking(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking) -> bool:
+    return _rooms_overlap(
+        a.day_of_week, a.week_type, a.period_mask, a.minutes_from_midnight, a.duration_minutes,
+        b.day_of_week, b.week_type, b.period_mask, b.minutes_from_midnight, b.duration_minutes,
+    )
+
+
+def room_conflict_between_assignments(constraint_factory: ConstraintFactory) -> Constraint:
+    """
+    Mêmes 5 conditions de chevauchement que leaf_classroom_conflict (constraints.py), SAUF
+    hierarchy_overlap (pas de 4ᵉ condition ici) — différence volontaire et importante par rapport
+    à COURSE_PLACEMENT : deux PlanningRoomAssignment d'une même fratrie (enfants d'un même cours
+    composé) DOIVENT être traités en conflit normal s'ils demandent la même salle-feuille au même
+    moment — c'est justement ce qui les force vers des salles distinctes. Reprendre
+    hierarchy_overlap ici serait un bug direct (deux enfants pourraient recevoir la même salle).
+    """
+    return (
+        constraint_factory.for_each_unique_pair(
+            PlanningRoomAssignment,
+            Joiners.equal(lambda a: a.classroom.id if a.classroom is not None else -1)
+        )
+        .filter(lambda a1, a2: a1.classroom is not None and a2.classroom is not None)
+        .filter(_assignments_overlap)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Room conflict between assignments")
+    )
+
+
+def room_conflict_with_fixed_booking(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .join(
+            PlanningFixedRoomBooking,
+            Joiners.equal(lambda a: a.classroom.id, lambda b: b.classroom_id)
+        )
+        .filter(_assignment_overlaps_booking)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Room conflict with fixed booking")
+    )
+
+
+def room_capacity_hard(constraint_factory: ConstraintFactory) -> Constraint:
+    """NULL de part et d'autre (capacité illimitée, ou effectif du cours inconnu) = pas de
+    vérification — règle validée en amont de l'implémentation."""
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None
+                and a.classroom.capacity is not None
+                and a.effective_headcount is not None
+                and a.effective_headcount > a.classroom.capacity)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Room capacity exceeded")
+    )
+
+
+def unassigned_room_assignment_penalty(constraint_factory: ConstraintFactory) -> Constraint:
+    """Même philosophie que penalize_unassigned_course (COURSE_PLACEMENT, Overconstrained
+    Planning) : une unité non résolue coûte le même prix qu'un conflit dur, pour que le solveur
+    puisse transiter par des états intermédiaires plutôt que de rester bloqué."""
+    return (
+        constraint_factory.for_each_including_unassigned(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is None)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Unassigned room assignment")
+    )
+
+
+def room_preference_hard(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda a: a.timeslot_id, lambda p: p.timeslot_id)
+        )
+        .filter(lambda a, p: p.resource_type == "Classroom" and p.preference_level == "Unsuited"
+                and p.resource_id == a.classroom.id
+                and weeks_overlap(a.week_type, p.week_type) and periods_overlap(a.period_mask, p.period_mask))
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Room preference unsuited")
+    )
+
+
+def room_preference_soft_penalty(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda a: a.timeslot_id, lambda p: p.timeslot_id)
+        )
+        .filter(lambda a, p: p.resource_type == "Classroom" and p.preference_level == "Undesirable"
+                and p.resource_id == a.classroom.id
+                and weeks_overlap(a.week_type, p.week_type) and periods_overlap(a.period_mask, p.period_mask))
+        .penalize(HardSoftScore.of_soft(10))
+        .as_constraint("Room preference undesirable")
+    )
+
+
+def room_preference_soft_reward(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda a: a.timeslot_id, lambda p: p.timeslot_id)
+        )
+        .filter(lambda a, p: p.resource_type == "Classroom" and p.preference_level == "Preferred"
+                and p.resource_id == a.classroom.id
+                and weeks_overlap(a.week_type, p.week_type) and periods_overlap(a.period_mask, p.period_mask))
+        .reward(HardSoftScore.of_soft(10))
+        .as_constraint("Room preference preferred")
+    )
+
+
+def teacher_preferred_classroom_reward(constraint_factory: ConstraintFactory) -> Constraint:
+    """Continuité (§3.0) : récompense un professeur qui retrouve une de ses salles préférées."""
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None and a.classroom.id in a.teacher_preferred_classroom_ids)
+        .reward(HardSoftScore.ONE_SOFT)
+        .as_constraint("Teacher preferred classroom reward")
+    )
+
+
+def division_preferred_classroom_reward(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None and a.classroom.id in a.division_preferred_classroom_ids)
+        .reward(HardSoftScore.ONE_SOFT)
+        .as_constraint("Division preferred classroom reward")
+    )
+
+
+@constraint_provider
+def define_room_constraints(constraint_factory: ConstraintFactory) -> list[Constraint]:
+    return [
+        unassigned_room_assignment_penalty(constraint_factory),
+        room_conflict_between_assignments(constraint_factory),
+        room_conflict_with_fixed_booking(constraint_factory),
+        room_capacity_hard(constraint_factory),
+        room_preference_hard(constraint_factory),
+        room_preference_soft_penalty(constraint_factory),
+        room_preference_soft_reward(constraint_factory),
+        teacher_preferred_classroom_reward(constraint_factory),
+        division_preferred_classroom_reward(constraint_factory),
+    ]

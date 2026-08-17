@@ -1,6 +1,6 @@
 """
 Mode exclusif : empêche toute écriture en base pendant qu'une résolution automatique du solveur
-est en cours (voir solver.py::_solve_timetable_job) — sans ça, un utilisateur pourrait modifier
+est en cours (voir solver.py::_run_job_phases) — sans ça, un utilisateur pourrait modifier
 des données (ex: contraintes d'un enseignant) sur lesquelles le solveur travaille déjà, ou voir
 son écriture silencieusement écrasée par le résultat du solveur à la fin.
 
@@ -69,7 +69,7 @@ def enter_exclusive_mode(db: Session, user: str = "admin"):
 def exit_exclusive_mode_and_rotate_token(db: Session) -> str:
     """
     NE COMMIT PAS elle-même : appelée juste avant le commit final qui persiste aussi les résultats
-    du solveur (voir _solve_timetable_job), pour que sortie du mode exclusif + rotation du jeton +
+    du solveur (voir _run_job_phases), pour que sortie du mode exclusif + rotation du jeton +
     écriture des résultats forment une seule transaction atomique. Un crash entre deux commits
     séparés laisserait sinon un jeton périmé pointer vers des données pourtant déjà changées (ou,
     à l'inverse, un jeton fraîchement roté alors que les données n'ont en réalité pas bougé).
@@ -88,7 +88,7 @@ def clear_exclusive_mode(db: Session):
     raison d'invalider les navigateurs déjà à jour. Deux appelants :
     - Le démarrage du process (main.py) : on sait qu'aucune résolution n'est réellement en cours
       juste après un boot, quel que soit l'état laissé en base par un arrêt brutal précédent.
-    - Le chemin d'erreur de _solve_timetable_job : une exception pendant la résolution fait
+    - Le chemin d'erreur de _run_job_phases : une exception pendant la résolution fait
       échouer le commit final qui aurait normalement levé le mode exclusif via
       exit_exclusive_mode_and_rotate_token — sans ce rattrapage, une résolution en erreur
       laisserait le mode exclusif bloqué jusqu'au prochain redémarrage du process.

@@ -52,16 +52,27 @@
             Réinitialiser
           </BaseButton>
           
-          <BaseButton v-if="!loading" variant="primary" @click="$emit('solve')">
-            <template #icon>
-              <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </template>
-            Générer
-          </BaseButton>
-          
+          <template v-if="!loading">
+            <BaseButton variant="primary" @click="$emit('course-placement')">
+              <template #icon>
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </template>
+              Placement automatique
+            </BaseButton>
+
+            <BaseButton variant="secondary" @click="$emit('classroom-assignment')">
+              <template #icon>
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2M5 21H3m16 0h-5m-4 0H5m4 0v-6a2 2 0 012-2v0a2 2 0 012 2v6m-6 0h6" />
+                </svg>
+              </template>
+              Attribuer les salles
+            </BaseButton>
+          </template>
+
           <BaseButton v-else variant="danger" @click="$emit('stop-solve')">
             <template #icon>
               <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -103,7 +114,7 @@
           :height="getCourseHeight(course)"
           :teachersText="(course.teacher_ids ? course.teacher_ids.map(id => getTeacherName(id)).join(', ') : '')"
           :divisionsText="(course.division_ids ? course.division_ids.map(id => getDivisionName(id)).join(', ') : '')"
-          :classroomsText="(course.classroom_ids ? course.classroom_ids.map(id => getClassroomName(id)).join(', ') : '')"
+          :classroomsText="(dataStore.courseClassroomIdsMap[course.id] || []).map(id => getClassroomName(id)).join(', ')"
           @dragstart="onDragStart"
           @dragend="onDragEnd"
           @click="(id, ev) => $emit('selectCourse', id, ev)"
@@ -119,7 +130,10 @@
           <div style="color: #black; font-weight: 500; font-size: 16px;">
             {{ isLoadingHeatmap
               ? 'Évaluation de la Heatmap...'
-              : (solverIsQueued ? 'En file d\'attente...' : 'Calcul de l\'emploi du temps optimal...') }}
+              : (solverIsQueued ? 'En file d\'attente...' : solverStatusLabel) }}
+          </div>
+          <div v-if="!isLoadingHeatmap && !solverIsQueued && solverPipelineTotalSteps > 1" class="solver-pipeline-step">
+            Étape {{ solverPipelineStep }} sur {{ solverPipelineTotalSteps }}
           </div>
           <!-- Progression best-effort (voir solver.py) : le score dur/doux le plus récent connu
                peut manquer par intermittence (limitation du paquet timefold bêta), le temps
@@ -192,6 +206,9 @@ const props = defineProps<{
   solverIsQueued?: boolean;
   solverQueuePosition?: number | null;
   solverQueueLength?: number;
+  solverKind?: string | null;
+  solverPipelineStep?: number;
+  solverPipelineTotalSteps?: number;
   periodTypes?: any[];
   periods?: any[];
   periodTypeId?: number | null;
@@ -215,7 +232,8 @@ const emit = defineEmits<{
   (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'reset'): void;
-  (e: 'solve'): void;
+  (e: 'course-placement'): void;
+  (e: 'classroom-assignment'): void;
   (e: 'stop-solve'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
@@ -227,6 +245,21 @@ const emit = defineEmits<{
 }>();
 
 const { currentStandardDuration, getCellKey } = useTimeslotGrid();
+
+// Libellé de l'overlay de chargement, selon le type de résolution en cours (voir plan salles §4,
+// SolverState.kind côté backend) — null/undefined (legacy /solve, ou pas encore reçu un premier
+// /status) retombe sur le libellé générique historique.
+const SOLVER_KIND_LABELS: Record<string, string> = {
+  COURSE_PLACEMENT: 'Placement automatique en cours...',
+  CLASSROOM_ASSIGNMENT: 'Attribution des salles en cours...',
+  OPTIMIZE_COURSE_PLACEMENT: 'Optimisation — placement des cours...',
+  OPTIMIZE_CLASSROOM_ASSIGNMENT: 'Optimisation — attribution des salles...',
+};
+const solverStatusLabel = computed(() => {
+  return (props.solverKind && SOLVER_KIND_LABELS[props.solverKind]) || 'Calcul de l\'emploi du temps optimal...';
+});
+const solverPipelineStep = computed(() => props.solverPipelineStep || 1);
+const solverPipelineTotalSteps = computed(() => props.solverPipelineTotalSteps || 1);
 
 const activeResources = computed(() => {
   if (props.layoutMode !== 'resource_columns' && props.layoutMode !== 'resource_grids') return [];
@@ -390,7 +423,8 @@ const displayedCourses = computed(() => {
 
     const isTeacherMatch = props.selectedTeacherIds.length > 0 && course.teacher_ids && course.teacher_ids.some(id => props.selectedTeacherIds.includes(id));
     const isDivisionMatch = props.selectedDivisionIds.length > 0 && course.division_ids && course.division_ids.some(id => props.selectedDivisionIds.includes(id));
-    const isClassroomMatch = props.selectedClassroomIds.length > 0 && course.classroom_ids && course.classroom_ids.some(id => props.selectedClassroomIds.includes(id));
+    const courseClassroomIds = dataStore.courseClassroomIdsMap[course.id] || [];
+    const isClassroomMatch = props.selectedClassroomIds.length > 0 && courseClassroomIds.some(id => props.selectedClassroomIds.includes(id));
     const isNonTeachingMatch = props.selectedNonTeachingStaffIds.length > 0 && course.non_teaching_staff_ids && course.non_teaching_staff_ids.some(id => props.selectedNonTeachingStaffIds.includes(id));
 
     return noSelection || isTeacherMatch || isDivisionMatch || isClassroomMatch || isNonTeachingMatch;
@@ -476,7 +510,7 @@ const overlapInfoMap = computed(() => {
       const subset = displayedCourses.value.filter(c => {
         if (res.type === 'teacher') return c.teacher_ids && c.teacher_ids.includes(res.id);
         if (res.type === 'division') return c.division_ids && c.division_ids.includes(res.id);
-        if (res.type === 'classroom') return c.classroom_ids && c.classroom_ids.includes(res.id);
+        if (res.type === 'classroom') return (dataStore.courseClassroomIdsMap[c.id] || []).includes(res.id);
         if (res.type === 'non_teaching_staff') return c.non_teaching_staff_ids && c.non_teaching_staff_ids.includes(res.id);
         return false;
       });
@@ -501,7 +535,7 @@ function getCoursesAt(day: number, hour: number, resource?: { type: string, id: 
   if (resource) {
     if (resource.type === 'teacher') result = result.filter(c => c.teacher_ids && c.teacher_ids.includes(resource.id));
     if (resource.type === 'division') result = result.filter(c => c.division_ids && c.division_ids.includes(resource.id));
-    if (resource.type === 'classroom') result = result.filter(c => c.classroom_ids && c.classroom_ids.includes(resource.id));
+    if (resource.type === 'classroom') result = result.filter(c => (dataStore.courseClassroomIdsMap[c.id] || []).includes(resource.id));
     if (resource.type === 'non_teaching_staff') result = result.filter(c => c.non_teaching_staff_ids && c.non_teaching_staff_ids.includes(resource.id));
   }
   
@@ -567,6 +601,11 @@ function onDrop(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B
 <style scoped>
 .solver-progress-info .btn {
   margin-top: 8px;
+}
+.solver-pipeline-step {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 .unassign-btn {
   background: transparent;

@@ -63,7 +63,11 @@ export interface Course {
   non_teaching_staff_ids: number[];
   division_ids: number[];
   timeslot_id: number | null;
-  classroom_ids: number[];
+  // Ids des lignes CourseClassroomRequirement du cours (voir plan salles §1.4/§1.5) — PAS des ids
+  // de Classroom directement (chaque ligne peut pointer vers une salle précise OU un groupe, avec
+  // une quantity). Pour la salle/le groupe réel, voir CourseClassroomRequirement / dataStore
+  // courseClassroomIdsMap (course_id -> classroom_id[] résolus, pour l'affichage/filtrage grille).
+  classroom_requirement_ids: number[];
   group_ids: number[];
   class_part_ids?: number[];
   material_ids?: number[];
@@ -76,5 +80,14 @@ export interface Course {
   is_composed?: boolean;
   children_ids?: number[];
   decomposition_status?: string | null;
-  underventilated_resource_ids?: Record<string, number[]> | null;
+  // classroom_requirement_ids : dict {classroom_id: quantité restante}, pas un tableau plat comme
+  // les 6 autres relations (voir plan salles §1.5) — CourseClassroomRequirement.quantity oblige.
+  underventilated_resource_ids?: (Record<string, number[]> & { classroom_requirement_ids?: Record<string, number> }) | null;
+}
+
+export interface CourseClassroomRequirement {
+  id: number;
+  course_id: number;
+  classroom_id: number;
+  quantity: number;
 }

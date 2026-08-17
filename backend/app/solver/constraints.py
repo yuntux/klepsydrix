@@ -77,7 +77,10 @@ class PlanningNonTeachingStaff:
 class PlanningClassroom:
     id: int
     name: str
-    capacity: int
+    # Optional : NULL = capacité illimitée (voir plan salles §1.1) — un simple `int` ici casse la
+    # traduction bytecode Python->Java de Timefold (AttributeError côté Java) dès qu'une instance
+    # porte capacity=None, vérifié empiriquement.
+    capacity: typing.Optional[int] = None
 
 
 @dataclass
@@ -176,6 +179,22 @@ def hierarchy_overlap(c1: 'PlanningCourse', c2: 'PlanningCourse') -> bool:
         return False
     return True
 
+@dataclass
+class PlanningGroupDemand:
+    """
+    Fait (pas une entité) : le besoin d'un cours PARENT en salles d'un groupe donné — voir plan
+    salles §2.1. `needed_count` = quantity de la ligne CourseClassroomRequirement du parent
+    pointant vers ce groupe (déjà correcte grâce à la cascade décrémentée, pas une somme à
+    recalculer ici). `group_leaf_ids` = salles-feuilles du groupe (classroom_closure.
+    leaf_classroom_ids_under), calculé une fois à la construction du problème.
+    """
+    course_id: int
+    demand_key: str
+    group_id: int
+    needed_count: int
+    group_leaf_ids: List[int] = field(default_factory=list)
+
+
 @planning_entity
 @dataclass
 class PlanningCourse:
@@ -186,12 +205,17 @@ class PlanningCourse:
     non_teaching_staffs: List[PlanningNonTeachingStaff] = field(default_factory=list)
     divisions: List[PlanningDivision] = field(default_factory=list)
     timeslot: Annotated[typing.Optional[PlanningTimeslot], PlanningVariable(value_range_provider_refs=['timeslotRange'], allows_unassigned=True)] = None
-    classroom: Annotated[typing.Optional[PlanningClassroom], PlanningVariable(value_range_provider_refs=['classroomRange'])] = None
     is_pinned: Annotated[bool, PlanningPin] = False
     original_timeslot_id: typing.Optional[int] = None
-    original_classroom_id: typing.Optional[int] = None
     parent_id: typing.Optional[int] = None
     pedagogic_weight_total: float = 0.0
+    # `classroom` n'est plus une @PlanningVariable de ce domaine (COURSE_PLACEMENT) — la salle
+    # devient une ressource contrainte via leaf_classroom_ids/group_demands (voir plan salles
+    # §2.1), résolue précisément dans le domaine séparé CLASSROOM_ASSIGNMENT (room_constraints.py).
+    # Exigences sur salle-feuille précise, agrégées jusqu'au parent par la cascade de
+    # CourseClassroomRequirement (course_classroom_requirement.py) — pas d'agrégation bespoke
+    # nécessaire ici, une simple lecture directe des classroom_requirements du parent suffit.
+    leaf_classroom_ids: List[int] = field(default_factory=list)
     
     # Alternance et parties de classe (US2)
     # week_type_range/week_type : voir Phase C, attribution_week_type_auto.md (Échanges 17-19).
@@ -202,7 +226,7 @@ class PlanningCourse:
     # c'est l'agrégat _sync_parent_week_type de ses enfants) est A, B ou Q ; singleton = "W"
     # sinon. Grâce à la règle _sync_parent_week_type (un parent composé n'affiche A/B/Q QUE si
     # TOUS ses enfants partagent uniformément cette même valeur), un range libre est sûr même
-    # pour un cours composé : la cascade au write-back (_solve_timetable_job) peut alors
+    # pour un cours composé : la cascade au write-back (_write_back_course_placement) peut alors
     # reporter sans ambiguïté la lettre choisie à tous les enfants (voir Échange 18/19).
     # week_type=None pour un cours né Q : un spike dédié a confirmé qu'une valeur de départ hors
     # du range déclaré (ex: laisser "Q" alors que le range est ["A","B"]) n'est PAS réévaluée par
@@ -227,12 +251,14 @@ class PlanningCourse:
 class PlanningTimetable:
     teachers: Annotated[List[PlanningTeacher], ProblemFactCollectionProperty]
     non_teaching_staffs: Annotated[List[PlanningNonTeachingStaff], ProblemFactCollectionProperty]
-    classrooms: Annotated[List[PlanningClassroom], ProblemFactCollectionProperty, ValueRangeProvider(id='classroomRange')]
     divisions: Annotated[List[PlanningDivision], ProblemFactCollectionProperty]
     timeslots: Annotated[List[PlanningTimeslot], ProblemFactCollectionProperty, ValueRangeProvider(id='timeslotRange')]
     courses: Annotated[List[PlanningCourse], PlanningEntityCollectionProperty]
     class_part_links: Annotated[List[PlanningClassPartLink], ProblemFactCollectionProperty] = field(default_factory=list)
     preferences: Annotated[List[PlanningPreference], ProblemFactCollectionProperty] = field(default_factory=list)
+    # Voir plan salles §2.1/§2.2 — remplace `classrooms`/`classroomRange` (salle plus une
+    # PlanningVariable dans ce domaine).
+    group_demands: Annotated[List[PlanningGroupDemand], ProblemFactCollectionProperty] = field(default_factory=list)
     resource_constraints: Annotated[List[PlanningResourceConstraint], ProblemFactCollectionProperty] = field(default_factory=list)
     course_to_course_constraints: Annotated[List[PlanningCourseToCourseConstraint], ProblemFactCollectionProperty] = field(default_factory=list)
     score: Annotated[HardSoftScore, PlanningScore] = None
@@ -263,13 +289,13 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         penalize_unassigned_course(constraint_factory),
         teacher_conflict(constraint_factory),
         non_teaching_staff_conflict(constraint_factory),
-        classroom_conflict(constraint_factory),
-        classroom_immobility(constraint_factory),
+        leaf_classroom_conflict(constraint_factory),
+        leaf_classroom_unsuited(constraint_factory),
+        classroom_group_capacity(constraint_factory),
         division_conflict(constraint_factory),
         group_link_conflict(constraint_factory),
         course_day_overflow(constraint_factory),
         stability_penalty(constraint_factory),
-        teacher_room_stability(constraint_factory),
         student_group_subject_variety(constraint_factory),
         teacher_time_efficiency(constraint_factory),
         division_time_efficiency(constraint_factory),
@@ -411,28 +437,166 @@ def non_teaching_staff_conflict(constraint_factory: ConstraintFactory) -> Constr
         .as_constraint("Non-teaching staff conflict")
     )
 
-def classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+def _check_leaf_classroom_overlap(c1, c2):
+    """Intersection non vide entre les deux listes de salles-feuilles exigées — factorisée en
+    fonction nommée (pas un lambda avec generator expression) : le traducteur bytecode Python->
+    Java de Timefold (JPype/jpyinterpreter) échoue sur une comprehension imbriquée dans un lambda
+    (ClassCastException PythonCell), le même problème ne se produit pas avec une fonction
+    top-level classique — mêmes contraintes que _check_division_overlap ci-dessus."""
+    for i in c1.leaf_classroom_ids:
+        if i in c2.leaf_classroom_ids:
+            return True
+    return False
+
+
+def leaf_classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint:
+    """
+    Remplace classroom_conflict — salle n'est plus une PlanningVariable, un cours peut porter
+    PLUSIEURS exigences de salle-feuille précise (leaf_classroom_ids), donc pas de Joiners.equal
+    possible sur une valeur scalaire : on filtre sur l'intersection des deux listes. Mêmes 5
+    conditions de chevauchement que l'ancienne contrainte (voir plan salles §2.2).
+    """
     return (
         constraint_factory.for_each_unique_pair(
             PlanningCourse,
-            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1),
-            Joiners.equal(lambda course: course.classroom.id if course.classroom is not None else -1)
+            Joiners.equal(lambda course: course.timeslot.day_of_week if course.timeslot is not None else -1)
         )
         .filter(lambda course1, course2: weeks_overlap(course1.week_type, course2.week_type))
         .filter(lambda course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
+        .filter(_check_leaf_classroom_overlap)
         .penalize(HardSoftScore.ONE_HARD)
-        .as_constraint("Classroom conflict")
+        .as_constraint("Leaf classroom conflict")
     )
 
-def classroom_immobility(constraint_factory: ConstraintFactory) -> Constraint:
+
+def leaf_classroom_unsuited(constraint_factory: ConstraintFactory) -> Constraint:
+    """
+    Absorbe la part `resource_preference_hard` qui portait sur les salles (voir plan salles §2.2)
+    : une salle-feuille précise frappée d'une préférence Unsuited pour le créneau/semaine/période
+    du cours est une pénalité dure — _is_preference_violated ne gère plus jamais "Classroom"
+    (voir plus bas), ce mirroir dédié le fait à sa place.
+
+    ⚠️ `len(course.leaf_classroom_ids) > 0`, pas `bool(course.leaf_classroom_ids)` : constaté
+    empiriquement en écrivant les tests dédiés (voir test_solver.py) que `bool()` appliqué à une
+    liste Python à l'intérieur d'un lambda .filter() traduit par jpyinterpreter (Python->bytecode
+    Java) évalue systématiquement à False, même liste non vide — la contrainte entière ne
+    matchait jamais (0 résultat silencieux, aucune exception). `len(...) > 0` contourne le même
+    problème que documenté pour PlanningClassroom.capacity plus haut : jpyinterpreter a des trous
+    de couverture sur certains built-ins Python appliqués à des types collection.
+    """
     return (
         constraint_factory.for_each(PlanningCourse)
-        .filter(lambda course: course.original_classroom_id is not None)
-        .filter(lambda course: course.classroom is None or course.classroom.id != course.original_classroom_id)
-        .penalize(HardSoftScore.of_hard(100))
-        .as_constraint("Classroom immobility")
+        .filter(lambda course: course.timeslot is not None and len(course.leaf_classroom_ids) > 0)
+        .join(
+            PlanningPreference,
+            Joiners.equal(lambda course: course.timeslot.id, lambda pref: pref.timeslot_id)
+        )
+        .filter(lambda course, pref: pref.resource_type == "Classroom" and pref.preference_level == "Unsuited"
+                and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_mask, pref.period_mask))
+        .filter(lambda course, pref: pref.resource_id in course.leaf_classroom_ids)
+        .penalize(HardSoftScore.ONE_HARD)
+        .as_constraint("Leaf classroom unsuited")
+    )
+
+
+def _cluster_group_capacity_excess(group_id, rows) -> int:
+    """
+    Python pur, appelé depuis classroom_group_capacity ci-dessous (voir plan salles §2.2a/b et
+    les spikes validés `spike_group_capacity.py`/`spike_group_capacity_unsuited_3way.py`) :
+    regroupe les (demand, course, unsuited_leaf_id_ou_-1) d'un même groupe en clusters de
+    créneaux qui se chevauchent réellement (union-find sur les 5 conditions), puis compare, par
+    cluster, la somme des needed_count à la capacité du groupe MOINS les salles-feuilles exclues
+    par une préférence Unsuited applicable à ce cluster. Retourne le nombre de clusters en excès
+    (pas juste 0/1) — la pénalité est appliquée une fois par créneau-groupe en excès, confirmé.
+    """
+    if not rows:
+        return 0
+    total_leaf_rooms = len(rows[0][0].group_leaf_ids)
+
+    by_demand_key = {}
+    for demand, course, unsuited_leaf_id in rows:
+        if course.timeslot is None:
+            continue
+        entry = by_demand_key.setdefault(demand.demand_key, {"demand": demand, "course": course, "unsuited": set()})
+        if unsuited_leaf_id != -1:
+            entry["unsuited"].add(unsuited_leaf_id)
+
+    entries = list(by_demand_key.values())
+    n = len(entries)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    def overlap(e1, e2):
+        c1, c2 = e1["course"], e2["course"]
+        if c1.timeslot.day_of_week != c2.timeslot.day_of_week:
+            return False
+        if not weeks_overlap(c1.week_type, c2.week_type):
+            return False
+        if not periods_overlap(c1.period_mask, c2.period_mask):
+            return False
+        return _courses_overlap_in_time(c1, c2)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if overlap(entries[i], entries[j]):
+                union(i, j)
+
+    clusters = {}
+    for i, e in enumerate(entries):
+        root = find(i)
+        c = clusters.setdefault(root, {"needed": 0, "unsuited": set()})
+        c["needed"] += e["demand"].needed_count
+        c["unsuited"] |= e["unsuited"]
+
+    excess = 0
+    for c in clusters.values():
+        available = total_leaf_rooms - len(c["unsuited"])
+        if c["needed"] > available:
+            excess += 1
+    return excess
+
+
+def classroom_group_capacity(constraint_factory: ConstraintFactory) -> Constraint:
+    """
+    Cœur de la faisabilité des groupes (plan salles §2.2). Jointure à 3 (PlanningGroupDemand x
+    PlanningCourse x PlanningPreference) validée par spike dédié : la préférence sentinelle
+    (resource_id=-1, injectée une fois par _build_course_placement_problem) évite qu'une demande
+    sans aucune salle Unsuited applicable disparaisse de la jointure (sinon jointure interne
+    classique = perte de lignes).
+    """
+    return (
+        constraint_factory.for_each(PlanningGroupDemand)
+        .join(PlanningCourse, Joiners.equal(lambda d: d.course_id, lambda c: c.id))
+        .filter(lambda d, c: c.timeslot is not None)
+        .join(
+            PlanningPreference,
+            Joiners.filtering(lambda d, c, p: p.resource_id == -1 or (
+                p.resource_type == "Classroom" and p.preference_level == "Unsuited"
+                and p.resource_id in d.group_leaf_ids
+                and p.timeslot_id == c.timeslot.id
+                and weeks_overlap(c.week_type, p.week_type)
+                and periods_overlap(c.period_mask, p.period_mask)
+            ))
+        )
+        .group_by(
+            lambda d, c, p: d.group_id,
+            ConstraintCollectors.to_list(lambda d, c, p: (d, c, p.resource_id))
+        )
+        .filter(lambda group_id, rows: _cluster_group_capacity_excess(group_id, rows) > 0)
+        .penalize(HardSoftScore.ONE_HARD, lambda group_id, rows: _cluster_group_capacity_excess(group_id, rows))
+        .as_constraint("Classroom group capacity")
     )
 
 def _check_division_overlap(c1, c2):
@@ -484,14 +648,9 @@ def stability_penalty(constraint_factory: ConstraintFactory) -> Constraint:
         .as_constraint("Minimize timetable disruption")
     )
 
-def teacher_room_stability(constraint_factory: ConstraintFactory) -> Constraint:
-    return (
-        constraint_factory.for_each_unique_pair(PlanningCourse)
-        .filter(lambda course1, course2: course1.classroom is not None and course2.classroom is not None and course1.classroom.id != course2.classroom.id)
-        .filter(_courses_share_teacher)
-        .penalize(HardSoftScore.ONE_SOFT)
-        .as_constraint("Teacher room stability")
-    )
+# teacher_room_stability supprimée — dépendait de `classroom`, plus une PlanningVariable ici.
+# Son équivalent (limiter les déplacements de salle d'un même professeur) vit désormais dans le
+# domaine CLASSROOM_ASSIGNMENT (room_constraints.py, §3.0 du plan salles).
 
 def student_group_subject_variety(constraint_factory: ConstraintFactory) -> Constraint:
     return (
@@ -609,7 +768,10 @@ def _is_preference_violated(pref, course):
                 return True
         return False
     elif pref.resource_type == "Classroom":
-        return course.classroom is not None and course.classroom.id == pref.resource_id
+        # `classroom` n'est plus une PlanningVariable de PlanningCourse dans ce domaine
+        # (COURSE_PLACEMENT) — jamais déclenchée ici. Absorbée par leaf_classroom_unsuited (salle
+        # précise) et classroom_group_capacity (groupe), voir plan salles §2.2.
+        return False
     elif pref.resource_type == "Division":
         for d in course.divisions:
             if d.id == pref.resource_id:

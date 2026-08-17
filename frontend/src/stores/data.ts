@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Teacher, Classroom, Division, NonTeachingStaff, Timeslot, Course } from '../types';
+import type { Teacher, Classroom, Division, NonTeachingStaff, Timeslot, Course, CourseClassroomRequirement } from '../types';
 import { getTimeslotHour } from '../composables/useTimeslotGrid';
 
 export const useDataStore = defineStore('data', () => {
@@ -10,6 +10,7 @@ export const useDataStore = defineStore('data', () => {
   const nonTeachingStaffs = ref<NonTeachingStaff[]>([]);
   const timeslots = ref<Timeslot[]>([]);
   const courses = ref<Course[]>([]);
+  const courseClassroomRequirements = ref<CourseClassroomRequirement[]>([]);
 
   // Dictionnaires pour un accès en O(1)
   const teacherMap = computed(() => {
@@ -54,6 +55,18 @@ export const useDataStore = defineStore('data', () => {
     }, {} as Record<number, Course>);
   });
 
+  // course_id -> classroom_id[] résolus (voir plan salles §1.4) — CourseClassroomRequirement.
+  // classroom_id pointe soit vers une salle précise, soit vers un groupe encore non résolu ; les
+  // deux sont inclus ici tels quels (pas de distinction feuille/groupe), pour l'affichage/filtrage
+  // en lecture seule de la grille EDT (TimetableGrid.vue, Sidebar.vue) — remplace l'ancien
+  // Course.classroom_ids (M2M directe, supprimée avec course_classrooms, voir plan salles §1.5).
+  const courseClassroomIdsMap = computed(() => {
+    return courseClassroomRequirements.value.reduce((map, r) => {
+      (map[r.course_id] ||= []).push(r.classroom_id);
+      return map;
+    }, {} as Record<number, number[]>);
+  });
+
   // Helper pour trouver un timeslot par jour/heure en O(1)
   // Clé: `day_of_week-hour`
   const timeslotByTimeMap = computed(() => {
@@ -76,11 +89,12 @@ export const useDataStore = defineStore('data', () => {
   function setNonTeachingStaffs(data: NonTeachingStaff[]) { nonTeachingStaffs.value = data; }
   function setTimeslots(data: Timeslot[]) { timeslots.value = data; }
   function setCourses(data: Course[]) { courses.value = data; }
+  function setCourseClassroomRequirements(data: CourseClassroomRequirement[]) { courseClassroomRequirements.value = data; }
 
   return {
-    teachers, classrooms, divisions, nonTeachingStaffs, timeslots, courses,
-    teacherMap, classroomMap, divisionMap, nonTeachingStaffMap, timeslotMap, courseMap,
+    teachers, classrooms, divisions, nonTeachingStaffs, timeslots, courses, courseClassroomRequirements,
+    teacherMap, classroomMap, divisionMap, nonTeachingStaffMap, timeslotMap, courseMap, courseClassroomIdsMap,
     getTimeslot,
-    setTeachers, setClassrooms, setDivisions, setNonTeachingStaffs, setTimeslots, setCourses
+    setTeachers, setClassrooms, setDivisions, setNonTeachingStaffs, setTimeslots, setCourses, setCourseClassroomRequirements
   };
 });

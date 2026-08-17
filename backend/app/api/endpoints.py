@@ -10,10 +10,15 @@ from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.course_classroom_requirement import CourseClassroomRequirement
 from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.group import Group
 from backend.app.models.constraint import ResourceConstraint, SubjectToSubjectConstraint
-from backend.app.solver.solver import start_solve_timetable_async, SolverState
+from backend.app.solver.solver import (
+    start_course_placement_async,
+    start_classroom_assignment_async,
+    SolverState,
+)
 
 router = APIRouter(prefix="/api/timetable")
 
@@ -60,22 +65,32 @@ def get_course_heatmap(course_id: int, school_id: Optional[int] = None, db: Sess
     _require_course_access(db, "read")
     return calculate_course_heatmap(db, course_id, school_id)
 
-@router.post("/solve")
-def solve(school_id: Optional[int] = None, db: Session = Depends(get_db)):
-    _require_course_access(db, "write")
-    start_solve_timetable_async(school_id, slug=db_registry.slug_for_session(db))
-    # Le message reste volontairement générique : selon la charge (voir SolverState/
-    # _SOLVE_SEMAPHORE, solver.py), la résolution démarre peut-être immédiatement, ou passe d'abord
-    # en file d'attente — /status (queue_position/queue_length) distingue précisément les deux.
-    return {"status": "success", "message": "Résolution demandée."}
-
 @router.post("/stop")
 def stop_solve(db: Session = Depends(get_db)):
     _require_course_access(db, "write")
     SolverState.stop_solving(db_registry.slug_for_session(db))
     # Annule aussi bien une résolution encore en file d'attente qu'une résolution déjà en cours
-    # (voir SolverState.stop_solving) — message générique pour les deux cas.
+    # (voir SolverState.stop_solving) — message générique pour les deux cas. Vaut aussi pour les
+    # 3 nouveaux points d'entrée ci-dessous et pour le pipeline /optimize (voir
+    # SolverState.stop_solving/is_stop_requested, plan salles §4, cas limite documenté dans
+    # solver.py::_run_job_phases).
     return {"status": "success", "message": "Résolution annulée."}
+
+@router.post("/course-placement")
+def course_placement(school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    """Endpoint 2 (plan salles §4) — remplace « Générer » : résout uniquement timeslot/week_type
+    (domaine COURSE_PLACEMENT), s'arrête dès la 1ère solution faisable."""
+    _require_course_access(db, "write")
+    start_course_placement_async(school_id, slug=db_registry.slug_for_session(db))
+    return {"status": "success", "message": "Placement automatique demandé."}
+
+@router.post("/classroom-assignment")
+def classroom_assignment(school_id: Optional[int] = None, db: Session = Depends(get_db)):
+    """Endpoint 3 (plan salles §4) — « Attribuer les salles » : résout la salle précise (domaine
+    CLASSROOM_ASSIGNMENT) sur tous les cours porteurs d'une exigence de groupe."""
+    _require_course_access(db, "write")
+    start_classroom_assignment_async(school_id, slug=db_registry.slug_for_session(db))
+    return {"status": "success", "message": "Attribution des salles demandée."}
 
 @router.post("/reset")
 def reset(db: Session = Depends(get_db)):
@@ -91,10 +106,21 @@ def reset(db: Session = Depends(get_db)):
 
 from pydantic import BaseModel
 
+# Endpoint 4a/4b (« Optimiser l'emploi du temps », plan salles §4/§5) : pas de route REST ici —
+# porté par WizardOptimizeTimetable (backend/app/models/wizard_optimize_timetable.py, TransientModel
+# singleton) + GenericWizard.vue via l'appel de méthode d'instance générique existant
+# (/api/generic/wizard_optimize_timetables/1/call/rpc_start_optimize), même mécanisme que
+# WizardCourseGeneration pour « Générer les cours » — pas de nouvelle route ni de nouveau widget.
+
+
 class CourseUpdate(BaseModel):
     timeslot_id: Optional[int] = None
     is_pinned: Optional[bool] = None
-    classroom_ids: Optional[list[int]] = None
+    # Collection possédée (commandes façon Odoo, voir CRUDMixin._apply_owned_collection_commands)
+    # : id nu à conserver, ou {"classroom_id": X, "quantity": N} à créer — pas une simple liste
+    # d'ids de salle depuis le retrait de course_classrooms (M2M) au profit de
+    # CourseClassroomRequirement (quantity).
+    classroom_requirement_ids: Optional[list] = None
     week_type: Optional[str] = None
 
 @router.put("/courses/{course_id}")
@@ -125,7 +151,7 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
             "division_ids": [d.id for d in c.divisions],
             "timeslot_id": c.timeslot_id,
-            "classroom_ids": [cr.id for cr in c.classrooms],
+            "classroom_requirement_ids": [{"id": r.id, "classroom_id": r.classroom_id, "quantity": r.quantity} for r in c.classroom_requirements],
             "group_ids": [g.id for g in c.groups],
             "is_pinned": c.is_pinned,
             "duration_minutes": c.duration_minutes,
@@ -156,7 +182,7 @@ def simulate_change(request_data: Dict[str, Any], db: Session = Depends(get_db))
         elif resource_type == "NonTeachingStaff":
             courses_query = courses_query.filter(Course.non_teaching_staffs.any(NonTeachingStaff.id == resource_id))
         elif resource_type == "Classroom":
-            courses_query = courses_query.filter(Course.classrooms.any(Classroom.id == resource_id))
+            courses_query = courses_query.filter(Course.classroom_requirements.any(CourseClassroomRequirement.classroom_id == resource_id))
         elif resource_type == "Division":
             courses_query = courses_query.filter(Course.divisions.any(Division.id == resource_id))
         elif resource_type == "Group":
@@ -207,7 +233,7 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
     if resource_type == "Teacher":
         courses_query = courses_query.filter(Course.teachers.any(Teacher.id == resource_id))
     elif resource_type == "Classroom":
-        courses_query = courses_query.filter(Course.classrooms.any(Classroom.id == resource_id))
+        courses_query = courses_query.filter(Course.classroom_requirements.any(CourseClassroomRequirement.classroom_id == resource_id))
     elif resource_type == "Division":
         courses_query = courses_query.filter(Course.divisions.any(Division.id == resource_id))
     elif resource_type == "Group":
@@ -227,7 +253,7 @@ def apply_change(request_data: Dict[str, Any], db: Session = Depends(get_db)):
         if c.timeslot_id is not None:
             c.update(db, {
                 "timeslot_id": None,
-                "classroom_ids": []
+                "classroom_requirement_ids": []
             })
             deplaced_count += 1
             

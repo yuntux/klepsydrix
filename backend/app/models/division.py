@@ -16,10 +16,12 @@ class Division(Base):
 
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
     main_teacher_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True, info={"label": "Professeur principal"})
+    preferred_classroom_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="SET NULL"), nullable=True, info={"label": "Salle préférée"})
 
     # Relations de navigation
     school: Mapped[Optional["School"]] = relationship("School", back_populates="divisions")
     main_teacher: Mapped[Optional["Teacher"]] = relationship("Teacher", foreign_keys=[main_teacher_id])
+    preferred_classroom: Mapped[Optional["Classroom"]] = relationship("Classroom", foreign_keys=[preferred_classroom_id])
     mef_links: Mapped[list["MefDivision"]] = relationship(
         "MefDivision", back_populates="division", passive_deletes="all",
         info={

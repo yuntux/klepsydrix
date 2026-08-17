@@ -28,6 +28,7 @@ class Teacher(HasUserAccount, Base):
     # enseignées (subject_ids) — cf. _sync_preferred_subject ci-dessous pour le seul cas où ce
     # champ est calculé automatiquement plutôt que saisi librement.
     preferred_subject_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=True, info={"label": "Matière préférée"})
+    preferred_classroom_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="SET NULL"), nullable=True, info={"label": "Salle préférée"})
 
     # --- État civil ---
     title_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_titles.id", ondelete="SET NULL"), nullable=True, info={"label": "Civilité"})
@@ -91,6 +92,7 @@ class Teacher(HasUserAccount, Base):
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)
     subjects: Mapped[list["Subject"]] = relationship("Subject", secondary=teacher_subjects, info={"label": "Matières enseignées"})
     preferred_subject: Mapped[Optional["Subject"]] = relationship("Subject", foreign_keys=[preferred_subject_id])
+    preferred_classroom: Mapped[Optional["Classroom"]] = relationship("Classroom", foreign_keys=[preferred_classroom_id])
 
     title: Mapped[Optional["RefTitle"]] = relationship("RefTitle", foreign_keys=[title_id])
     birth_city: Mapped[Optional["RefCity"]] = relationship("RefCity", foreign_keys=[birth_city_id])

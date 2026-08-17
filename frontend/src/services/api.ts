@@ -138,6 +138,10 @@ export async function fetchWhoAmI(): Promise<{ display_name: string; email: stri
 // donnée", jamais comme une erreur). status peut valoir NOT_SOLVING/QUEUED/SOLVING (voir
 // solver.py::SolverState, "Concurrence des résolutions") — queue_position/queue_length ne sont
 // significatifs que pour QUEUED (null/0 sinon).
+// kind : COURSE_PLACEMENT/CLASSROOM_ASSIGNMENT/OPTIMIZE_COURSE_PLACEMENT/
+// OPTIMIZE_CLASSROOM_ASSIGNMENT/null (voir plan salles §4, solver.py::SolverState) — null hors
+// résolution, ou pour une résolution legacy (POST /solve, jamais taguée). pipeline_step/
+// pipeline_total_steps : 1/1 pour un solve simple, 1 ou 2 sur 2 pour le pipeline /optimize.
 export async function fetchTimetableStatus(): Promise<{
   status: string;
   progress: { hard_score: number; soft_score: number } | null;
@@ -145,6 +149,9 @@ export async function fetchTimetableStatus(): Promise<{
   time_limit_seconds: number | null;
   queue_position: number | null;
   queue_length: number;
+  kind: string | null;
+  pipeline_step: number;
+  pipeline_total_steps: number;
 }> {
   const response = await apiFetch('/api/timetable/status');
   if (!response.ok) {
@@ -161,13 +168,28 @@ export async function fetchTimetableScore(): Promise<{ hard_score: number; soft_
   return response.json();
 }
 
-export async function solveTimetable(): Promise<{ status: string; message: string }> {
-  const response = await apiFetch('/api/timetable/solve', {
+// Endpoint 2 (plan salles §4) — remplace le legacy /solve (retiré) : ne résout plus que
+// timeslot/week_type (domaine COURSE_PLACEMENT), s'arrête dès la 1ère solution faisable.
+export async function startCoursePlacement(): Promise<{ status: string; message: string }> {
+  const response = await apiFetch('/api/timetable/course-placement', {
     method: 'POST',
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Erreur lors de la résolution automatique');
+    throw new Error(errorData.detail || 'Erreur lors du placement automatique');
+  }
+  return response.json();
+}
+
+// Endpoint 3 (plan salles §4) — « Attribuer les salles » : résout la salle précise (domaine
+// CLASSROOM_ASSIGNMENT) sur tous les cours porteurs d'une exigence de groupe.
+export async function startClassroomAssignment(): Promise<{ status: string; message: string }> {
+  const response = await apiFetch('/api/timetable/classroom-assignment', {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Erreur lors de l'attribution des salles");
   }
   return response.json();
 }

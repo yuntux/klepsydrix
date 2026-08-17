@@ -217,7 +217,7 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 
 **BR-001: Règle Globale d'Exclusivité des Ressources (Grille Hebdomadaire)**
 > **Nature : 🔴 Hard Rule (Stricte)**
-> **Principe d'interdiction :** Il est strictement interdit à deux cours distincts d'occuper simultanément une même ressource (Enseignant, Salle, Division, Personnel) sur une même case de la grille de modélisation hebdomadaire.
+> **Principe d'interdiction :** Il est strictement interdit à deux cours distincts d'occuper simultanément une même ressource (Enseignant, Salle, Division, Personnel) sur une même case de la grille de modélisation hebdomadaire. *Cas particulier de la Salle : voir « Domaines de résolution du solveur » ci-dessous — l'exclusivité d'une salle-feuille précise déjà résolue est vérifiée dès le placement horaire, tandis qu'un simple besoin de groupe (pas encore résolu en salle précise) n'est vérifié qu'en capacité agrégée à ce stade, la résolution précise étant déportée à une résolution automatique dédiée.*
 > 
 > **Exceptions (Principe d'Orthogonalité) :** Ce chevauchement virtuel sur la grille est autorisé si et seulement si les deux cours satisfont l'une des trois conditions d'orthogonalité suivantes :
 > 1. **Orthogonalité Structurelle (Inclusion - Cours Composés) :** Les deux cours représentent le même événement physique (ex: l'un est le cours composé parent et l'autre est son cours simple enfant, ou il s'agit de deux cours simples enfants issus du même cours composé). Leurs ressources sont donc naturellement partagées et ne sont pas en double réservation.
@@ -245,6 +245,35 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 > Ces plafonds sont des règles absolues que le solveur doit respecter intégralement sous peine d'échec de la validation.
 > *Note d'optimisation : Seuls certains paramètres qualitatifs liés au confort (ex: `max_gap_hours_per_week` / trous dans l'emploi du temps) agissent comme des règles souples (🟢 Soft).*
 
+### Domaines de résolution du solveur : Placement des cours et Attribution des salles
+
+Contrairement à une hypothèse initiale de conception, la salle n'est **pas** une variable résolue dans la même passe Timefold que le créneau horaire et la semaine d'alternance. Une étude comparative de logiciels concurrents plus matures (UnDeuxTEMPS, EDT/Index Éducation, Charlemagne/Aplim) a montré qu'ils séparent structurellement le placement horaire de l'attribution précise des salles — et que ce découplage répond à un problème réel : les préférences de salle (fines, volatiles) ne doivent influencer qu'un choix secondaire, une fois la grille horaire posée, plutôt que de polluer le score qui pilote l'acceptation des mouvements du solveur principal. La salle est donc, pendant le placement horaire, une **ressource contrainte** (une exigence de quantité sur un groupe de salles, garantissant qu'« au moins une salle du groupe sera libre », voir **CourseClassroomRequirement**, section 10bis) plutôt qu'une variable résolue directement — le choix de la salle précise est déporté vers une résolution dédiée, ultérieure, pilotée par les préférences (professeur, division, ordre, capacité).
+
+Deux domaines Timefold distincts en résultent, désignés `COURSE_PLACEMENT` (créneau + semaine) et `CLASSROOM_ASSIGNMENT` (salle précise) dans tout ce document, plus un troisième point d'entrée (Optimisation) qui rejoue ces deux domaines à la suite — ce n'est pas un troisième domaine indépendant :
+
+| # | Point d'entrée | Domaine / ce qui est résolu | Population des cours concernés | Conditions d'arrêt | Sémaphore/file | Mode exclusif |
+|---|---|---|---|---|---|---|
+| 1 | Heatmap (aide au placement, voir plus bas) | Aucune résolution — évaluation de score répétée sur le domaine `COURSE_PLACEMENT` | Cours sans parent (même domaine que `COURSE_PLACEMENT`) | N/A | Non (exempté) | Non |
+| 2 | Bouton « Placement automatique » (remplace l'ancien « Générer ») | `COURSE_PLACEMENT` : créneau + semaine | Cours sans parent | 1ère solution faisable OU 5 min — le premier atteint | Oui | Oui |
+| 3 | Bouton « Attribuer les salles » | `CLASSROOM_ASSIGNMENT` : la salle précise, sur les besoins de groupe | Tous les cours (parent ou enfant, quiconque porte une exigence de groupe à quantité > 0) | Durée max (5 min) + sans-amélioration (10 s) | Oui | Oui |
+| 4a | Wizard « Optimiser l'emploi du temps », étape 1/1 ou 1/2 | `COURSE_PLACEMENT` | Cours sans parent | Durée max paramétrable par l'utilisateur (≤ 12h, défaut 1h) OU sans-amélioration paramétrable (défaut 15 min) | Oui | Oui |
+| 4b | Wizard « Optimiser l'emploi du temps », étape 2/2 (si la case « remettre les salles à l'état groupe » est cochée) | `CLASSROOM_ASSIGNMENT` | Tous les cours | Durée max + sans-amélioration paramétrables (repli sur les valeurs de la ligne 3 si non renseignées) | Oui | Oui |
+
+Un seul solve actif par base à la fois, quel que soit son type (pas de résolution `COURSE_PLACEMENT` et `CLASSROOM_ASSIGNMENT` en parallèle sur la même base) — la Heatmap est la seule exemption : elle continue de tourner indépendamment de tout solve en cours. Entre les étapes 4a et 4b du wizard d'optimisation, la remise à l'état groupe des salles déjà attribuées (si la case est cochée) est une simple opération de données, pas un solve Timefold — un arrêt demandé par l'utilisateur à cet instant précis est pris en compte explicitement avant de lancer l'étape 4b, pour ne jamais laisser des salles remises à l'état groupe sans être réattribuées.
+
+**Pourquoi Timefold plutôt qu'un algorithme classique pour l'attribution des salles (`CLASSROOM_ASSIGNMENT`)**
+
+Sans la notion de continuité (limiter les déplacements — réutiliser autant que possible la même salle pour un même professeur ou une même division à travers ses différentes séances), l'attribution des salles serait un **problème d'affectation biparti classique** par créneau : associer, pour chaque créneau, les besoins de salle aux salles libres du groupe, avec un coût = préférence + rang. Ce cas-là se résoudrait exactement et instantanément par un algorithme classique (matching biparti pondéré, type Hongrois), un par créneau, indépendamment des autres — optimal garanti, déterministe, trivial à expliquer à l'utilisateur.
+
+**La continuité casse cette décomposition.** Elle couple les créneaux entre eux : minimiser le nombre de salles distinctes utilisées par un même professeur sur la semaine n'est plus un coût additif par affectation individuelle, c'est plus proche d'un problème de type facility-location imbriqué dans un assignment — un algorithme « classique » qui le prendrait en compte correctement (flot à coûts fixes, ILP dédié) n'a plus rien de simple à écrire ni à maintenir.
+
+Le choix retenu est donc de rester dans Timefold pour cette résolution, pour trois raisons concrètes :
+1. C'est exactement le type de contrainte molle, transversale, pondérée que les Constraint Streams savent exprimer nativement (regroupement par professeur/division, pénalisation du nombre de salles distinctes) — un algorithme classique réinventerait une partie du même mécanisme, sans l'outillage déjà en place (scoring, tests, infrastructure de solve).
+2. Le sous-problème reste petit : le créneau et la semaine sont déjà figés par `COURSE_PLACEMENT` avant d'entrer dans `CLASSROOM_ASSIGNMENT`.
+3. Coût de maintenance : un seul paradigme à faire évoluer dans le temps plutôt que deux en parallèle — chaque futur critère reste une ligne de contrainte en plus, pas une reformulation potentielle d'un algorithme spécialisé.
+
+Le déterminisme et l'explicabilité qu'un algorithme classique aurait apportés sur le cas simple ne sont pas sacrifiés pour autant : l'heuristique de construction reproduit un comportement glouton par ordre/priorité (première salle-feuille libre du groupe dans l'ordre) comme point de départ — la recherche locale n'intervenant qu'ensuite, brièvement, pour améliorer la continuité.
+
 ### Key Entities
 
 
@@ -264,7 +293,7 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
   *   **Groups (Groupes)** : Un ou plusieurs regroupements d'élèves (ex : Groupe d'Allemand LV2, Spécialité Physique).
   *   **Sites** : Le ou les sites physiques ou campus géographiques associés à la séance.
   *   **Materials (Matériels / Équipements)** : Le ou les matériels mobiles ou fixes réservables (ex : Valise d'iPad, Projecteur 3D).
-  *   **Classrooms (Salles)** : La ou les salles de classe affectées (ex : Salle 102, Labo SVT).
+  *   **Classroom requirements (Exigences de salle)** : Les besoins de salle du cours, chacun ciblant soit une salle précise (ex : Salle 102), soit un groupe de salles interchangeables (ex : Labo SVT) assorti d'une quantité — voir **CourseClassroomRequirement** (section 10bis). L'attribution d'une salle précise à partir d'un besoin de groupe est résolue par une résolution automatique dédiée, distincte du placement horaire (voir « Domaines de résolution du solveur » ci-dessous).
 - **ResourcePreference** : Association polymorphique entre n'importe quel type de ressource listé ci-dessus, un créneau (Timeslot) et un niveau de préférence (Disponible [Blanc], Souhait d'absence [Orange], Indisponible [Rouge], Souhait de présence [Vert]), qualifiée par un type de semaine (Semaine A/B/Toutes) et associée à des périodes d'application.
 - **Period (Période)** : Découpage temporel séquentiel de l'année scolaire (trimestres, semestres, etc.).
 - **PeriodType (Type de Période)** : Catégorie ou modèle de découpage temporel de l'année scolaire (Trimestre, Semestre, etc.).
@@ -353,10 +382,11 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
     *   `PARTIALLY_VENTILATED` : Le cours composé possède des cours enfants, mais certaines ressources du cours composé n'ont pas encore été ventilées vers au moins un enfant.
     *   `FULLY_VENTILATED` : Toutes les ressources du cours composé ont été ventilées dans des cours enfants — que ces enfants soient ou non déjà placés sur la grille (`status`).
 
-*   `underventilated_resource_ids` : Détail par type de ressource des IDs insuffisamment ventilés (JSON, nullable), recalculé au même moment que `decomposition_status` (même méthode `recompute_status`) — un dict `{champ_ressource: [ids présents sur ce cours composé mais absents de TOUS ses enfants]}` (ex: `{"teacher_ids": [12], "classroom_ids": [4, 7]}`), ne listant que les types réellement en défaut. `None` si le cours n'est pas composé, n'a aucun enfant, ou est `FULLY_VENTILATED`. Consommé par la Fiche T (User Story 3) pour surligner les ressources concernées.
+*   `underventilated_resource_ids` : Détail par type de ressource des IDs insuffisamment ventilés (JSON, nullable), recalculé au même moment que `decomposition_status` (même méthode `recompute_status`) — un dict `{champ_ressource: [ids présents sur ce cours composé mais absents de TOUS ses enfants]}` (ex: `{"teacher_ids": [12]}`), ne listant que les types réellement en défaut. Exception : pour `classroom_requirement_ids` (voir ci-dessous), la valeur est `{classroom_id: quantité restant à ventiler}` (ex: `{"classroom_requirement_ids": {4: 2}}`) plutôt qu'une simple liste — la seule des relations de ressources à porter une quantité. `None` si le cours n'est pas composé, n'a aucun enfant, ou est `FULLY_VENTILATED`. Consommé par la Fiche T (User Story 3) pour surligner les ressources concernées.
 *   `has_conflict` : Indique si le cours présente un conflit de ressources (double réservation d'enseignant, salle, classe) ou le non-respect d'une indisponibilité stricte (`RED`). Cette information dynamique est séparée du statut matérialisé et calculée uniquement à la demande.
 *   *Relations hiérarchiques* : `parent` (le **Course** composé parent, le cas échéant), `children` (Liste des **Course** enfants issus de la décomposition — suppression en cascade)
-*   *Relations (N-à-N)* : `teachers` (Professeur(s) affecté(s) — plusieurs en cas de co-enseignement), `divisions` (Classe(s) visée(s)), `groups` (Groupe(s) visé(s)), `class_parts` (Partie(s) de classe visée(s)), `classrooms` (Salle(s)), `materials` (Matériel(s)), `non_teaching_staffs` (Personnel(s) non-enseignant(s))
+*   *Relations (N-à-N)* : `teachers` (Professeur(s) affecté(s) — plusieurs en cas de co-enseignement), `divisions` (Classe(s) visée(s)), `groups` (Groupe(s) visé(s)), `class_parts` (Partie(s) de classe visée(s)), `materials` (Matériel(s)), `non_teaching_staffs` (Personnel(s) non-enseignant(s))
+*   *Relation possédée (1-à-N)* : `classroom_requirements` — voir **CourseClassroomRequirement** (section 10bis). Remplace une ancienne relation N-à-N simple `classrooms` : contrairement aux 6 relations ci-dessus (simple présence/absence par id), une exigence de salle porte une quantité et peut cibler soit une salle précise, soit un groupe de salles interchangeables dont l'attribution précise est résolue par une résolution automatique dédiée (voir « Domaines de résolution du solveur » ci-dessus).
 
     **Cascade de membership `groups` ↔ `class_parts`** — un **Group** « est composé de » une ou plusieurs **ClassPart** (voir section 6). Cette composition impose une propagation à sens unique lors de tout ajout/retrait sur un **Course**, appliquée en un seul passage atomique avant écriture (`Course._apply_group_class_part_cascade`) :
     1. **Ajout d'un `Group` au cours** → ajoute automatiquement toutes ses `ClassPart` au cours.
@@ -368,25 +398,16 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
     *   **Profondeur** : un enfant ne peut pas lui-même avoir des enfants, et ne peut pas avoir pour parent un cours qui est lui-même un enfant — 2 niveaux maximum (parent composé + enfants simples, jamais de petit-enfant).
     *   **Fenêtre temporelle** : le créneau effectif de l'enfant (`parent.timeslot` décalé de `parent_timeslot_offset`) doit tomber le même jour que le parent, ne peut pas commencer avant le début du parent, ni finir après la fin du parent (`parent.timeslot.minutes_from_midnight + parent.duration_minutes`).
 
-    **Cascade de membership des ressources parent/enfant** — s'applique à `teachers`, `non_teaching_staffs`, `classrooms`, `divisions`, `groups`, `materials` et `class_parts` (**pas** à `subject_id`, qui suit sa propre règle ci-dessus, indépendante et non cascadée) :
+    **Cascade de membership des ressources parent/enfant** — s'applique à `teachers`, `non_teaching_staffs`, `divisions`, `groups`, `materials` et `class_parts` (**pas** à `subject_id`, qui suit sa propre règle ci-dessus, indépendante et non cascadée) :
     1. **Ajout d'une ressource à un enfant** → ajoutée aussi au parent si celui-ci ne l'avait pas déjà (`Course._cascade_resources_to_parent`). Rattacher un cours déjà pourvu de ressources à un nouveau parent (`parent_id` posé après coup) fait remonter la TOTALITÉ de ses ressources existantes, pas seulement celles ajoutées dans le même appel.
     2. **Ajout d'une ressource au parent** → **aucun effet** sur les enfants (pas de cascade inverse, symétrique à la règle 2 de la cascade Group/ClassPart ci-dessus).
     3. **Retrait d'une ressource sur un enfant** → **aucun effet** sur le parent (les autres enfants, ou le parent lui-même, peuvent toujours en avoir besoin).
     4. **Retrait d'une ressource sur le parent** → retire cette ressource de TOUS ses enfants (`Course._cascade_resource_removal_to_children`). Si ce retrait en cascade viderait complètement un enfant de toute ressource, l'opération entière est rejetée (voir règle « dernière ressource » ci-dessous) — le retrait sur le parent doit alors être précédé d'un retrait manuel sur l'enfant concerné.
 
-    **Règle de la dernière ressource (`validate_has_at_least_one_resource`)** : un `Course` (parent, enfant, ou simple) doit toujours conserver au moins une ressource, tous types confondus (`teachers` + `non_teaching_staffs` + `classrooms` + `divisions` + `groups` + `materials` + `class_parts`) — un retrait qui viderait complètement ces 7 relations est rejeté. Cette règle ne se déclenche que si l'appelant touche explicitement l'un de ces champs : elle n'a donc aucun effet rétroactif sur un cours existant modifié sans toucher ses ressources, ni sur la création d'un cours « coquille » sans aucune ressource (avant sa première affectation).
+    `classroom_requirements` (section 10bis) suit une variante consciente de la quantité de cette même cascade, plutôt que les 4 règles ci-dessus telles quelles : voir **CourseClassroomRequirement** pour le détail (la décrémentation y remplace la simple présence/absence d'id).
 
+    **Règle de la dernière ressource (`validate_has_at_least_one_resource`)** : un `Course` (parent, enfant, ou simple) doit toujours conserver au moins une ressource, tous types confondus (`teachers` + `non_teaching_staffs` + `classroom_requirements` + `divisions` + `groups` + `materials` + `class_parts`) — un retrait qui viderait complètement ces 7 relations est rejeté. Cette règle ne se déclenche que si l'appelant touche explicitement l'un de ces champs : elle n'a donc aucun effet rétroactif sur un cours existant modifié sans toucher ses ressources, ni sur la création d'un cours « coquille » sans aucune ressource (avant sa première affectation).
 
-### 1bis. Session (Séance)
-L'unité opérationnelle et planifiée d'un cours.
-*   `id` : Clé primaire (Entier)
-*   `course_id` : Clé étrangère vers le **Course** parent (Entier, relation 1-à-N)
-*   `timeslot_id` : Clé étrangère optionnelle vers un **Timeslot** (0 ou 1 créneau). Dans le cas d'une séance planifiée sur la grille, `timeslot_id` désigne le créneau de départ (Start Timeslot), et la séance s'étend de manière contiguë sur une longueur égale à la `duration_minutes` du cours parent.
-*   `classroom_id` : Clé étrangère optionnelle vers la **Salle** principale de la séance (Entier, relation N-à-1)
-*   `week_type` : Type d'alternance de semaine (Chaîne, 'A', 'B' ou 'W' pour Toutes les semaines, par défaut 'W')
-*   `is_pinned` : Indicateur si la séance est verrouillée statiquement sur ce créneau et cette salle, ignorée par le solveur (Booléen, par défaut `False`)
-*   `is_co_teaching` : Indicateur si la séance est dispensée en co-enseignement (Booléen, par défaut `False`)
-*   *Relations (N-à-N)* : `subjects`, `teachers`, `divisions`, `class_parts`, `groups`, `alternations`, `sites`, `materials`, `classrooms` (les ressources affectées à cette séance)
 
 ### 2. Subject (Matière)
 *   `id` : Clé primaire (Entier)
@@ -806,16 +827,32 @@ Matrice relationnelle des temps de trajet définissant la durée nécessaire pou
 *   `quantity` : Nombre total d'unités disponibles en stock (Entier)
 
 ### 10. Classroom (Salle)
-Représente soit une salle simple (ordinaire), soit un **Groupe de salles** interchangeables (ex: "Laboratoires sciences") permettant une réservation générique lors de la saisie des cours (avec affectation finale automatique).
+Représente une salle physique unique, ou un **groupe de salles** interchangeables (ex : "Laboratoires sciences") permettant de saisir un besoin générique lors de la création d'un cours, avec attribution précise différée à une résolution dédiée (voir « Domaines de résolution du solveur » ci-dessus). Contrairement à une version antérieure de ce document, un groupe n'est pas une salle fictive porteuse d'un simple compteur de disponibilité : c'est un nœud d'un **arbre de salles**, dont les enfants directs sont soit des salles physiques réelles (les « feuilles »), soit d'autres groupes (imbrication à profondeur arbitraire — un cours peut référencer un groupe à n'importe quel niveau de l'arbre, pas seulement les groupes-feuilles).
 *   `id` : Clé primaire (Entier)
-*   `code` : Code unique de la salle ou du groupe (Chaîne, e.g. "S102", "GR_LABOS")
+*   `code` : Code unique de la salle ou du groupe (Chaîne, e.g. "S102", "GRP-LABOS")
 *   `name` : Libellé de la salle ou du groupe (Chaîne, e.g. "Salle 102 - Physique", "Laboratoires sciences")
-*   `capacity` : Capacité maximale d'accueil d'élèves (Entier, optionnel pour les groupes)
+*   `capacity` : Capacité maximale d'accueil d'élèves (Entier, optionnel — `NULL` signifie une capacité illimitée, jamais vérifiée par le solveur lors de l'attribution). Toutes les salles d'un même groupe (mêmes enfants directs d'un même parent) doivent être homogènes en capacité : soit toutes à `NULL`, soit toutes à la même valeur numérique — jamais un mélange.
+*   `parent_classroom_id` : Clé étrangère optionnelle vers une autre **Classroom** (Entier, relation N-à-1, suppression du parent → `NULL` sur les enfants plutôt que suppression en cascade) — désigne le groupe dont cette salle ou ce sous-groupe est membre direct. `NULL` pour une salle ou un groupe racine. Une salle devient un **groupe** dès qu'elle reçoit au moins un enfant, et redevient une salle simple dès qu'elle n'en a plus aucun — c'est purement dérivé de la présence d'enfants, pas un champ séparé. Toute tentative de cycle (rattacher une salle comme sa propre descendante, directement ou via un ancêtre commun) est rejetée.
+*   `ref_classroom_type_id` : Clé étrangère optionnelle vers **RefClassroomType** (section 10ter) — le type pédagogique de la salle (ex : Salle scientifique, CDI, Atelier). Réservé aux salles-feuilles : dès qu'une salle gagne son premier enfant (devient un groupe), ce champ est silencieusement remis à `NULL` (jamais un rejet de l'opération de rattachement).
 *   `site_id` : Clé étrangère vers le **Site** géographique (Entier, relation 1-à-N)
-*   `quantity` : Nombre de salles physiques représentées (Entier, par défaut `1`).
-    *   Si `quantity == 1` : C'est une **salle simple**.
-    *   Si `quantity > 1` : L'entité est un **Groupe de salles**.
-*   *Relations (N-à-N ordonnée)* : `contained_classrooms` (Pour les groupes de salles (`quantity > 1`), liste ordonnée des salles simples de même capacité et situées obligatoirement sur le **même site** composant ce groupe. L'ordre d'affectation au sein du groupe est défini de manière séquentielle pour prioriser l'utilisation de certaines salles simples par rapport à d'autres).
+*   *Relations hiérarchiques* : `parent_classroom` (le groupe parent, le cas échéant), `children_classrooms` (Liste des salles ou sous-groupes membres directs)
+
+### 10bis. CourseClassroomRequirement (Exigence de salle d'un cours)
+Table de liaison entre un **Course** et une **Classroom**, portant une quantité — remplace une ancienne relation N-à-N simple `classrooms` sur **Course**, qui ne permettait aucune multiplicité. Une exigence de salle peut être saisie sur un cours composé **parent**, y compris avant même que ses enfants n'existent — exactement comme les 6 autres relations de ressources d'un cours (voir section 1, « Cascade de membership des ressources parent/enfant ») : le parent porte ses propres ressources déclarées, potentiellement plus riches que l'union de ses enfants à un instant donné, précisément parce que la décomposition (`decomposition_status`) peut être incomplète.
+*   `id` : Clé primaire (Entier)
+*   `course_id` : Clé étrangère vers le **Course** (Entier, relation N-à-1, suppression en cascade)
+*   `classroom_id` : Clé étrangère vers la **Classroom** demandée — une salle-feuille précise, ou un groupe à n'importe quel niveau de l'arbre (Entier, relation N-à-1, suppression en cascade)
+*   `quantity` : Nombre de salles du groupe nécessaires (Entier, par défaut `1`, borné à `[1, 20]`). Une exigence sur une salle-feuille précise (pas un groupe) ne peut porter que sur `quantity = 1`.
+*   Contrainte d'unicité sur `(course_id, classroom_id)` : au plus une ligne par couple cours / salle-ou-groupe — la multiplicité passe par `quantity`, jamais par des lignes dupliquées.
+*   **Cascade de décrémentation** : quand un cours (typiquement un enfant) reçoit une nouvelle exigence — salle-feuille précise ou groupe, y compris un sous-groupe — qui est un descendant-ou-égal (au sens de l'arbre de salles) d'un groupe déjà déclaré sur son cours **parent** avec une quantité restante non nulle, la ligne de groupe du parent est décrémentée d'autant (supprimée si elle atteint 0). Si la nouvelle exigence de l'enfant est elle-même une salle-feuille précise, elle est en plus recopiée sur le parent (comme pour les 6 autres relations de ressources). Grâce à cette cascade, la quantité stockée sur chaque ligne reste en permanence la quantité **réellement restant à pourvoir** — c'est ce qui alimente `underventilated_resource_ids` (section 1) pour cette relation, sous la forme `{classroom_id: quantité restante}` plutôt qu'une simple liste d'ids comme pour les 6 autres relations.
+*   **Résolution automatique (domaine `CLASSROOM_ASSIGNMENT`, voir « Domaines de résolution du solveur » ci-dessus)** : toute ligne à `quantity > 0` pointant vers un groupe, portée par n'importe quel cours (parent ou enfant), est un besoin candidat à la résolution automatique de la salle précise. Le résultat transforme la ligne en salle-feuille précise (si elle ne portait qu'une seule unité), ou la scinde en une nouvelle ligne précise plus une décrémentation de la ligne de groupe d'origine (si elle en portait plusieurs) — sans jamais dépasser la quantité initialement demandée, et sans jamais réapparaître comme besoin non résolu au run suivant une fois consommée.
+
+### 10ter. RefClassroomType (Type de salle)
+Nomenclature de référence (ministérielle) des types pédagogiques de salle (ex : Salle scientifique, CDI, Atelier de maintenance), rattachable uniquement aux salles-feuilles (voir **Classroom**, `ref_classroom_type_id`).
+*   `id` : Clé primaire (Entier)
+*   `code` : Code de la nomenclature (Chaîne — non unique dans le référentiel source, plusieurs types y partagent le même code)
+*   `name` : Nom court (Chaîne)
+*   `long_name` : Libellé long (Chaîne)
 
 ### 11. ResourcePreference (Vœux / Préférence)
 Association polymorphique entre n'importe quel type de ressource, un créneau (Timeslot), un niveau de préférence (Disponible, Vœu, Indisponible), rattachée obligatoirement à **1 à N périodes** (Trimestre, Période spécifique).

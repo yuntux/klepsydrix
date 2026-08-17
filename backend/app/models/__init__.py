@@ -9,6 +9,7 @@ from backend.app.models.family import Family
 from backend.app.models.subject import Subject
 from backend.app.models.mef import Mef, MefService, MefDivision
 from backend.app.models.trmd_budget import TrmdBudget
+from backend.app.models.ref_classroom_type import RefClassroomType
 from backend.app.models.classroom import Classroom
 from backend.app.models.teacher import Teacher, TeacherAra, TeacherAre, TeacherDiscipline, TeacherParticularMission, TeacherPacteMission, TeacherOtherSchool
 from backend.app.models.division import Division
@@ -22,6 +23,7 @@ from backend.app.models.alternation import Alternation
 from backend.app.models.site import Site, SiteTravelTime
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.course_classroom_requirement import CourseClassroomRequirement
 from backend.app.models.service import Service, ServiceRepartition, Alignment
 from backend.app.models.non_teaching_staff import NonTeachingStaff
 from backend.app.models.preference import ResourcePreference
@@ -51,3 +53,8 @@ from backend.app.models.ref_city import RefCity
 # pour que le listener before_flush qu'il enregistre soit actif dans tout contexte qui importe ce
 # paquet (API, solveur, tests) — exactement pour la même raison que tous les modèles ci-dessus.
 import backend.app.core.exclusive_mode  # noqa: E402,F401
+
+# Closure table de l'arbre des groupes de salles (voir classroom_closure.py) : PAS un modèle ORM
+# (Table Core brute), même raisonnement que ci-dessus — son import doit se produire tôt pour que
+# Base.metadata.create_all() (init_db.py) la crée.
+import backend.app.models.classroom_closure  # noqa: E402,F401

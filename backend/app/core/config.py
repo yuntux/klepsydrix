@@ -196,6 +196,17 @@ class Settings(BaseSettings):
     SOLVER_TIME_LIMIT_SECONDS: int = 300
     SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS: int = 10
 
+    # Voir plan salles §4 — Placement automatique (endpoint /course-placement) : s'arrête dès la
+    # 1ère solution faisable (best_score_feasible), avec ce plafond de durée comme filet de
+    # sécurité si aucune solution faisable n'est jamais atteinte.
+    SOLVER_COURSE_PLACEMENT_CEILING_SECONDS: int = 300
+
+    # Wizard "Optimiser l'emploi du temps" (endpoint /optimize) : bornes/défauts des paramètres
+    # saisis par l'utilisateur (OptimizeTimetableRequest, endpoints.py).
+    SOLVER_OPTIMIZE_MAX_COMPUTE_CEILING_SECONDS: int = 43200   # 12h, borne dure
+    SOLVER_OPTIMIZE_DEFAULT_MAX_COMPUTE_SECONDS: int = 3600    # 1h
+    SOLVER_OPTIMIZE_DEFAULT_MAX_NO_PROGRESS_SECONDS: int = 900  # 15 min
+
     # Nombre de résolutions Timefold autorisées à tourner EN MÊME TEMPS, toutes bases confondues
     # (voir architecture.md, "Concurrence des résolutions") — au-delà, une nouvelle demande passe
     # en file d'attente (SolverState, statut QUEUED) plutôt que de démarrer immédiatement. Chaque

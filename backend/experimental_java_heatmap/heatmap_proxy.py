@@ -7,42 +7,26 @@ def calculate_heatmap_java(problem, solver_factory, course_id: int) -> dict:
         import time
         import jpype
         from _jpyinterpreter import convert_to_java_python_like_object
-        from backend.app.solver.constraints import PlanningClassroom
 
         # Régression (voir attribution_week_type_auto.md) : la Heatmap n'exécute JAMAIS le CH du
         # solveur (elle appelle directement setWorkingSolution()/calculateScore() sur les données
-        # telles que chargées) — un cours dont classroom vaut encore None (très courant : tout
-        # cours non placé, ou placé mais sans salle assignée, cas fréquent dans ce jeu de
-        # données) reste donc "non initialisé" pendant TOUTE la durée du calcul, jamais résolu
-        # comme il le serait par un CH réel. Or Timefold exclut purement et simplement une entité
-        # non initialisée des flux for_each()/for_each_unique_pair() ordinaires — pas seulement
-        # pour les contraintes qui s'intéressent à classroom, pour TOUTES (teacher_conflict,
-        # resource_preference_*, division_conflict...). Résultat mesuré : la heatmap d'un cours
-        # sans salle n'affichait plus AUCUN impact des préférences ni des cours déjà placés,
-        # quel que soit le créneau (grille entièrement "verte"). Vérifié par un test direct
-        # (SolutionManager.explain) : un cours avec classroom=None ne déclenche aucun match pour
-        # "Resource unavailability (strict)" ; avec une salle assignée, la même contrainte
-        # redevient visible et pénalise correctement.
-        # Correctif : donner une salle VIRTUELLE (id négatif, jamais dans classroomRange, jamais
-        # partagée entre deux cours puisque dérivée de l'id du cours lui-même — donc jamais de
-        # faux conflit classroom_conflict) à TOUT cours du problème dont classroom est encore
-        # None, avant le calcul. Cette valeur reste IDENTIQUE tout au long du calcul (base et
-        # chaque créneau testé) : tout bruit de score qu'elle introduirait entre deux AUTRES cours
-        # est donc constant et s'annule déjà dans le delta calculé côté Java
-        # (currentScore - baseScore) — seul compte ici de rendre les cours visibles aux
-        # contraintes, pas la salle précise qui leur est temporairement associée. Purement en
-        # mémoire, jamais committé (la Heatmap ne fait aucun commit BDD, voir architecture.md § 13.A).
+        # telles que chargées) — une @PlanningVariable encore None (non initialisée) exclut son
+        # entité de TOUS les flux for_each()/for_each_unique_pair() (pas seulement des contraintes
+        # qui s'y intéressent). C'était le cas de `classroom` avant le passage au domaine
+        # COURSE_PLACEMENT (voir plan salles §2) : nécessitait une salle virtuelle pour tout cours
+        # sans salle, cas fréquent. Devenu sans objet — `classroom` n'est plus une
+        # @PlanningVariable de PlanningCourse, `leaf_classroom_ids` (liste, jamais None) et
+        # l'absence de PlanningGroupDemand sont des états valides par construction, aucune
+        # virtualisation nécessaire pour rendre un cours "visible" aux contraintes de salle.
+        # `week_type`, lui, reste concerné (@PlanningVariable propre, cause distincte) :
+        # Un cours né Q (week_type=None en entrée du solveur, voir Phase C) reste "non initialisé"
+        # pendant tout le calcul — la boucle Java ne fait varier QUE timeslot, jamais week_type.
+        # Vérifié empiriquement (SolutionManager.explain) : le cours CIBLE lui-même, une fois
+        # virtuellement placé sur un créneau réel par la boucle, reste invisible aux contraintes
+        # si week_type reste None — le timeslot seul ne suffit pas à "initialiser" l'entité. Pas
+        # besoin d'une valeur hors range ici (contrairement à l'ancienne salle virtuelle) :
+        # week_type n'a pas de notion d'unicité globale comparable à un id de salle.
         for c in problem.courses:
-            if c.classroom is None:
-                c.classroom = PlanningClassroom(id=-c.id, name="(salle virtuelle — heatmap)", capacity=0)
-            # Même mécanisme, même cause, pour week_type : un cours né Q (week_type=None en
-            # entrée du solveur, voir Phase C) reste "non initialisé" pendant tout le calcul —
-            # la boucle Java ne fait varier QUE timeslot, jamais week_type. Vérifié empiriquement
-            # (SolutionManager.explain) : identique au cas classroom, y compris pour le cours
-            # CIBLE lui-même une fois virtuellement placé sur un créneau réel par la boucle — le
-            # timeslot seul ne suffit pas à "initialiser" l'entité si week_type reste None.
-            # Contrairement à classroom, pas besoin d'une valeur hors range : week_type n'a pas
-            # de notion d'unicité globale comparable à un id de salle (voir architecture.md § 12.E).
             if c.week_type is None:
                 c.week_type = c.week_type_range[0]
 

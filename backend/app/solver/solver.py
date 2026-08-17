@@ -2,15 +2,15 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from timefold.solver import SolverFactory
-from timefold.solver.config import SolverConfig, SolverConfigOverride, TerminationConfig, ScoreDirectorFactoryConfig, Duration, EnvironmentMode
+from timefold.solver.config import SolverConfig, SolverConfigOverride, TerminationConfig, ScoreDirectorFactoryConfig, Duration, EnvironmentMode, TerminationCompositionStyle
 from timefold.solver import SolutionManager
 from backend.app.core.config import settings
 from backend.app.models.teacher import Teacher
 from backend.app.models.non_teaching_staff import NonTeachingStaff
-from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.course import Course
+from backend.app.models.course_classroom_requirement import CourseClassroomRequirement
 from backend.app.models.group import ClassPartLink
 from backend.app.models.preference import ResourcePreference
 from backend.app.models.constraint import ResourceConstraint, CourseToCourseConstraint, SubjectToSubjectConstraint
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 from backend.app.solver.constraints import (
     PlanningTeacher,
     PlanningNonTeachingStaff,
-    PlanningClassroom,
     PlanningDivision,
     PlanningTimeslot,
     PlanningCourse,
@@ -34,6 +33,7 @@ from backend.app.solver.constraints import (
     PlanningPreference,
     PlanningResourceConstraint,
     PlanningCourseToCourseConstraint,
+    PlanningGroupDemand,
     PlanningTimetable,
     define_constraints,
 )
@@ -41,7 +41,17 @@ from backend.app.solver.constraints import (
 
 class _PerDbSolverState:
     """État d'une résolution en cours (ou en file d'attente) pour UNE base — voir SolverState."""
-    __slots__ = ("lock", "active_solver", "status", "progress", "last_progress_at", "started_at", "time_limit_seconds")
+    __slots__ = (
+        "lock", "active_solver", "status", "progress", "last_progress_at", "started_at", "time_limit_seconds",
+        # Voir plan salles §4 : `kind` distingue les 4 points d'entrée (COURSE_PLACEMENT,
+        # CLASSROOM_ASSIGNMENT, OPTIMIZE_COURSE_PLACEMENT, OPTIMIZE_CLASSROOM_ASSIGNMENT) — un seul
+        # job actif par base quel que soit son kind (pas de champ séparé par type). pipeline_step/
+        # pipeline_total_steps : 1/1 pour un solve simple, 1 ou 2 sur 2 pour le pipeline
+        # d'optimisation (endpoint /optimize). stop_requested : positionné par stop_solving(),
+        # consulté par l'orchestrateur du pipeline ENTRE deux phases (pas seulement pendant
+        # solver.solve()) — voir le cas limite documenté dans _run_job.
+        "kind", "pipeline_step", "pipeline_total_steps", "stop_requested",
+    )
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -51,6 +61,10 @@ class _PerDbSolverState:
         self.last_progress_at = None
         self.started_at = None
         self.time_limit_seconds = None
+        self.kind = None
+        self.pipeline_step = 1
+        self.pipeline_total_steps = 1
+        self.stop_requested = False
 
 
 # Sémaphore GLOBAL (toutes bases confondues), pas par base — voir architecture.md, "Concurrence des
@@ -88,13 +102,12 @@ class SolverState:
         return cls._states[slug]
 
     @classmethod
-    def enqueue(cls, slug: str):
+    def enqueue(cls, slug: str, kind: str = None, pipeline_total_steps: int = 1):
         """
-        Place `slug` en file d'attente — appelé à la fois par `start_solve_timetable_async` (tout
+        Place `slug` en file d'attente — appelé à la fois par les fonctions `start_*_async` (tout
         de suite, dans le thread de la requête HTTP, pour que `/status` reflète l'état QUEUED sans
-        attendre que le thread de résolution démarre réellement) et par `_solve_timetable_job`
-        elle-même (idempotent : `_queue_order` n'accumule jamais deux fois le même slug) — pour que
-        les appelants directs de `_solve_timetable_job` (tests) passent par le même chemin.
+        attendre que le thread de résolution démarre réellement) et par `_run_job` elle-même
+        (idempotent : `_queue_order` n'accumule jamais deux fois le même slug).
         """
         state = cls._for(slug)
         with state.lock:
@@ -103,6 +116,10 @@ class SolverState:
             state.last_progress_at = None
             state.started_at = None
             state.time_limit_seconds = None
+            state.kind = kind
+            state.pipeline_step = 1
+            state.pipeline_total_steps = pipeline_total_steps
+            state.stop_requested = False
         with cls._queue_lock:
             cls._cancel_requested.discard(slug)
             if slug not in cls._queue_order:
@@ -142,7 +159,14 @@ class SolverState:
             return position, len(cls._queue_order)
 
     @classmethod
-    def set_solving(cls, slug: str, solver, time_limit_seconds=None):
+    def set_solving(cls, slug: str, solver, time_limit_seconds=None, kind: str = None, pipeline_step: int = 1, pipeline_total_steps: int = None):
+        """
+        `pipeline_step`/`pipeline_total_steps` : identifie la phase courante d'un job à plusieurs
+        étapes (voir _run_job) — ex. "1/2" puis "2/2" pour le pipeline d'optimisation. Ne PAS
+        repasser par NOT_SOLVING entre deux phases d'un même job (voir _run_job) : ce changement
+        de phase appelle set_solving() directement, jamais set_not_solving() entre les deux, pour
+        éviter un flicker "pas de solve en cours" côté IHM entre les deux étapes.
+        """
         state = cls._for(slug)
         with state.lock:
             state.active_solver = solver
@@ -151,6 +175,11 @@ class SolverState:
             state.last_progress_at = None
             state.started_at = time.monotonic()
             state.time_limit_seconds = time_limit_seconds
+            if kind is not None:
+                state.kind = kind
+            state.pipeline_step = pipeline_step
+            if pipeline_total_steps is not None:
+                state.pipeline_total_steps = pipeline_total_steps
 
     @classmethod
     def set_solving_status(cls, slug: str):
@@ -168,6 +197,10 @@ class SolverState:
             state.last_progress_at = None
             state.started_at = None
             state.time_limit_seconds = None
+            state.kind = None
+            state.pipeline_step = 1
+            state.pipeline_total_steps = 1
+            state.stop_requested = False
 
     @classmethod
     def get_status(cls, slug: str):
@@ -179,15 +212,22 @@ class SolverState:
     def stop_solving(cls, slug: str):
         """
         Deux cas distincts, essayés dans cet ordre : `slug` encore EN FILE (pas encore démarré) →
-        annulé sans jamais avoir lu la base ni bloqué l'écriture (voir _solve_timetable_job) ;
+        annulé sans jamais avoir lu la base ni bloqué l'écriture (voir _run_job) ;
         `slug` déjà EN COURS de résolution → interruption « à la Timefold » via terminate_early()
         (comportement inchangé). Rien à faire si ni l'un ni l'autre (déjà terminé, ou fenêtre très
         étroite entre la sortie de file et l'enregistrement de active_solver — best-effort, comme
         le reste du suivi de progression, voir set_progress ci-dessous).
+
+        `stop_requested` est positionné inconditionnellement (pas seulement dans le cas
+        "résolution active") : un pipeline à 2 phases (_run_job) doit aussi pouvoir être interrompu
+        PENDANT la mutation entre les deux phases, un moment où aucun solveur n'est actif pour
+        que terminate_early() ait quoi que ce soit à intercepter (voir plan salles §4, cas limite).
         """
+        state = cls._for(slug)
+        with state.lock:
+            state.stop_requested = True
         if cls.request_cancel_queued(slug):
             return
-        state = cls._for(slug)
         with state.lock:
             if state.active_solver:
                 try:
@@ -196,9 +236,15 @@ class SolverState:
                     pass
 
     @classmethod
+    def is_stop_requested(cls, slug: str) -> bool:
+        state = cls._for(slug)
+        with state.lock:
+            return state.stop_requested
+
+    @classmethod
     def set_progress(cls, slug: str, hard_score: int, soft_score: int):
         """
-        Throttlé à 1 mise à jour/seconde : le listener Timefold (voir _solve_timetable_job) peut
+        Throttlé à 1 mise à jour/seconde : le listener Timefold (voir _run_solve_phase) peut
         être notifié plusieurs fois par seconde, surtout pendant la phase de construction — écrire
         à cette fréquence dans un état partagé verrouillé n'apporterait rien, le frontend ne
         pollant /status que toutes les 3s (App.vue::checkStatus). La toute première notification
@@ -218,7 +264,7 @@ class SolverState:
         Réponse complète pour /status : statut, dernier score connu, temps écoulé/limite, position
         dans la file — tout ce dont le frontend a besoin pour afficher une progression, sans jamais
         exposer l'état interne des entités de la solution (voir la mise en garde dans
-        _solve_timetable_job). `queue_position`/`queue_length` valent None/0 hors statut QUEUED.
+        _run_job). `queue_position`/`queue_length` valent None/0 hors statut QUEUED.
         """
         state = cls._for(slug)
         with state.lock:
@@ -226,6 +272,9 @@ class SolverState:
             status = state.status
             time_limit_seconds = state.time_limit_seconds
             progress = state.progress
+            kind = state.kind
+            pipeline_step = state.pipeline_step
+            pipeline_total_steps = state.pipeline_total_steps
         queue_position, queue_length = cls.queue_snapshot(slug)
         return {
             "status": status,
@@ -234,13 +283,23 @@ class SolverState:
             "time_limit_seconds": time_limit_seconds,
             "queue_position": queue_position,
             "queue_length": queue_length,
+            "kind": kind,
+            "pipeline_step": pipeline_step,
+            "pipeline_total_steps": pipeline_total_steps,
         }
 
 
-def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
+def _build_course_placement_problem(db: Session, school_id: Optional[int] = None) -> PlanningTimetable:
+    """
+    Domaine COURSE_PLACEMENT (voir plan salles §2) — remplace l'ancien _build_planning_problem :
+    ne résout que timeslot/week_type. La salle n'est plus une PlanningVariable ; elle devient une
+    ressource contrainte via PlanningCourse.leaf_classroom_ids (salle-feuille précise) et
+    PlanningGroupDemand (besoin de groupe), tous deux lus directement depuis les
+    classroom_requirements du cours PARENT — la cascade décrémentée (CourseClassroomRequirement)
+    garantit déjà que cette collection est correcte, pas d'agrégation bespoke à faire ici.
+    """
     db_teachers = db.execute(select(Teacher)).scalars().unique().all()
     db_non_teaching_staffs = db.execute(select(NonTeachingStaff)).scalars().unique().all()
-    db_classrooms = db.execute(select(Classroom)).scalars().unique().all()
     db_divisions = db.execute(select(Division)).scalars().unique().all()
     
     db_timeslots = Timeslot.get_active_timeslots(db)
@@ -258,7 +317,6 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
 
     teachers_map = {t.id: PlanningTeacher(t.id, t.display_name) for t in db_teachers}
     non_teaching_staffs_map = {s.id: PlanningNonTeachingStaff(s.id, s.first_name, s.last_name) for s in db_non_teaching_staffs}
-    classrooms_map = {c.id: PlanningClassroom(c.id, c.name, c.capacity) for c in db_classrooms}
     from backend.app.models.school import School
     sch_limits = {}
     if school_id is not None:
@@ -288,7 +346,6 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())
-    classrooms_list = list(classrooms_map.values())
     divisions_list = list(divisions_map.values())
     timeslots_list = list(timeslots_map.values())
     links_list = [PlanningClassPartLink(link.class_part_a_id, link.class_part_b_id) for link in db_links]
@@ -306,6 +363,15 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             period_mask=sum(period_to_bit.get(p.id, 0) for p in pref.periods)
         ) for pref in db_preferences
     ]
+    # Sentinelle catch-all pour classroom_group_capacity (constraints.py) : sans elle, la
+    # jointure PlanningGroupDemand x PlanningCourse x PlanningPreference perdrait toute demande
+    # sans AUCUNE préférence Unsuited applicable (jointure interne classique) — voir plan salles
+    # §2.2b et le spike `spike_group_capacity_unsuited_3way.py`. resource_id=-1 : jamais un vrai
+    # id de Classroom (toujours positif, auto-incrémenté).
+    preferences_list.append(PlanningPreference(
+        id=-1, resource_type="__SENTINEL__", resource_id=-1, timeslot_id=-1,
+        preference_level="Neutral", week_type="W", period_ids=[], period_mask=0,
+    ))
     constraints_list = [
         PlanningResourceConstraint(
             id=rc.id,
@@ -378,10 +444,12 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         ) for cc in db_course_constraints
     ]
 
+    from backend.app.models.classroom_closure import leaf_classroom_ids_under
+
     courses_list = []
+    group_demands_list = []
     for c in db_courses:
         ts_planning = timeslots_map.get(c.timeslot_id) if c.timeslot_id else None
-        cr_planning = classrooms_map.get(c.classrooms[0].id) if c.classrooms else None
 
         # Gestion multi-établissement (US2) :
         # Si school_id est spécifié et que ce cours appartient à une AUTRE école, il est forcé à
@@ -391,26 +459,28 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         # inutile (CH/LS explorant des cours jamais réécrits en base, voir plus bas) pour la
         # portion — potentiellement significative — d'une autre école qui n'est pas encore
         # placée. Epingler un cours non placé reste parfaitement légal côté Timefold (timeslot
-        # autorise déjà l'absence de valeur) ; seul restait le risque déjà couvert plus bas pour
-        # classroom ET week_type (voir juste après).
+        # autorise déjà l'absence de valeur).
         is_pinned = c.is_pinned
         if school_id is not None and c.school_id != school_id:
             is_pinned = True
 
-        # Un cours épinglé sans salle (classroom=None) est un état illégal pour Timefold
-        # ("pinned to null, even though unassigned values are not allowed" — classroom n'autorise
-        # pas l'absence de valeur, contrairement à timeslot). Le cas le plus courant : un cours
-        # d'une autre école forcé en is_pinned ci-dessus mais jamais affecté d'une salle. On lui
-        # fabrique alors une salle VIRTUELLE, avec un id négatif garanti disjoint des vrais id de
-        # Classroom (toujours positifs, auto-incrémentés) — jamais ajoutée à classroomRange
-        # (aucun autre cours ne peut donc jamais s'y voir assigné), donc jamais de conflit
-        # fantôme. Comme le cours est épinglé, cette salle ne bouge jamais pendant le solving, et
-        # au retour (_solve_timetable_job) db.get(Classroom, id_négatif) ne trouve aucune ligne
-        # réelle : le write-back existant range déjà proprement ce cas en classrooms=[] — l'état
-        # d'origine, sans code supplémentaire nécessaire là-bas.
-        if is_pinned and cr_planning is None:
-            cr_planning = PlanningClassroom(id=-c.id, name="(salle virtuelle — sans salle réelle)", capacity=0)
-            
+        # Salle (voir plan salles §2.1) : leaf_classroom_ids est un simple fait, pas une
+        # PlanningVariable — pas de risque "pinned to null" ici (contrairement à l'ancien
+        # classroom), donc pas de salle virtuelle nécessaire pour un cours épinglé sans salle.
+        leaf_classroom_ids = [
+            r.classroom_id for r in c.classroom_requirements if not r.classroom.children_classrooms
+        ]
+        for r in c.classroom_requirements:
+            if not r.classroom.children_classrooms:
+                continue  # salle-feuille précise, déjà comptée ci-dessus
+            group_demands_list.append(PlanningGroupDemand(
+                course_id=c.id,
+                demand_key=f"{c.id}:{r.classroom_id}",
+                group_id=r.classroom_id,
+                needed_count=r.quantity,
+                group_leaf_ids=leaf_classroom_ids_under(db, r.classroom_id),
+            ))
+
         # Charger week_type et class_part_ids
         # Phase C (voir attribution_week_type_auto.md, Échanges 17-19) : tout cours dont le
         # week_type BDD (c.week_type — agrégat _sync_parent_week_type pour un cours composé)
@@ -495,10 +565,9 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
             non_teaching_staffs=[non_teaching_staffs_map[s.id] for s in c.non_teaching_staffs if s.id in non_teaching_staffs_map],
             divisions=[divisions_map[d.id] for d in c.divisions if d.id in divisions_map],
             timeslot=ts_planning,
-            classroom=cr_planning,
+            leaf_classroom_ids=leaf_classroom_ids,
             is_pinned=is_pinned,
             original_timeslot_id=c.timeslot_id,
-            original_classroom_id=cr_planning.id if cr_planning else None,
             parent_id=getattr(c, 'parent_id', None),
             pedagogic_weight_total=pedagogic_weight * (c.duration_minutes / 60.0),
             week_type=week_type,
@@ -515,7 +584,6 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
     return PlanningTimetable(
         teachers=teachers_list,
         non_teaching_staffs=non_teaching_staffs_list,
-        classrooms=classrooms_list,
         divisions=divisions_list,
         timeslots=timeslots_list,
         courses=courses_list,
@@ -523,6 +591,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
         preferences=preferences_list,
         resource_constraints=constraints_list,
         course_to_course_constraints=course_constraints_list,
+        group_demands=group_demands_list,
         score=None,
     )
 
@@ -532,7 +601,7 @@ def _build_planning_problem(db: Session, school_id: Optional[int] = None) -> Pla
 # (constraints.py, domain.py), jamais rebuilt tant que le process tourne. Aucun termination_config
 # n'est baké ici : les limites de temps du solveur (settings.SOLVER_*, y compris les overrides de
 # test) doivent rester dynamiques — passées via solver_config_override à build_solver() (voir
-# _solve_timetable_job), sans jamais retraduire le bytecode. Double-checked locking : plusieurs
+# _run_solve_phase), sans jamais retraduire le bytecode. Double-checked locking : plusieurs
 # threads peuvent appeler _get_solver_factory() concurremment (solve async + heatmap), on ne veut
 # construire qu'une seule fois.
 _SOLVER_FACTORY_CACHE = None
@@ -554,204 +623,165 @@ def _get_solver_factory():
                 _SOLVER_FACTORY_CACHE = SolverFactory.create(solver_config)
     return _SOLVER_FACTORY_CACHE
 
-def _solve_timetable_job(db_session=None, school_id=None, slug=None):
+def _write_back_course_placement(db, school_id, solution):
+    """Écrit le résultat d'un solve COURSE_PLACEMENT (timeslot + week_type) en base.
+
+    ATTENTION ARCHITECTURE : Le solveur n'appelle JAMAIS la méthode Course.update() du CRUDMixin
+    pour des raisons de performances (éviter de déclencher des milliers de validations Pydantic/
+    Python). Il assigne directement les attributs (Direct Attribute Assignment) et laisse
+    l'appelant faire le commit. CONSÉQUENCE : Toute règle métier vérifiée dans
+    `Course.validate_placement_conflicts()` (ex: débordement de grille) DOIT obligatoirement être
+    dupliquée en tant que contrainte Timefold dans `constraints.py`, sinon l'IA contournera la
+    sécurité lors de la sauvegarde. Ne fait PAS le commit — à la charge de l'appelant.
+    """
+    for pc in solution.courses:
+        db_course = db.get(Course, pc.id)
+        if not db_course:
+            continue
+        # Filet de sécurité (US2, multi-établissement) : un cours d'une autre école que
+        # celle demandée est déjà épinglé (donc jamais réellement déplacé, voir
+        # _build_planning_problem) — mais on n'écrit quand même jamais son résultat en
+        # retour, pour ne dépendre d'aucune garantie interne au solveur pour protéger les
+        # données d'une école qu'on n'est pas censé modifier.
+        if school_id is not None and db_course.school_id != school_id:
+            continue
+        db_course._via_crud_mixin_update = True
+        db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
+        # week_type_before : capturé AVANT l'écriture ci-dessous, pour pouvoir détecter
+        # une résolution/permutation réelle (Q->A/B ou A<->B) et déclencher la cascade
+        # aux enfants d'un cours composé (voir plus bas) — sans quoi on écraserait la
+        # référence nécessaire à la comparaison. Pour un cours en W, pc.week_type_range
+        # n'a jamais eu qu'une seule valeur légale (voir _build_planning_problem), donc
+        # pc.week_type est structurellement resté égal à sa valeur d'entrée : l'écriture
+        # est un no-op sans risque dans ce cas.
+        week_type_before = db_course.week_type.value
+        db_course.week_type = pc.week_type
+        # Salle : plus écrite ici — COURSE_PLACEMENT ne résout plus que timeslot/
+        # week_type (voir plan salles §2). L'attribution des salles précises est du
+        # ressort du domaine CLASSROOM_ASSIGNMENT (room_constraints.py, tâche #6).
+        if db_course.is_composed:
+            # Synchroniser le timeslot de chaque cours enfant par rapport au parent
+            from backend.app.models.timeslot import Timeslot
+            parent_ts = db.get(Timeslot, db_course.timeslot_id) if db_course.timeslot_id else None
+            # Cascade du week_type aux enfants : seulement si le solveur a réellement
+            # changé le week_type du parent pendant le solving (Q->A, Q->B, ou A<->B —
+            # peu importe lequel, il suffit de comparer à la valeur d'avant solve) — pas
+            # à chaque solve, sinon un cours composé stable (resté sur sa lettre) verrait
+            # ses enfants réécrits sans raison. Sûr car _sync_parent_week_type garantit
+            # qu'un parent affichant une valeur singleton (A/B/Q) avant résolution la
+            # partageait avec 100% de ses enfants (voir attribution_week_type_auto.md,
+            # Échange 18/19/20) : reporter la même lettre à tous, sans distinction, est
+            # donc toujours correct ici.
+            week_type_changed = pc.week_type != week_type_before
+            for child in db_course.children:
+                child._via_crud_mixin_update = True
+                if parent_ts:
+                    child.timeslot_id = parent_ts.get_offset_timeslot(db, child.parent_timeslot_offset)
+                else:
+                    child.timeslot_id = None
+                if week_type_changed:
+                    child.week_type = pc.week_type
+                child.recompute_status()
+
+        db_course.recompute_status()
+
+
+# ---------------------------------------------------------------------------------------------
+# Orchestration générique des 3 points d'entrée Timefold (plan salles §4) — COURSE_PLACEMENT seul
+# (/course-placement), CLASSROOM_ASSIGNMENT seul (/classroom-assignment), et le pipeline à 2
+# phases (/optimize). Le legacy /solve (domaine combiné timeslot+week_type+classroom) a été
+# retiré une fois test_solver.py migré vers ces 3 points d'entrée (voir plan salles §4, décision
+# produit) — cette orchestration est désormais le seul chemin de résolution.
+# ---------------------------------------------------------------------------------------------
+
+def _run_job(school_id, slug, kind, phases, db_session=None):
+    """
+    Point d'entrée générique pour un job Timefold à 1 ou 2 phases. `phases` : liste de 1 (solve
+    simple) ou 2 (pipeline /optimize) dicts, voir _run_solve_phase pour leur contenu.
+    """
     if db_session is not None:
         db = db_session
-        # Un appel avec une session déjà ouverte (tests, ou tout futur appelant interne) mais sans
-        # slug explicite retombe sur le "bucket" SolverState de la base par défaut — voir
-        # db_registry.slug_for_engine : une session de test (moteur jamais enregistré dans le
-        # registre) ne peut de toute façon pas être rattachée à une base précise.
         slug = slug or db_registry.slug_for_engine(db.bind) or DEFAULT_DB_NAME
     else:
         slug = slug or DEFAULT_DB_NAME
         db = db_registry.sessionmaker_for(slug)()
 
-    # File d'attente (voir SolverState/_SOLVE_SEMAPHORE ci-dessus, architecture.md "Concurrence des
-    # résolutions") : la BDD n'est lue (_build_planning_problem) et l'écriture bloquée
-    # (enter_exclusive_mode, juste en dessous) qu'une fois un emplacement RÉELLEMENT obtenu — jamais
-    # à l'entrée dans la file. Deux raisons : (1) une base dont le solve est seulement en attente
-    # reste normalement modifiable, exactement comme si aucun solve n'avait été demandé ; (2) une
-    # fois la résolution effectivement lancée, elle travaille toujours sur les données les plus
-    # fraîches à cet instant, jamais un instantané pris au moment de la demande (potentiellement
-    # périmé après une longue attente derrière d'autres bases). `enqueue` est idempotent : appelé
-    # une première fois de façon synchrone par `start_solve_timetable_async` (pour que /status
-    # reflète QUEUED sans attendre que ce thread démarre réellement), puis à nouveau ici — ce qui
-    # couvre aussi un appel direct de `_solve_timetable_job` (tests, `db_session` fourni) qui n'est
-    # jamais passé par `start_solve_timetable_async`.
-    SolverState.enqueue(slug)
+    SolverState.enqueue(slug, kind=kind, pipeline_total_steps=len(phases))
     acquired = False
     try:
         while not acquired:
             acquired = _SOLVE_SEMAPHORE.acquire(timeout=0.5)
             if not acquired and SolverState.is_cancel_requested(slug):
-                # Annulé alors qu'il n'avait pas encore démarré (voir SolverState.stop_solving) —
-                # aucune donnée lue, aucune écriture jamais bloquée pour cette base.
                 SolverState.dequeue(slug)
                 SolverState.set_not_solving(slug)
                 return None
         SolverState.dequeue(slug)
         SolverState.set_solving_status(slug)
-        return _run_solve(db, db_session, school_id, slug)
+        return _run_job_phases(db, db_session, school_id, slug, kind, phases)
     finally:
         if acquired:
             _SOLVE_SEMAPHORE.release()
 
 
-def _run_solve(db, db_session, school_id, slug):
-    """Corps de la résolution proprement dite — exécuté une fois un emplacement du sémaphore
-    obtenu (voir _solve_timetable_job). Séparé dans sa propre fonction pour que le try/finally de
-    libération du sémaphore, au-dessus, n'ait pas à s'entremêler avec celui-ci (portées disjointes,
-    plus lisible que tout empiler dans un seul bloc)."""
+def _run_job_phases(db, db_session, school_id, slug, kind, phases):
+    """
+    Exécute les 1 ou 2 phases du job l'une après l'autre, dans une seule fenêtre de mode exclusif
+    (une seule entrée/sortie, pas une par phase — voir plan salles §4). Commits intermédiaires
+    après chaque phase et après chaque mutation, pour la résilience (le mode exclusif reste actif
+    en base tout du long, ces commits ne rouvrent l'écriture à personne d'autre que cette
+    session).
+
+    Cas limite documenté au plan §4 : arrêt demandé PENDANT la mutation intermédiaire d'un
+    pipeline à 2 phases (le remplacement salle précise -> groupe, entre 4a et 4b) — ce n'est pas
+    un solve Timefold, `solver.terminate_early()` n'a donc rien à intercepter à ce moment.
+    `SolverState.is_stop_requested` est donc consulté explicitement à DEUX points par phase, pas
+    seulement pendant `solver.solve()` : juste avant la mutation elle-même, et juste avant de
+    lancer la phase suivante — sans quoi un stop pendant la mutation laisserait les salles remises
+    à l'état "groupe" sans jamais être réattribuées.
+    """
     entered_exclusive = False
     try:
-        # Mode exclusif (voir core/exclusive_mode.py, architecture.md) : bloque toute écriture
-        # concurrente (via une autre session que celle-ci) tant que la résolution tourne — sans
-        # ça, un utilisateur pourrait modifier des données que le solveur est en train
-        # d'exploiter, ou voir son écriture silencieusement écrasée par le résultat du solveur à
-        # la fin. `enter_exclusive_mode` commit immédiatement (transaction dédiée), pour que ce
-        # soit visible des AUTRES sessions dès maintenant. bypass_exclusive_mode autorise CETTE
-        # session (et elle seule) à continuer d'écrire pendant sa propre fenêtre de mode exclusif.
         enter_exclusive_mode(db, user="admin")
         entered_exclusive = True
         db.info["bypass_exclusive_mode"] = True
 
-        problem = _build_planning_problem(db, school_id)
-        solver_factory = _get_solver_factory()
-        # Limites de temps appliquées ICI, pas à la construction du SolverFactory (mise en cache
-        # ci-dessus) : lues à chaque appel, donc toujours à jour (settings.SOLVER_*, y compris
-        # les overrides de test qui les modifient au runtime).
-        limit_seconds = settings.SOLVER_TIME_LIMIT_SECONDS
-        unimproved_limit_seconds = settings.SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS
-        solver = solver_factory.build_solver(solver_config_override=SolverConfigOverride(
-            termination_config=TerminationConfig(
-                spent_limit=Duration(seconds=limit_seconds),
-                unimproved_spent_limit=Duration(seconds=unimproved_limit_seconds)
-            ),
-        ))
+        total_steps = len(phases)
+        last_solution = None
+        for step_index, phase in enumerate(phases, start=1):
+            if SolverState.is_stop_requested(slug):
+                break
 
-        # Enregistrer le solveur actif
-        SolverState.set_solving(slug, solver, time_limit_seconds=limit_seconds)
+            mutation_before = phase.get("mutation_before")
+            if mutation_before is not None:
+                mutation_before(db)
+                db.commit()
+                if SolverState.is_stop_requested(slug):
+                    break
 
-        # Notifié à chaque nouvelle "meilleure solution" trouvée pendant la résolution (pas
-        # seulement à la fin) — permet d'exposer une progression en direct (/status, voir
-        # SolverState.set_progress) sans changer l'appel bloquant solver.solve() ci-dessous.
-        # Le throttle (1 update/s) est géré côté SolverState, pas ici.
-        #
-        # DEUX LIMITATIONS CONNUES DU PAQUET timefold 1.24.0b0 (bêta) INSTALLÉ ICI, testées en
-        # conditions réelles (thread d'arrière-plan, comme en production) — best-effort assumé :
-        # 1. Ne JAMAIS lire les champs des entités de event.new_best_solution ici (ex: un
-        #    for pc in event.new_best_solution.courses: pc.timeslot, pour compter les cours
-        #    placés) : ça corrompt de façon intermittente (~1 fois sur 5 dans nos essais) la
-        #    conversion Java->Python de la solution FINALE à la sortie de solver.solve() plus bas
-        #    — un vrai risque de perdre la sauvegarde d'une résolution réussie pour un simple
-        #    affichage. event.new_best_score (un objet valeur simple, jamais un graphe d'entités)
-        #    est resté stable dans tous nos essais : seul le score est donc exposé en direct, pas
-        #    un décompte "cours placés / total" (voir architecture.md).
-        # 2. Même limité au score, ce listener ne se déclenche pas de façon fiable une fois
-        #    invoqué depuis un thread d'arrière-plan (parfois 0 appel sur toute la résolution,
-        #    de façon non déterministe — reproduit y compris en ne touchant que le score). Sans
-        #    risque de corruption (contrairement au point 1), juste une progression parfois
-        #    absente : le frontend doit donc traiter `progress: null` comme "pas encore de score
-        #    connu", jamais comme une erreur, et se rabattre sur status/elapsed_seconds (fiables à
-        #    100%, aucun accès JPype) qui restent la seule donnée de progression garantie.
-        def _on_best_solution_changed(event):
-            score = event.new_best_score
-            SolverState.set_progress(
-                slug,
-                score.hard_score if hasattr(score, 'hard_score') else 0,
-                score.soft_score if hasattr(score, 'soft_score') else 0,
+            last_solution = _run_solve_phase(
+                db, slug,
+                phase_kind=phase["kind"],
+                build_fn=phase["build_fn"],
+                solver_factory_fn=phase["solver_factory_fn"],
+                termination_config=phase["termination_config"],
+                write_back_fn=phase["write_back_fn"],
+                school_id=school_id,
+                pipeline_step=step_index,
+                pipeline_total_steps=total_steps,
             )
+            db.commit()
 
-        solver.add_event_listener(_on_best_solution_changed)
-
-        try:
-            solution = solver.solve(problem)
-        finally:
-            SolverState.set_not_solving(slug)
-
-        # Mettre à jour les enregistrements
-        # ATTENTION ARCHITECTURE : Le solveur n'appelle JAMAIS la méthode Course.update() du CRUDMixin
-        # pour des raisons de performances (éviter de déclencher des milliers de validations Pydantic/Python).
-        # Il assigne directement les attributs (Direct Attribute Assignment) et fait un db.commit() brut.
-        # CONSÉQUENCE : Toute règle métier vérifiée dans `Course.validate_placement_conflicts()` 
-        # (ex: débordement de grille) DOIT obligatoirement être dupliquée en tant que contrainte Timefold
-        # dans `constraints.py`, sinon l'IA contournera la sécurité lors de la sauvegarde.
-        for pc in solution.courses:
-            db_course = db.get(Course, pc.id)
-            if not db_course:
-                continue
-            # Filet de sécurité (US2, multi-établissement) : un cours d'une autre école que
-            # celle demandée est déjà épinglé (donc jamais réellement déplacé, voir
-            # _build_planning_problem) — mais on n'écrit quand même jamais son résultat en
-            # retour, pour ne dépendre d'aucune garantie interne au solveur pour protéger les
-            # données d'une école qu'on n'est pas censé modifier.
-            if school_id is not None and db_course.school_id != school_id:
-                continue
-            if db_course:
-                db_course._via_crud_mixin_update = True
-                db_course.timeslot_id = pc.timeslot.id if pc.timeslot else None
-                # week_type_before : capturé AVANT l'écriture ci-dessous, pour pouvoir détecter
-                # une résolution/permutation réelle (Q->A/B ou A<->B) et déclencher la cascade
-                # aux enfants d'un cours composé (voir plus bas) — sans quoi on écraserait la
-                # référence nécessaire à la comparaison. Pour un cours en W, pc.week_type_range
-                # n'a jamais eu qu'une seule valeur légale (voir _build_planning_problem), donc
-                # pc.week_type est structurellement resté égal à sa valeur d'entrée : l'écriture
-                # est un no-op sans risque dans ce cas.
-                week_type_before = db_course.week_type.value
-                db_course.week_type = pc.week_type
-                if not db_course.is_composed:
-                    if pc.classroom:
-                        db_classroom = db.get(Classroom, pc.classroom.id)
-                        if db_classroom:
-                            db_course.classrooms = [db_classroom]
-                    else:
-                        db_course.classrooms = []
-                else:
-                    # Synchroniser le timeslot de chaque cours enfant par rapport au parent
-                    from backend.app.models.timeslot import Timeslot
-                    parent_ts = db.get(Timeslot, db_course.timeslot_id) if db_course.timeslot_id else None
-                    # Cascade du week_type aux enfants : seulement si le solveur a réellement
-                    # changé le week_type du parent pendant le solving (Q->A, Q->B, ou A<->B —
-                    # peu importe lequel, il suffit de comparer à la valeur d'avant solve) — pas
-                    # à chaque solve, sinon un cours composé stable (resté sur sa lettre) verrait
-                    # ses enfants réécrits sans raison. Sûr car _sync_parent_week_type garantit
-                    # qu'un parent affichant une valeur singleton (A/B/Q) avant résolution la
-                    # partageait avec 100% de ses enfants (voir attribution_week_type_auto.md,
-                    # Échange 18/19/20) : reporter la même lettre à tous, sans distinction, est
-                    # donc toujours correct ici.
-                    week_type_changed = pc.week_type != week_type_before
-                    for child in db_course.children:
-                        child._via_crud_mixin_update = True
-                        if parent_ts:
-                            child.timeslot_id = parent_ts.get_offset_timeslot(db, child.parent_timeslot_offset)
-                        else:
-                            child.timeslot_id = None
-                        if week_type_changed:
-                            child.week_type = pc.week_type
-                        child.recompute_status()
-
-                db_course.recompute_status()
-
-        # exit_exclusive_mode_and_rotate_token ne commit pas elle-même : sa mise à jour (levée du
-        # mode exclusif + nouveau jeton d'écriture) part dans LE MÊME commit que les résultats du
-        # solveur ci-dessus — atomicité indispensable (voir exclusive_mode.py) pour qu'un crash
-        # entre les deux ne laisse jamais un jeton qui ne reflète pas fidèlement l'état des
-        # données.
+        # exit_exclusive_mode_and_rotate_token ne commit pas elle-même : sa mise à jour part dans
+        # LE MÊME commit que le résultat de la dernière phase exécutée — même raisonnement
+        # d'atomicité que le write-back solveur en général (même schéma partout dans ce fichier).
         exit_exclusive_mode_and_rotate_token(db)
         db.commit()
-        return solution
+        return last_solution
 
     except Exception as e:
         db.rollback()
-        logger.error("Solver thread error: %s", e)
+        logger.error("Job thread error: %s", e)
         if entered_exclusive:
-            # Le rollback ci-dessus défait la tentative de sortie de mode exclusif si elle avait
-            # été atteinte (ainsi que toute écriture de résultats) — mais PAS l'entrée en mode
-            # exclusif, déjà commitée séparément avant que quoi que ce soit d'autre ne commence.
-            # Sans ce rattrapage explicite, une résolution qui échoue laisserait le mode exclusif
-            # bloqué jusqu'au prochain redémarrage du process. Volontairement SANS rotation du
-            # jeton ici : aucune donnée n'a réellement changé, aucune raison d'invalider les
-            # navigateurs déjà à jour.
             try:
                 clear_exclusive_mode(db)
             except Exception:
@@ -763,20 +793,221 @@ def _run_solve(db, db_session, school_id, slug):
         SolverState.set_not_solving(slug)
 
 
-def start_solve_timetable_async(school_id: Optional[int] = None, slug: Optional[str] = None):
+def _run_solve_phase(db, slug, phase_kind, build_fn, solver_factory_fn, termination_config, write_back_fn,
+                      school_id, pipeline_step, pipeline_total_steps):
+    """
+    Une phase = construire le problème, lancer un solve avec le TerminationConfig de CETTE phase,
+    écrire le résultat en base (write_back_fn ne commit pas — _run_job_phases s'en charge après
+    chaque phase). set_solving() est appelé directement (jamais set_not_solving() entre deux
+    phases, voir SolverState.set_solving) pour que le passage 1/2 -> 2/2 n'affiche jamais de
+    "pas de solve en cours" côté IHM.
+    """
+    problem = build_fn(db, school_id)
+    solver_factory = solver_factory_fn()
+    solver = solver_factory.build_solver(solver_config_override=SolverConfigOverride(
+        termination_config=termination_config,
+    ))
+
+    SolverState.set_solving(slug, solver, kind=phase_kind, pipeline_step=pipeline_step, pipeline_total_steps=pipeline_total_steps)
+
+    # Même mise en garde qu'ailleurs dans ce fichier : ne jamais lire les champs des entités de
+    # event.new_best_solution ici, seul event.new_best_score est sûr (voir son commentaire pour le
+    # détail des deux limitations connues du paquet timefold 1.24.0b0 installé).
+    def _on_best_solution_changed(event):
+        score = event.new_best_score
+        SolverState.set_progress(
+            slug,
+            score.hard_score if hasattr(score, 'hard_score') else 0,
+            score.soft_score if hasattr(score, 'soft_score') else 0,
+        )
+
+    solver.add_event_listener(_on_best_solution_changed)
+
+    solution = solver.solve(problem)
+    write_back_fn(db, school_id, solution)
+    return solution
+
+
+def _course_placement_termination_config(*, best_score_feasible: bool, spent_limit_seconds: int,
+                                          unimproved_spent_limit_seconds: Optional[int] = None) -> TerminationConfig:
+    """
+    /course-placement (endpoint 2, plan salles §4) : s'arrête à la 1ère solution faisable OU au
+    plafond de durée, le premier atteint — best_score_feasible=True. /optimize étape 1/2
+    (endpoint 4a) : PAS de best_score_feasible (on veut le budget de calcul complet, pas le
+    premier arrêt venu), juste une durée max et une durée sans amélioration — les deux passent par
+    cette même fonction, `best_score_feasible` distinguant les deux cas.
+    """
+    if best_score_feasible:
+        return TerminationConfig(
+            best_score_feasible=True,
+            termination_config_list=[
+                TerminationConfig(best_score_feasible=True),
+                TerminationConfig(spent_limit=Duration(seconds=spent_limit_seconds)),
+            ],
+            termination_composition_style=TerminationCompositionStyle.OR,
+        )
+    return TerminationConfig(
+        spent_limit=Duration(seconds=spent_limit_seconds),
+        unimproved_spent_limit=Duration(seconds=unimproved_spent_limit_seconds) if unimproved_spent_limit_seconds else None,
+    )
+
+
+def start_course_placement_async(school_id: Optional[int] = None, slug: Optional[str] = None):
+    """POST /course-placement (endpoint 2, plan salles §4) — remplace « Générer », résout
+    timeslot/week_type seuls (domaine COURSE_PLACEMENT), s'arrête à la 1ère solution faisable ou
+    au plafond SOLVER_COURSE_PLACEMENT_CEILING_SECONDS."""
     slug = slug or DEFAULT_DB_NAME
     if SolverState.get_status(slug) in ("SOLVING", "QUEUED"):
         return
-    # Mise en file synchrone, dans le thread de LA REQUÊTE HTTP elle-même — pas dans le thread
-    # spawné plus bas : sans ça, un /status appelé juste après la réponse de /solve pourrait encore
-    # lire NOT_SOLVING (fenêtre entre le retour de cette fonction et le premier tour du thread).
-    SolverState.enqueue(slug)
-    thread = threading.Thread(target=_solve_timetable_job, kwargs={"school_id": school_id, "slug": slug})
+    SolverState.enqueue(slug, kind="COURSE_PLACEMENT", pipeline_total_steps=1)
+    termination_config = _course_placement_termination_config(
+        best_score_feasible=True,
+        spent_limit_seconds=settings.SOLVER_COURSE_PLACEMENT_CEILING_SECONDS,
+    )
+    phases = [{
+        "kind": "COURSE_PLACEMENT",
+        "build_fn": _build_course_placement_problem,
+        "solver_factory_fn": _get_solver_factory,
+        "termination_config": termination_config,
+        "write_back_fn": lambda db, school_id, solution: _write_back_course_placement(db, school_id, solution),
+    }]
+    thread = threading.Thread(target=_run_job, kwargs={
+        "school_id": school_id, "slug": slug, "kind": "COURSE_PLACEMENT", "phases": phases,
+    })
     thread.daemon = True
     thread.start()
 
+
+def start_classroom_assignment_async(school_id: Optional[int] = None, slug: Optional[str] = None):
+    """POST /classroom-assignment (endpoint 3, plan salles §4) — « Attribuer les salles »,
+    résout la salle précise (domaine CLASSROOM_ASSIGNMENT) sur tous les cours porteurs d'une
+    exigence de groupe, mêmes conditions d'arrêt (durée/sans-amélioration) que le point d'entrée COURSE_PLACEMENT en dehors du cas best_score_feasible."""
+    from backend.app.solver.room_solver import (
+        _build_classroom_assignment_problem,
+        _get_classroom_assignment_solver_factory,
+        _write_back_classroom_assignment,
+    )
+    slug = slug or DEFAULT_DB_NAME
+    if SolverState.get_status(slug) in ("SOLVING", "QUEUED"):
+        return
+    SolverState.enqueue(slug, kind="CLASSROOM_ASSIGNMENT", pipeline_total_steps=1)
+    termination_config = TerminationConfig(
+        spent_limit=Duration(seconds=settings.SOLVER_TIME_LIMIT_SECONDS),
+        unimproved_spent_limit=Duration(seconds=settings.SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS),
+    )
+    phases = [{
+        "kind": "CLASSROOM_ASSIGNMENT",
+        "build_fn": _build_classroom_assignment_problem,
+        "solver_factory_fn": _get_classroom_assignment_solver_factory,
+        "termination_config": termination_config,
+        "write_back_fn": lambda db, school_id, solution: _write_back_classroom_assignment(db, solution),
+    }]
+    thread = threading.Thread(target=_run_job, kwargs={
+        "school_id": school_id, "slug": slug, "kind": "CLASSROOM_ASSIGNMENT", "phases": phases,
+    })
+    thread.daemon = True
+    thread.start()
+
+
+def start_optimize_pipeline_async(
+    school_id: Optional[int],
+    slug: Optional[str],
+    max_compute_seconds: int,
+    max_no_progress_seconds: int,
+    replace_rooms_with_groups: bool,
+    max_compute_classroom_seconds: Optional[int] = None,
+    max_no_progress_classroom_seconds: Optional[int] = None,
+):
+    """POST /optimize (endpoint 4a/4b, plan salles §4) — pipeline 1 ou 2 phases dans une seule
+    fenêtre de mode exclusif : 4a (COURSE_PLACEMENT, budget complet, pas de best_score_feasible)
+    puis, si `replace_rooms_with_groups`, la mutation "salle précise -> groupe parent" et 4b
+    (CLASSROOM_ASSIGNMENT)."""
+    from backend.app.solver.room_solver import (
+        _build_classroom_assignment_problem,
+        _get_classroom_assignment_solver_factory,
+        _write_back_classroom_assignment,
+    )
+    slug = slug or DEFAULT_DB_NAME
+    if SolverState.get_status(slug) in ("SOLVING", "QUEUED"):
+        return
+
+    phases = [{
+        "kind": "OPTIMIZE_COURSE_PLACEMENT",
+        "build_fn": _build_course_placement_problem,
+        "solver_factory_fn": _get_solver_factory,
+        "termination_config": _course_placement_termination_config(
+            best_score_feasible=False,
+            spent_limit_seconds=max_compute_seconds,
+            unimproved_spent_limit_seconds=max_no_progress_seconds,
+        ),
+        "write_back_fn": lambda db, school_id, solution: _write_back_course_placement(db, school_id, solution),
+    }]
+    if replace_rooms_with_groups:
+        classroom_spent_limit = max_compute_classroom_seconds or settings.SOLVER_TIME_LIMIT_SECONDS
+        classroom_unimproved_limit = max_no_progress_classroom_seconds or settings.SOLVER_UNIMPROVED_TIME_LIMIT_SECONDS
+        phases.append({
+            "kind": "OPTIMIZE_CLASSROOM_ASSIGNMENT",
+            "mutation_before": _reset_classroom_requirements_to_groups,
+            "build_fn": _build_classroom_assignment_problem,
+            "solver_factory_fn": _get_classroom_assignment_solver_factory,
+            "termination_config": TerminationConfig(
+                spent_limit=Duration(seconds=classroom_spent_limit),
+                unimproved_spent_limit=Duration(seconds=classroom_unimproved_limit),
+            ),
+            "write_back_fn": lambda db, school_id, solution: _write_back_classroom_assignment(db, solution),
+        })
+
+    # kind au niveau job = celui de la 1ère phase (toujours COURSE_PLACEMENT, voir plan) — chaque
+    # phase écrase ensuite ce kind avec le sien propre via set_solving() dans _run_solve_phase.
+    kind = "OPTIMIZE_COURSE_PLACEMENT"
+    SolverState.enqueue(slug, kind=kind, pipeline_total_steps=len(phases))
+    thread = threading.Thread(target=_run_job, kwargs={
+        "school_id": school_id, "slug": slug, "kind": kind, "phases": phases,
+    })
+    thread.daemon = True
+    thread.start()
+
+
+def _reset_classroom_requirements_to_groups(db):
+    """
+    Mutation intermédiaire du pipeline /optimize (4a -> 4b, plan salles §4, case "remplacer les
+    salles par leur groupe") : chaque exigence de salle PRÉCISE dont la salle a un parent est
+    remontée d'un cran vers ce parent (classroom_id = classroom.parent_classroom_id) — remontée
+    d'UN SEUL cran, pas jusqu'à la racine (comportement voulu, décidé en amont, voir "Décisions
+    déjà tranchées"). Écriture directe bulk (pas de passage par CourseClassroomRequirement.create()/
+    update()) — même raisonnement que le reste du write-back solveur (§1.5, Option 2 assumée ICI
+    car ce n'est pas la cascade de décrémentation qui est en jeu, juste un déplacement d'un cran).
+    Fusionne les exigences qui remontent vers le même groupe sur un même cours (contrainte
+    d'unicité (course_id, classroom_id)) plutôt que d'échouer ou de laisser un doublon. Une
+    exigence déjà au niveau groupe, ou une salle sans parent (racine), n'est jamais concernée.
+    Ne fait PAS le commit — à la charge de l'appelant (_run_job_phases).
+    """
+    reqs = db.execute(select(CourseClassroomRequirement)).scalars().unique().all()
+    by_course = {}
+    for req in reqs:
+        by_course.setdefault(req.course_id, []).append(req)
+
+    for course_id, course_reqs in by_course.items():
+        existing_by_classroom = {r.classroom_id: r for r in course_reqs}
+        for req in course_reqs:
+            classroom = req.classroom
+            if classroom.parent_classroom_id is None or classroom.children_classrooms:
+                continue  # racine (rien à remonter), ou déjà un groupe (rien à remonter deux fois)
+            parent_id = classroom.parent_classroom_id
+            target = existing_by_classroom.get(parent_id)
+            if target is not None and target is not req:
+                target._via_crud_mixin_update = True
+                target.quantity += req.quantity
+                req._via_crud_mixin_delete = True
+                db.delete(req)
+            else:
+                req._via_crud_mixin_update = True
+                req.classroom_id = parent_id
+                existing_by_classroom[parent_id] = req
+
+
 def explain_timetable_score(db: Session, school_id: Optional[int] = None) -> dict:
-    problem = _build_planning_problem(db, school_id)
+    problem = _build_course_placement_problem(db, school_id)
     solver_factory = _get_solver_factory()
     solution_manager = SolutionManager.create(solver_factory)
     score_explanation = solution_manager.explain(problem)
@@ -814,13 +1045,13 @@ def calculate_course_heatmap(db: Session, course_id: int, school_id: Optional[in
     `HeatmapEvaluator.calculateIsofunctionalHeatmap` sur le `ScoreDirectorFactory`, un simple calcul
     de score répété sur chaque créneau candidat — nettement moins coûteux en CPU qu'une résolution
     complète, et surtout SYNCHRONE dans le thread de la requête HTTP elle-même (pas de thread
-    d'arrière-plan comme `_solve_timetable_job`) : la mettre derrière la même file d'attente
+    d'arrière-plan comme les résolutions elles-mêmes) : la mettre derrière la même file d'attente
     qu'un solve de plusieurs minutes la ferait attendre potentiellement aussi longtemps, alors
     qu'elle doit rester réactive (l'IHM l'appelle en direct au survol/à la sélection d'un cours).
     Reste néanmoins soumise à la contention CPU RÉELLE d'un solve concurrent en cours sur une AUTRE
     base (même JVM partagée par tout le process, voir §9.F/G) — ralentie, jamais mise en attente.
     """
-    problem = _build_planning_problem(db, school_id)
+    problem = _build_course_placement_problem(db, school_id)
     solver_factory = _get_solver_factory()
     
     # --- EXPERIMENTAL JAVA HOOK ---
