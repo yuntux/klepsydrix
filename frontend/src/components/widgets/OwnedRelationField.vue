@@ -7,24 +7,31 @@
       <span v-if="tags.length === 0" class="owned-relation-empty">—</span>
     </div>
     <button
+      type="button"
       class="btn-edit-related"
       :title="disabled ? 'Consulter' : 'Modifier'"
       @click.stop="showModal = true"
     >{{ disabled ? '👁' : '✏️' }}</button>
-  </div>
 
-  <GenericListModal
-    v-if="showModal"
-    :resourceKey="field?.resource"
-    :filterField="field?.parentField"
-    :filterValue="parentRecord?.id"
-    :title="field?.label"
-    :readOnly="disabled"
-    :listConfig="widgetParams?.listConfig"
-    :draftItems="liveSync ? undefined : draftRows"
-    @update:draftItems="onDraftChange"
-    @close="showModal = false"
-  />
+    <!-- Imbriqué ici plutôt qu'en racine soeur : une racine UNIQUE pour ce composant (au lieu
+         d'un Fragment à deux racines) permet à Vue d'attribuer automatiquement les attributs de
+         fallthrough (ex: le `style` de positionnement grille posé par FormLayoutGrid, voir
+         GenericForm.vue) sans avertissement "Extraneous non-props attributes". Sans effet visuel :
+         GenericListModal -> BaseModal est en position:fixed (.modal-overlay), sa profondeur dans
+         l'arbre DOM ne change pas son rendu à l'écran. -->
+    <GenericListModal
+      v-if="showModal"
+      :resourceKey="field?.resource"
+      :filterField="field?.parentField"
+      :filterValue="parentRecord?.id"
+      :title="field?.label"
+      :readOnly="disabled"
+      :listConfig="widgetParams?.listConfig"
+      :draftItems="liveSync ? undefined : draftRows"
+      @update:draftItems="onDraftChange"
+      @close="showModal = false"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -58,7 +65,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import GenericListModal from '../GenericListModal.vue';
 import * as api from '../../services/api';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: any[];
   field?: any;
   widgetParams?: any;
@@ -72,7 +79,15 @@ const props = defineProps<{
   // restante est déjà la quantité manquante, pas besoin de la recalculer).
   highlightField?: string;
   highlightValues?: any[];
-}>();
+}>(), {
+  // Le reste du fichier tolérait déjà modelValue=undefined en interne (Array.isArray(...) ? ... :
+  // [] aux deux points d'usage, voir plus bas) — mais la prop elle-même restait typée Array sans
+  // défaut runtime, d'où l'avertissement Vue "Expected Array, got Undefined" sur un enregistrement
+  // tout juste initialisé côté parent (avant que GenericForm.vue::initializeModel() n'ait fini de
+  // seeder ses propres défauts, ou pour tout futur appelant qui omettrait ce champ). Un vrai
+  // défaut ici couvre le cas à la source, sans dépendre de la synchronisation exacte du parent.
+  modelValue: () => [],
+});
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: any[]): void;

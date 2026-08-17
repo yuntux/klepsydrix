@@ -546,7 +546,15 @@ class CRUDMixin:
         """
         cleaned = {}
         valid_keys = [c.name for c in cls.__table__.columns if c.name != "id"]
-        extra_fields = getattr(cls, "_fields", [])
+        # Nom trompeur historique (ce n'est PAS cls._extra_fields, où vivent les champs @exposed
+        # calculés à la demande comme Course.student_ids) — ce sont uniquement les related_field
+        # (property _is_related, ex: Service.division_id). L'exclusion de cls._extra_fields d'un
+        # payload d'écriture est VOULUE : un champ @exposed est calculé, jamais éditable, et pour
+        # celui qui n'a pas de setter, le laisser passer jusqu'à CRUDMixin.update()/create() ferait
+        # planter setattr()/le constructeur avec une erreur brute (bug réel constaté avec
+        # Course.student_ids réémis tel quel par un formulaire qui renvoyait l'enregistrement
+        # complet). Ne jamais élargir cette liste à cls._extra_fields sans garder ce filtrage.
+        related_fields = getattr(cls, "_fields", [])
 
         relationship_keys = []
         from sqlalchemy.orm import Mapper
@@ -560,15 +568,15 @@ class CRUDMixin:
                         field_name = f"{rel.key[:-3]}y_ids"
                     relationship_keys.append(field_name)
 
-        all_keys = valid_keys + extra_fields + relationship_keys
+        all_keys = valid_keys + related_fields + relationship_keys
         for k, v in payload_dict.items():
             if k not in all_keys:
                 continue
             if v is None:
-                if allow_null and k not in extra_fields and k not in relationship_keys:
+                if allow_null and k not in related_fields and k not in relationship_keys:
                     cleaned[k] = None
                 continue
-            if k in extra_fields or k in relationship_keys:
+            if k in related_fields or k in relationship_keys:
                 cleaned[k] = v
                 continue
             column_type = cls.__table__.columns[k].type
@@ -625,6 +633,16 @@ class CRUDMixin:
             self._via_crud_mixin_update = True
             self.__class__._coerce_values(local_vals)
             for key, value in local_vals.items():
+                # Un champ @exposed calculé (property sans fset, ex: Course.student_ids) ne doit
+                # jamais être appliqué même s'il apparaît dans vals — clean_payload() l'exclut déjà
+                # normalement (voir son commentaire), mais cette méthode peut aussi être appelée
+                # directement avec un dict qui n'est jamais passé par clean_payload (scripts, code
+                # métier interne). Sans ce garde-fou, setattr() plante avec une AttributeError brute
+                # ("property 'X' of 'Y' object has no setter") au lieu d'être ignoré proprement —
+                # bug réel constaté avec Course.student_ids (voir architecture.md, moteur générique).
+                attr = getattr(type(self), key, None)
+                if isinstance(attr, property) and attr.fset is None:
+                    continue
                 if hasattr(self, key):
                     setattr(self, key, value)
 

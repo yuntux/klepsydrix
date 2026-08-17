@@ -1,27 +1,37 @@
 <template>
-  <button
-    v-if="!disabled || hasRecords"
-    class="btn-relation-browser"
-    :title="disabled ? 'Consulter' : 'Gérer'"
-    @click.stop="showModal = true"
-  >
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-      <circle cx="11" cy="11" r="8"></circle>
-      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-    </svg>
-  </button>
+  <!-- Racine UNIQUE (voir OwnedRelationField.vue pour le même correctif) : le modal est imbriqué
+       ici plutôt qu'en racine soeur, pour que Vue puisse attribuer automatiquement les attributs
+       de fallthrough (ex: le `style` de positionnement grille posé par FormLayoutGrid) sans
+       avertissement "Extraneous non-props attributes". type="button" est indispensable : ce
+       widget est instancié à l'intérieur du <form> de GenericForm.vue, un <button> sans type
+       explicite vaut type="submit" et soumettrait le formulaire entier au clic (avant même que le
+       modal ne s'ouvre) — bug réel constaté sur OwnedRelationField, corrigé ici par précaution. -->
+  <span class="relation-browser-field">
+    <button
+      v-if="!disabled || hasRecords"
+      type="button"
+      class="btn-relation-browser"
+      :title="disabled ? 'Consulter' : 'Gérer'"
+      @click.stop="showModal = true"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+    </button>
 
-  <GenericListModal
-    v-if="showModal"
-    :resourceKey="field?.resource"
-    :title="field?.label"
-    :readOnly="disabled"
-    :listConfig="widgetParams?.listConfig"
-    :draftItems="draftRows"
-    :manageMembership="!disabled"
-    @update:draftItems="onDraftChange"
-    @close="showModal = false"
-  />
+    <GenericListModal
+      v-if="showModal"
+      :resourceKey="field?.resource"
+      :title="field?.label"
+      :readOnly="disabled"
+      :listConfig="widgetParams?.listConfig"
+      :draftItems="draftRows"
+      :manageMembership="!disabled"
+      @update:draftItems="onDraftChange"
+      @close="showModal = false"
+    />
+  </span>
 </template>
 
 <script setup lang="ts">

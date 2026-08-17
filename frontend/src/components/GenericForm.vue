@@ -1221,6 +1221,16 @@ function initializeModel() {
         localModel.value[field.key] = defaultVal;
         initialModelValue.value[field.key] = defaultVal;
       }
+      // Un champ multiselect (relation possédée via OwnedRelationField, ou multiselect classique
+      // via SearchableMultiSelect, voir FormLayoutGrid) attend toujours un tableau — jamais
+      // undefined. Sur un NOUVEL enregistrement (props.modelValue vide), la clé n'existe pas
+      // encore dans localModel : sans ce défaut, OwnedRelationField/SearchableMultiSelect
+      // reçoivent modelValue=undefined et Vue avertit ("Expected Array, got Undefined"). Même
+      // motif que les défauts boolean/color/select/duration ci-dessus.
+      if (field.type === 'multiselect' && localModel.value[field.key] === undefined) {
+        localModel.value[field.key] = [];
+        initialModelValue.value[field.key] = [];
+      }
     });
     oldLocalModelStr = JSON.stringify(localModel.value);
   }
@@ -1308,7 +1318,22 @@ function handleSubmit() {
     // rattaché mais absent de la liste est supprimé) plutôt qu'une simple liste d'ids : voir
     // OwnedRelationField.vue (seul écrivain de sa collection, plus aucun appel API direct depuis
     // la popin) et CRUDMixin._apply_owned_collection_commands (base.py, architecture.md 15.J).
-    emit('submit', localModel.value);
+    //
+    // Restreint à props.fields (+ id) plutôt que localModel.value tel quel : localModel a été
+    // initialisé par simple copie du GET (voir le watch sur props.modelValue plus haut), qui
+    // inclut aussi les champs calculés en lecture seule (@exposed sans setter, ex: student_ids,
+    // weighted_duration_minutes) — jamais déclarés comme champs de CE formulaire. Les réémettre
+    // tels quels dans le PATCH n'a jamais de raison d'être (ce ne sont pas des champs éditables
+    // ici), et pour un champ sans setter côté backend, ça fait planter CRUDMixin.update() avec une
+    // AttributeError brute plutôt qu'une erreur métier claire (bug constaté avec student_ids).
+    const submitPayload: Record<string, any> = { id: localModel.value.id };
+    props.fields.forEach(field => {
+      const key = field.key;
+      if (key in localModel.value) {
+        submitPayload[key] = localModel.value[key];
+      }
+    });
+    emit('submit', submitPayload);
   }
 }
 
