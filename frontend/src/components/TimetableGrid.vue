@@ -599,6 +599,15 @@ function onDrop(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B
 </script>
 
 <style scoped>
+/* Les styles étant scoped, la règle .icon-btn de ImpactConfirmDialog.vue (même convention,
+   16x16px) ne s'applique pas ici — sans sa propre déclaration, ces <svg class="icon-btn"> (voir
+   #actions plus haut) restaient sans contrainte de taille et gonflaient toute la hauteur des
+   boutons "Placement automatique"/"Attribuer les salles"/"Arrêter" bien au-delà de "Réinitialiser". */
+.icon-btn {
+  width: 16px;
+  height: 16px;
+}
+
 .solver-progress-info .btn {
   margin-top: 8px;
 }
