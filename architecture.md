@@ -230,6 +230,27 @@ Pour garantir l'intégrité métier des données avant leur enregistrement en ba
 - **Génération automatique de relations/données dérivées** : Les méthodes de contraintes ou événements de cycle de vie sont également utilisés pour propager automatiquement des modifications de structure. Par exemple, la création d'une `ClassPart` au sein d'une partition engendre automatiquement la création de liens `ClassPartLink` d'exclusion avec toutes les autres parties de classe des autres partitions de la même division.
 - **Piège découvert : un `create()` surchargé qui ne passe jamais par `CRUDMixin.create()` ne déclenche JAMAIS `@constrains`** (`ResourcePreference.create()`, `backend/app/models/preference.py`, voir `attribution_week_type_auto.md` Échange 9). Certains modèles ont une logique de création trop spécifique pour la boucle générique (ici : upsert, scission et fusion de plages A/B/W en une grille de préférences) — leur `create()` construit alors les instances `cls(...)` directement et fait `db.add()`/`db.flush()` sans jamais appeler `super().create()`. Comme le dispatch `@constrains` vit *dans* `CRUDMixin.create()`/`update()`, un tel `create()` personnalisé ne le traverse jamais : une règle purement déclarée en `@constrains` y reste silencieusement lettre morte, sans erreur ni avertissement à l'écriture de la méthode. Le correctif générique n'est pas d'éviter ce pattern (l'upsert/scission reste le plus clair pour ce cas), mais de **valider explicitement en tête d'un tel `create()` personnalisé**, en plus (pas à la place) du `@constrains` classique qui continue de couvrir `update()` — une méthode statique partagée entre les deux évite la duplication de la règle elle-même. Avant de faire confiance à un `@constrains` sur un modèle donné, vérifier que son `create()` (s'il est surchargé) appelle bien `super().create()` quelque part.
 
+**3. Alternative native : `@validates` (SQLAlchemy), quand `@constrains` arrive trop tard**
+
+`@constrains` est un mécanisme entièrement maison ; `sqlalchemy.orm.validates` est natif, et répond à un besoin différent : comparer fiablement l'ANCIENNE et la NOUVELLE valeur d'un attribut précis au moment exact où il change, plutôt que de valider l'état final une fois tous les champs déjà posés.
+
+```python
+from sqlalchemy.orm import validates
+
+@validates('classroom_id')
+def _validate_classroom_id_immutable(self, key, value):
+    if sa_inspect(self).transient:
+        return value  # première affectation, à la création : toujours autorisée
+    if self.classroom_id == value:
+        return value  # valeur resoumise identique : rien à rejeter
+    raise ValueError("...")
+```
+
+- **Timing radicalement différent** : `@constrains` s'exécute TARD — `CRUDMixin.create()`/`update()` applique d'abord TOUS les `setattr()` des `vals` soumis, puis boucle sur `dir(instance)` (ordre alphabétique) pour invoquer chaque méthode `@constrains` concernée. `@validates`, lui, s'exécute de façon SYNCHRONE, à l'instant précis du `setattr` — avant même que le reste de la boucle de `create()`/`update()` ne continue.
+- **Piège concret qui a motivé ce choix** (`CourseClassroomRequirement._validate_classroom_id_immutable`, plan salles) : `_cascade_decrement_parent_group_line` (`@constrains`, nom commençant par 'c') s'exécutait AVANT le contrôle d'immuabilité (nom commençant par 'v') dans l'ordre alphabétique de la boucle — et cette première méthode fait sa propre requête, ce qui déclenche un autoflush SQLAlchemy qui écrit la nouvelle valeur en base avant même que le contrôle d'immuabilité ne tourne. Conséquence vérifiée empiriquement : `get_history(passive=PASSIVE_OFF)` retombait à `has_changes()=False` juste après cet autoflush intermédiaire, rendant impossible de distinguer "valeur inchangée" de "valeur changée puis déjà flushée" — un changement réel aurait été laissé passer. En passant à `@validates`, `self.classroom_id` vaut encore l'ANCIENNE valeur au moment de la comparaison avec `value` (la nouvelle), quel que soit l'ordre des autres méthodes ou un flush intermédiaire ailleurs.
+- **Signature et portée différentes** : `@validates` reçoit `(self, key, value)` — pas de `db` en paramètre direct (accessible via `object_session(self)` si vraiment nécessaire, mais rarement utile pour ce genre de contrôle). Il se déclenche sur **n'importe quel** `setattr` Python de l'attribut concerné, y compris une écriture directe qui bypass `Course.update()`/`CRUDMixin` entièrement (ex: un write-back solveur qui fait `db_course.timeslot_id = ...` en direct, voir section 15.G) — contrairement à `@constrains`, qui ne se déclenche QUE via la boucle interne de `CRUDMixin.create()`/`update()`.
+- **Pas un remplaçant général de `@constrains`** : `@constrains` reste le choix par défaut de ce projet pour toute logique métier multi-étapes (requêtes, cascades, création/modification d'autres enregistrements) — un `@validates` n'a que `(key, value)`, mal adapté à ce genre de logique. `@validates` n'est le bon outil que pour ce cas précis et étroit : détecter fiablement un changement réel de valeur, immunisé contre l'ordre d'exécution d'autres méthodes ou un autoflush intermédiaire.
+
 ### E. Formulaires Réactifs et Pattern `@onchange` (Draft in-memory)
 Pour offrir une expérience utilisateur ultra-réactive sans pour autant dupliquer la logique métier entre le frontend et le backend, Klepsydrix implémente un pattern inspiré de l'ORM Odoo : l'évaluation en mémoire des brouillons (Drafts) via le décorateur `@onchange`.
 
