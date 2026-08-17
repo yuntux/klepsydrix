@@ -1257,7 +1257,7 @@ function buildColumnsConfig(model: string, items: any[]) {
     if (schema && schema.properties) {
       const dynamicColumns = [];
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
-        if (key === 'id' || key === 'display_name') continue; // On masque l'ID technique et display_name
+        if (key === 'id' || key === 'display_name' || prop.hidden === true) continue; // On masque l'ID technique, display_name et les champs de support (info={"hidden": True})
 
         let colWidth = prop.list_width;
         if (!colWidth && prop.widget === 'relation_browser') {
@@ -1544,8 +1544,8 @@ function getFormFieldsConfig(resourceKey?: string) {
       const dynamicFields = [];
       const requiredFields = schema.required || [];
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
-        if (key === 'id' || key === 'display_name') continue; // On masque l'ID et display_name dans le formulaire
-        
+        if (key === 'id' || key === 'display_name' || prop.hidden === true) continue; // On masque l'ID, display_name et les champs de support (info={"hidden": True}) dans le formulaire
+
         let baseType = prop.type;
         let resourceName = prop.resource;
         let baseFormat = prop.format;

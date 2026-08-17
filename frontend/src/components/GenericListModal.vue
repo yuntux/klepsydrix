@@ -117,7 +117,10 @@ const fields = computed(() => {
   const result: any[] = [];
 
   for (const [key, prop] of Object.entries<any>(schema.properties)) {
-    if (key === 'id' || key === 'display_name' || key === props.filterField) continue;
+    // info={"hidden": True} (backend) : donnée de support pour une expression readOnlyExpr d'un
+    // AUTRE champ (voir CourseClassroomRequirement.classroom_is_group) — jamais sa propre colonne,
+    // marqueur générique plutôt qu'un nom de champ en dur ici.
+    if (key === 'id' || key === 'display_name' || key === props.filterField || prop.hidden === true) continue;
 
     let baseType = prop.type;
     let resourceName = prop.resource;

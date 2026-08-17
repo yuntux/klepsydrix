@@ -143,6 +143,10 @@ interface FormField {
   // Pour un champ type: "duration" dont 0 minute est une valeur valide ("modalité non utilisée") —
   // voir DurationInput.vue::getDurationOptions.
   durationIncludeZero?: boolean;
+  // info={"hidden": True} côté backend (voir architecture.md, section E) : un champ calculé qui
+  // n'existe que pour nourrir le readOnlyExpr d'un AUTRE champ ne doit jamais devenir son propre
+  // champ de formulaire — respecté ici même si l'appelant ne l'a pas déjà filtré en amont.
+  hidden?: boolean;
 }
 interface LayoutElement {
   type: 'field' | 'group' | 'separator' | 'newline' | 'notebook' | 'page';
@@ -323,7 +327,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
   
   if (typeof elem === 'string') {
     const original = props.fields.find(f => f.key === elem);
-    if (original) {
+    if (original && !original.hidden) {
       return {
         type: 'field',
         key: elem,
@@ -345,7 +349,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
   // Si c'est un objet simple sans type mais avec une key, c'est un champ
   if (elem.key && !elem.type) {
     const original = props.fields.find(f => f.key === elem.key);
-    if (original) {
+    if (original && !original.hidden) {
       return {
         type: 'field',
         key: elem.key,
@@ -366,7 +370,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
 
   if (elem.type === 'field') {
     const original = props.fields.find(f => f.key === elem.key);
-    if (original) {
+    if (original && !original.hidden) {
       return {
         type: 'field',
         key: elem.key,
@@ -465,8 +469,12 @@ const layoutTree = computed<LayoutElement[]>(() => {
     return parsed;
   }
 
-  // Fallback par défaut : tous les champs dans un layout plat
-  return props.fields.map(f => ({
+  // Fallback par défaut : tous les champs dans un layout plat — hidden exclu, symétrique avec
+  // GenericList.vue/App.vue/GenericListModal.vue (voir architecture.md, section E) : un champ
+  // calculé qui n'existe que pour nourrir le readOnlyExpr d'un AUTRE champ ne doit jamais devenir
+  // son propre champ de formulaire, qu'il ait été filtré en amont par l'appelant ou non — ce
+  // composant ne doit pas dépendre de la discipline de CHAQUE appelant pour rester correct.
+  return props.fields.filter(f => !f.hidden).map(f => ({
     type: 'field',
     key: f.key,
     label: f.label,

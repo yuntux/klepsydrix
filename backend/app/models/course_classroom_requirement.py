@@ -2,7 +2,7 @@ from typing import Optional
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session, validates
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import Integer, ForeignKey, UniqueConstraint
-from backend.app.models.base import Base, constrains
+from backend.app.models.base import Base, constrains, exposed
 
 
 class CourseClassroomRequirement(Base):
@@ -22,7 +22,10 @@ class CourseClassroomRequirement(Base):
     # fait toujours en créant une NOUVELLE ligne (voir room_solver.py::_write_back_classroom_assignment),
     # jamais en réattribuant classroom_id sur la ligne existante.
     classroom_id: Mapped[int] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False, index=True, info={"label": "Salle ou groupe de salles", "readOnlyExpr": "model.id != null && !String(model.id).startsWith('new_')"})
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre de salles", "min": 1, "readOnlyExpr": ""})
+    # readOnlyExpr référence classroom_is_group (champ calculé ci-dessous, jamais stocké) : sur une
+    # salle-feuille précise (pas un groupe), quantity vaut toujours 1 (voir _validate_leaf_quantity)
+    # — le champ doit donc être en lecture seule dans ce cas, pas seulement rejeté après coup.
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre de salles", "min": 1, "readOnlyExpr": "!model.classroom_is_group"})
 
     # Attribut Python transitoire, PAS une colonne (pas de Mapped[...]/mapped_column) : jamais
     # persisté, jamais présent sur une ligne rechargée depuis la base. Passé explicitement par
@@ -50,6 +53,19 @@ class CourseClassroomRequirement(Base):
     def display_name(self) -> str:
         room_name = self.classroom.name if self.classroom else str(self.classroom_id)
         return f"{room_name} ×{self.quantity}" if self.quantity > 1 else room_name
+
+    # Champ calculé, jamais stocké — exposé uniquement pour que quantity.readOnlyExpr (ci-dessus)
+    # puisse le lire par ligne (`model.classroom_is_group`) côté liste : `model` n'y porte que les
+    # champs de CETTE ligne (classroom_id est un simple id, pas l'objet Classroom complet), donc le
+    # fait "est-ce un groupe" doit être embarqué directement sur la ligne pour être disponible à
+    # l'évaluation de l'expression sans aller-retour serveur supplémentaire.
+    # info={"hidden": True} : marqueur générique (pas un nom de champ en dur côté frontend, voir
+    # GenericListModal.vue) — jamais sa propre colonne visible, seulement une donnée de support
+    # pour une expression readOnlyExpr d'un AUTRE champ.
+    @exposed(info={"hidden": True})
+    @property
+    def classroom_is_group(self) -> bool:
+        return bool(self.classroom.children_classrooms)
 
     @constrains('quantity', 'classroom_id')
     def _validate_leaf_quantity(self, db: Session):
