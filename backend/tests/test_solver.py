@@ -2483,6 +2483,31 @@ def test_classroom_requirement_classroom_id_is_immutable_after_creation(db_sessi
     db_session.rollback()
 
 
+def test_classroom_requirement_quantity_edit_with_unchanged_classroom_id_is_allowed(db_session: Session):
+    """
+    Régression : GenericListModal.vue::onUpdateItem soumet TOUJOURS la ligne entière à chaque
+    édition (classroom_id inclus, même quand seule `quantity` change dans le formulaire) — un
+    contrôle d'immuabilité qui ne regarde que la PRÉSENCE de classroom_id dans les vals soumis
+    (plutôt que si sa VALEUR a réellement changé) rejette alors à tort ce cas pourtant légitime
+    (bug constaté : impossible de modifier le nombre de salles d'une exigence de groupe).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_QTYEDIT", "first_name": "Prof", "last_name": "Qtyedit", "school_id": school.id})
+    group = Classroom.create(db_session, {"code": "QTYEDIT_GRP", "name": "Grp", "school_id": school.id})
+    Classroom.create(db_session, {"code": "QTYEDIT_L1", "name": "L1", "school_id": school.id, "parent_classroom_id": group.id})
+    Classroom.create(db_session, {"code": "QTYEDIT_L2", "name": "L2", "school_id": school.id, "parent_classroom_id": group.id})
+    course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id]})
+    req = CourseClassroomRequirement.create(db_session, {"course_id": course.id, "classroom_id": group.id, "quantity": 1})
+
+    # Reproduit exactement ce que GenericListModal.vue soumet : TOUTE la ligne, classroom_id
+    # identique inclus, avec seule quantity modifiée.
+    req.update(db_session, {"course_id": course.id, "classroom_id": group.id, "quantity": 2})
+
+    assert req.quantity == 2
+    assert req.classroom_id == group.id
+
+
 def test_classroom_assignment_respects_capacity(db_session: Session):
     """Capacité numérique insuffisante = pénalité dure ; capacité NULL = illimitée, jamais de
     pénalité quel que soit l'effectif (voir plan salles §3.3)."""

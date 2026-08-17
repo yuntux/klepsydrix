@@ -1,5 +1,6 @@
 from typing import Optional
-from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
+from sqlalchemy.orm import Mapped, mapped_column, relationship, Session, validates
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import Integer, ForeignKey, UniqueConstraint
 from backend.app.models.base import Base, constrains
 
@@ -19,12 +20,9 @@ class CourseClassroomRequirement(Base):
     # Immuable après création (voir _validate_classroom_id_immutable) : seule quantity peut
     # évoluer sur une ligne existante — "résoudre" une exigence de groupe en une salle précise se
     # fait toujours en créant une NOUVELLE ligne (voir room_solver.py::_write_back_classroom_assignment),
-    # jamais en réattribuant classroom_id sur la ligne existante. La contrainte réelle est portée
-    # par _validate_classroom_id_immutable, pas par ce schéma — la présentation (lecture seule dans
-    # la popin d'édition une fois la ligne créée) est une politique d'UI déclarée explicitement où
-    # le widget est utilisé (voir CoursePopin.vue::classroomRequirementWidgetParams), pas ici.
-    classroom_id: Mapped[int] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False, index=True, info={"label": "Salle ou groupe de salles"})
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre de salles", "min": 1, "max": 20})
+    # jamais en réattribuant classroom_id sur la ligne existante.
+    classroom_id: Mapped[int] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False, index=True, info={"label": "Salle ou groupe de salles", "readOnlyExpr": "model.id != null && !String(model.id).startsWith('new_')"})
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre de salles", "min": 1, "readOnlyExpr": ""})
 
     # Attribut Python transitoire, PAS une colonne (pas de Mapped[...]/mapped_column) : jamais
     # persisté, jamais présent sur une ligne rechargée depuis la base. Passé explicitement par
@@ -36,12 +34,6 @@ class CourseClassroomRequirement(Base):
     # préciser un besoin déjà décompté" (à ne pas décompter à nouveau) — les deux se traduisent,
     # côté ORM, par un CourseClassroomRequirement.create() identique.
     _skip_ancestor_decrement: bool = False
-
-    # Verrou local pour _validate_classroom_id_immutable — voir cette méthode pour le pourquoi
-    # (_via_crud_mixin_create seul ne suffit pas : il reste True sur l'objet Python après la
-    # création, tant que ce même objet vit dans la session — la carte d'identité SQLAlchemy peut
-    # le rendre à un appelant plus tard dans la même session).
-    _classroom_id_write_consumed: bool = False
 
     __table_args__ = (
         UniqueConstraint("course_id", "classroom_id", name="uq_course_classroom_requirement"),
@@ -64,28 +56,31 @@ class CourseClassroomRequirement(Base):
         if not self.classroom.children_classrooms and self.quantity != 1:
             raise ValueError("Une exigence sur une salle précise (pas un groupe) ne peut porter que sur une seule salle (quantity=1).")
 
-    @constrains('classroom_id')
-    def _validate_classroom_id_immutable(self, db: Session):
+    @validates('classroom_id')
+    def _validate_classroom_id_immutable(self, key, value):
         """
-        `_via_crud_mixin_create` n'est posé (à True) que par CRUDMixin.create() — jamais par
-        update() — et c'est un attribut Python pur, jamais rechargé depuis la base : une ligne
-        obtenue via update() dans une session DIFFÉRENTE de celle qui l'a créée ne l'a donc jamais
-        (le cas courant). get_history() a été envisagé pour cette vérification mais écarté :
-        testé empiriquement, il ne remonte l'ancienne valeur de façon fiable qu'à travers une
-        frontière de session — au sein de la MÊME session, sur le même objet Python, il ne la
-        retrouve pas.
+        Rejette un changement RÉEL de classroom_id sur une ligne déjà persistée — pas sa simple
+        présence dans les vals soumis. GenericListModal.vue::onUpdateItem soumet TOUJOURS la ligne
+        entière (tous ses champs, classroom_id inclus) à chaque édition, y compris pour un simple
+        changement de `quantity` seule (bug constaté : un check sur la seule présence de la clé
+        rejetait alors ce cas légitime à tort).
 
-        ⚠️ `_via_crud_mixin_create` seul ne suffit pourtant pas : il reste à True sur l'instance
-        pour le reste de sa vie en mémoire une fois posé — si cette MÊME instance Python est
-        récupérée une seconde fois plus tard dans la MÊME session (carte d'identité SQLAlchemy,
-        ex: `_apply_owned_collection_commands` qui requête puis appelle `.update()`), il vaudrait
-        encore True et laisserait passer une mutation illégitime. `_classroom_id_write_consumed`
-        ferme ce trou : une fois la première (et seule légitime) affectation consommée, tout appel
-        suivant sur ce même objet est rejeté, quel que soit l'état de `_via_crud_mixin_create`.
+        `@validates` (natif SQLAlchemy), pas `@constrains` (le mécanisme propre à ce projet) :
+        volontaire, pas un oubli. `@constrains` s'exécute tard (après TOUS les setattr, dans une
+        boucle sur dir(instance) triée alphabétiquement) — `_cascade_decrement_parent_group_line`
+        ('c' < 'v') s'exécute AVANT ce contrôle et fait sa propre requête, qui déclenche un
+        autoflush : la valeur déjà modifiée est alors flushée en base avant que ce contrôle ne
+        s'exécute, et plus rien ne distingue alors "valeur inchangée" de "valeur changée puis
+        flushée" (vérifié empiriquement : `get_history(passive=PASSIVE_OFF)` retombait à
+        has_changes()=False après cet autoflush intermédiaire, laissant passer un changement réel).
+        `@validates` s'exécute de façon synchrone à l'instant du setattr lui-même, avant tout ce
+        qui suit (donc avant tout risque d'autoflush) — `self.classroom_id` y vaut encore
+        l'ANCIENNE valeur au moment de la comparaison.
         """
-        if getattr(self, '_via_crud_mixin_create', False) and not self._classroom_id_write_consumed:
-            self._classroom_id_write_consumed = True
-            return
+        if sa_inspect(self).transient:
+            return value  # première affectation, à la création : toujours autorisée
+        if self.classroom_id == value:
+            return value  # valeur resoumise identique (ex: édition de `quantity` seule) : rien à rejeter
         raise ValueError("La salle ou le groupe d'une exigence ne peut plus être modifiée après création (seule la quantité l'est) — voir room_solver.py::_write_back_classroom_assignment pour le mécanisme de résolution.")
 
     @constrains('course_id', 'classroom_id')

@@ -58,7 +58,6 @@
           <OwnedRelationField
             :modelValue="classroomRequirementIds"
             :field="classroomRequirementField"
-            :widgetParams="classroomRequirementWidgetParams"
             :parentRecord="singleCourse"
             liveSync
             highlightField="classroom_id"
@@ -214,22 +213,6 @@ const classroomRequirementField = computed(() => ({
   })),
 }));
 
-// listConfig explicite (voir OwnedRelationField.vue, `:listConfig="widgetParams?.listConfig"`) :
-// classroom_id n'est modifiable qu'à la création d'une ligne (voir
-// CourseClassroomRequirement._validate_classroom_id_immutable, backend) — une ligne pas encore
-// créée porte un id provisoire "new_<timestamp>" (voir GenericListModal.vue::onAdd), jamais un id
-// numérique avant sa création serveur, d'où l'expression. Lister `quantity` explicitement ici
-// aussi est nécessaire : dès que listConfig.columns est fourni, GenericList.vue n'affiche QUE les
-// colonnes qu'il énumère (voir GenericList.vue::internalColumns) — un comportement de liste normal,
-// pas un cas particulier à contourner.
-const classroomRequirementWidgetParams = {
-  listConfig: {
-    columns: {
-      classroom_id: { readOnly: "model.id != null && !String(model.id).startsWith('new_')" },
-      quantity: {},
-    },
-  },
-};
 
 const classroomRequirementCount = computed(() => {
   const set = new Set<number>();
