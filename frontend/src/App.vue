@@ -611,6 +611,25 @@ const scoreData = ref<{ hard_score: number; soft_score: number; summary: string;
 // dans l'ancien endpoint dédié.
 async function loadData() {
   try {
+    // Invalider explicitement avant de (re)fetch : loadData() est appelée dans des contextes où
+    // le serveur vient de changer sous nos pieds (fin de résolution détectée via le jeton
+    // d'écriture périmé, voir write-token:stale ci-dessous ; resource:mutated d'un wizard).
+    // Sans ça, staleTime (60s, voir main.ts) fait servir le cache tel quel par fetchQuery dès
+    // qu'une entrée a été peuplée il y a moins d'une minute — ce qui arrive précisément ici si un
+    // wizard a déjà dispatché resource:mutated('courses') au LANCEMENT du solve (donc avant la
+    // fin réelle) : loadData() rendrait alors silencieusement les données pré-solve, malgré la
+    // notification annonçant un rechargement (bug constaté sur "Optimiser l'emploi du temps").
+    // Même geste que refreshFkOptionsForResource ci-dessous, généralisé à toutes les clés lues ici.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('teachers') }),
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('classrooms') }),
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('divisions') }),
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('non_teaching_staffs') }),
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('courses') }),
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('timeslots', { active: true }) }),
+      queryClient.invalidateQueries({ queryKey: genericCacheKey('course_classroom_requirements') }),
+    ]);
+
     const [teachersRes, classroomsRes, divisionsRes, nonTeachingRes, coursesRes, timeslotsRes, classroomRequirementsRes] = await Promise.all([
       queryClient.fetchQuery({ queryKey: genericCacheKey('teachers'), queryFn: () => api.fetchAllGenericItems('teachers') }),
       queryClient.fetchQuery({ queryKey: genericCacheKey('classrooms'), queryFn: () => api.fetchAllGenericItems('classrooms') }),
