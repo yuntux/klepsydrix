@@ -569,8 +569,21 @@ function isColumnReadOnly(key: string, item?: any): boolean {
       console.error("Error evaluating readOnly expression in list", e);
     }
   }
-  // Repli sur le readOnly déclaré côté backend (ex: related_field readOnly=True)
-  if (getFieldDef(key)?.readOnly === true) return true;
+  // Repli sur le readOnly déclaré côté backend (ex: related_field readOnly=True) — statique, ou
+  // une expression PAR LIGNE (`model` = la ligne courante), même convention que GenericForm.vue
+  // (voir ui.json, ex. Teacher.preferred_subject_id) : déclarée une seule fois sur le modèle
+  // Python (info={"readOnlyExpr": ...}), elle s'applique alors identiquement à toute vue qui
+  // liste cette ressource, formulaire ou liste, sans rien à redéclarer côté appelant.
+  const fieldDef = getFieldDef(key);
+  if (fieldDef?.readOnly === true) return true;
+  if (fieldDef?.readOnlyExpr && item) {
+    try {
+      const fn = new Function('model', `return ${fieldDef.readOnlyExpr}`);
+      return !!fn(item);
+    } catch (e) {
+      console.error("Error evaluating backend readOnlyExpr in list", e);
+    }
+  }
   return false;
 }
 

@@ -150,6 +150,12 @@ const fields = computed(() => {
       type: fieldType,
       required: requiredFields.includes(key),
       readOnly: props.readOnly || prop.readOnly === true,
+      // Même convention que App.vue::dynamicFields (formulaire principal) : GenericList.vue::
+      // isColumnReadOnly l'évalue PAR LIGNE en repli, dès que la colonne n'a pas déjà son propre
+      // override via listConfig.columns. Cette popin construit son propre `fields` séparément
+      // d'App.vue (schéma volontairement minimal, voir commentaire de tête) — sans cette ligne,
+      // seul le formulaire principal aurait vu le readOnlyExpr déclaré côté backend.
+      readOnlyExpr: prop.readOnlyExpr,
       min: prop.min,
       max: prop.max,
       step: prop.step,
