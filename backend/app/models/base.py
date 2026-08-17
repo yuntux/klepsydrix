@@ -253,6 +253,21 @@ class CRUDMixin:
             if isinstance(cmd_id, int) and cmd_id in items_by_id:
                 child = items_by_id[cmd_id]
                 kept_ids.add(cmd_id)
+                if fk_attr and getattr(child, fk_attr, None) != obj.id:
+                    # Rattachement RÉEL (pas déjà lié à obj) — ex: Course.rpc_save_composition,
+                    # qui crée les nouveaux enfants sans FK parent (voir docstring plus haut) puis
+                    # les rattache ici par id nu. Sans ceci, cette FK n'était posée que par le
+                    # setattr(obj, rel.key, ...) plus bas — une écriture ORM directe sur la
+                    # collection qui ne déclenche AUCUNE règle métier de l'enfant (ex: Course ne
+                    # synchronisait alors jamais timeslot_id/is_pinned depuis son nouveau parent
+                    # tant qu'un solve ne repassait pas dessus — bug constaté). En l'incluant dans
+                    # child_vals, le child.update() ci-dessous la traite comme n'importe quel
+                    # changement de parent_id, avec toute la synchronisation que ça déclenche déjà
+                    # normalement (_sync_vals_from_parent pour Course, ou l'équivalent pour tout
+                    # autre modèle utilisant ce même mécanisme générique). Gardé au même niveau
+                    # que child_vals plutôt qu'un setattr direct, pour ne jamais dupliquer le
+                    # contournement volontaire des before_update (_via_crud_mixin_update).
+                    child_vals[fk_attr] = obj.id
                 if child_vals:
                     child.update(db, child_vals)
                 ordered_items.append(child)

@@ -52,7 +52,7 @@ class CourseClassroomRequirement(Base):
     @property
     def display_name(self) -> str:
         room_name = self.classroom.name if self.classroom else str(self.classroom_id)
-        return f"{room_name} ×{self.quantity}" if self.quantity > 1 else room_name
+        return f"{room_name} x{self.quantity}" if self.quantity > 1 else room_name
 
     # Champ calculé, jamais stocké — exposé uniquement pour que quantity.readOnlyExpr (ci-dessus)
     # puisse le lire par ligne (`model.classroom_is_group`) côté liste : `model` n'y porte que les

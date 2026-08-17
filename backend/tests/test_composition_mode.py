@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
     School, Teacher, Subject, Division, Classroom,
-    Period, PeriodType, Group, Course, SystemSetting
+    Period, PeriodType, Group, Course, SystemSetting, Timeslot
 )
 from backend.app.models.composition_mode import CompositionModes, CompositionError
 from backend.tests.db_test_utils import make_test_engine
@@ -460,6 +460,47 @@ class TestCompositionModes:
         assert len(parent.children) == 2
         # Vérifie que la surcharge métier a bien tourné (is_composed doit être True)
         assert parent.is_composed is True
+
+    def test_rpc_save_composition_syncs_timeslot_and_pin_from_already_placed_parent(self, db_session):
+        """
+        Régression : les enfants créés par rpc_save_composition sont d'abord créés SANS parent_id
+        (voir son commentaire "éviter les flushs conflictuels"), puis rattachés au parent via
+        `self.update(db, {"children_ids": [...]})` — un rattachement par id nu qui, jusqu'ici,
+        posait la FK parent_id par un setattr direct sur la relation ORM (base.py::
+        _apply_owned_collection_commands, juste avant de retourner), sans jamais appeler
+        `child.update()`. Conséquence : `Course._sync_vals_from_parent` (qui recopie
+        timeslot_id/is_pinned depuis le parent à chaque changement de parent_id) ne se déclenchait
+        JAMAIS pour ces enfants — décomposer un cours composé déjà PLACÉ laissait ses nouveaux
+        enfants avec timeslot_id=NULL, malgré un parent déjà résolu. Corrigé en incluant
+        explicitement la FK dans les vals du rattachement dès qu'elle diffère réellement de la
+        valeur courante, pour que child.update() se déclenche et fasse tourner la synchronisation
+        normale — comme n'importe quel autre changement de parent_id.
+        """
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+
+        # Grille couvrant au moins 480-600 (parent.duration_minutes=120, std=30, voir
+        # _prepare_parent_course) : Course.validate_placement_conflicts borne la fin de journée à
+        # (dernier timeslot.minutes_from_midnight + durée standard), pas à une simple absence de
+        # chevauchement — sans les 3 créneaux suivants, le placement du parent lui-même échouerait
+        # pour débordement de grille avant même d'atteindre le rattachement testé ici.
+        ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+        for minutes in (510, 540, 570):
+            Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": minutes})
+        parent.update(db_session, {"timeslot_id": ts.id, "is_pinned": True})
+
+        children_vals = [
+            {"subject_id": parent.subject_id, "duration_minutes": 30, "teacher_ids": [teachers[0].id]},
+            {"subject_id": parent.subject_id, "duration_minutes": 30, "teacher_ids": [teachers[1].id]},
+        ]
+        res = parent.rpc_save_composition(db_session, children_vals)
+        db_session.flush()
+
+        assert res["status"] == "ok"
+        assert len(parent.children) == 2
+        for child in parent.children:
+            assert child.parent_timeslot_offset == 0
+            assert child.timeslot_id == ts.id, "L'enfant n'a pas hérité du timeslot de son parent déjà placé"
+            assert child.is_pinned is True, "L'enfant n'a pas hérité de is_pinned de son parent"
 
 
 def _make_division(db, code="DIVX"):
