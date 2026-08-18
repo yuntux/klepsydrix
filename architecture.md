@@ -2444,8 +2444,42 @@ données ou non :
   de `apply_change`/`simulate_change` — un cours hors du domaine de l'utilisateur reste invisible
   (404), pas juste protégé en écriture après avoir déjà révélé son existence.
 - **Routes sans équivalent CRUD** (`score`, `heatmap`, `simulate-change`, `solve`, `stop`, `reset`) :
-  vérification explicite et légère (`_require_course_access(db, "read"|"write")`, droit sur le
-  MODÈLE Course, pas par enregistrement — ces routes agissent globalement).
+  vérification explicite (`_require_course_access(db, "read"|"write")`), portant sur le MODÈLE
+  Course et non par enregistrement — ces routes agissent sur **tous** les cours à la fois, jamais
+  sur un cours précis. D'où un traitement **dissymétrique entre lecture et écriture** :
+  - *lecture* (`score`, `heatmap`, `simulate-change`) : `perm_read` suffit, un domaine restrictif
+    n'est pas appliqué. Ces routes renvoient des agrégats calculés sur l'ensemble des cours — un
+    lecteur restreint par domaine voit donc un score global. **Limite assumée**, verrouillée par un
+    test pour qu'elle ne change pas par inadvertance ;
+  - *écriture* (`course-placement`, `classroom-assignment`, `stop`, `reset`, `apply-change`) :
+    `perm_write` **ne suffit pas** s'il est assorti d'un domaine. Un domaine signifie « vous pouvez
+    écrire sur CE sous-ensemble », or ces routes ne savent pas se restreindre à un sous-ensemble :
+    les laisser passer ferait déborder l'écriture hors du domaine, exactement ce que le domaine
+    interdit. Refus (403) plutôt qu'une écriture qui déborde. Détection via
+    `access_domain_clause()` — `clause is None` ⟺ droit total, donc une seule ligne
+    `ir_model_access` sans domaine (même venue d'un autre groupe) suffit à autoriser l'action,
+    cohérent avec la combinaison en OR appliquée partout ailleurs.
+
+`_require_course_access` est par ailleurs **fail-closed sur le drapeau `db.klepsydrix_user_id`
+absent** (`RuntimeError`), contrairement au reste du moteur de droits (`base.py`,
+`generic.py::_check_rpc_access`) qui traite cette absence comme un mode système légitime. La
+différence tient au point d'appel : ces fonctions-là sont aussi traversées par du code interne
+(seed, cascades, `@constrains`, solveur), qui doit voir toutes les données ; celle-ci n'est appelée
+que depuis des routes HTTP, où `current_db_user` a nécessairement déjà posé le drapeau (dépendance
+de routeur, garantie au démarrage par §18.I). Un drapeau absent ne peut donc y signaler qu'un
+câblage cassé — cas où laisser passer une remise à zéro de tous les cours serait le pire des
+comportements.
+
+⚠️ Ce fail-closed n'a été rendu possible qu'en corrigeant d'abord les **suites de tests HTTP**
+(`test_api.py`, `test_generic.py`), qui substituaient `current_db_user` par `lambda: None` : elles
+s'exécutaient donc intégralement en mode système, moteur de droits désactivé, et ne validaient rien
+du comportement réel des routes vis-à-vis des droits. Elles posent désormais un vrai utilisateur
+admin via `db_test_utils.make_admin_user_override()` (même amorçage qu'en production,
+`init_db.seed_admin_access`). Un seul test a changé de résultat, et il était révélateur :
+`test_generic_dynamic_method_execution` attendait `200` sur un appel RPC à une méthode **non
+décorée** `@requires_access` — il ne passait que parce que le garde-fou RPC (§18.E) était inopérant
+en mode système. Attendu corrigé à `403`, qui est le comportement réel pour tout utilisateur
+authentifié, admin compris.
 
 **Limite connue, documentée plutôt que dissimulée** : les `db.query()`/`db.execute()` internes aux
 modèles (cascades, `@constrains`, propriétés `@exposed` type synthèse TRMD) tournent "en système"

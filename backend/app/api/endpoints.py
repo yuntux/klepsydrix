@@ -28,18 +28,49 @@ def _require_course_access(db: Session, operation: str):
     Ces routes ne passent pas par le CRUD générique (score/heatmap/simulate calculent des données
     dérivées, solve/stop pilotent un thread, reset/simulate/apply-change interrogent Course
     directement plutôt que via Course.read()) — donc aucune protection automatique du moteur de
-    droits (voir base.py::CRUDMixin) ne s'applique ici. Vérification explicite, minimale (droit sur
-    le MODÈLE Course, pas par enregistrement — ces routes agissent globalement, pas sur un cours
-    précis). Mode système (db.klepsydrix_user_id absent) : toujours autorisé.
+    droits (voir base.py::CRUDMixin) ne s'applique ici. Vérification explicite, portant sur le
+    MODÈLE Course : ces routes agissent sur TOUS les cours à la fois, jamais sur un cours précis.
+
+    D'où un traitement dissymétrique entre lecture et écriture (voir architecture.md §18.F) :
+    - **lecture** (score, heatmap, simulate-change) : le droit `perm_read` suffit. Un domaine
+      restrictif n'est pas appliqué — ces routes renvoient des agrégats calculés sur l'ensemble
+      des cours, limite assumée et documentée ;
+    - **écriture** (placement, attribution des salles, stop, reset, apply-change) : le droit
+      `perm_write` ne suffit PAS s'il est assorti d'un domaine. Un domaine signifie « vous
+      pouvez écrire sur CE sous-ensemble » ; or ces routes ne savent pas se restreindre à un
+      sous-ensemble. Les laisser passer reviendrait à écrire sur des cours hors du domaine —
+      exactement ce que le domaine interdit. Refus, plutôt qu'une écriture qui déborde.
+
+    **Fail-closed sur le drapeau absent**, contrairement au reste du moteur de droits (base.py,
+    generic.py::_check_rpc_access) qui traite son absence comme un mode système légitime. La
+    différence tient au point d'appel : ces fonctions-là sont aussi traversées par du code interne
+    (seed, cascades, `@constrains`, solveur), qui doit voir toutes les données ; `_require_course_
+    access` n'est appelée QUE depuis des routes HTTP, où `current_db_user` a nécessairement déjà
+    posé le drapeau (dépendance de routeur, garantie au démarrage par `core/route_guard.py`). Un
+    drapeau absent ici ne peut donc signaler qu'un câblage cassé — cas où laisser passer une
+    résolution ou une remise à zéro sur l'intégralité des cours serait le pire des comportements.
     """
     user_id = getattr(db, "klepsydrix_user_id", None)
     if user_id is None:
-        return
-    from backend.app.core.access_control import access_rows_for
+        raise RuntimeError(
+            "_require_course_access appelée sans db.klepsydrix_user_id : cette fonction n'est "
+            "appelée que depuis des routes HTTP, où current_db_user pose toujours le drapeau. "
+            "Son absence signale un câblage de routage cassé, pas un mode système légitime."
+        )
+    from backend.app.core.access_control import access_domain_clause
     from backend.app.models.user import User
     user = db.get(User, user_id)
-    if not access_rows_for(db, Course, user, operation):
+    has_access, clause = access_domain_clause(db, Course, user, operation)
+    if not has_access:
         raise HTTPException(status_code=403, detail=f"Droit « {operation} » refusé sur courses.")
+    # clause None = droit total (au moins une ligne ir_model_access sans domaine) ; non-None =
+    # restreint à un sous-ensemble, incompatible avec une action globale.
+    if operation != "read" and clause is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="Cette action porte sur l'ensemble des cours, or votre droit d'écriture est "
+                   "restreint à une partie d'entre eux.",
+        )
 
 # GET "" (collation teachers/classrooms/divisions/timeslots/courses/non_teaching_staffs en un
 # round-trip) a été retiré : le frontend appelle désormais directement l'API générique pour

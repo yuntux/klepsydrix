@@ -17,7 +17,7 @@ from backend.app.models.group import Partition, ClassPart, Group
 
 from sqlalchemy.orm import sessionmaker
 from backend.app.core.database import get_db, current_db_user
-from backend.tests.db_test_utils import make_test_engine
+from backend.tests.db_test_utils import make_test_engine, make_admin_user_override
 
 # Voir db_test_utils.py : SQLite en mémoire (StaticPool, un seul connexion partagée) par défaut,
 # PostgreSQL local si KLEPSYDRIX_TEST_DB_BACKEND=postgres.
@@ -38,10 +38,9 @@ def override_get_db():
 @pytest.fixture(scope="function", autouse=True)
 def setup_dependency_overrides():
     app.dependency_overrides[get_db] = override_get_db
-    # current_db_user exige une session instance (voir main.py) — hors périmètre de ces tests
-    # (authentification), substitué en entier comme get_db pour ne pas avoir à simuler une vraie
-    # connexion à chaque appel HTTP via le TestClient.
-    app.dependency_overrides[current_db_user] = lambda: None
+    # Pose un vrai admin plutôt que de neutraliser la dépendance : ces tests passent donc PAR le
+    # moteur de droits au lieu de le court-circuiter (voir db_test_utils.make_admin_user_override).
+    app.dependency_overrides[current_db_user] = make_admin_user_override(get_db)
     yield
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(current_db_user, None)

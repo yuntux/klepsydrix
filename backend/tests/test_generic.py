@@ -6,7 +6,7 @@ from backend.app.core.database import get_db, current_db_user
 from backend.app.models.base import Base
 from backend.app.models.school import School
 from backend.app.models.material import Material
-from backend.tests.db_test_utils import make_test_engine
+from backend.tests.db_test_utils import make_test_engine, make_admin_user_override
 
 # Voir db_test_utils.py : SQLite en mémoire (StaticPool) par défaut, PostgreSQL local si
 # KLEPSYDRIX_TEST_DB_BACKEND=postgres.
@@ -27,10 +27,9 @@ def override_get_db():
 @pytest.fixture(scope="function", autouse=True)
 def setup_dependency_overrides():
     app.dependency_overrides[get_db] = override_get_db
-    # current_db_user exige une session instance (voir main.py) — hors périmètre de ces tests
-    # (authentification), substitué en entier comme get_db pour ne pas avoir à simuler une vraie
-    # connexion à chaque appel HTTP via le TestClient.
-    app.dependency_overrides[current_db_user] = lambda: None
+    # Pose un vrai admin plutôt que de neutraliser la dépendance : ces tests passent donc PAR le
+    # moteur de droits au lieu de le court-circuiter (voir db_test_utils.make_admin_user_override).
+    app.dependency_overrides[current_db_user] = make_admin_user_override(get_db)
     yield
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(current_db_user, None)
@@ -147,14 +146,18 @@ def test_generic_dynamic_method_execution(db_session: Session):
     db_session.commit()
     db_session.refresh(school)
 
-    # 2. Tester l'appel de la méthode de classe test_class_method (compte le nombre d'écoles (1) et multiplie par 5)
+    # 2. Méthode de classe NON décorée @requires_access : refusée (403), c'est le refus par défaut
+    # du garde-fou RPC (voir generic.py::_check_rpc_access, architecture.md §18.E). Cet appel
+    # renvoyait 200 tant que la suite tournait en mode système, moteur de droits désactivé — la
+    # substitution de current_db_user par un vrai admin (db_test_utils.make_admin_user_override) a
+    # rendu visible le comportement réel : même un admin ne peut pas appeler une méthode non
+    # décorée. Le succès du même appel en mode système reste couvert par test_access_control.py.
     class_call_payload = {
         "args": [],
         "kwargs": {"multiplier": 5}
     }
     response = client.post("/api/generic/schools/call/test_class_method", json=class_call_payload)
-    assert response.status_code == 200
-    assert response.json() == 5
+    assert response.status_code == 403
 
     # 3. Tester l'appel de la méthode d'instance test_instance_method
     instance_call_payload = {

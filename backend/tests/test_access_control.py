@@ -151,6 +151,86 @@ class TestTimetableEndpointsGuard:
         result = reset(db=db_session)
         assert result == {"status": "success"}
 
+    def test_write_endpoint_refused_when_write_right_carries_a_domain(self, db_session):
+        """
+        Cœur du traitement dissymétrique (voir endpoints.py::_require_course_access) : `perm_write`
+        assorti d'un domaine signifie « vous pouvez écrire sur CE sous-ensemble ». Or /reset écrit
+        sur TOUS les cours et ne sait pas se restreindre — le laisser passer ferait déborder
+        l'écriture hors du domaine, exactement ce que le domaine interdit.
+        """
+        from fastapi import HTTPException
+        from backend.app.api.endpoints import reset
+
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        group = ResGroup.create(db_session, {"name": "Écriture Cours restreinte"})
+        group.update(db_session, {"user_ids": [user.id]})
+        IrModelAccess.create(db_session, {
+            "model": "courses", "group_id": group.id, "perm_read": True, "perm_write": True,
+            "domain": json.dumps([("divisions.students.user_id", "=", "user.id")]),
+        })
+        _make_user_as(db_session, user.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            reset(db=db_session)
+        assert exc_info.value.status_code == 403
+        assert "ensemble des cours" in exc_info.value.detail
+
+    def test_read_endpoint_still_allowed_when_read_right_carries_a_domain(self, db_session):
+        """
+        Contrepartie explicite du test précédent : en LECTURE, un domaine ne bloque pas. score et
+        heatmap renvoient des agrégats calculés sur tous les cours — limite assumée et documentée
+        (architecture.md §18.F), vérifiée ici pour qu'elle ne change pas par accident.
+        """
+        from backend.app.api.endpoints import get_score
+
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        group = ResGroup.create(db_session, {"name": "Lecture Cours restreinte"})
+        group.update(db_session, {"user_ids": [user.id]})
+        IrModelAccess.create(db_session, {
+            "model": "courses", "group_id": group.id, "perm_read": True,
+            "domain": json.dumps([("divisions.students.user_id", "=", "user.id")]),
+        })
+        _make_user_as(db_session, user.id)
+
+        get_score(school_id=None, db=db_session)  # ne lève pas
+
+    def test_endpoint_refuses_when_user_flag_is_absent(self, db_session):
+        """
+        Fail-closed, contrairement au reste du moteur de droits : `_require_course_access` n'est
+        appelée que depuis des routes HTTP, où `current_db_user` (dépendance de routeur, garantie
+        au démarrage par core/route_guard.py) a toujours posé le drapeau. Son absence ne peut donc
+        signaler qu'un câblage cassé — pas un mode système légitime, et surtout pas une raison de
+        laisser passer une remise à zéro de TOUS les cours.
+        """
+        from backend.app.api.endpoints import reset
+
+        # Aucun _make_user_as() : le drapeau reste absent.
+        with pytest.raises(RuntimeError, match="câblage de routage"):
+            reset(db=db_session)
+
+    def test_write_endpoint_allowed_when_another_group_grants_write_without_domain(self, db_session):
+        """
+        Même règle de combinaison que partout ailleurs (access_domain_clause) : une seule ligne
+        SANS domaine suffit à lever la restriction, y compris venue d'un autre groupe.
+        """
+        from backend.app.api.endpoints import reset
+
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        restreint = ResGroup.create(db_session, {"name": "Écriture restreinte"})
+        total = ResGroup.create(db_session, {"name": "Écriture totale"})
+        restreint.update(db_session, {"user_ids": [user.id]})
+        total.update(db_session, {"user_ids": [user.id]})
+        IrModelAccess.create(db_session, {
+            "model": "courses", "group_id": restreint.id, "perm_read": True, "perm_write": True,
+            "domain": json.dumps([("divisions.students.user_id", "=", "user.id")]),
+        })
+        IrModelAccess.create(db_session, {
+            "model": "courses", "group_id": total.id, "perm_read": True, "perm_write": True,
+        })
+        _make_user_as(db_session, user.id)
+
+        assert reset(db=db_session) == {"status": "success"}
+
 
 class TestDisplayNameUnchecked:
     def test_display_name_endpoint_bypasses_read_restriction(self, db_session):
