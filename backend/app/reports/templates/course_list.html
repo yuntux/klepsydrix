@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+
+{% block content %}
+    {% if lines %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Cours</th>
+                    <th class="numeric">Horaire</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in lines %}
+                    <tr>
+                        <td>{{ line.name }}</td>
+                        <td class="numeric">{{ line.schedule }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="report-total">{{ lines|length }} cours</p>
+    {% else %}
+        <p class="empty">Aucun cours à afficher.</p>
+    {% endif %}
+{% endblock %}

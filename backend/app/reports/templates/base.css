@@ -1,0 +1,93 @@
+/*
+Styles communs à tous les rapports (voir reports/base.py, architecture.md §22). Le fragment @page
+du format papier est concaténé à la suite de ce fichier au moment du rendu.
+
+Tout est en CSS Paged Media natif : pagination, en-tête de tableau répété, veuves et orphelines.
+C'est ce que WeasyPrint sait faire et que wkhtmltopdf (donc Odoo) impose de contourner avec des
+fichiers HTML d'en-tête/pied séparés.
+*/
+@page {
+    /* Numérotation en pied de page, sans HTML dédié : counter(page)/counter(pages) sont résolus
+       par le moteur de rendu une fois la pagination connue. */
+    @bottom-right {
+        content: "Page " counter(page) " / " counter(pages);
+        font-family: sans-serif;
+        font-size: 8pt;
+        color: #64748b;
+    }
+}
+
+body {
+    font-family: sans-serif;
+    font-size: 10pt;
+    color: #0f172a;
+    margin: 0;
+}
+
+.report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 6pt;
+    margin-bottom: 12pt;
+    font-size: 8.5pt;
+    color: #475569;
+}
+
+.report-header__school {
+    font-weight: bold;
+    color: #0f172a;
+}
+
+h1 {
+    font-size: 15pt;
+    margin: 0 0 12pt 0;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+/* Répète la ligne d'en-tête en haut de CHAQUE page du tableau — un tableau qui déborde sur
+   plusieurs pages resterait sinon illisible à partir de la deuxième. */
+thead {
+    display: table-header-group;
+}
+
+th {
+    text-align: left;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #475569;
+    border-bottom: 1px solid #94a3b8;
+    padding: 4pt 6pt;
+}
+
+td {
+    padding: 4pt 6pt;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+/* Jamais une ligne coupée en deux entre deux pages. */
+tr {
+    break-inside: avoid;
+}
+
+.numeric {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.empty {
+    color: #64748b;
+    font-style: italic;
+}
+
+.report-total {
+    margin-top: 10pt;
+    font-size: 8.5pt;
+    color: #475569;
+}

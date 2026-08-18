@@ -1,0 +1,27 @@
+{#
+  Gabarit de base dont hérite tout rapport — l'équivalent de `web.external_layout` chez Odoo :
+  en-tête d'établissement, titre, date d'édition. La pagination, elle, n'est PAS ici : elle est
+  entièrement portée par `@page` dans base.css (voir ce fichier), là où Odoo doit passer un
+  document HTML séparé à wkhtmltopdf.
+#}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <title>{{ title }}</title>
+    {# |safe obligatoire : l'autoescape transformerait les guillemets du CSS (content: "Page ")
+       en &quot; et casserait la feuille de style. Sans risque, cette feuille est un fichier du
+       dépôt, jamais une saisie utilisateur — contrairement aux valeurs du corps du document. #}
+    <style>{{ stylesheet|safe }}</style>
+</head>
+<body>
+    <header class="report-header">
+        <div class="report-header__school">{{ school_name }}</div>
+        <div class="report-header__meta">Édité le {{ printed_on }}</div>
+    </header>
+
+    <h1>{{ title }}</h1>
+
+    {% block content %}{% endblock %}
+</body>
+</html>
