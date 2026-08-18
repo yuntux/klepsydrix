@@ -113,6 +113,35 @@ def test_solver_resolves_timetable(db_session: Session):
     assert course2.timeslot_id is not None
     assert course1.timeslot_id != course2.timeslot_id
 
+
+def test_solver_unsuited_only_timeslot_stays_unplaced(db_session: Session):
+    """
+    Régression : quand l'UNIQUE créneau disponible est Unsuited pour le professeur du cours, le
+    solveur doit laisser le cours non placé (timeslot_id=None), pas le placer quand même sur ce
+    créneau. Avant correctif, resource_preference_hard et penalize_unassigned_course valaient
+    toutes deux ONE_HARD : à égalité stricte de score, rien ne garantissait laquelle des deux
+    issues le solveur retenait. resource_preference_hard vaut désormais of_hard(1000).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_ONLYUNSTS", "first_name": "Prof", "last_name": "Onlyunsts", "school_id": school.id})
+    division = Division.create(db_session, {"code": "DIV_ONLYUNSTS", "name": "Div Onlyunsts", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+
+    ResourcePreference.create(db_session, {
+        "resource_type": "Teacher", "resource_id": teacher.id, "timeslot_id": ts1.id,
+        "preference_level": "Unsuited", "week_type": "W",
+    })
+
+    course = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [teacher.id], "division_ids": [division.id], "school_id": school.id, "duration_minutes": 30})
+    db_session.commit()
+
+    _solve_course_placement(db_session)
+    db_session.refresh(course)
+
+    assert course.timeslot_id is None, "Le cours a été placé sur le créneau Unsuited alors qu'il était le seul disponible"
+
+
 def test_solver_group_link_and_week_alternation(db_session: Session):
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
@@ -471,8 +500,9 @@ def test_course_heatmap_with_indisponibility(db_session: Session):
     assert heatmap[str(ts1.id)]["hard"] == 0
     assert len(heatmap[str(ts1.id)]["reasons"]) == 0
 
-    # ts2 est indisponible : conflit physique, donc delta Hard = -1
-    assert heatmap[str(ts2.id)]["hard"] == -1
+    # ts2 est indisponible (Unsuited) : resource_preference_hard vaut désormais of_hard(1000),
+    # pas ONE_HARD (voir constraints.py — sinon à égalité stricte avec penalize_unassigned_course).
+    assert heatmap[str(ts2.id)]["hard"] == -1000
     reasons = [r["name"] for r in heatmap[str(ts2.id)]["reasons"]]
     assert "Resource unavailability (strict)" in reasons
 
@@ -523,8 +553,9 @@ def test_course_heatmap_detects_conflicts_for_course_and_others(db_session: Sess
     assert heatmap[str(ts1.id)]["hard"] == -1
     assert "Teacher conflict" in [r["name"] for r in heatmap[str(ts1.id)]["reasons"]]
 
-    # ts2 : préférence "Indisponible" sur la division du cours cible.
-    assert heatmap[str(ts2.id)]["hard"] == -1
+    # ts2 : préférence "Indisponible" (Unsuited) sur la division du cours cible — of_hard(1000),
+    # pas ONE_HARD (voir constraints.py::resource_preference_hard).
+    assert heatmap[str(ts2.id)]["hard"] == -1000
     assert "Resource unavailability (strict)" in [r["name"] for r in heatmap[str(ts2.id)]["reasons"]]
 
 
@@ -2245,7 +2276,10 @@ def test_leaf_classroom_unsuited_penalizes_precise_room(db_session: Session):
 
     result = explain_timetable_score(db_session, school.id)
     assert result["matches"]["Leaf classroom unsuited"]["count"] == 1
-    assert result["matches"]["Leaf classroom unsuited"]["hard"] == -1
+    # of_hard(1000), pas ONE_HARD : voir constraints.py::leaf_classroom_unsuited — sinon à égalité
+    # avec penalize_unassigned_course, aucune garantie que "ne pas placer" gagne sur "placer quand
+    # même sur une salle Unsuited".
+    assert result["matches"]["Leaf classroom unsuited"]["hard"] == -1000
 
 
 def _setup_group_capacity_scenario(db_session, room_count=2, demand_count=3, same_slot=True):
@@ -2589,6 +2623,43 @@ def test_classroom_assignment_respects_preferences(db_session: Session):
     resolved = solution.assignments[0].classroom
     assert resolved.id != l_unsuited.id
     assert resolved.id == l_preferred.id
+
+
+def test_classroom_assignment_unsuited_only_candidate_stays_unassigned(db_session: Session):
+    """
+    Régression : quand l'UNIQUE salle-feuille candidate est Unsuited pour le créneau, le solveur
+    doit laisser l'affectation non résolue (classroom=None), pas assigner quand même la salle
+    Unsuited. Avant correctif, room_preference_hard et unassigned_room_assignment_penalty
+    valaient toutes deux ONE_HARD : à égalité stricte de score, rien ne garantissait laquelle des
+    deux issues le solveur retenait (une salle Unsuited assignée n'était pas moins "optimale"
+    qu'une affectation non résolue). room_preference_hard vaut désormais of_hard(1000) : la salle
+    Unsuited assignée (-1000) est maintenant strictement pire que non résolu (-1).
+    """
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_ONLYUNS", "first_name": "Prof", "last_name": "Onlyuns", "school_id": school.id})
+    division = Division.create(db_session, {"code": "DIV_ONLYUNS", "name": "Div Onlyuns", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+
+    group = Classroom.create(db_session, {"code": "GRP-ONLYUNS", "name": "Grp", "school_id": school.id})
+    only_room = Classroom.create(db_session, {"code": "ONLYUNS-L1", "name": "Seule salle, Unsuited", "school_id": school.id, "capacity": 30, "parent_classroom_id": group.id})
+
+    ResourcePreference.create(db_session, {
+        "resource_type": "Classroom", "resource_id": only_room.id, "timeslot_id": ts1.id,
+        "preference_level": "Unsuited", "week_type": "W",
+    })
+
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts1.id, "teacher_ids": [teacher.id], "division_ids": [division.id],
+    })
+    CourseClassroomRequirement.create(db_session, {"course_id": course.id, "classroom_id": group.id, "quantity": 1})
+    db_session.commit()
+
+    solution = solve_classroom_assignment(db_session, school.id)
+
+    assert solution.assignments[0].classroom is None, "La salle Unsuited a été assignée quand même, alors qu'elle était la seule candidate"
+    assert solution.score.hard_score == -1  # unassigned_room_assignment_penalty, pas -1000
 
 
 def test_classroom_assignment_forces_siblings_to_distinct_rooms(db_session: Session):

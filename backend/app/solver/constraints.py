@@ -496,7 +496,13 @@ def leaf_classroom_unsuited(constraint_factory: ConstraintFactory) -> Constraint
         .filter(lambda course, pref: pref.resource_type == "Classroom" and pref.preference_level == "Unsuited"
                 and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_mask, pref.period_mask))
         .filter(lambda course, pref: pref.resource_id in course.leaf_classroom_ids)
-        .penalize(HardSoftScore.ONE_HARD)
+        # of_hard(1000), pas ONE_HARD : sinon strictement à égalité avec penalize_unassigned_course
+        # (ONE_HARD lui aussi) — le solveur n'aurait alors AUCUNE préférence entre "placer quand
+        # même le cours sur cette salle-feuille Unsuited" et "ne pas le placer du tout", et
+        # pourrait très bien converger sur le premier (constaté : un hill-climbing ne fait pas de
+        # mouvement latéral à score égal, rien ne le pousse vers l'option pourtant voulue). 1000
+        # domine tout cumul réaliste de cours non placés à l'échelle d'un établissement.
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Leaf classroom unsuited")
     )
 
@@ -700,7 +706,11 @@ def resource_preference_hard(constraint_factory: ConstraintFactory) -> Constrain
         )
         .filter(lambda course, pref: pref.preference_level == "Unsuited" and weeks_overlap(course.week_type, pref.week_type) and periods_overlap(course.period_mask, pref.period_mask))
         .filter(lambda course, pref: _is_preference_violated(pref, course))
-        .penalize(HardSoftScore.ONE_HARD)
+        # of_hard(1000), pas ONE_HARD : même raisonnement que leaf_classroom_unsuited ci-dessus —
+        # sans ça, à égalité stricte avec penalize_unassigned_course (ONE_HARD), le solveur n'a
+        # aucune préférence entre "placer quand même sur une ressource Unsuited (prof/division/
+        # personnel)" et "ne pas placer le cours du tout". 1000 domine tout cumul réaliste.
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Resource unavailability (strict)")
     )
 

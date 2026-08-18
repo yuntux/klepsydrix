@@ -183,7 +183,13 @@ def room_preference_hard(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(lambda a, p: p.resource_type == "Classroom" and p.preference_level == "Unsuited"
                 and p.resource_id == a.classroom.id
                 and weeks_overlap(a.week_type, p.week_type) and periods_overlap(a.period_mask, p.period_mask))
-        .penalize(HardSoftScore.ONE_HARD)
+        # of_hard(1000), pas ONE_HARD : sinon strictement à égalité avec
+        # unassigned_room_assignment_penalty (ONE_HARD lui aussi) — le solveur n'aurait alors
+        # aucune préférence entre "assigner quand même une salle Unsuited" et "laisser
+        # l'affectation non résolue", et pourrait très bien converger sur la première (un
+        # hill-climbing ne fait pas de mouvement latéral à score égal, rien ne le pousse vers
+        # l'option pourtant voulue). 1000 domine tout cumul réaliste d'affectations non résolues.
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Room preference unsuited")
     )
 
