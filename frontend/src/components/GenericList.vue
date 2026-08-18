@@ -1563,6 +1563,17 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleClickOutside);
   window.removeEventListener('keydown', handleGlobalKeyDown);
+  // Filet de sécurité : flush de tout brouillon d'édition en attente (voir pendingUpdates/
+  // onRowFocusOut plus haut) qui n'aurait pas été envoyé via le focusout natif — celui-ci dépend
+  // de l'ordre exact des évènements du navigateur (mousedown -> blur -> démontage), qui peut
+  // varier selon le navigateur ou la façon dont l'utilisateur ferme le conteneur (bouton dédié,
+  // clic en dehors d'une popin, touche Échap...). Ne PAS dépendre uniquement de focusout pour un
+  // mécanisme aussi central : le démontage du composant est le dernier moment garanti où ce
+  // brouillon existe encore, quelle que soit la cause de la fermeture.
+  for (const [, draft] of pendingUpdates) {
+    emit('update-item', draft);
+  }
+  pendingUpdates.clear();
 });
 
 // Reset page on filter/limit/grouping changes — activer/désactiver/modifier le regroupement change

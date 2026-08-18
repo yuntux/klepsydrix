@@ -25,7 +25,14 @@ class CourseClassroomRequirement(Base):
     # readOnlyExpr référence classroom_is_group (champ calculé ci-dessous, jamais stocké) : sur une
     # salle-feuille précise (pas un groupe), quantity vaut toujours 1 (voir _validate_leaf_quantity)
     # — le champ doit donc être en lecture seule dans ce cas, pas seulement rejeté après coup.
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre de salles", "min": 1, "readOnlyExpr": "!model.classroom_is_group"})
+    # `model.id != null && !String(model.id).startsWith('new_')` en tête (même garde que
+    # classroom_id ci-dessus) : classroom_is_group est calculé côté serveur, donc absent du
+    # brouillon local d'une ligne pas encore créée ('new_...') — sans cette garde, quantity
+    # resterait bloqué en lecture seule tant que la ligne n'a pas fait un premier aller-retour
+    # serveur, empêchant de choisir un groupe de salles ET sa quantité dans le même geste. Le
+    # garde-fou métier réel reste _validate_leaf_quantity ci-dessous, qui s'applique quoi qu'il
+    # arrive à la création.
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Nombre de salles", "min": 1, "readOnlyExpr": "model.id != null && !String(model.id).startsWith('new_') && !model.classroom_is_group"})
 
     # Attribut Python transitoire, PAS une colonne (pas de Mapped[...]/mapped_column) : jamais
     # persisté, jamais présent sur une ligne rechargée depuis la base. Passé explicitement par

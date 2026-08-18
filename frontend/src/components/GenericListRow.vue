@@ -43,7 +43,7 @@
           :modelValue="ctx.rowSource(item)[col.key]"
           :field="ctx.getFieldDef(col.key)"
           :widgetParams="ctx.getFieldDef(col.key)?.widgetParams"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :parentRecord="item"
           @update:modelValue="ctx.updateInline(item, col.key, $event)"
         />
@@ -52,14 +52,14 @@
         <div v-else-if="ctx.getFieldDef(col.key)?.type === 'boolean' || typeof item[col.key] === 'boolean'" class="inline-checkbox-wrapper">
           <BaseToggle
             :model-value="!!ctx.rowSource(item)[col.key]"
-            :disabled="ctx.isColumnReadOnly(col.key, item)"
+            :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
             @update:model-value="ctx.updateInline(item, col.key, $event)"
           />
         </div>
 
         <!-- Couleur (Sélecteur premium en ligne avec palette finie et input hex) -->
         <!-- Couleur : composant standard vue3-swatches -->
-        <div v-else-if="ctx.getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': ctx.isColumnReadOnly(col.key, item) }">
+        <div v-else-if="ctx.getFieldDef(col.key)?.type === 'color'" class="inline-color-swatch-wrapper" :class="{ 'readonly-swatch': ctx.isColumnReadOnly(col.key, ctx.rowSource(item)) }">
           <color-swatch-picker
             :model-value="ctx.rowSource(item)[col.key] || '#3B82F6'"
             @change="ctx.updateInline(item, col.key, $event)"
@@ -70,7 +70,7 @@
           v-else-if="ctx.getFieldDef(col.key)?.type === 'select'"
           :model-value="ctx.rowSource(item)[col.key]"
           :options="ctx.getFieldDef(col.key)?.options || []"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :required="ctx.isColumnRequired(col.key)"
           :nullable="ctx.getFieldDef(col.key)?.nullable"
           :inline="true"
@@ -89,7 +89,7 @@
           :modelValue="ctx.rowSource(item)[col.key]"
           :field="ctx.getFieldDef(col.key)"
           :widgetParams="{ listConfig: ctx.columnListConfig(col.key) }"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :parentRecord="item"
           liveSync
           @update:modelValue="ctx.updateInline(item, col.key, $event)"
@@ -99,7 +99,7 @@
           v-else-if="ctx.getFieldDef(col.key)?.type === 'multiselect'"
           :model-value="ctx.rowSource(item)[col.key]"
           :options="ctx.getFieldDef(col.key)?.options || []"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :required="ctx.isColumnRequired(col.key)"
           :inline="true"
           @update:model-value="ctx.updateInline(item, col.key, $event)"
@@ -111,7 +111,7 @@
         <DurationInput
           v-else-if="ctx.getFieldDef(col.key)?.type === 'duration'"
           :modelValue="ctx.rowSource(item)[col.key]"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :includeZero="ctx.getFieldDef(col.key)?.durationIncludeZero"
           @update:modelValue="ctx.updateInline(item, col.key, $event)"
         />
@@ -124,7 +124,7 @@
           :min="ctx.getFieldDef(col.key)?.min"
           :max="ctx.getFieldDef(col.key)?.max"
           :step="ctx.getFieldDef(col.key)?.step || '1'"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :required="ctx.isColumnRequired(col.key)"
           @change="ctx.updateInline(item, col.key, ($event.target as HTMLInputElement).value !== '' ? Number(($event.target as HTMLInputElement).value) : null)"
           class="inline-input inline-number"
@@ -137,7 +137,7 @@
           v-else-if="ctx.getFieldDef(col.key)?.type === 'date'"
           type="date"
           :value="ctx.rowSource(item)[col.key] || ''"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :required="ctx.isColumnRequired(col.key)"
           @change="ctx.updateInline(item, col.key, ($event.target as HTMLInputElement).value)"
           class="inline-input"
@@ -167,7 +167,7 @@
           v-else
           type="text"
           :value="ctx.rowSource(item)[col.key] || ''"
-          :disabled="ctx.isColumnReadOnly(col.key, item)"
+          :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :required="ctx.isColumnRequired(col.key)"
           @change="ctx.updateInline(item, col.key, ($event.target as HTMLInputElement).value)"
           class="inline-input"
