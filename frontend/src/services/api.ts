@@ -468,3 +468,40 @@ export async function fetchGenericActions(resourceName: string): Promise<any[]> 
   }
   return response.json();
 }
+
+// ==========================================
+// IMPRESSION PDF (voir architecture.md §22, backend/app/reports/)
+// ==========================================
+// Téléchargement via apiFetch() + blob, et NON par window.open()/<a href> comme le fait Odoo avec
+// sa route /report/download : une navigation directe du navigateur ne porte pas l'en-tête
+// X-Klepsydrix-Database, que resolve_database exige (428 sinon — voir core/database.py). Ce
+// détour a l'avantage de garder l'impression sur le chemin unique d'apiFetch, donc de continuer à
+// bénéficier du suivi du jeton d'écriture et des redirections d'authentification.
+export async function downloadReport(
+  reportName: string,
+  ids: number[] = [],
+  params: Record<string, string> = {},
+): Promise<void> {
+  const query = new URLSearchParams({ ...params });
+  if (ids.length) query.set('ids', ids.join(','));
+
+  const response = await apiFetch(`/api/report/${reportName}?${query}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Erreur lors de la génération du document.");
+  }
+
+  // Nom de fichier calculé côté serveur (équivalent de print_report_name chez Odoo), jamais
+  // reconstruit ici — sinon deux sources de vérité pour le même nom.
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] || `${reportName}.pdf`;
+
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

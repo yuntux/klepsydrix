@@ -65,7 +65,13 @@ app.add_middleware(
     # silencieusement la lecture de tout en-tête de réponse "custom" par le JS appelant (fetch),
     # même si la requête elle-même passe — allow_headers ne contrôle que les en-têtes de REQUÊTE
     # autorisés, pas ceux exposés en retour.
-    expose_headers=["X-Write-Token", "X-Klepsydrix-Database"],
+    # Content-Disposition : lu par le JS pour nommer le PDF téléchargé (voir
+    # services/api.ts::downloadReport). Sans effet dans la configuration actuelle — Vite proxifie
+    # /api (vite.config.ts), donc le navigateur ne voit que du same-origin et CORS ne s'applique
+    # pas. Listé par précaution pour le jour où l'IHM serait servie depuis une origine distincte de
+    # l'API, une forme de déploiement que `allowed_origins` prévoit explicitement : le symptôme
+    # serait alors un nom de fichier générique, sans aucune erreur visible.
+    expose_headers=["X-Write-Token", "X-Klepsydrix-Database", "Content-Disposition"],
 )
 
 # Session Starlette dédiée à Authlib (state/nonce OIDC, voir core/oidc.py) — un cookie distinct de
@@ -99,6 +105,7 @@ from backend.app.api.generic import router as generic_router
 from backend.app.api.ui_endpoints import router as ui_router
 from backend.app.api.instance_endpoints import router as instance_router
 from backend.app.api.auth_endpoints import router as auth_router
+from backend.app.api.report import router as report_router
 
 # current_db_user exige une session instance valide (Depends(require_instance_session)) ET résout/
 # crée le User de la base courante ; check_write_token exige l'en-tête X-Klepsydrix-Database (via
@@ -110,6 +117,7 @@ from backend.app.api.auth_endpoints import router as auth_router
 # le filtrage par droits (lot menu/droits) a justement besoin de connaître l'utilisateur.
 app.include_router(api_router, dependencies=[Depends(current_db_user), Depends(check_write_token)])
 app.include_router(generic_router, dependencies=[Depends(current_db_user), Depends(check_write_token)])
+app.include_router(report_router, dependencies=[Depends(current_db_user), Depends(check_write_token)])
 app.include_router(ui_router)
 app.include_router(instance_router)
 app.include_router(auth_router)

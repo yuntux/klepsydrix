@@ -41,7 +41,7 @@
           <!-- Actions dynamiques métier du modèle -->
           <template v-if="localModel && localModel.id && !isMultiEdit">
             <BaseButton
-              v-for="action in modelActions.filter(a => evaluateActionCondition(a, localModel))"
+              v-for="action in formActions"
               :key="action.id"
               type="button"
               variant="success"
@@ -105,6 +105,16 @@ const activeActionTitle = ref<string>('');
 // entièrement passé au mécanisme générique.
 const componentsMap: Record<string, any> = {};
 
+// Actions rendues par CE composant : tout sauf celles de portée liste (scope="list"), qui sont du
+// ressort de GenericList.vue (voir architecture.md §22.D). Un bouton d'impression de liste posé
+// sur un formulaire mono-enregistrement laisse légitimement attendre qu'il n'imprime que
+// l'enregistrement affiché — l'écart avait été constaté à l'usage.
+const formActions = computed(() =>
+  modelActions.value
+    .filter((action: any) => action.scope !== 'list')
+    .filter((action: any) => evaluateActionCondition(action, localModel.value)),
+);
+
 function evaluateActionCondition(action: any, model: any) {
   if (!action.condition) return true;
   try {
@@ -120,6 +130,17 @@ function handleActionClick(action: any) {
     activeAction.value = action;
     activeActionTitle.value = action.label || action.name || 'Assistant';
     showWizard.value = true;
+    return;
+  }
+  // Impression PDF (voir architecture.md §22) — même patron déclaratif que 'wizard' : l'action est
+  // décrite dans __actions__ côté modèle, rien n'est codé en dur ici. Toujours l'enregistrement
+  // COURANT : les actions de portée liste sont filtrées en amont (voir formActions) et rendues par
+  // GenericList.vue, seul endroit où une portée globale ne surprend pas l'utilisateur.
+  if (action.type === 'report') {
+    const ids = [localModel.value?.id].filter(Boolean);
+    api.downloadReport(action.report, ids as number[]).catch((error) => {
+      notificationStore.showNotification('error', error?.message || "Erreur lors de la génération du document.");
+    });
   }
 }
 

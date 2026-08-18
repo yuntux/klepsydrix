@@ -147,6 +147,38 @@ def test_integrity_error_is_400_and_hides_the_sql(db_session: Session):
     assert "INSERT INTO" not in response.json()["detail"]
 
 
+def test_report_endpoint_returns_a_pdf_with_a_filename(db_session: Session):
+    """
+    Bout en bout sur l'application réelle : l'endpoint générique d'impression doit rendre un vrai
+    PDF ET annoncer son nom de fichier, que le frontend lit depuis Content-Disposition (voir
+    services/api.ts::downloadReport). Sans cet en-tête, tout document téléchargé retomberait sur
+    un nom générique.
+    """
+    response = client.get("/api/report/course_list")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "liste-des-cours-" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF-")
+
+
+def test_report_endpoint_html_format_is_readable(db_session: Session):
+    """`?format=html` — le rendu d'itération/débogage, emprunté à /report/html/ d'Odoo."""
+    response = client.get("/api/report/course_list?format=html")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Liste des cours" in response.text
+
+
+def test_unknown_report_is_404(db_session: Session):
+    assert client.get("/api/report/rapport_inexistant").status_code == 404
+
+
+def test_report_registry_lists_available_reports(db_session: Session):
+    response = client.get("/api/report/registry")
+    assert response.status_code == 200
+    assert any(r["name"] == "course_list" and r["resource"] == "courses" for r in response.json())
+
+
 def test_generic_timeslots_active_filter(db_session: Session):
     # STANDARD_TIMESLOT_DURATION vaut 30 (fixture db_session) : les deux créneaux, multiples de
     # 30, sont valides à la création (voir Timeslot._validate_hour_overflow, qui ne bloque QUE la

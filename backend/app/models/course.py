@@ -89,6 +89,33 @@ class Course(Base):
     # componentsMap reste un échappatoire pour un futur wizard qui ne rentrerait pas dans ce moule.
     __actions__ = [
         {
+            # Impression PDF (voir architecture.md §22) — type "report", même patron déclaratif que
+            # "wizard"/"bulk_api" : le bouton apparaît tout seul, aucune vue à modifier, comme le
+            # binding_type="report" d'Odoo.
+            #
+            # DEUX actions parce que la PORTÉE change l'endroit où le bouton doit vivre : sans
+            # scope, l'action est rendue par GenericForm.vue et n'imprime que l'enregistrement
+            # affiché. C'est ce qu'un utilisateur attend d'un bouton posé sur un formulaire — une
+            # première version imprimait toute la liste depuis là, et l'écart a été constaté dès le
+            # premier usage réel.
+            "id": "print_course",
+            "label": "Imprimer ce cours (PDF)",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "course_list",
+            "condition": "record.id",
+        },
+        {
+            # scope="list" : rendue par GenericList.vue, dans sa barre d'actions. Imprime la
+            # sélection courante si elle existe, sinon toute la liste accessible.
+            "id": "print_course_list",
+            "label": "Liste des cours (PDF)",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "course_list",
+            "scope": "list",
+        },
+        {
             "id": "compose_course",
             "label": "Décomposer le cours",
             "type": "wizard",

@@ -3002,7 +3002,126 @@ commentaire "non géré pour l'instant") a été levé en conséquence — `_cou
 (barrettes, mode 1) continue en revanche d'exclure les `Service` liés à un `Group` de son
 agrégation, inchangé.
 
-## 22. Idées pour Plus Tard
+## 22. Impression PDF (`backend/app/reports/`, `api/report.py`)
+
+Socle repris d'Odoo — **un rapport est une DONNÉE** (métadonnées + gabarit HTML) servie par un
+endpoint générique, pas une route par document. Ajouter un PDF = un module dans `reports/` + un
+gabarit + une ligne dans `REGISTRY`. Jamais de route à écrire.
+
+### A. Moteur de rendu : WeasyPrint, pas wkhtmltopdf
+
+| | WeasyPrint (retenu) | Chromium headless (écarté) |
+|---|---|---|
+| Installation | wheel Python dans le venv | binaire navigateur (~150 Mo) dans l'image de déploiement |
+| Rendu | HTML/CSS, **pas de JS** | fidélité pixel avec l'écran |
+| Pagination | CSS Paged Media natif | partielle, via l'API `printToPDF` |
+| Test | pytest pur, déterministe | nécessite de lancer un navigateur |
+
+Le point décisif est la **pagination**. `@page`, `counter(page)/counter(pages)`,
+`display: table-header-group` pour répéter l'en-tête d'un tableau qui déborde : tout est en CSS,
+sans sous-processus ni fichiers temporaires. C'est précisément ce que wkhtmltopdf — donc Odoo — fait
+mal, au prix d'en-têtes et pieds de page passés en documents HTML séparés (`--header-html`).
+
+Chromium ne redeviendrait pertinent que si l'exigence devenait « le PDF doit être le pixel-perfect
+de `TimetableGrid.vue` », ce qui supposerait en plus une route d'impression dans la SPA et une
+session authentifiée pilotée en headless.
+
+⚠️ Dépendance système : WeasyPrint a besoin de Pango/cairo (`libpango-1.0-0 libpangoft2-1.0-0
+libharfbuzz0b` sur Debian/Ubuntu) — à prévoir dans `deploy/`.
+⚠️ Le support CSS Grid de WeasyPrint est récent et incomplet : les gabarits s'en tiennent à
+`<table>`, qui pagine par ailleurs bien mieux.
+
+### B. `get_values` lit via `read()`/`browse()`, jamais par traversée
+
+Contrainte de **sécurité**, pas de style. Le moteur de droits de Klepsydrix s'applique à `read()`
+(§18.B), pas au graphe d'objets — contrairement à Odoo, dont l'ORM applique les `ir.rules` à toute
+lecture, y compris obtenue par traversée. Un `{% for course in division.courses %}` dans un gabarit
+sortirait donc **tout**, hors domaine compris.
+
+D'où la séparation stricte : `get_values(db, ids, params)` (pendant de `_get_report_values()` chez
+Odoo) collecte les données par lectures dédiées, le gabarit ne fait que mettre en forme. Bénéfice
+secondaire : un rapport est testable sans produire un seul octet de PDF.
+
+Conséquence directe et vérifiée par les tests : un élève restreint par domaine n'obtient que ses
+cours, et l'en-tête d'établissement reste **vide** s'il n'a pas le droit de lire `schools`. Aucun
+contrôle de droits spécifique n'est écrit dans le socle — c'est `read()` qui porte tout.
+
+`ids` vide = **recherche** (filtrage silencieux normal). `ids` fourni = **désignation**, donc
+`browse()` (§18.I) : un PDF amputé de deux classes, d'apparence complète, qui s'imprime et se
+distribue, est un pire mode de défaillance qu'un refus.
+
+### C. Endpoint générique, et pourquoi pas de `/report/download`
+
+| Route | Rôle |
+|---|---|
+| `GET /api/report/{name}?ids=…` | le PDF |
+| `GET /api/report/{name}?format=html` | même rendu en HTML |
+| `GET /api/report/registry` | rapports disponibles |
+
+`format=html` n'est pas un gadget (emprunt direct à `/report/html/` d'Odoo) : c'est ce qui permet
+d'itérer sur un gabarit dans le navigateur sans regénérer un PDF, et c'est sur ce rendu que portent
+les tests de contenu — bien plus lisibles en cas d'échec qu'une comparaison d'octets.
+
+Odoo a besoin d'une route `/report/download` parce que le navigateur navigue directement vers
+l'URL. **Ici c'est structurellement impossible** : `resolve_database` exige l'en-tête
+`X-Klepsydrix-Database` (428 sinon, voir §16), qu'un `window.open()` ou un `<a href>` ne peut pas
+porter. Le frontend télécharge donc via `apiFetch()` puis un blob
+(`services/api.ts::downloadReport`) — ce qui a l'avantage de garder l'impression sur le chemin
+unique qui gère le jeton d'écriture et les redirections d'authentification.
+
+Le nom de fichier voyage dans `Content-Disposition`. Avec le téléchargement par blob, le navigateur
+**ignore** nativement cet en-tête (c'est `link.download` qui nomme le fichier) : il ne sert plus
+qu'à transporter la chaîne calculée par `filename()` — l'équivalent de `print_report_name` d'Odoo,
+qui peut dépendre des enregistrements imprimés. Le garder évite d'avoir deux sources de vérité pour
+un même nom, et fait fonctionner correctement tout consommateur qui n'est pas la SPA (`curl`, une
+intégration) sans une ligne de code de plus.
+
+⚠️ `Content-Disposition` est ajouté à `expose_headers` du middleware CORS **par précaution, pas par
+nécessité** : Vite proxifie `/api` (`vite.config.ts`), donc le navigateur ne voit que du
+same-origin et CORS ne s'applique jamais dans la configuration actuelle. La ligne ne devient
+load-bearing que si l'IHM est un jour servie depuis une origine distincte de l'API — forme de
+déploiement que `allowed_origins` prévoit explicitement. Le symptôme serait alors un nom de fichier
+générique, sans aucune erreur visible.
+
+### D. Déclaration côté modèle : type d'action `"report"`
+
+Réutilise `__actions__` plutôt qu'un mécanisme parallèle — le répartiteur, les conditions
+d'affichage et le rendu des boutons existaient déjà (`GenericForm.vue`) :
+
+```python
+__actions__ = [{
+    "id": "print_course_list", "label": "Liste des cours (PDF)",
+    "type": "report", "report": "course_list", "scope": "all",
+}]
+```
+
+Équivalent du `binding_type="report"` d'Odoo : le bouton apparaît tout seul, aucune vue à modifier.
+`scope="all"` imprime la liste de tout ce qui est accessible ; sans lui, l'enregistrement courant.
+
+### E. Premier rapport : liste des cours (`reports/course_list.py`)
+
+Nom du cours et horaire. Deux points appris en le construisant, tous deux invisibles à la lecture
+du code seul :
+
+- **`Course.name` est un libellé dénormalisé**, recomposé à chaque écriture par
+  `Course.compute_name()` (« Mathématiques - 6ème A - Dupont »). Aucune matière ni division à aller
+  rechercher : la première version le faisait, c'était du code mort.
+- **Trier sur le libellé d'horaire donne un ordre alphabétique des jours** (« Jeudi, Lundi,
+  Mardi… »), ce qui passe pour un défaut sur une liste imprimée. Défaut vu seulement en regardant
+  le PDF produit, pas dans les tests. Le tri porte donc sur `(day_of_week, minutes_from_midnight)`,
+  tirés des mêmes enregistrements déjà chargés, cours non placés en fin de liste.
+
+### F. Ce qui n'est délibérément PAS repris d'Odoo
+
+- **Le cache en pièce jointe** (`attachment`/`attachment_use`) : n'a de sens que pour un document
+  légal qui ne doit plus jamais changer (facture). Un emploi du temps est toujours regénéré. À
+  reconsidérer si un besoin de « figer l'EDT distribué en septembre » apparaît.
+- **Le modèle `report.paperformat`** : Odoo a besoin d'une table parce que ses clients configurent
+  les marges depuis l'IHM. Une constante `PAPERFORMATS` suffit tant que ce n'est pas un besoin
+  exprimé.
+- **Le post-traitement PDF** (fusion pypdf, Factur-X) : sans objet ici.
+
+## 23. Idées pour Plus Tard
 
 Pistes identifiées mais délibérément écartées du périmètre actuel — à reconsidérer si le contexte
 qui les rend inutiles aujourd'hui change.

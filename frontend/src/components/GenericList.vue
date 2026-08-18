@@ -1,5 +1,26 @@
 <template>
   <div class="generic-list-container">
+    <!-- Barre d'actions de LISTE (voir architecture.md §22.D) — n'existe que pour les actions
+         déclarées avec scope="list" dans __actions__ côté modèle : aucune ressource qui n'en
+         déclare pas ne voit ce bandeau apparaître, donc aucun changement d'aspect ailleurs.
+         Complète GenericForm.vue, qui ne rend lui que les actions portant sur UN enregistrement :
+         un bouton d'impression de liste posé sur un formulaire mono-enregistrement laisse
+         légitimement attendre qu'il n'imprime que celui-ci. -->
+    <div v-if="listActions.length" class="list-actions-bar">
+      <BaseButton
+        v-for="action in listActions"
+        :key="action.id"
+        type="button"
+        variant="secondary"
+        :title="selectedIds.size
+          ? `Imprimer uniquement les ${selectedIds.size} ligne(s) sélectionnée(s)`
+          : 'Imprimer toute la liste (aucune ligne sélectionnée)'"
+        @click="runListAction(action)"
+      >
+        {{ action.label }}<span v-if="selectedIds.size"> ({{ selectedIds.size }})</span>
+      </BaseButton>
+    </div>
+
     <!-- Conteneur de table avec scroll -->
     <div class="table-wrapper" ref="tableWrapperRef" @scroll="onScroll">
       <table class="premium-table" :style="{ minWidth: totalTableWidth + 'px' }">
@@ -322,6 +343,10 @@ import { GENERIC_LIST_ROW_CONTEXT } from './genericListRowContext';
 import { GENERIC_LIST_GROUP_CONTEXT } from './genericListGroupContext';
 import { getWidgetForContext } from './widgets/registry';
 import { formatDurationMinutes } from '../utils/duration';
+import * as api from '../services/api';
+import { useNotificationStore } from '../stores/notifications';
+
+const notificationStore = useNotificationStore();
 
 interface ColumnDef {
   key: string;
@@ -937,6 +962,42 @@ const selectAllCheckbox = ref<HTMLInputElement | null>(null);
 watch(selectedIds, (newVal) => {
   emit('selection-change', Array.from(newVal));
 }, { deep: true });
+
+// ==========================================
+// ACTIONS DE LISTE (voir architecture.md §22.D)
+// ==========================================
+// Déclarées dans __actions__ côté modèle avec scope="list" — même source que les actions de
+// GenericForm.vue (GET /api/generic/{resource}/actions), simplement filtrée sur la portée : une
+// action de LISTE n'a rien à faire sur un formulaire mono-enregistrement, et réciproquement.
+// `props.title` EST la clé de ressource (App.vue lui passe activeAdminModel), d'où l'absence de
+// prop supplémentaire à ajouter ici et à câbler dans App.vue.
+const modelActions = ref<any[]>([]);
+watch(() => props.title, async (resourceKey) => {
+  modelActions.value = [];
+  if (!resourceKey) return;
+  try {
+    modelActions.value = await api.fetchGenericActions(resourceKey);
+  } catch {
+    // Une ressource sans actions n'est pas une anomalie : la barre reste simplement masquée.
+    modelActions.value = [];
+  }
+}, { immediate: true });
+
+const listActions = computed(() =>
+  modelActions.value.filter((action: any) => action.type === 'report' && action.scope === 'list')
+);
+
+function runListAction(action: any) {
+  // Sélection vide = toute la liste accessible (une RECHERCHE, filtrage silencieux par le moteur
+  // de droits). Sélection non vide = une DÉSIGNATION, et le backend refuse alors si l'un des
+  // identifiants est inaccessible plutôt que de rendre un document amputé (voir base.py::browse).
+  const ids = Array.from(selectedIds.value)
+    .map(Number)
+    .filter((id) => !Number.isNaN(id));
+  api.downloadReport(action.report, ids).catch((error: any) => {
+    notificationStore.showNotification('error', error?.message || "Erreur lors de la génération du document.");
+  });
+}
 
 // Restauration de sélection depuis l'URL — une seule fois par chargement de ressource (voir
 // hasAppliedInitialSelection, réarmé plus bas au changement de `title`). Le `watch(selectedIds)`
@@ -1704,6 +1765,17 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
 </script>
 
 <style scoped>
+/* Barre d'actions de liste — `flex-shrink: 0` pour ne jamais se faire comprimer par la table, qui
+   occupe le reste de la hauteur du conteneur flex. Absente du DOM tant qu'aucune action de portée
+   "list" n'est déclarée sur la ressource (voir le v-if), donc sans effet ailleurs. */
+.list-actions-bar {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
 .generic-list-container {
   display: flex;
   flex-direction: column;
