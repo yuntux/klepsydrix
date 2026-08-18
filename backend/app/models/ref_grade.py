@@ -15,6 +15,12 @@ class RefGrade(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, info={"label": "Niveau"})
+    # Plafond de vœux de spécialité pour ce niveau (voir StudentSpecialtyChoice, student.py) — NULL
+    # (défaut) signifie que ce niveau n'est pas concerné par les enseignements de spécialité (ex:
+    # 6ème). 3 pour un niveau Première, 2 pour un niveau Terminale, selon le référentiel officiel.
+    # Piloté par un champ explicite plutôt que déduit de `name` (texte libre saisi par
+    # l'établissement, non fiable pour une règle métier).
+    specialty_choice_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None, info={"label": "Plafond de vœux de spécialité", "min": 1, "max": 10})
 
     @classmethod
     def create(cls, db: Session, vals: dict):

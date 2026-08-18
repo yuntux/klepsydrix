@@ -34,6 +34,19 @@ class Student(HasUserAccount, Base):
     parent2: Mapped[Optional["Parent"]] = relationship("Parent", foreign_keys=[parent2_id])
     user: Mapped[Optional["User"]] = relationship("User", back_populates="student")
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=student_class_parts, back_populates="students", info={"label": "Parties de classe"})
+    specialty_choices: Mapped[list["StudentSpecialtyChoice"]] = relationship(
+        "StudentSpecialtyChoice", back_populates="student", passive_deletes="all", order_by="StudentSpecialtyChoice.rank",
+        info={
+            "label": "Vœux de spécialité",
+            "widget": "many2many_ordered_list",
+            "widgetParams": {
+                "pickResource": "subjects",
+                "pickField": "subject_id",
+                "parentField": "student_id",
+                "columns": [{"key": "subject_id", "label": "Spécialité", "editable": True}],
+            },
+        },
+    )
 
     @constrains()
     def _check_student_mef_matches_division(self, db: Session):
@@ -64,3 +77,47 @@ class Student(HasUserAccount, Base):
     @property
     def display_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
+
+
+class StudentSpecialtyChoice(Base):
+    """
+    Vœu de spécialité d'un élève (réforme du lycée) : une matière (Subject.is_specialty=True)
+    classée par rang de préférence. Alimente le calcul des parcours et la génération des groupes
+    de spécialité (voir wizard_specialty_group_generation.py). Le plafond de rangs valides pour
+    un élève est celui de son niveau (RefGrade.specialty_choice_limit, via Mef.ref_grade) — un
+    niveau sans plafond défini (NULL) n'est pas concerné par les spécialités.
+    """
+    __tablename__ = "student_specialty_choices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    student_id: Mapped[int] = mapped_column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, info={"label": "Élève"})
+    subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False, info={"label": "Spécialité"})
+    rank: Mapped[int] = mapped_column(Integer, nullable=False, default=1, info={"label": "Rang", "min": 1, "max": 10})
+
+    student: Mapped["Student"] = relationship("Student", back_populates="specialty_choices")
+    subject: Mapped["Subject"] = relationship("Subject")
+
+    @constrains()
+    def _check_subject_is_specialty(self, db: Session):
+        from backend.app.models.subject import Subject
+        subject = db.get(Subject, self.subject_id)
+        if not subject or not subject.is_specialty:
+            raise ValueError("Ce vœu doit porter sur une matière marquée « Matière de Spécialité ».")
+
+    @constrains()
+    def _check_rank_within_grade_limit(self, db: Session):
+        limit = self.student.mef.ref_grade.specialty_choice_limit if self.student and self.student.mef and self.student.mef.ref_grade else None
+        if not limit:
+            raise ValueError("Le niveau de cet élève n'est pas configuré pour les enseignements de spécialité (RefGrade.specialty_choice_limit non défini).")
+        if self.rank > limit:
+            raise ValueError(f"Le rang du vœu ({self.rank}) dépasse le plafond de {limit} vœux de spécialité pour ce niveau.")
+
+    @constrains()
+    def _check_unique_student_subject(self, db: Session):
+        duplicate = db.query(StudentSpecialtyChoice).filter(
+            StudentSpecialtyChoice.student_id == self.student_id,
+            StudentSpecialtyChoice.subject_id == self.subject_id,
+            StudentSpecialtyChoice.id != self.id,
+        ).first()
+        if duplicate:
+            raise ValueError("Cet élève a déjà un vœu pour cette spécialité.")

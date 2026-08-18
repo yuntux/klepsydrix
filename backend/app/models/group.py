@@ -450,6 +450,41 @@ def find_or_create_partition(
     return partition
 
 
+def _find_or_create_specialty_partition(db: Session, division_id: int, subject) -> Partition:
+    """
+    Partition scopée à (division_id, matière) par un code déterministe, pour les groupes de
+    spécialité (voir wizard_specialty_group_generation.py) — ni la stratégie `subject_ids` de
+    find_or_create_partition ci-dessus (qui ne produit qu'UNE SEULE ClassPart par matière, alors
+    qu'un groupe de spécialité peut en nécessiter plusieurs par division), ni sa stratégie
+    `part_count` (qui réutiliserait n'importe quelle Partition de la division au même nombre de
+    parties, sans lien avec la matière) ne conviennent ici.
+    """
+    code = f"SPEC_{subject.code}"
+    existing = db.query(Partition).filter(Partition.division_id == division_id, Partition.code == code).first()
+    if existing:
+        return existing
+    return Partition.create(db, {
+        "code": code,
+        "name": code,
+        "division_id": division_id, "is_system_generated": True,
+    })
+
+
+def _ensure_specialty_class_parts(db: Session, partition: Partition, subject, count: int) -> list["ClassPart"]:
+    """Complète (ne réduit jamais) le nombre de ClassPart de `partition` jusqu'à `count`, pour les
+    groupes de spécialité (voir _find_or_create_specialty_partition ci-dessus)."""
+    parts = sorted(partition.class_parts, key=lambda cp: cp.id)
+    while len(parts) < count:
+        parts.append(ClassPart.create(db, {
+            "partition_id": partition.id,
+            "name": compute_class_part_name(db, partition.division_id, subject.id),
+            "subject_id": subject.id,
+            "is_system_generated": True,
+            "_system_write": True,
+        }))
+    return parts
+
+
 def find_or_create_group(db: Session, class_part_ids: list, subject_id) -> Group:
     """
     Trouve ou crée le Group composé EXACTEMENT de ces ClassPart (même ensemble, peu importe

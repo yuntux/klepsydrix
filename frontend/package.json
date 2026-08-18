@@ -11,6 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.8.0",
     "@tanstack/vue-query": "^5.100.14",
     "pinia": "^3.0.4",
     "vue": "^3.4.0",

@@ -80,6 +80,10 @@ def seed_demo_data():
         db.commit()
 
         # 4. Création des Matières (Subjects)
+        # is_specialty=True (réforme du lycée) sur les 4 matières qui servent d'enseignements de
+        # spécialité en 1ère générale dans ce jeu de démo (voir StudentSpecialtyChoice/
+        # SpecialtyGroupConfig/wizard_specialty_group_generation.py plus bas).
+        specialty_codes = {"MATHS", "SVT", "PC", "HG"}
         subjects_data = [
             ("MATHS", "006600", "Maths", "Mathématiques", "#a5b4fc", "L0100"),
             ("FRAN", "004300", "Français", "Lettres Modernes", "#f9a8d4", "L0200"),
@@ -95,13 +99,14 @@ def seed_demo_data():
         for code, nomenclature, short, long, color, d_code in subjects_data:
             db.execute(text(
                 "INSERT INTO subjects (code, code_nomenclature, short_name, name, color, is_etp, is_specialty, pedagogic_weight, discipline_id) "
-                "VALUES (:code, :nomenclature, :short, :long, :color, 1, 0, 1.0, :discipline_id)"
+                "VALUES (:code, :nomenclature, :short, :long, :color, 1, :is_specialty, 1.0, :discipline_id)"
             ), {
                 "code": code,
                 "nomenclature": nomenclature,
                 "short": short,
                 "long": long,
                 "color": color,
+                "is_specialty": 1 if code in specialty_codes else 0,
                 "discipline_id": discipline_ids[d_code]
             })
             db.commit()
@@ -281,6 +286,65 @@ def seed_demo_data():
                 ), {"fn": fn, "ln": f"{ln}_{code}", "division_id": d_id, "mef_id": mef_2_id})
             db.commit()
 
+        # 9bis. Classes de 1ère GENERALE (2 divisions, 8 élèves chacune) + vœux de spécialité, pour
+        # disposer d'un jeu de données réaliste testant le wizard de génération des groupes de
+        # spécialité (wizard_specialty_group_generation.py) : chaque élève choisit 3 des 4
+        # matières marquées is_specialty (MATHS/SVT/PC/HG ci-dessus), en 4 combinaisons différentes
+        # tournantes pour obtenir une vraie variété de parcours à l'aperçu.
+        mef_1ere_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '20010012111'")).scalar()
+        specialty_first_names = ["Emma", "Nathan", "Jade", "Louis", "Alice", "Tom", "Inès", "Rayan"]
+        specialty_combos = [
+            ("MATHS", "SVT", "PC"),
+            ("MATHS", "SVT", "HG"),
+            ("MATHS", "PC", "HG"),
+            ("SVT", "PC", "HG"),
+        ]
+
+        for div_name in ["1ère A", "1ère B"]:
+            code = div_name.replace("è", "E").replace(" ", "_").upper()
+            db.execute(text(
+                "INSERT INTO divisions (code, name, student_count, color, school_id) "
+                "VALUES (:code, :name, 32, '#F97316', :school_id)"
+            ), {"code": code, "name": div_name, "school_id": lyc_id})
+            db.commit()
+            d_id = db.execute(text("SELECT id FROM divisions WHERE code = :code"), {"code": code}).scalar()
+            divisions.append((d_id, lyc_id))
+            db.execute(text(
+                "INSERT INTO mef_divisions (mef_id, division_id, forecast_student_count) "
+                "VALUES (:mef_id, :division_id, 32)"
+            ), {"mef_id": mef_1ere_id, "division_id": d_id})
+            db.commit()
+
+            for i, fn in enumerate(specialty_first_names):
+                ln = f"{student_last_names[i % len(student_last_names)]}_{code}"
+                db.execute(text(
+                    "INSERT INTO students (first_name, last_name, division_id, mef_id) "
+                    "VALUES (:fn, :ln, :division_id, :mef_id)"
+                ), {"fn": fn, "ln": ln, "division_id": d_id, "mef_id": mef_1ere_id})
+                db.commit()
+                student_id = db.execute(
+                    text("SELECT id FROM students WHERE first_name = :fn AND last_name = :ln"),
+                    {"fn": fn, "ln": ln}
+                ).scalar()
+                combo = specialty_combos[i % len(specialty_combos)]
+                for rank, subject_code in enumerate(combo, start=1):
+                    db.execute(text(
+                        "INSERT INTO student_specialty_choices (student_id, subject_id, rank) "
+                        "VALUES (:student_id, :subject_id, :rank)"
+                    ), {"student_id": student_id, "subject_id": subject_ids[subject_code], "rank": rank})
+            db.commit()
+
+        # Seuils de constitution des groupes de spécialité (SpecialtyGroupConfig) pour le niveau
+        # 1ère : 5 élèves max par groupe — avec 12 élèves par matière (3 combinaisons sur 4 la
+        # portent), ça déclenche bien 3 groupes par matière, sur les 2 divisions.
+        one_ere_grade_id = grade_ids["1ERE"]
+        for subject_code in ["MATHS", "SVT", "PC", "HG"]:
+            db.execute(text(
+                "INSERT INTO specialty_group_configs (subject_id, ref_grade_id, max_students_per_group, max_groups_count) "
+                "VALUES (:subject_id, :ref_grade_id, 5, NULL)"
+            ), {"subject_id": subject_ids[subject_code], "ref_grade_id": one_ere_grade_id})
+        db.commit()
+
         # 10b. Création de MefService (gabarit Maths), et propagation manuelle en Service opérationnel
         # pour 6ème A et 6ème B, alignés (même modèle de répartition : 2x1h hebdo + 1x30min dédoublé)
         maths_id = subject_ids["MATHS"]
@@ -414,6 +478,60 @@ def seed_demo_data():
             db.commit()
             c_id = db.execute(text("SELECT id FROM classrooms WHERE code = :code"), {"code": code}).scalar()
             classrooms.append((c_id, school_idx))
+
+        # 11bis. Groupe de salles "Salles science" (lycée) : 3 sous-groupes (Labo SVT, Labo
+        # Physique, Salles techno), chacun peuplé de 4 salles-feuilles de 30 places — arbre
+        # (parent_classroom_id, voir classroom.py/classroom_closure.py). Les groupes eux-mêmes
+        # (nœuds intermédiaires) n'ont ni capacité ni ref_classroom_type_id (réservés aux
+        # salles-feuilles, voir Classroom._validate_group_has_no_type). La seed insère en SQL brut
+        # (ne passe jamais par Classroom.create()/update()), donc classroom_closure — normalement
+        # maintenue par _validate_and_sync_classroom_tree à chaque écriture ORM — est reconstituée
+        # ici à la main (même convention que la cascade TeacherGradePreference, voir ref_grade.py) :
+        # sans ça, leaf_classroom_ids_under() ne résoudrait aucune salle sous ces groupes.
+        def _insert_closure_row(ancestor_id, descendant_id, depth):
+            db.execute(text(
+                "INSERT INTO classroom_closure (ancestor_id, descendant_id, depth) VALUES (:a, :d, :depth)"
+            ), {"a": ancestor_id, "d": descendant_id, "depth": depth})
+
+        tp_type_id = db.execute(text("SELECT id FROM ref_classroom_types WHERE name = 'SALLE DE TP'")).scalar()
+        techno_type_id = db.execute(text("SELECT id FROM ref_classroom_types WHERE name = 'SALLE ENS. TECHNO'")).scalar()
+
+        db.execute(text(
+            "INSERT INTO classrooms (code, name, capacity, school_id) VALUES ('SCI_GRP', 'Salles science', NULL, :school_id)"
+        ), {"school_id": lyc_id})
+        db.commit()
+        sci_group_id = db.execute(text("SELECT id FROM classrooms WHERE code = 'SCI_GRP'")).scalar()
+        _insert_closure_row(sci_group_id, sci_group_id, 0)
+
+        science_subgroups = [
+            ("SCI_SVT_GRP", "Labo SVT", "SVT", tp_type_id),
+            ("SCI_PHYS_GRP", "Labo Physique", "PHYS", tp_type_id),
+            ("SCI_TECHNO_GRP", "Salles techno", "TECHNO", techno_type_id),
+        ]
+        for group_code, group_name, room_prefix, leaf_type_id in science_subgroups:
+            db.execute(text(
+                "INSERT INTO classrooms (code, name, capacity, school_id, parent_classroom_id) "
+                "VALUES (:code, :name, NULL, :school_id, :parent_id)"
+            ), {"code": group_code, "name": group_name, "school_id": lyc_id, "parent_id": sci_group_id})
+            db.commit()
+            subgroup_id = db.execute(text("SELECT id FROM classrooms WHERE code = :code"), {"code": group_code}).scalar()
+            _insert_closure_row(subgroup_id, subgroup_id, 0)
+            _insert_closure_row(sci_group_id, subgroup_id, 1)
+
+            for i in range(1, 5):
+                db.execute(text(
+                    "INSERT INTO classrooms (code, name, capacity, school_id, parent_classroom_id, ref_classroom_type_id) "
+                    "VALUES (:code, :name, 30, :school_id, :parent_id, :type_id)"
+                ), {
+                    "code": f"{room_prefix}{i}", "name": f"{group_name} {i}",
+                    "school_id": lyc_id, "parent_id": subgroup_id, "type_id": leaf_type_id,
+                })
+                db.commit()
+                leaf_id = db.execute(text("SELECT id FROM classrooms WHERE code = :code"), {"code": f"{room_prefix}{i}"}).scalar()
+                _insert_closure_row(leaf_id, leaf_id, 0)
+                _insert_closure_row(subgroup_id, leaf_id, 1)
+                _insert_closure_row(sci_group_id, leaf_id, 2)
+            db.commit()
 
         # 12. Création d'une suite de cours & sessions (simple / complexes / co-enseignements)
         # Chaque classe a au moins 4 cours de base

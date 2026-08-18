@@ -37,37 +37,40 @@
       </span>
     </div>
 
-    <div v-if="isOpen && !disabled" class="options-dropdown glass-morphism" @scroll="onScroll" ref="dropdownRef">
-      <div v-if="filteredOptions.length === 0" class="no-options">
-        Aucun résultat trouvé
-      </div>
-      <div
-        v-else
-        class="virtual-scroller-inner"
-        :style="{ height: `${filteredOptions.length * itemHeight}px` }"
-      >
+    <Teleport to="body">
+      <div v-if="isOpen && !disabled" class="options-dropdown glass-morphism" :style="dropdownStyle" @scroll="onScroll" ref="dropdownRef">
+        <div v-if="filteredOptions.length === 0" class="no-options">
+          Aucun résultat trouvé
+        </div>
         <div
-          v-for="option in visibleOptions"
-          :key="option.value"
-          class="option-item"
-          :style="{ transform: `translateY(${option.index * itemHeight}px)` }"
-          :class="{
-            'is-selected': isSelected(option.value),
-            'is-highlighted': option.index === highlightedIndex
-          }"
-          @mousedown.prevent="toggleOption(option)"
+          v-else
+          class="virtual-scroller-inner"
+          :style="{ height: `${filteredOptions.length * itemHeight}px` }"
         >
-          <span class="checkbox-indicator">{{ isSelected(option.value) ? '✓' : '' }}</span>
-          <span class="option-label">{{ option.label }}</span>
+          <div
+            v-for="option in visibleOptions"
+            :key="option.value"
+            class="option-item"
+            :style="{ transform: `translateY(${option.index * itemHeight}px)` }"
+            :class="{
+              'is-selected': isSelected(option.value),
+              'is-highlighted': option.index === highlightedIndex
+            }"
+            @mousedown.prevent="toggleOption(option)"
+          >
+            <span class="checkbox-indicator">{{ isSelected(option.value) ? '✓' : '' }}</span>
+            <span class="option-label">{{ option.label }}</span>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { fetchGenericList } from '../services/api';
+import { useFloatingDropdown } from '../composables/useFloatingDropdown';
 
 interface Option {
   value: any;
@@ -103,6 +106,11 @@ const highlightedIndex = ref(-1);
 const containerRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const dropdownRef = ref<HTMLElement | null>(null);
+
+// Voir SearchableSelect.vue/useFloatingDropdown.ts — même correctif, même raison (dropdown
+// téléporté hors du flux + positionné via Floating UI, pour échapper à l'overflow de tout ancêtre
+// scrollable).
+const { dropdownStyle } = useFloatingDropdown(containerRef, dropdownRef, isOpen);
 
 // Virtual scrolling variables
 const itemHeight = 32; // Fixed height per option
@@ -287,8 +295,12 @@ function navigateOptions(direction: number) {
   }
 }
 
+// Voir SearchableSelect.vue::handleClickOutside — même raison (dropdown téléporté hors de containerRef).
 function handleClickOutside(event: MouseEvent) {
-  if (containerRef.value && !containerRef.value.contains(event.target as Node)) {
+  const target = event.target as Node;
+  const insideContainer = containerRef.value?.contains(target);
+  const insideDropdown = dropdownRef.value?.contains(target);
+  if (!insideContainer && !insideDropdown) {
     closeDropdown();
   }
 }
@@ -398,17 +410,13 @@ onUnmounted(() => {
 }
 
 .options-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 4px;
+  /* position/top/left/width : voir SearchableSelect.vue (même composant de positionnement) */
   max-height: 220px;
   overflow-y: auto;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  z-index: 1000;
+  z-index: 2000;
   box-shadow: var(--shadow-lg);
   animation: slideDown 0.15s ease-out;
 }
@@ -538,11 +546,7 @@ onUnmounted(() => {
 }
 
 .is-inline .options-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 6px;
+  /* position/top/left/width : voir .options-dropdown ci-dessus */
   max-height: 200px;
   background-color: var(--bg-card);
   border: 1.5px solid var(--accent-primary);

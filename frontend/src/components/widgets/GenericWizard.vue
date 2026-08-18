@@ -65,10 +65,18 @@
 //   du résultat RPC d'une étape quelconque, accumulée dans le brouillon comme les autres) — pour
 //   un wizard dont la ressource propre (ex: un TransientModel singleton) diffère de ce qu'il mute
 //   réellement en base (ex: rpc_generate_courses mute "courses", pas "wizard_course_generations").
-import { ref, computed, reactive } from 'vue';
+import { ref, computed, reactive, inject } from 'vue';
 import GenericForm from '../GenericForm.vue';
 import BaseButton from '../BaseButton.vue';
 import * as api from '../../services/api';
+
+// Fourni par App.vue (provide('fkOptionsCache', ...)) — GenericForm.vue, lui, ne le lit jamais
+// directement : pour un formulaire de RESSOURCE classique, c'est App.vue qui pré-résout
+// field.options depuis ce cache avant de construire le tableau `fields` (voir generateDynamicFields).
+// Un wizard n'a pas cette étape : ses champs viennent tels quels de __actions__ (déclaration
+// statique côté backend, jamais de valeurs de base en dur) — sans l'injecter ici, tout champ
+// resource d'une étape (ex: un select "Niveau" pointant ref_grades) resterait vide.
+const fkOptionsCache = inject<{ value: Record<string, { items: Array<{ value: any; label: string; rawData?: any }> }> }>('fkOptionsCache');
 
 interface WizardStep {
   id: string;
@@ -111,6 +119,9 @@ const currentStep = computed<WizardStep | undefined>(() => props.steps[currentSt
 const currentStepFields = computed(() => {
   return (currentStep.value?.fields || []).map((f: any) => ({
     ...f,
+    // f.options prime si déjà fourni explicitement par l'étape (cas rare, non observé à ce jour) —
+    // sinon résolu depuis fkOptionsCache pour tout champ resource (voir import ci-dessus).
+    options: f.options || (f.resource ? (fkOptionsCache?.value[f.resource]?.items || []) : undefined),
     widgetParams: {
       ...(f.widgetParams || {}),
       recordId: props.recordId,

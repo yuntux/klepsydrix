@@ -474,7 +474,17 @@ const actionWizardNonce = ref(0);
 
 async function onTriggerAction(action: { resourceKey: string; actionId: string }) {
   try {
-    const res = await api.fetchAllGenericItems(action.resourceKey);
+    // loadFkOptionsForModel : contrairement aux autres points d'entrée d'un GenericForm (onglet,
+    // panneau détail — voir les appels équivalents plus bas dans ce fichier), une action de menu
+    // ne passe jamais par activeAdminModel/detailPanel, donc rien ne peuplait jusqu'ici
+    // fkOptionsCache pour la ressource du wizard déclenché — resterait invisible tant qu'aucun
+    // champ resource éditable n'était utilisé dans une étape (premier cas : ref_grade_id de
+    // wizard_specialty_group_generations). En parallèle du chargement de l'enregistrement
+    // singleton, pas séquentiel après : indépendants, pas de raison d'attendre l'un pour l'autre.
+    const [res] = await Promise.all([
+      api.fetchAllGenericItems(action.resourceKey),
+      loadFkOptionsForModel(action.resourceKey),
+    ]);
     const record = res.items?.[0];
     if (!record) {
       console.error(`Aucun enregistrement pour la ressource singleton ${action.resourceKey}`);

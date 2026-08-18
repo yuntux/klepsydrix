@@ -179,9 +179,17 @@ def init_prod_data(slug: str = None):
         # production (contrairement aux tables ref_* ci-dessus, laissées vides) : frontière de
         # mutualisation de l'effectif réduit entre Service de MEF différents (voir
         # Service._reduced_pool_services, spec.md « Mutualisation de l'effectif réduit »).
-        ref_grades_data = ["6EME", "5EME", "4EME", "3EME", "2NDE", "1ERE", "TERMINALE"]
-        for name in ref_grades_data:
-            db.execute(text("INSERT INTO ref_grades (name) VALUES (:name)"), {"name": name})
+        # specialty_choice_limit (plafond de vœux de spécialité, réforme du lycée) : 3 en Première,
+        # 2 en Terminale, NULL (non concerné) pour les autres niveaux — voir StudentSpecialtyChoice.
+        ref_grades_data = [
+            ("6EME", None), ("5EME", None), ("4EME", None), ("3EME", None), ("2NDE", None),
+            ("1ERE", 3), ("TERMINALE", 2),
+        ]
+        for name, specialty_choice_limit in ref_grades_data:
+            db.execute(
+                text("INSERT INTO ref_grades (name, specialty_choice_limit) VALUES (:name, :specialty_choice_limit)"),
+                {"name": name, "specialty_choice_limit": specialty_choice_limit},
+            )
 
         db.commit()
 

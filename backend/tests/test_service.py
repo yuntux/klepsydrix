@@ -71,6 +71,13 @@ def _base_fixtures(db):
     return school, discipline, subject, mef, division, mef_division, mef_service, service
 
 
+def _extra_subject(db, discipline, code="MATH2"):
+    """Second Subject, pour un test qui a besoin de créer lui-même un MefService personnalisé sans
+    entrer en collision avec celui déjà auto-généré par _base_fixtures pour "MATH" (voir la
+    contrainte d'unicité MefService(mef_id, subject_id), mef.py)."""
+    return Subject.create(db, {"code": code, "code_nomenclature": f"N_{code}", "short_name": code, "name": f"Matière {code}", "discipline_id": discipline.id})
+
+
 class TestRefGradeDeleteRestrict:
     def test_cannot_delete_ref_grade_referenced_by_a_mef(self, db_session):
         _, _, _, mef, _, _, _, _ = _base_fixtures(db_session)
@@ -89,7 +96,8 @@ class TestRefGradeDeleteRestrict:
 
 class TestMefServiceFields:
     def test_total_weekly_duration_is_sum_of_three(self, db_session):
-        _, _, subject, mef, _, _, _, _ = _base_fixtures(db_session)
+        _, discipline, _, mef, _, _, _, _ = _base_fixtures(db_session)
+        subject = _extra_subject(db_session, discipline)
         from backend.app.models.mef import MefService
         ms = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -211,7 +219,8 @@ class TestServiceStructure:
 
 class TestServiceSyncIndicator:
     def test_service_generated_from_template_is_synced_until_diverging(self, db_session):
-        _, _, subject, mef, division, mef_division, _, _ = _base_fixtures(db_session)
+        _, discipline, _, mef, division, mef_division, _, _ = _base_fixtures(db_session)
+        subject = _extra_subject(db_session, discipline)
         from backend.app.models.mef import MefService
         mef_service = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -241,7 +250,8 @@ class TestServiceSyncIndicator:
         assert service.is_synced_with_mef_service is True
 
     def test_updating_mef_service_does_not_propagate_student_count(self, db_session):
-        _, _, subject, mef, division, mef_division, _, _ = _base_fixtures(db_session)
+        _, discipline, _, mef, division, mef_division, _, _ = _base_fixtures(db_session)
+        subject = _extra_subject(db_session, discipline)
         from backend.app.models.mef import MefService
         mef_service = MefService.create(db_session, {
             "mef_id": mef.id,
@@ -255,7 +265,8 @@ class TestServiceSyncIndicator:
         assert service.student_count == 15
 
     def test_updating_mef_service_never_propagates_back_from_service_edits(self, db_session):
-        _, _, subject, mef, division, mef_division, _, _ = _base_fixtures(db_session)
+        _, discipline, _, mef, division, mef_division, _, _ = _base_fixtures(db_session)
+        subject = _extra_subject(db_session, discipline)
         from backend.app.models.mef import MefService
         mef_service = MefService.create(db_session, {
             "mef_id": mef.id,

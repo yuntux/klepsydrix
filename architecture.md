@@ -1159,7 +1159,7 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
 
 **Affichage minimal, volontairement** : juste le bouton icône loupe, sans les tags qu'affiche `OwnedRelationField` — un choix délibéré (pas une simplification par défaut) pour rester un composant compact utilisable aussi bien en cellule de tableau qu'en champ de formulaire.
 
-### K. Dropdowns Tronqués dans une Popin Peu Remplie — Choix Délibéré de ne Pas Corriger la Cause de Fond
+### K. Dropdowns Tronqués dans une Popin Peu Remplie — puis Correctif Général (Floating UI) une fois le Symptôme Réapparu Ailleurs
 
 **Le symptôme** : dans une popin peu remplie (ex: `GenericListModal` avec 2-3 lignes), un dropdown ouvert depuis une cellule (`SearchableSelect`/`SearchableMultiSelect`) ou le sélecteur de colonnes de `GenericList` peut apparaître tronqué, avec un ascenseur pour voir la fin de la liste.
 
@@ -1169,9 +1169,19 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
 1. **Correctif général** (`Teleport` + positionnement viewport via `getBoundingClientRect()`, sur `SearchableSelect`/`SearchableMultiSelect`/le sélecteur de colonnes de `GenericList`) — implémenté puis **retiré** après relecture : trop de surface touchée (3 composants partagés, utilisés dans tout l'écran) pour un besoin observé à un seul endroit, sans possibilité de vérification réelle en navigateur (règle du projet — voir `constitution.md` Principe II). Le risque de régression sur des composants aussi transverses a été jugé disproportionné par rapport au problème constaté.
 2. **Correctif local, ciblé sur la popin** (retenu) — donner à `GenericListModal` une taille suffisante pour que les dropdowns qu'elle contient (peu d'options dans ce cas d'usage : périodicité, durée) ne soient jamais tronqués en pratique.
 
-**Pourquoi ce choix** : le correctif général reste la solution techniquement correcte si ce même symptôme réapparaît ailleurs dans l'app (plusieurs endroits touchés indépendamment serait un signal fort qu'investir dans le correctif générique en vaut la peine) — mais tant que le besoin observé reste isolé à cette popin, la solution locale est nettement moins risquée pour un résultat équivalent dans ce cas précis. Ne pas confondre "solution la plus élégante en théorie" et "solution la mieux dimensionnée pour le besoin réel" : sur ce coup-ci, ces critères n'allaient pas dans le même sens.
+**Pourquoi ce choix, à l'époque** : le correctif général restait la solution techniquement correcte si ce même symptôme réapparaissait ailleurs dans l'app (plusieurs endroits touchés indépendamment serait un signal fort qu'investir dans le correctif générique en vaut la peine) — mais tant que le besoin observé restait isolé à cette popin, la solution locale était nettement moins risquée pour un résultat équivalent dans ce cas précis. Ne pas confondre "solution la plus élégante en théorie" et "solution la mieux dimensionnée pour le besoin réel" : sur ce coup-ci, ces critères n'allaient pas dans le même sens.
 
 **Piège rencontré en implémentant la solution 2** : un premier essai a donné `min-height: 420px` à `.generic-list-modal-content` (le wrapper autour de `GenericList` dans `GenericListModal.vue`). Insuffisant : `GenericList.vue` repose sur `.generic-list-container { height: 100%; }` pour que son `.table-wrapper` (`flex: 1`, la zone scrollable où les dropdowns de cellule s'ancrent) s'étire — et la résolution CSS d'un `height: 100%` exige que le parent direct ait une hauteur *définie*. Un `min-height` seul sur un bloc `display: block` ne fournit pas cette garantie de façon fiable : le `min-height` ajoutait de l'espace vide *autour* de la liste (toujours petite) plutôt que d'agrandir la liste elle-même. Correctif : remplacer `min-height` par une `height` fixe (`height: 420px`) sur `.generic-list-modal-content`, qui *est* une hauteur définie — `height: 100%` de `.generic-list-container` s'y résout alors correctement, et `.table-wrapper` s'étire réellement. Le scroll interne déjà présent sur `.table-wrapper` (`overflow: auto`) continue de gérer le cas où il y a plus de lignes que ne peut en afficher 420px, donc aucune régression pour les listes plus longues.
+
+**Le symptôme a réapparu ailleurs (`wizard_specialty_group_generation`, un `GenericWizard` dans une `BaseModal`) — le correctif général a été fait à ce moment-là**, exactement le signal annoncé ci-dessus. `SearchableSelect.vue`/`SearchableMultiSelect.vue` téléportent désormais leur dropdown dans `<body>` (`<Teleport to="body">`) et le positionnent via **Floating UI** (`@floating-ui/dom`, nouvelle dépendance — successeur de Popper.js, ~5 Ko, pure utilitaire de calcul de position, pas une lib de composants), dans un composable partagé `useFloatingDropdown.ts` (`frontend/src/composables/`) :
+- `strategy: 'fixed'` + `placement: 'bottom-start'` : coordonnées écran plutôt que coordonnées de conteneur, échappe à l'overflow de N'IMPORTE QUEL ancêtre scrollable.
+- Middleware `flip` : retourne le dropdown au-dessus de l'ancre s'il n'y a pas assez de place en dessous — cas que la première tentative "maison" (`getBoundingClientRect` posé à la main, sans Floating UI) ne gérait pas.
+- Middleware `shift` : recale horizontalement pour ne jamais déborder du viewport.
+- `autoUpdate(anchor, floating, updateFn)` : remplace des listeners `scroll`/`resize` posés à la main (capture=true sur `window`, seule façon d'intercepter le scroll d'un ancêtre quelconque puisque l'évènement `scroll` ne bubble jamais) — recalcule aussi sur toute mutation de layout (ResizeObserver interne à Floating UI), pas seulement scroll/resize.
+- `handleClickOutside` (les deux composants) étendu pour reconnaître aussi un clic dans `dropdownRef` (plus seulement `containerRef`), puisque le dropdown téléporté n'est plus un descendant DOM du conteneur.
+- Le `z-index: 9999 !important` de la variante inline (workaround qui ne réglait pas le vrai problème, voir plus haut) reste inoffensif mais n'est plus la ligne de défense : le point flottant se pose désormais toujours au-dessus de `BaseModal` (`z-index: 1000`) via un `z-index: 2000` sur `.options-dropdown` de base.
+
+**Ce que ce fix ne fait toujours pas** : le sélecteur de colonnes de `GenericList.vue`, qui avait le même symptôme dans la description originale, n'a pas été migré — resté hors du périmètre de cette itération (`SearchableSelect`/`SearchableMultiSelect` uniquement). À reprendre si le même symptôme s'y observe concrètement.
 
 ### L. Vue Pivot Générique (Tableau Croisé Configurable) — IMPLÉMENTÉ
 
@@ -2729,7 +2739,117 @@ l'appelant qui la porte) — la sélection multiple déjà existante de `Generic
 toutes cochées par défaut) est détournée en "à valider" plutôt qu'en action groupée classique :
 décocher une ligne la retire de `modelValue`, donc de ce que `rpc_apply` recevra à la validation.
 
-## 21. Idées pour Plus Tard
+## 21. Génération des Groupes de Spécialité (Réforme du Lycée)
+
+### A. Comparatif éditeurs et positionnement retenu
+
+Trois éditeurs concurrents (UnDeuxTEMPS/Axess, EDT/IndexEducation, Charlemagne/Aplim) suivent le
+même pipeline en 6 temps (offre → recueil des vœux → parcours → constitution des groupes →
+barrettes → cours), mais divergent sur qui décide des barrettes. EDT propose 3 modes de
+génération :
+1. **« En répartissant les groupes sur X alignements »** : barrette précalculée, algorithme de
+   bin-packing/coloration de graphe.
+2. **« En réservant un créneau supplémentaire pour du tronc commun »** : réaffecte les élèves aux
+   classes elles-mêmes selon leurs spécialités — touche un périmètre différent (composition des
+   `Division`), écarté de Klepsydrix pour cette raison (déjà un chantier séparé, l'écran
+   "Affectation élèves").
+3. **« En minimisant les liens entre les groupes »** : aucun alignement précalculé, la non-collision
+   est déléguée au moteur de placement.
+
+**Klepsydrix retient le mode 3 en v1** : aucun `Alignment` n'est construit par le wizard de
+génération — chaque `Service` de spécialité est posé directement sur un `Group` (voir C
+ci-dessous), et la non-collision entre les spécialités choisies par un même élève repose
+entièrement sur le mécanisme générique déjà en place (`ClassPartLink` auto-généré entre
+partitions d'une même division, `group_link_conflict` côté solveur, voir §8) — sans qu'aucun code
+nouveau n'ait été nécessaire pour cette garantie. Le mode 1 (barrette précalculée, glouton) reste
+un chantier ultérieur distinct, greffé sur le même modèle de données.
+
+Point notable découvert en comparant les éditeurs : EDT ne relie **pas** automatiquement la
+génération des cours de spécialité à son TRMD prévisionnel — sa propre documentation officielle
+décrit une étape « Reporter dans les besoins prévisionnels » **manuelle** (recopier à la main le
+nombre de groupes calculé). UnDeuxTEMPS et Charlemagne, eux, font transiter la génération de
+spécialités par leur propre concept de Service, connecté nativement à leur TRMD. Klepsydrix suit
+cette seconde voie — voir C, génération automatique du gabarit `MefService`.
+
+### B. Modèle de données
+
+- **`RefGrade.specialty_choice_limit`** (Entier optionnel) : plafond de vœux de spécialité pour ce
+  niveau (3 en Première, 2 en Terminale, `NULL` = niveau non concerné) — champ explicite plutôt
+  que déduit de `RefGrade.name` (texte libre saisi par l'établissement, non fiable pour une règle
+  métier). Même frontière que celle déjà utilisée pour la mutualisation de l'effectif réduit (voir
+  §4).
+- **`StudentSpecialtyChoice`** (`student_id`, `subject_id`, `rank`) : un vœu de spécialité, exposé
+  sur `Student` via le widget générique `many2many_ordered_list` (même patron que
+  `Mef.mef_services`). Contraintes : la matière doit être `is_specialty=True` ; le rang ne peut pas
+  dépasser `specialty_choice_limit` du niveau de l'élève (erreur explicite si ce plafond n'est pas
+  configuré — un niveau silencieusement pris pour "sans spécialités" serait une source de bug plus
+  discrète qu'une erreur bloquante) ; unicité `(student_id, subject_id)`.
+- **`SpecialtyGroupConfig`** (`subject_id`, `ref_grade_id`, `max_students_per_group`,
+  `max_groups_count` optionnel) : seuils de constitution des groupes, **par niveau, jamais par
+  MEF** — un établissement propose en général une seule offre de spécialités pour tous ses MEF d'un
+  même niveau, contrairement au reste de la couche Service (voir §4) qui est structurellement
+  ancrée à un MEF. Unicité `(subject_id, ref_grade_id)`.
+- **`MefService(mef_id, subject_id)` devient unique** (nouvelle `@constrains()`) : condition
+  nécessaire à la recherche "find-or-create" du wizard (voir C) — le besoin en heures d'une matière
+  pour un MEF est indépendant des professeurs qui la dispensent ensuite, la multiplicité vient
+  toujours de `Service` (un par groupe), jamais de `MefService` lui-même.
+
+### C. Wizard `wizard_specialty_group_generation.py`
+
+Même patron que `WizardTeacherAssignment` (§20.E) : trois étapes (sélection du niveau / aperçu /
+résultat), `rpc_preview` en dry-run suivi de `rpc_generate`, deux fois le **même** calcul
+(`_compute_specialty_plan`) pour garantir que l'aperçu et la génération ne peuvent jamais diverger.
+
+- **Regroupement en parcours** : les `StudentSpecialtyChoice` d'un élève, triées par rang, forment
+  un tuple — les élèves partageant le même tuple sont comptés ensemble à l'aperçu (colonne
+  "Parcours").
+- **Bin-packing par matière** : glouton round-robin (mode « minimisant les liens », voir A) — pour
+  chaque matière choisie, `groups_needed = ceil(effectif / max_students_per_group)`, plafonné par
+  `max_groups_count` si renseigné (avec avertissement explicite en cas de dépassement, jamais une
+  troncature silencieuse).
+- **Partition scopée par (division, matière), pas par les deux stratégies existantes de
+  `find_or_create_partition`** (§5bis) : ni `subject_ids` (une seule `ClassPart` par matière, alors
+  qu'un groupe de spécialité peut nécessiter d'en distribuer plusieurs par division), ni
+  `part_count` (réutiliserait n'importe quelle `Partition` de la division au même nombre de
+  parties, sans lien avec la matière). Un code déterministe (`f"SPEC_{subject.code}"`) identifie
+  sans ambiguïté la `Partition` propre à cette matière dans cette division — un petit résolveur
+  dédié (`_find_or_create_specialty_partition`/`_ensure_specialty_class_parts`, `group.py`, juste
+  après `find_or_create_partition`) plutôt qu'un mésusage des deux stratégies génériques
+  existantes.
+- **`Group` cross-division** : `find_or_create_group` (§6), déjà générique, sans changement.
+- **`MefService` auto-généré, jamais recréé s'il existe** (recherche par `(mef_id, subject_id)`,
+  voir B) : volume par défaut dérivé du référentiel officiel (6h si `specialty_choice_limit == 3`,
+  4h si `== 2`), éditable ensuite comme n'importe quel `MefService`. Si le bin d'un groupe mélange
+  plusieurs MEF (rare), le MEF majoritaire est retenu comme porteur du `Service` — **jamais deux
+  `Service` sur le même `Group`**, ce que `_courses_from_group_service` (voir D) ne saurait pas
+  dédupliquer.
+- **`Service` toujours créé, jamais réutilisé** — un par groupe, en copiant les champs miroirs du
+  `MefService` (`Service._MEF_SERVICE_MIRROR_FIELDS`, même construction que
+  `Service.generate_from_mef_service`, §4bis) avec `group_id` au lieu de `mef_division_id`.
+- **Réexécution** : une passe de nettoyage précède la passe d'affectation (retire d'abord tous les
+  élèves concernés de toutes les `ClassPart` existantes de leur partition de spécialité, avant de
+  les réaffecter à leur nouveau bin) — évite qu'un élève ayant changé de groupe se retrouve
+  transitoirement dans deux `ClassPart` de la même `Partition` (interdit par
+  `Student._check_student_class_parts`, §6ter). Contrairement à `MEFService`/`MefDivision → Service`
+  (§4bis), aucun état `Fait`/`Partiel`/`Reconstruire` façon UnDeuxTEMPS n'est construit ici — limite
+  connue de cette première itération.
+
+### D. Extension de `wizard_course_generation.py`
+
+`_courses_from_service` (§4bis, génération des `Course` depuis un `Service` non aligné) gagne une
+branche pour `service.group_id is not None` (`_courses_from_group_service`) : contrairement au cas
+`Service`→`Division` existant, la population est déjà figée par le `Group` (construit par le wizard
+ci-dessus) — aucune dérivation de partition/sous-groupe supplémentaire, `school_id` est dérivé de
+la `Division` de n'importe laquelle des `ClassPart` du groupe. Seul `RepartitionGroupType.FULL_CLASS`
+est accepté sur ce chemin (erreur explicite sinon) : un dédoublement/effectif réduit
+supplémentaire *à l'intérieur* d'un groupe déjà cross-division n'est pas géré (le mécanisme
+`find_or_create_partition` est scopé à une division, pas à un groupe). Le filtre de dispatch de
+`generate_courses_from_services` (qui excluait auparavant tout `Service` à `group_id`, avec le
+commentaire "non géré pour l'instant") a été levé en conséquence — `_courses_from_alignment`
+(barrettes, mode 1) continue en revanche d'exclure les `Service` liés à un `Group` de son
+agrégation, inchangé.
+
+## 22. Idées pour Plus Tard
 
 Pistes identifiées mais délibérément écartées du périmètre actuel — à reconsidérer si le contexte
 qui les rend inutiles aujourd'hui change.

@@ -88,6 +88,23 @@ class MefService(Base):
             + (self.weekly_duration_reduced_minutes or 0) \
             + (self.weekly_duration_split_minutes or 0)
 
+    @constrains()
+    def _check_unique_mef_subject_pair(self, db: Session):
+        """
+        Un seul MefService (gabarit) par couple (mef_id, subject_id) — le besoin en heures d'une
+        matière pour un MEF donné est indépendant des professeurs qui la dispensent ensuite : la
+        multiplicité vient de Service (un par groupe/division, voir Service._MEF_SERVICE_MIRROR_FIELDS),
+        jamais de MefService lui-même. Condition nécessaire à la recherche "find-or-create" du
+        wizard de génération des groupes de spécialité (wizard_specialty_group_generation.py).
+        """
+        duplicate = db.query(MefService).filter(
+            MefService.mef_id == self.mef_id,
+            MefService.subject_id == self.subject_id,
+            MefService.id != self.id,
+        ).first()
+        if duplicate:
+            raise ValueError("Un MefService existe déjà pour ce couple MEF/matière.")
+
     @constrains('weekly_duration_full_class_minutes', 'weekly_duration_reduced_minutes', 'weekly_duration_split_minutes')
     def validate_weekly_durations_multiple(self, db: Session):
         from backend.app.core.time_utils import validate_multiple_of_standard_timeslot

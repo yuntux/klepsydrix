@@ -286,6 +286,10 @@ Contrairement à l'attribution des salles, ce sous-problème n'a pas de sous-pro
 
 Ce module ne vérifie pas la faisabilité agrégée multi-professeurs d'une même classe (ex. trois matières confiées chacune à un professeur disponible un seul jour, pour une classe fermée ce jour-là) — cette vérification reste le rôle de `COURSE_PLACEMENT`, en aval, qui dispose déjà de toutes les contraintes réelles.
 
+**Génération des groupes de spécialité (réforme du lycée) — pourquoi aucun alignement précalculé n'est nécessaire**
+
+À partir des vœux de spécialité saisis par élève (**StudentSpecialtyChoice**, 6quater), un wizard dédié (`wizard_specialty_group_generation.py`) répartit les élèves en groupes par matière (bin-packing glouton respectant **SpecialtyGroupConfig**, 4octies), génère les **Group**/**Partition**/**ClassPart** cross-division correspondants, puis un **MefService**/**Service** par groupe (jamais recréé si déjà présent pour ce couple MEF/matière, voir 4bis). Contrairement à ce que suggère l'usage du mot « barrette » chez les éditeurs concurrents, aucun **Alignment** (§4septies) n'est construit par ce wizard : la non-collision entre les spécialités d'un même élève est entièrement garantie par le mécanisme générique déjà en place (`ClassPartLink` auto-généré entre partitions d'une même division, contrainte solveur `group_link_conflict`) — un alignement précalculé resterait un raffinement optionnel (compacité des grilles élèves), pas une condition de correction. Voir `architecture.md` §21 pour le détail complet (comparatif des trois éditeurs étudiés, modèle de données, algorithme).
+
 ### Key Entities
 
 
@@ -546,6 +550,7 @@ Six objets de liaison, tous construits sur le même gabarit : `id`, `teacher_id`
 Nomenclature nationale des niveaux de formation (ex: 6ème, 5ème, ..., Terminale), seedée dans toute base de production (`init_db.py`, au même titre que `STANDARD_TIMESLOT_DURATION` — contrairement aux tables `ref_*` RH du §3bis, laissées vides). Sert de **frontière de mutualisation de l'effectif réduit** entre `Service` de `MEF` différents (voir « Mutualisation de l'effectif réduit » plus bas) : deux MEF différents peuvent mutualiser un groupe à effectif réduit dès lors qu'ils portent le même niveau (ex: MEF Général et MEF SEGPA de 6ème, cf. point 3 ci-dessous) — jamais entre deux niveaux différents.
 *   `id` : Clé primaire (Entier)
 *   `name` : Libellé du niveau (Chaîne, unique, e.g. "6EME", "TERMINALE")
+*   `specialty_choice_limit` : Plafond de vœux de spécialité pour ce niveau (Entier optionnel, `NULL` = niveau non concerné par les enseignements de spécialité) — 3 en Première, 2 en Terminale selon le référentiel officiel. Voir **StudentSpecialtyChoice** (6quater) et `architecture.md` §21.
 *   **Suppression protégée** : `RESTRICT` — un `RefGrade` référencé par au moins un `MEF` ne peut pas être supprimé (garde-fou générique piloté par le schéma, voir `architecture.md` §15.H).
 
 ### 3quinquies. TeacherGradePreference (Préférences d'affectation par niveau)
@@ -584,6 +589,8 @@ Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » po
 > **Propagation forcée (modification)** : toute modification d'un `MEFService` répercute ses champs miroirs sur **tous** les `Service` déjà générés à partir de lui, **y compris ceux ayant déjà divergé manuellement** (`is_synced_with_mef_service` à `False`) — ces derniers perdent alors leurs ajustements locaux, écrasés par le gabarit. `student_count` est exclu de cette propagation (voir ci-dessous).
 
 > **Suppression en cascade** : supprimer un `MEFService` supprime aussi tous les `Service` (et leurs `ServiceRepartition`) générés à partir de lui. Un `Service` référence toujours un `MEFService` (voir 4quinquies) — il ne peut donc jamais y avoir de `Service` orphelin après cette suppression.
+
+> **Unicité `(mef_id, subject_id)`** : un seul `MEFService` par couple MEF/matière — condition nécessaire à la recherche "find-or-create" du wizard de génération des groupes de spécialité (voir `architecture.md` §21), qui réutilise le `MEFService` existant plutôt que d'en créer un doublon.
 *   `id` : Clé primaire (Entier)
 *   `mef_id` : Clé étrangère vers le **MEF** parent (Entier, relation 1-à-N)
 *   `ref_grade_id` : Niveau du MEF d'origine (Entier, related field en lecture seule dérivé de `mef_id.ref_grade_id`)
@@ -736,6 +743,15 @@ Regroupe plusieurs **Service** devant avoir lieu strictement au même moment (ex
 *   `name` : Libellé (Chaîne, ex: `Barrette LV2 - Niveau 3ème`)
 *   *Relations (1-à-N)* : `services` (Les **Service** membres de cet alignement)
 
+### 4octies. SpecialtyGroupConfig (Seuil de groupe de spécialité)
+Seuils de constitution des groupes de spécialité (réforme du lycée), pour un couple (**Subject**, **RefGrade**) — jamais par **MEF** : un établissement propose en général une seule offre de spécialités pour tous ses MEF d'un même niveau (voir `architecture.md` §21).
+*   `id` : Clé primaire (Entier)
+*   `subject_id` : Clé étrangère vers la **Subject** de spécialité (Entier, `CASCADE`) — doit obligatoirement être marquée `is_specialty=True`.
+*   `ref_grade_id` : Clé étrangère vers le **RefGrade** concerné (Entier, `CASCADE`)
+*   `max_students_per_group` : Effectif maximal accepté par groupe (Entier, obligatoire, strictement > 0)
+*   `max_groups_count` : Nombre maximal de groupes acceptable (Entier optionnel, `NULL` = aucun plafond) — si le besoin calculé le dépasse, le nombre de groupes est plafonné et un avertissement explicite est renvoyé au wizard (jamais une troncature silencieuse).
+*   **Contrainte d'intégrité** : le couple (`subject_id`, `ref_grade_id`) doit être unique dans la base.
+
 ### 5. ClassPart (Partie de classe)
 Une composante élémentaire issue d'une partition de classe (ex : Demi-classe 1, Esp1, Latin).
 *   `id` : Clé primaire (Entier)
@@ -810,6 +826,18 @@ Représente un élève physique inscrit dans l'établissement, rattaché à une 
 > - **Unicité de partition :** Un élève ne peut pas appartenir à deux parties de classe différentes de la même partition (les parties d'une même partition étant disjointes par nature).
 > - **Cohérence de division :** Un élève ne peut appartenir qu'à des parties de classe associées à sa propre division (c'est-à-dire que le `division_id` de la partition d'attachement doit correspondre au `division_id` de l'élève).
 > - **Cohérence MEF/Division :** Le `mef_id` de l'élève doit obligatoirement correspondre à l'un des MEF liés à sa Division via un enregistrement **MefDivision** existant.
+
+### 6quater. StudentSpecialtyChoice (Vœu de spécialité)
+Vœu de spécialité d'un élève (réforme du lycée) : une matière de spécialité classée par rang de préférence — alimente le calcul des parcours et la génération des groupes de spécialité (voir `architecture.md` §21). Exposé sur **Student** via le widget générique `many2many_ordered_list` (même patron que `Mef.mef_services`, 4bis).
+*   `id` : Clé primaire (Entier)
+*   `student_id` : Clé étrangère vers l'**Student** (Entier, `CASCADE`)
+*   `subject_id` : Clé étrangère vers la **Subject** de spécialité (Entier, `RESTRICT`) — doit obligatoirement être marquée `is_specialty=True`.
+*   `rank` : Rang de préférence (Entier, ≥ 1) — ne peut pas dépasser `RefGrade.specialty_choice_limit` du niveau de l'élève (via `Student.mef.ref_grade`) ; erreur explicite si ce plafond n'est pas configuré pour ce niveau.
+
+> **Contraintes d'intégrité de StudentSpecialtyChoice :**
+> - **Matière de spécialité obligatoire :** la `Subject` visée doit avoir `is_specialty=True`.
+> - **Plafond de rang :** `rank` ne peut pas dépasser le plafond du niveau de l'élève (voir 3quater) ; le niveau doit avoir un plafond configuré.
+> - **Unicité :** le couple (`student_id`, `subject_id`) doit être unique — un élève ne peut avoir qu'un seul vœu par matière.
 
 > [!NOTE]
 > **Règles d'intégrité de la structure des groupes (déjà implémentées dans `group.py`) :**

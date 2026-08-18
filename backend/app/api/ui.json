@@ -1878,6 +1878,64 @@
         ]
       },
       {
+        "id": "students_setting",
+        "icon": "backpack",
+        "title": "Élèves",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "students_list",
+            "component": "GenericList",
+            "resourceKey": "students",
+            "width": "60%",
+            "listConfig": {
+              "columns": {
+                "first_name": {
+                  "visibleByDefault": true
+                },
+                "last_name": {
+                  "visibleByDefault": true
+                },
+                "division_id": {
+                  "visibleByDefault": true
+                },
+                "mef_id": {
+                  "visibleByDefault": true
+                }
+              }
+            }
+          },
+          {
+            "id": "students_form",
+            "component": "GenericForm",
+            "resourceKey": "students",
+            "width": "40%"
+          }
+        ]
+      },
+      {
+        "id": "specialty_group_configs_setting",
+        "icon": "target",
+        "title": "Seuils de spécialité",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "specialty_group_configs_list",
+            "component": "GenericList",
+            "resourceKey": "specialty_group_configs",
+            "width": "60%"
+          },
+          {
+            "id": "specialty_group_configs_form",
+            "component": "GenericForm",
+            "resourceKey": "specialty_group_configs",
+            "width": "40%"
+          }
+        ]
+      },
+      {
         "id": "generate_courses_action",
         "icon": "wrench",
         "title": "Générer les cours",
@@ -1893,6 +1951,15 @@
         "action": {
           "resourceKey": "wizard_teacher_assignments",
           "actionId": "assign_teachers"
+        }
+      },
+      {
+        "id": "generate_specialty_groups_action",
+        "icon": "wrench",
+        "title": "Générer les groupes de spécialité",
+        "action": {
+          "resourceKey": "wizard_specialty_group_generations",
+          "actionId": "generate_specialty_groups"
         }
       }
     ]

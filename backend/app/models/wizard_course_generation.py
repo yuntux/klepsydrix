@@ -4,6 +4,7 @@ saisie en Pré-rentrée. Convention de nommage : tout modèle de wizard (Transie
 métier associée) est préfixé wizard_ (voir architecture.md), regroupé dans un seul fichier plutôt
 que scindé logique/modèle.
 """
+from typing import Optional
 from sqlalchemy.orm import Session
 from backend.app.models.base import TransientModel, requires_access
 from backend.app.models.course import Course
@@ -70,8 +71,63 @@ def _courses_from_alignment(db: Session, alignment: Alignment) -> list[dict]:
     return vals_list
 
 
+def _school_id_for_group(db: Session, group_id: int) -> Optional[int]:
+    """
+    school_id d'un Group : dérivé de la Division de n'importe laquelle de ses ClassPart (un Group
+    de spécialité peut couvrir plusieurs divisions, mais toutes appartiennent au même
+    établissement — voir wizard_specialty_group_generation.py).
+    """
+    from backend.app.models.group import Group
+    group = db.get(Group, group_id)
+    if not group or not group.class_parts:
+        return None
+    partition = group.class_parts[0].partition
+    division = partition.division if partition else None
+    return division.school_id if division else None
+
+
+def _courses_from_group_service(db: Session, service: Service) -> list[dict]:
+    """
+    Cours simples issus d'un Service non aligné directement lié à un Group déjà constitué (cas
+    des groupes de spécialité, voir wizard_specialty_group_generation.py) — la population est
+    déjà figée par le Group, aucune dérivation de partition/sous-groupe supplémentaire ici
+    (contrairement à _courses_from_service, dont le Group est dérivé d'une Division source).
+    """
+    school_id = _school_id_for_group(db, service.group_id)
+    if school_id is None:
+        return []
+
+    teacher_ids = [t.id for t in service.teachers]
+    is_co_teaching = len(teacher_ids) > 1
+
+    vals_list = []
+    for repartition in service.repartitions:
+        if repartition.group_type != RepartitionGroupType.FULL_CLASS:
+            raise ValueError(
+                "Un Service directement lié à un Group ne peut porter que des répartitions de type "
+                "Classe entière (FULL_CLASS) : le Group représente déjà la population cible, un "
+                "dédoublement/effectif réduit supplémentaire n'est pas géré."
+            )
+        base_vals = {
+            "school_id": school_id,
+            "subject_id": service.subject_id,
+            "teacher_ids": teacher_ids,
+            "is_co_teaching": is_co_teaching,
+            "duration_minutes": repartition.duration_minutes,
+            "week_type": _week_type_for(repartition.periodicity),
+            "weighting_coefficient": service.weighting_coefficient,
+            "group_ids": [service.group_id],
+        }
+        for _ in range(repartition.occurrence_count):
+            vals_list.append(dict(base_vals))
+    return vals_list
+
+
 def _courses_from_service(db: Session, service: Service) -> list[dict]:
     """Cours simples issus d'un Service non aligné et lié à une Division (voir group_type)."""
+    if service.group_id is not None:
+        return _courses_from_group_service(db, service)
+
     school_id = None
     division = db.get(Division, service.division_id) if service.division_id else None
     if division:
@@ -135,7 +191,7 @@ def generate_courses_from_services(db: Session) -> dict:
     vals_list = []
     for alignment in db.query(Alignment).all():
         vals_list.extend(_courses_from_alignment(db, alignment))
-    for service in db.query(Service).filter(Service.alignment_id.is_(None), Service.group_id.is_(None)).all():
+    for service in db.query(Service).filter(Service.alignment_id.is_(None)).all():
         vals_list.extend(_courses_from_service(db, service))
 
     for vals in vals_list:
