@@ -232,6 +232,75 @@ class TestTimetableEndpointsGuard:
         assert reset(db=db_session) == {"status": "success"}
 
 
+class TestBrowse:
+    """
+    `CRUDMixin.browse()` — lecture par identifiants DÉSIGNÉS, par opposition à `read()` qui répond
+    à une recherche (voir base.py::browse, architecture.md). Le filtrage silencieux de `read()` est
+    correct sur une recherche, et dangereux sur une désignation : il produirait un résultat
+    incomplet d'apparence complète.
+    """
+    def _restricted_user_with_two_courses(self, db):
+        """Un élève dont le domaine ne couvre QUE le cours de sa division, plus un cours étranger."""
+        student, own_course, foreign_course = _make_student_with_course(db)
+        user = User.create(db, {"first_name": "Léa", "last_name": "Martin", "email": None})
+        student.update(db, {"user_id": user.id})
+        group = ResGroup.create(db, {"name": "Élève"})
+        group.update(db, {"user_ids": [user.id]})
+        IrModelAccess.create(db, {
+            "model": "courses", "group_id": group.id, "perm_read": True,
+            "domain": json.dumps([("divisions.students.user_id", "=", "user.id")]),
+        })
+        _make_user_as(db, user.id)
+        return own_course, foreign_course
+
+    def test_browse_returns_records_when_all_are_accessible(self, db_session):
+        own_course, _ = self._restricted_user_with_two_courses(db_session)
+        assert [c.id for c in Course.browse(db_session, [own_course.id])] == [own_course.id]
+
+    def test_browse_raises_when_one_id_is_outside_the_domain(self, db_session):
+        """
+        Le cœur du mécanisme : `read()` renverrait ici 1 cours sur 2 demandés, silencieusement.
+        `browse()` refuse — c'est ce qui empêche un PDF/export d'être amputé sans que personne
+        ne le sache.
+        """
+        own_course, foreign_course = self._restricted_user_with_two_courses(db_session)
+
+        # Confirme d'abord que read() tronque bien en silence, pour que le test documente le
+        # contraste plutôt que seulement le nouveau comportement.
+        assert len(Course.read(db_session, domain={"id": [own_course.id, foreign_course.id]})) == 1
+
+        with pytest.raises(AccessDeniedError):
+            Course.browse(db_session, [own_course.id, foreign_course.id])
+
+    def test_browse_raises_on_nonexistent_id_without_distinguishing_it(self, db_session):
+        """Inexistant et hors domaine donnent le même refus : ne jamais confirmer une existence."""
+        own_course, _ = self._restricted_user_with_two_courses(db_session)
+        with pytest.raises(AccessDeniedError) as exc_info:
+            Course.browse(db_session, [own_course.id, 999999])
+        assert "999999" not in str(exc_info.value)
+
+    def test_browse_deduplicates_ids(self, db_session):
+        """Sans dédoublonnage, browse([1, 1]) échouerait toujours (2 demandés, 1 obtenu)."""
+        own_course, _ = self._restricted_user_with_two_courses(db_session)
+        assert [c.id for c in Course.browse(db_session, [own_course.id, own_course.id])] == [own_course.id]
+
+    def test_browse_preserves_requested_order(self, db_session):
+        """
+        Ordre DEMANDÉ, pas `__default_order__` : sur un lot désigné (imprimer des classes dans
+        l'ordre coché), c'est l'ordre de l'appelant qui fait foi.
+        """
+        school = School.create(db_session, {"uai": "1234567B", "name": "Collège Ordre"})
+        divisions = [
+            Division.create(db_session, {"code": f"6{lettre}", "name": f"6ème {lettre}", "school_id": school.id})
+            for lettre in ("A", "B", "C")
+        ]
+        ids_desordre = [divisions[2].id, divisions[0].id, divisions[1].id]
+        assert [d.id for d in Division.browse(db_session, ids_desordre)] == ids_desordre
+
+    def test_browse_on_empty_list_returns_empty(self, db_session):
+        assert Course.browse(db_session, []) == []
+
+
 class TestDisplayNameUnchecked:
     def test_display_name_endpoint_bypasses_read_restriction(self, db_session):
         """

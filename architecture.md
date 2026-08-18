@@ -2466,7 +2466,7 @@ absent** (`RuntimeError`), contrairement au reste du moteur de droits (`base.py`
 différence tient au point d'appel : ces fonctions-là sont aussi traversées par du code interne
 (seed, cascades, `@constrains`, solveur), qui doit voir toutes les données ; celle-ci n'est appelée
 que depuis des routes HTTP, où `current_db_user` a nécessairement déjà posé le drapeau (dépendance
-de routeur, garantie au démarrage par §18.I). Un drapeau absent ne peut donc y signaler qu'un
+de routeur, garantie au démarrage par §18.K). Un drapeau absent ne peut donc y signaler qu'un
 câblage cassé — cas où laisser passer une remise à zéro de tous les cours serait le pire des
 comportements.
 
@@ -2552,7 +2552,79 @@ serveur** : une branche non autorisée n'est jamais envoyée au navigateur, pas 
 appel de `/api/ui/menus` (rechargement de page) — négligeable pour le nombre de menus actuel, à
 surveiller si l'arbre grossit beaucoup.
 
-### I. Garde-fou de portée des routes, vérifié au démarrage (`core/route_guard.py`)
+### I. `read()` vs `browse()` — recherche et désignation (`base.py::browse`)
+
+Il y a **deux façons de demander des enregistrements**, et elles doivent échouer différemment :
+
+| | Question posée | Comportement |
+|---|---|---|
+| `read(db, domain=…)` | « les classes que j'ai le droit de voir » | filtrage **silencieux** — le filtrage EST le résultat attendu |
+| `browse(db, ids)` | « les enregistrements 12, 45 et 78 » | **`AccessDeniedError`** dès qu'un seul manque |
+
+Sur une recherche, en recevoir 3 sur 8 est la bonne réponse. Sur une désignation, l'appelant a
+nommé ce qu'il voulait : en recevoir moins **sans le savoir** produirait un résultat incomplet
+d'apparence complète — un PDF amputé de deux classes qui s'imprime et se distribue, un export
+tronqué, un traitement par lot qui en oublie la moitié. C'est un pire mode de défaillance qu'un
+refus, parce qu'il est indétectable côté appelant.
+
+C'est la distinction `search()`/`browse()` d'Odoo, où elle vit également dans l'ORM et non dans un
+contrôleur : la placer dans un endpoint en ferait une habitude locale que le prochain endpoint
+oublierait. `browse()` ne contourne rien et n'ajoute aucun contrôle — elle passe par `read()`, donc
+par le moteur de droits — elle compare seulement **ce qui a été demandé à ce qui a été obtenu**.
+
+Trois choix de conception :
+- **Ne dit jamais QUEL identifiant a échoué**, ni s'il est inexistant ou hors domaine — même
+  politique que le 404 de l'API générique sur un identifiant unique, qui refuse déjà de confirmer
+  l'existence d'un enregistrement non lisible. Ne divulgue donc rien de plus que l'existant :
+  interroger les identifiants un par un donne déjà la même information via les 404.
+- **Lève `AccessDeniedError`, jamais une exception HTTP** : c'est la couche modèle, le statut
+  appartient à l'appelant (voir §18.J).
+- **Rend l'ordre DEMANDÉ**, pas `__default_order__` : sur un lot désigné (imprimer des classes dans
+  l'ordre coché), c'est l'ordre de l'appelant qui fait foi. Même comportement qu'Odoo.
+
+⚠️ L'endpoint liste garde son `?ids=` **silencieux** : il y sert à filtrer sur un champ dérivé
+calculé côté client (voir `generic.py::make_list_endpoint`), c'est une recherche déguisée, pas une
+désignation. `browse()` s'adresse aux nouvelles lectures par désignation — l'endpoint d'impression
+PDF en premier.
+
+### J. Traduction HTTP des exceptions métier (`core/error_handlers.py`)
+
+La couche modèle ne connaît pas FastAPI : `base.py` lève `ValueError`, `AccessDeniedError`,
+`UnsupportedOperationError`… jamais `HTTPException`. `register_exception_handlers(app)` (appelé
+depuis `main.py`) fait la traduction **une fois pour toutes les routes** :
+
+| Exception | Statut | Origine |
+|---|---|---|
+| `AccessDeniedError` | 403 | moteur de droits (`base.py`, `browse()`, `@requires_access`) |
+| `UnsupportedOperationError` | 405 | opération interdite sur ce modèle |
+| `ExclusiveModeActiveError` | 423 | écriture pendant une résolution du solveur |
+| `CompositionError` | 400 | composition de cours invalide |
+| `ValueError` | 400 | validation métier — convention du projet (une centaine d'occurrences) |
+| `IntegrityError` | 400 | contrainte SQL — message générique, le SQL est journalisé, jamais renvoyé |
+
+**Tout le reste remonte en 500, avec sa traceback.** C'est le point de la centralisation. Chaque
+endpoint générique répétait auparavant la même cascade de branches, terminée par un `except
+Exception` fourre-tout qui transformait n'importe quelle exception en **400** : un `AttributeError`,
+un `KeyError`, une erreur SQLAlchemy — c'est-à-dire un **bug serveur** — était annoncé au client
+comme « votre requête est invalide », sans trace dans les logs, sans 500 pour la supervision, avec
+le texte de l'exception interne renvoyé tel quel. Les vrais défauts se déguisaient en erreurs de
+saisie. C'était particulièrement critique sur les endpoints RPC (`/call/{method}`), qui exécutent du
+code métier arbitraire — donc la source la plus probable de vrais bugs.
+
+Conséquence directe : `create`/`update`/`delete`/`defaults`/`call` n'ont plus **aucune** traduction
+d'exception. `instance_call` conserve un `except Exception: db.rollback(); raise` — il re-lève au
+lieu de traduire, le rollback explicite documentant qu'aucune transaction à moitié écrite ne doit
+survivre à cet endpoint (`get_db` en ferait un de toute façon).
+
+⚠️ Exception délibérée : `make_onchange_endpoint` garde son `except Exception` et répond **200**
+avec `{"status": "error", "message": …, "diff": {}}`. Un onchange qui échoue ne doit pas bloquer la
+saisie en cours — contrat distinct, assumé, pas un oubli du nettoyage.
+
+`ValueError` comme erreur de validation métier n'est pas une interception opportuniste : c'est la
+convention explicite du projet, déjà énoncée dans la docstring d'`AccessDeniedError` (« plutôt que
+le 400 générique réservé aux erreurs de validation métier »).
+
+### K. Garde-fou de portée des routes, vérifié au démarrage (`core/route_guard.py`)
 
 Le moteur de droits ne s'active que si `db.klepsydrix_user_id` est posé, ce que seul
 `current_db_user` fait, à la frontière HTTP (§18.B). Conséquence directe : **un routeur monté sans

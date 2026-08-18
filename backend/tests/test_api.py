@@ -113,6 +113,40 @@ def db_session():
         db.close()
         Base.metadata.drop_all(bind=test_engine)
 
+def test_business_validation_error_is_400_through_the_real_pipeline(db_session: Session):
+    """
+    Bout en bout sur l'application RÉELLE (middlewares, dépendances de routeur, gestionnaires
+    d'exceptions), et pas seulement sur l'app jetable de test_error_handlers.py : une ValueError
+    métier levée par un modèle doit toujours ressortir en 400 avec son message, maintenant que les
+    endpoints génériques ne traduisent plus les exceptions eux-mêmes (voir architecture.md §18.J).
+    """
+    school = db_session.query(School).first()
+    created = client.post("/api/generic/classrooms", json={
+        "code": "S101", "name": "Salle 101", "school_id": school.id,
+    })
+    assert created.status_code == 200
+    classroom_id = created.json()["id"]
+
+    # Classroom.update() lève ValueError (« une salle ne peut pas être son propre groupe parent »).
+    response = client.patch(f"/api/generic/classrooms/{classroom_id}", json={"parent_classroom_id": classroom_id})
+    assert response.status_code == 400
+    assert "son propre groupe parent" in response.json()["detail"]
+
+
+def test_integrity_error_is_400_and_hides_the_sql(db_session: Session):
+    """
+    Contrainte d'unicité violée (Classroom.code) : 400, et surtout aucun fragment de requête SQL
+    dans le message renvoyé au client (voir error_handlers.integrity_error_handler).
+    """
+    school = db_session.query(School).first()
+    payload = {"code": "S999", "name": "Salle 999", "school_id": school.id}
+    assert client.post("/api/generic/classrooms", json=payload).status_code == 200
+
+    response = client.post("/api/generic/classrooms", json=payload)
+    assert response.status_code == 400
+    assert "INSERT INTO" not in response.json()["detail"]
+
+
 def test_generic_timeslots_active_filter(db_session: Session):
     # STANDARD_TIMESLOT_DURATION vaut 30 (fixture db_session) : les deux créneaux, multiples de
     # 30, sont valides à la création (voir Timeslot._validate_hour_overflow, qui ne bloque QUE la

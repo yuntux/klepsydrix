@@ -511,6 +511,47 @@ class CRUDMixin:
         return db.execute(query).scalars().all()
 
     @classmethod
+    def browse(cls, db: Session, ids: list):
+        """
+        Lecture par identifiants explicitement DÉSIGNÉS — pendant de read(), qui répond lui à une
+        RECHERCHE. Même moteur de droits, deux comportements, parce que ce sont deux questions
+        différentes (même distinction que search()/browse() chez Odoo) :
+
+        - `read()` filtre silencieusement, et c'est correct : sur une recherche, le filtrage EST le
+          résultat attendu (« les classes que j'ai le droit de voir ») ;
+        - `browse()` refuse dès qu'un seul identifiant demandé manque à l'appel. L'appelant a nommé
+          ce qu'il voulait : en recevoir moins sans le savoir produirait un résultat incomplet
+          d'apparence complète — un PDF amputé de deux classes, un export tronqué, un traitement
+          par lot qui en oublie la moitié. C'est un pire mode de défaillance qu'un refus, parce
+          qu'il est indétectable côté appelant.
+
+        Ne dit jamais QUEL identifiant a échoué, ni s'il est inexistant ou hors du domaine de
+        l'utilisateur — même politique que le 404 de l'API générique sur un identifiant unique, qui
+        refuse déjà de confirmer l'existence d'un enregistrement non lisible.
+
+        Lève `AccessDeniedError` (jamais une exception HTTP : c'est la couche modèle) — la
+        traduction en statut HTTP appartient à l'appelant, directement ou via le gestionnaire
+        global de `core/error_handlers.py`.
+
+        ⚠️ Repose sur `read()`, donc sur la prise en charge d'un domaine `{"id": [...]}`. Vrai pour
+        tout modèle mappé ; pour un `TransientModel`, dépend de son implémentation de `read()`.
+        """
+        # Dédoublonne en conservant l'ordre : sans ça, browse([1, 1]) échouerait toujours, la
+        # comparaison de longueurs ci-dessous portant sur des ensembles de tailles différentes.
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return []
+        records = cls.read(db, domain={"id": ids})
+        if len(records) != len(ids):
+            raise AccessDeniedError(
+                f"Certains enregistrements demandés de {cls.__tablename__} sont inaccessibles ou n'existent plus."
+            )
+        # Ordre DEMANDÉ, pas __default_order__ : sur un lot désigné (imprimer les classes dans
+        # l'ordre coché), c'est l'ordre de l'appelant qui fait foi. Même comportement qu'Odoo.
+        by_id = {record.id: record for record in records}
+        return [by_id[identifier] for identifier in ids]
+
+    @classmethod
     def count(cls, db: Session, domain: dict = None) -> int:
         """
         Pendant de read() pour le total non paginé (utilisé par l'endpoint liste générique). Une

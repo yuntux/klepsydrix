@@ -17,8 +17,7 @@ for _, module_name, _ in pkgutil.iter_modules(models_package.__path__):
 
 router = APIRouter(prefix="/api/generic")
 
-from backend.app.models.base import TransientModel, UnsupportedOperationError, AccessDeniedError
-from backend.app.core.exclusive_mode import ExclusiveModeActiveError
+from backend.app.models.base import TransientModel
 
 # Génération 100% automatique de la cartographie des modèles sur la base de leur table SQL
 MODEL_MAP = {
@@ -299,21 +298,16 @@ def make_display_name_endpoint(model):
 def make_create_endpoint(model, payload_schema):
     def create_endpoint(payload: payload_schema, db: Session = Depends(get_db)):
         cleaned_payload = model.clean_payload(payload.model_dump())
-        try:
-            new_item = model.create(db, cleaned_payload)
-            if new_item is None:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(content={"id": 0, "status": "purged"})
-            db.refresh(new_item)
-            return sqla_to_dict(new_item)
-        except UnsupportedOperationError as e:
-            raise HTTPException(status_code=405, detail=str(e))
-        except AccessDeniedError as e:
-            raise HTTPException(status_code=403, detail=str(e))
-        except ExclusiveModeActiveError as e:
-            raise HTTPException(status_code=423, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Erreur de création : {e}")
+        # Aucune traduction d'exception ici : les exceptions métier de la couche modèle
+        # (ValueError, AccessDeniedError, UnsupportedOperationError…) sont mappées une fois pour
+        # toutes par core/error_handlers.py. Tout ce qui n'y figure pas est un bug et doit remonter
+        # en 500 — voir architecture.md §18.J pour ce qu'un `except Exception` masquait ici.
+        new_item = model.create(db, cleaned_payload)
+        if new_item is None:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content={"id": 0, "status": "purged"})
+        db.refresh(new_item)
+        return sqla_to_dict(new_item)
     return create_endpoint
 
 def make_update_endpoint(model, payload_schema):
@@ -324,26 +318,18 @@ def make_update_endpoint(model, payload_schema):
             raise HTTPException(status_code=404, detail="Élément introuvable.")
 
         cleaned_vals = model.clean_payload(payload.model_dump(exclude_unset=True), allow_null=True)
-        try:
-            updated_item = item.update(db, cleaned_vals)
-            if updated_item is None:
-                return {"id": item_id, "status": "purged"}
-            # db.refresh() DISCARDE tout changement d'attribut non flushé (remplacé par l'état
-            # actuellement en base) : un modèle qui, comme Course.update(), continue à modifier
-            # self APRÈS le dernier flush interne à CRUDMixin.update() (ex: recompute_status(),
-            # appelée après le flush de la ligne 476/486 de base.py) verrait ces changements
-            # silencieusement perdus par le refresh ci-dessous sans ce flush préalable.
-            db.flush()
-            db.refresh(updated_item)
-            return sqla_to_dict(updated_item)
-        except UnsupportedOperationError as e:
-            raise HTTPException(status_code=405, detail=str(e))
-        except AccessDeniedError as e:
-            raise HTTPException(status_code=403, detail=str(e))
-        except ExclusiveModeActiveError as e:
-            raise HTTPException(status_code=423, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # Traduction des exceptions métier : core/error_handlers.py (voir create_endpoint).
+        updated_item = item.update(db, cleaned_vals)
+        if updated_item is None:
+            return {"id": item_id, "status": "purged"}
+        # db.refresh() DISCARDE tout changement d'attribut non flushé (remplacé par l'état
+        # actuellement en base) : un modèle qui, comme Course.update(), continue à modifier
+        # self APRÈS le dernier flush interne à CRUDMixin.update() (ex: recompute_status(),
+        # appelée après le flush de la ligne 476/486 de base.py) verrait ces changements
+        # silencieusement perdus par le refresh ci-dessous sans ce flush préalable.
+        db.flush()
+        db.refresh(updated_item)
+        return sqla_to_dict(updated_item)
     return update_endpoint
 
 def make_onchange_endpoint(model):
@@ -380,11 +366,9 @@ def make_defaults_endpoint(model):
                 if column.default is not None and hasattr(column.default, "arg") and not callable(column.default.arg):
                     defaults[column.name] = column.default.arg
         # 2. Défauts calculés dynamiquement par le modèle à partir du contexte (voir
-        # CRUDMixin.default_get, pendant de default_get() côté Odoo).
-        try:
-            dynamic_defaults = model.default_get(db, payload.context)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # CRUDMixin.default_get, pendant de default_get() côté Odoo). Traduction des exceptions
+        # métier : core/error_handlers.py (voir create_endpoint).
+        dynamic_defaults = model.default_get(db, payload.context)
         defaults.update(dynamic_defaults or {})
         return defaults
 
@@ -396,17 +380,9 @@ def make_delete_endpoint(model, resource_name: str):
         item = items[0] if items else None
         if not item:
             raise HTTPException(status_code=404, detail="Élément introuvable.")
-        try:
-            item.delete(db)
-            return {"status": "success", "message": f"Élément {item_id} de {resource_name} supprimé avec succès."}
-        except UnsupportedOperationError as e:
-            raise HTTPException(status_code=405, detail=str(e))
-        except AccessDeniedError as e:
-            raise HTTPException(status_code=403, detail=str(e))
-        except ExclusiveModeActiveError as e:
-            raise HTTPException(status_code=423, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Impossible de supprimer l'élément : {e}")
+        # Traduction des exceptions métier : core/error_handlers.py (voir create_endpoint).
+        item.delete(db)
+        return {"status": "success", "message": f"Élément {item_id} de {resource_name} supprimé avec succès."}
     return delete_endpoint
 
 class CallPayload(BaseModel):
@@ -471,13 +447,12 @@ def make_class_call_endpoint(model):
         except Exception:
             pass
             
-        try:
-            result = func(*args, **kwargs)
-            return serialize_execution_result(result)
-        except ExclusiveModeActiveError as e:
-            raise HTTPException(status_code=423, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode de classe : {e}")
+        # Traduction des exceptions métier : core/error_handlers.py. Particulièrement important
+        # ici : une méthode RPC est du code métier arbitraire, donc la source la plus probable de
+        # vrais bugs — que l'ancien `except Exception` renvoyait en 400 « erreur d'exécution »,
+        # indistinguable d'une erreur de saisie et invisible en supervision.
+        result = func(*args, **kwargs)
+        return serialize_execution_result(result)
 
     return class_call_endpoint
 
@@ -513,16 +488,17 @@ def make_instance_call_endpoint(model):
         except Exception:
             pass
             
+        # Traduction des exceptions métier : core/error_handlers.py (voir class_call_endpoint).
+        # Le rollback explicite est conservé et l'exception RE-LEVÉE telle quelle : `get_db` en
+        # ferait un de toute façon, mais le rendre visible ici évite qu'une future modification de
+        # cet endpoint ne laisse une transaction à moitié écrite derrière elle.
         try:
             result = func(*args, **kwargs)
             db.commit()
             return serialize_execution_result(result)
-        except ExclusiveModeActiveError as e:
+        except Exception:
             db.rollback()
-            raise HTTPException(status_code=423, detail=str(e))
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=400, detail=f"Erreur lors de l'exécution de la méthode d'instance : {e}")
+            raise
 
     return instance_call_endpoint
 

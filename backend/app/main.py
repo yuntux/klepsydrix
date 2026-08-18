@@ -7,6 +7,7 @@ from backend.app.core.config import settings
 from backend.app.core.database import check_write_token, current_db_user
 from backend.app.core.log_context import attach_to_handlers, DbSlugContextMiddleware
 from backend.app.core.route_guard import assert_all_routes_scoped, system_scoped
+from backend.app.core.error_handlers import register_exception_handlers
 
 # Logs applicatifs contextualisés par base (voir architecture.md, "Architecture de routage HTTP",
 # core/log_context.py::attach_to_handlers pour le détail du piège évité). Les logs d'accès uvicorn
@@ -76,6 +77,10 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site=
 # le pourquoi (un ContextVar posé dans une dépendance FastAPI synchrone ne se propage pas aux
 # dépendances/l'endpoint suivants, voir architecture.md §16.F).
 app.add_middleware(DbSlugContextMiddleware)
+
+# Un refus du moteur de droits doit être un 403 partout, y compris sur les chemins qu'aucun
+# try/except n'enveloppe (voir core/error_handlers.py) — sans quoi il remonterait en 500.
+register_exception_handlers(app)
 
 # Point d'entrée de santé (Healthcheck) et de bienvenue de l'API — portée instance, aucune base
 # résolue (voir architecture.md, "Architecture de routage HTTP").
