@@ -12,7 +12,13 @@ from backend.app.models import (
 )
 from backend.app.models.mef import MefService
 from backend.app.models.course import Course
-from backend.app.solver.teacher_assignment import compute_assignment_proposal, _are_incompatible
+from backend.app.models.group import find_or_create_partition, find_or_create_group
+from backend.app.models.preference import ResourcePreference, PreferenceLevel
+from backend.app.models.timeslot import Timeslot
+from backend.app.solver.teacher_assignment import (
+    compute_assignment_proposal, _are_incompatible, _division_ids_for_service, _compatibility_penalty,
+    _max_class_count_violations,
+)
 from backend.app.models.wizard_teacher_assignment import WizardTeacherAssignment
 from backend.tests.db_test_utils import make_test_engine
 
@@ -53,6 +59,93 @@ def _make_teacher(db, school, code, discipline=None, discipline_minutes=0, prior
         pref = db.query(TeacherGradePreference).filter(TeacherGradePreference.teacher_id == teacher.id, TeacherGradePreference.ref_grade_id == ref_grade.id).one()
         pref.update(db, {"priority": priority})
     return teacher
+
+
+def _make_cross_division_service(db, mef_service, discipline, subject, division_a, division_b):
+    """
+    Service directement lié à un Group cross-division (voir wizard_specialty_group_generation.py)
+    — couvre les deux divisions à la fois, jamais via MefDivision. `mef_service` doit être
+    RÉUTILISÉ depuis l'appelant (jamais recréé ici) : un seul MefService par couple (mef_id,
+    subject_id), voir MefService._check_unique_mef_subject_pair.
+    """
+    partition_a = find_or_create_partition(db, division_a.id, subject.code, subject_ids=[subject.id])
+    partition_b = find_or_create_partition(db, division_b.id, subject.code, subject_ids=[subject.id])
+    cp_a = next(cp for cp in partition_a.class_parts if cp.subject_id == subject.id)
+    cp_b = next(cp for cp in partition_b.class_parts if cp.subject_id == subject.id)
+    group = find_or_create_group(db, [cp_a.id, cp_b.id], subject.id)
+    return Service.create(db, {"mef_service_id": mef_service.id, "group_id": group.id, "subject_id": subject.id, "discipline_id": discipline.id})
+
+
+class TestCrossDivisionService:
+    def test_division_ids_for_service_returns_every_division_of_the_group(self, db_session):
+        school, discipline, subject, ref_grade, mef, division_a, mef_division_a, mef_service, _ = _base_setup(db_session, division_code="A")
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "B", "name": "6ème B"})
+        group_service = _make_cross_division_service(db_session, mef_service, discipline, subject, division_a, division_b)
+
+        assert set(_division_ids_for_service(group_service)) == {division_a.id, division_b.id}
+
+    def test_compatibility_penalty_uses_union_not_sum_of_per_division_overlaps(self, db_session):
+        """Une seule et même case bloquée à la fois côté prof et dans LES DEUX divisions ne doit
+        compter qu'une fois (voir la comparaison des options union/somme/max)."""
+        school, discipline, subject, ref_grade, mef, division_a, mef_division_a, mef_service, _ = _base_setup(db_session, division_code="A")
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "B", "name": "6ème B"})
+        teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=60)
+        timeslot = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+        ResourcePreference.create(db_session, {"resource_type": "Teacher", "resource_id": teacher.id, "timeslot_id": timeslot.id, "preference_level": PreferenceLevel.UNSUITED.value})
+        ResourcePreference.create(db_session, {"resource_type": "Division", "resource_id": division_a.id, "timeslot_id": timeslot.id, "preference_level": PreferenceLevel.UNSUITED.value})
+        ResourcePreference.create(db_session, {"resource_type": "Division", "resource_id": division_b.id, "timeslot_id": timeslot.id, "preference_level": PreferenceLevel.UNSUITED.value})
+
+        penalty = _compatibility_penalty(db_session, teacher.id, [division_a.id, division_b.id], total_timeslot_count=10, division_blocked_cache={})
+        # 1 seul créneau en commun (pas 2, la somme aurait donné round(5*100*2/10)=100) : la case
+        # est bloquée dans les DEUX divisions à la fois, l'union ne la compte qu'une fois.
+        assert penalty == round(5 * 100 * 1 / 10)
+
+    def test_incompatibility_conflict_detected_on_the_group_second_division(self, db_session):
+        """
+        Le service cross-division (divisions A+B) est affecté à t_group. Un service séparé,
+        purement sur la division B (pas A), est affecté à t_b — incompatible avec t_group. Avant
+        le passage à une liste, seule la PREMIÈRE division du groupe était vérifiée : selon
+        l'ordre interne des ClassPart, ce conflit sur B pouvait rester invisible.
+        """
+        school, discipline, subject, ref_grade, mef, division_a, mef_division_a, mef_service, _ = _base_setup(db_session, division_code="A")
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "B", "name": "6ème B"})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id, "forecast_student_count": 28})
+        service_b = db_session.query(Service).filter(Service.mef_service_id == mef_service.id, Service.mef_division_id == mef_division_b.id).one()
+        group_service = _make_cross_division_service(db_session, mef_service, discipline, subject, division_a, division_b)
+
+        t_group = _make_teacher(db_session, school, "TGROUP", discipline, discipline_minutes=360)
+        t_b = _make_teacher(db_session, school, "TB", discipline, discipline_minutes=60)
+        t_group.update(db_session, {"incompatible_teacher_ids": [t_b.id]})
+
+        group_service.update(db_session, {"weekly_duration_full_class_minutes": 360})
+        service_b.update(db_session, {"weekly_duration_full_class_minutes": 60})
+
+        result = compute_assignment_proposal(db_session)
+        conflict_warnings = [w for w in result["warnings"] if w["type"] == "incompatibility_unresolved"]
+        assert len(conflict_warnings) == 1
+        assert set(conflict_warnings[0]["teacher_ids"]) == {t_group.id, t_b.id}
+
+    def test_max_class_count_counts_the_group_service_against_every_division(self, db_session):
+        """
+        Test unitaire direct sur _max_class_count_violations (pas compute_assignment_proposal en
+        bout en bout) : un seul service affecté à ce professeur, mais qui couvre 2 divisions à la
+        fois (groupe cross-division) doit compter pour 2, pas 1 — avant le passage à une liste,
+        seule la première division du groupe était vue, aucune violation n'était détectée ici.
+        """
+        school, discipline, subject, ref_grade, mef, division_a, mef_division_a, mef_service, service_a = _base_setup(db_session, division_code="A")
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "B", "name": "6ème B"})
+        group_service = _make_cross_division_service(db_session, mef_service, discipline, subject, division_a, division_b)
+
+        teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=420, priority=1, ref_grade=ref_grade)
+        pref = db_session.query(TeacherGradePreference).filter(TeacherGradePreference.teacher_id == teacher.id, TeacherGradePreference.ref_grade_id == ref_grade.id).one()
+        pref.update(db_session, {"max_class_count": 1})
+        service_a.delete(db_session)
+
+        services_by_id = {group_service.id: group_service}
+        assignments = {group_service.id: {"teacher_ids": [teacher.id], "tier": "normal"}}
+
+        violations = _max_class_count_violations(db_session, services_by_id, assignments)
+        assert violations == [(group_service.id, teacher.id)]
 
 
 class TestCapacity:
@@ -182,6 +275,47 @@ class TestIncompatibilityRepair:
         by_service = {p["service_id"]: p for p in result["proposals"]}
         assert by_service[service_a.id]["teacher_ids"] == [t_a.id]
         assert by_service[service_b.id]["teacher_ids"] == [t_b.id]
+
+
+class TestMaxClassCountRepair:
+    def test_unresolved_violation_surfaced_as_warning_and_keeps_original_assignment(self, db_session):
+        """
+        Bout en bout (compute_assignment_proposal) : un seul professeur qualifié, affecté à 2
+        divisions du même niveau, dépasse max_class_count=1 — sans alternative, la réparation doit
+        échouer "sincèrement" (voir _repair_max_class_count::genuinely_replaced) et signaler un
+        avertissement max_class_count_unresolved, comme _repair_incompatibilities le fait pour son
+        propre cas non résolu, plutôt que de transformer silencieusement le dépassement en besoin
+        non couvert.
+        """
+        school = School.create(db_session, {"uai": "1234567A", "name": "Collège Test"})
+        discipline = Discipline.create(db_session, {"code": "MATH", "name": "Mathématiques"})
+        subject = Subject.create(db_session, {"code": "MATH", "code_nomenclature": "N_MATH", "short_name": "MATH", "name": "MATH", "discipline_id": discipline.id})
+        ref_grade = RefGrade.create(db_session, {"name": "NIVEAU_MAXCLASS"})
+        mef = Mef.create(db_session, {"school_id": school.id, "code_national": "10010012110", "name": "6EME", "ref_grade_id": ref_grade.id, "max_students_per_class": 30, "forecast_student_count": 60})
+        division_a = Division.create(db_session, {"school_id": school.id, "code": "A", "name": "6ème A"})
+        division_b = Division.create(db_session, {"school_id": school.id, "code": "B", "name": "6ème B"})
+        mef_division_a = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_a.id, "forecast_student_count": 28})
+        mef_division_b = MefDivision.create(db_session, {"mef_id": mef.id, "division_id": division_b.id, "forecast_student_count": 28})
+        mef_service = MefService.create(db_session, {"mef_id": mef.id, "subject_id": subject.id, "discipline_id": discipline.id})
+        service_a = db_session.query(Service).filter(Service.mef_service_id == mef_service.id, Service.mef_division_id == mef_division_a.id).one()
+        service_b = db_session.query(Service).filter(Service.mef_service_id == mef_service.id, Service.mef_division_id == mef_division_b.id).one()
+        service_a.update(db_session, {"weekly_duration_full_class_minutes": 60})
+        service_b.update(db_session, {"weekly_duration_full_class_minutes": 60})
+
+        teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=120, priority=1, ref_grade=ref_grade)
+        pref = db_session.query(TeacherGradePreference).filter(TeacherGradePreference.teacher_id == teacher.id, TeacherGradePreference.ref_grade_id == ref_grade.id).one()
+        pref.update(db_session, {"max_class_count": 1})
+
+        result = compute_assignment_proposal(db_session)
+
+        cap_warnings = [w for w in result["warnings"] if w["type"] == "max_class_count_unresolved"]
+        assert len(cap_warnings) == 1
+        assert cap_warnings[0]["teacher_ids"] == [teacher.id]
+        # Aucune alternative qualifiée : les deux propositions restent inchangées (pas d'abandon
+        # silencieux d'un des deux services pour faire disparaître le dépassement).
+        by_service = {p["service_id"]: p for p in result["proposals"]}
+        assert by_service[service_a.id]["teacher_ids"] == [teacher.id]
+        assert by_service[service_b.id]["teacher_ids"] == [teacher.id]
 
 
 class TestLockedServiceExcluded:

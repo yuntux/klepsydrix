@@ -170,6 +170,7 @@ import GridContainer from './GridContainer.vue';
 import BrushPalette from './BrushPalette.vue';
 import { useTimeslotGrid, findTimeslotAt } from '../composables/useTimeslotGrid';
 import { useGenericCache } from '../composables/useGenericCache';
+import { fetchAllGenericItems } from '../services/api';
 
 const props = withDefaults(defineProps<{
   teachers: Teacher[];
@@ -462,14 +463,23 @@ async function loadPreferences() {
   }
   
   try {
+    // fetchAllGenericItems (et non un fetch() brut avec limit=1000 en dur, comme ici auparavant) :
+    // deux défauts distincts corrigés d'un coup.
+    // 1. Un `fetch()` brut ne passe PAS par apiFetch(), donc ne porte ni l'en-tête
+    //    X-Klepsydrix-Database (exigé par resolve_database, 428 sinon) ni le jeton d'écriture, et
+    //    n'a aucune des redirections d'authentification — un second chemin d'accès à l'API, dont
+    //    l'échec était en plus avalé par le .catch ci-dessous, donc invisible.
+    // 2. `limit=1000` en dur tronquait silencieusement au-delà du seuil. fetchAllGenericItems
+    //    pagine jusqu'à tout avoir (voir services/api.ts).
     const results = await Promise.all(
       ids.map(id =>
-        fetch(`/api/generic/resource_preferences?limit=1000&resource_type=${resourceType.value}&resource_id=${id}`)
-          .then(res => {
-            if (!res.ok) throw new Error();
-            return res.json();
-          })
+        fetchAllGenericItems('resource_preferences', undefined, {
+          resource_type: resourceType.value,
+          resource_id: id,
+        })
           .then(data => ({ id, items: data.items || [] }))
+          // Repli à vide conservé : une ressource dont les préférences ne se chargent pas ne doit
+          // pas faire échouer la grille entière, les autres restent affichées.
           .catch(() => ({ id, items: [] }))
       )
     );

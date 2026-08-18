@@ -282,6 +282,34 @@ Coût contenu : le sous-problème reste petit (mêmes ordres de grandeur que le 
 et le solveur n'est relancé que pour les conflits effectivement détectés — un ou deux re-solve par
 conflit, pas une explosion combinatoire.
 
+### 5.3bis Services à plusieurs divisions (groupes de spécialité cross-division)
+
+`_division_ids_for_service` (avant : `_division_id_for_service`, singulier) résout **toutes** les
+divisions couvertes par un `Service`, pas une seule choisie arbitrairement — nécessaire depuis que
+`find_or_create_group` (`architecture.md` §21) peut produire un `Group` dont les `ClassPart`
+appartiennent à des Divisions différentes (groupe de spécialité qui mélange plusieurs classes).
+
+Conséquences sur les trois usages de ce fichier :
+- **`_compatibility_penalty`** (coût d'arête du flot, §5.1) : un service à N divisions n'a de
+  créneau viable que s'il convient aux N à la fois — les créneaux à éviter sont donc l'**union**
+  des créneaux bloqués de chaque division (jamais leur somme, qui compterait plusieurs fois un
+  créneau bloqué par plusieurs divisions à la fois ; jamais leur max, qui sous-estimerait la gêne
+  quand des divisions différentes bloquent des créneaux différents). Avec une seule division,
+  résultat identique au calcul historique.
+- **`_conflicting_division_pairs`** (§5.3) : le service est enregistré sous CHAQUE division qu'il
+  couvre — un conflit d'incompatibilité sur n'importe laquelle d'entre elles doit être détecté, pas
+  seulement sur la première.
+- **`_max_class_count_violations`** (§4.7/plafond de classes) : même logique — un professeur
+  affecté à un service N-divisions voit son exposition comptée N fois, pas 1, pour rester cohérent
+  avec le fait qu'il est réellement mis en contact avec N classes.
+
+Coût annexe : `_unsuited_timeslot_ids(db, "Division", ...)` n'est pas mise en cache nativement et
+est appelée depuis la boucle chaude de `_build_graph` (une fois par arête prof qualifié × service)
+— un service à plusieurs divisions en multiplie d'autant le nombre d'appels. Mémoïsée par division
+via `_blocked_timeslots_for_division_cached`, sur la durée d'un seul appel à `_build_graph`
+uniquement (jamais partagée entre deux résolutions/réparations successives, qui reconstruisent
+chacune leur propre graphe).
+
 ### 5.4 Métrique de contrôle post-résolution
 
 Après `apply` (§7), recalcul de `Teacher.hsa_duration_minutes` (§6) par professeur affecté —
@@ -478,3 +506,18 @@ Pour référence rapide, dans l'ordre où elles ont été tranchées :
 14. `Course.weighting_coefficient` + `weighted_duration_minutes` ajoutés pour porter le calcul HSA.
 15. Trois champs `Teacher` (`taught_raw`/`taught_weighted`/`hsa_duration_minutes`) : calculés à la
     demande, jamais stockés — décision finale après discussion du coût du stockage cross-modèle.
+16. `_division_id_for_service` → `_division_ids_for_service` (liste) : les groupes de spécialité
+    cross-division (`architecture.md` §21) invalident l'hypothèse « toutes les `ClassPart` d'un
+    `Group` appartiennent à la même Division ». Combinaison des créneaux bloqués par **union** (pas
+    somme ni max) pour `_compatibility_penalty` — voir §5.3bis. Mémoïsation par division sur la
+    durée d'un seul appel à `_build_graph` (jamais partagée entre deux appels).
+17. Bug préexistant corrigé dans `_repair_max_class_count` : contrairement à sa jumelle
+    `_repair_incompatibilities`, elle acceptait une tentative de réparation qui laissait le service
+    sans AUCUN professeur — `_max_class_count_violations` n'y voit alors plus de dépassement (il
+    faut être affecté pour dépasser un plafond), donc le dépassement disparaissait silencieusement
+    en besoin non couvert au lieu d'être signalé. Découvert en testant §5.3bis (le test dédié au
+    plafond de classes sur un service cross-division bute dessus). Fix : même garde-fou
+    `genuinely_replaced` que `_repair_incompatibilities` (n'accepter la tentative que si le service
+    contesté garde au moins un professeur ET que le nombre de violations diminue réellement), pour
+    un comportement homogène entre les deux passes de réparation. Test bout en bout dédié :
+    `TestMaxClassCountRepair` dans `test_teacher_assignment.py`.

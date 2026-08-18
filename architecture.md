@@ -3086,17 +3086,43 @@ générique, sans aucune erreur visible.
 ### D. Déclaration côté modèle : type d'action `"report"`
 
 Réutilise `__actions__` plutôt qu'un mécanisme parallèle — le répartiteur, les conditions
-d'affichage et le rendu des boutons existaient déjà (`GenericForm.vue`) :
+d'affichage et le rendu des boutons existaient déjà. Équivalent du `binding_type="report"` d'Odoo :
+le bouton apparaît tout seul, aucune vue à modifier.
+
+**La portée détermine où vit le bouton**, et c'est le point qui compte :
 
 ```python
-__actions__ = [{
-    "id": "print_course_list", "label": "Liste des cours (PDF)",
-    "type": "report", "report": "course_list", "scope": "all",
-}]
+__actions__ = [
+    {   # Pas de scope -> GenericForm.vue : l'enregistrement AFFICHÉ, et lui seul.
+        "id": "print_course", "label": "Imprimer ce cours (PDF)",
+        "type": "report", "report": "course_list", "condition": "record.id",
+    },
+    {   # scope="list" -> barre d'actions de GenericList.vue.
+        "id": "print_course_list", "label": "Liste des cours (PDF)",
+        "type": "report", "report": "course_list", "scope": "list",
+    },
+]
 ```
 
-Équivalent du `binding_type="report"` d'Odoo : le bouton apparaît tout seul, aucune vue à modifier.
-`scope="all"` imprime la liste de tout ce qui est accessible ; sans lui, l'enregistrement courant.
+| Portée | Composant | Ce qui est imprimé |
+|---|---|---|
+| (aucune) | `GenericForm.vue` | l'enregistrement courant |
+| `"list"` | `GenericList.vue` | la sélection si elle existe, **toute la liste accessible sinon** |
+
+`GenericForm` filtre les actions `scope="list"` (voir `formActions`) et réciproquement — la barre de
+`GenericList` n'apparaît pas du tout pour une ressource qui n'en déclare aucune, donc aucune autre
+liste de l'application ne change d'aspect.
+
+⚠️ Cette séparation vient d'un **écart constaté à l'usage**, pas d'une intuition de conception : la
+première version posait l'unique action (de portée globale) sur le formulaire, faute de mécanisme
+d'actions dans `GenericList`. Cliquer « Liste des cours » depuis le formulaire d'UN cours imprimait
+les 60 autres. Un bouton posé sur un formulaire mono-enregistrement laisse légitimement attendre
+qu'il n'agit que sur celui-ci.
+
+Le bouton de liste affiche le nombre de lignes sélectionnées et son infobulle annonce lequel des
+deux comportements s'applique — imprimer toute la liste sans sélection est un choix assumé, pas un
+effet de bord (l'alternative, désactiver le bouton tant que rien n'est coché, a été envisagée puis
+écartée).
 
 ### E. Premier rapport : liste des cours (`reports/course_list.py`)
 

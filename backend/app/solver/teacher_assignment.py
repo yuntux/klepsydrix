@@ -83,18 +83,24 @@ def _qualified_teachers(db: Session, discipline_id: int) -> list:
     return db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()
 
 
-def _division_id_for_service(service: Service) -> Optional[int]:
+def _division_ids_for_service(service: Service) -> list[int]:
     """
-    Résout la Division réelle d'un Service, qu'il soit lié directement (MefDivision, via le
-    related_field division_id déjà présent sur Service) ou via un Group — dans ce second cas, les
-    ClassPart d'un même Group appartiennent toutes à la même Division (voir group.py), donc
-    n'importe laquelle suffit à résoudre la division commune.
+    Résout la ou les Division(s) réelle(s) d'un Service, qu'il soit lié directement (MefDivision,
+    via le related_field division_id déjà présent sur Service) ou via un Group — dans ce second
+    cas, les ClassPart d'un Group peuvent appartenir à des Divisions DIFFÉRENTES (groupes de
+    spécialité cross-division, voir wizard_specialty_group_generation.py) : on retourne donc
+    toutes les divisions distinctes couvertes par le Group, pas une seule arbitrairement choisie.
+    Liste vide (jamais None) si aucune division ne peut être résolue.
     """
     if service.division_id:
-        return service.division_id
+        return [service.division_id]
     if service.group and service.group.class_parts:
-        return service.group.class_parts[0].division_id
-    return None
+        seen: list[int] = []
+        for class_part in service.group.class_parts:
+            if class_part.division_id is not None and class_part.division_id not in seen:
+                seen.append(class_part.division_id)
+        return seen
+    return []
 
 
 def _service_need_minutes(service: Service) -> int:
@@ -139,28 +145,52 @@ def _unsuited_timeslot_ids(db: Session, resource_type: str, resource_id: int) ->
     return {r[0] for r in rows}
 
 
-def _compatibility_penalty(db: Session, teacher_id: int, division_id: Optional[int], total_timeslot_count: int) -> int:
+def _blocked_timeslots_for_division_cached(db: Session, division_id: int, cache: dict) -> set:
+    """
+    Mémoïsation par division du côté "division" de _compatibility_penalty, sur la durée d'un seul
+    appel à _build_graph (le dict `cache` est créé et détenu par lui, jamais partagé entre deux
+    appels) : _pairwise_cost est invoqué une fois par arête (prof qualifié x service) dans sa
+    double boucle, donc une même division y est requêtée un grand nombre de fois — un service de
+    spécialité cross-division multiplie encore ce nombre par le nombre de divisions couvertes.
+    """
+    if division_id not in cache:
+        cache[division_id] = _unsuited_timeslot_ids(db, "Division", division_id)
+    return cache[division_id]
+
+
+def _compatibility_penalty(db: Session, teacher_id: int, division_ids: list[int], total_timeslot_count: int, division_blocked_cache: dict) -> int:
     """
     Signal de compatibilité horaire pairwise (voir teacher-assignment-proposal.md §0) : proportion
-    de créneaux bloqués (Unsuited) EN COMMUN entre le professeur et la division, rapportée au
-    nombre total de créneaux de la grille — PAS une garantie de faisabilité (rôle réservé à
-    COURSE_PLACEMENT en aval, voir §0 "hors périmètre assumé"), juste un coût d'arête qui
-    défavorise les paires structurellement les plus contraintes des deux côtés à la fois (exemple :
-    un professeur disponible seulement mardi/mercredi pour une division fermée le mercredi).
+    de créneaux bloqués (Unsuited) EN COMMUN entre le professeur et LA RÉUNION des créneaux
+    bloqués de toutes les divisions du service, rapportée au nombre total de créneaux de la grille
+    — PAS une garantie de faisabilité (rôle réservé à COURSE_PLACEMENT en aval, voir §0 "hors
+    périmètre assumé"), juste un coût d'arête qui défavorise les paires structurellement les plus
+    contraintes des deux côtés à la fois (exemple : un professeur disponible seulement mardi/
+    mercredi pour une division fermée le mercredi).
+
+    Réunion (pas somme, pas max) des créneaux bloqués par division, choisie pour un service à
+    plusieurs divisions (groupe de spécialité cross-division) : un créneau n'est utilisable pour
+    CE service que s'il convient à TOUTES ses divisions à la fois, donc l'ensemble des créneaux à
+    éviter est exactement l'union de ceux bloqués par au moins une d'entre elles — ni double-compte
+    un créneau bloqué par plusieurs divisions à la fois (biais de la somme), ni ne sous-estime la
+    gêne quand des divisions différentes bloquent des créneaux différents (biais du max). Avec une
+    seule division, identique au calcul historique (rétrocompatible).
     """
-    if not division_id or not total_timeslot_count:
+    if not division_ids or not total_timeslot_count:
         return 0
     teacher_blocked = _unsuited_timeslot_ids(db, "Teacher", teacher_id)
     if not teacher_blocked:
         return 0
-    division_blocked = _unsuited_timeslot_ids(db, "Division", division_id)
+    division_blocked: set = set()
+    for division_id in division_ids:
+        division_blocked |= _blocked_timeslots_for_division_cached(db, division_id, division_blocked_cache)
     overlap = len(teacher_blocked & division_blocked)
     return round(COMPATIBILITY_WEIGHT * 100 * overlap / total_timeslot_count)
 
 
-def _pairwise_cost(db: Session, teacher: Teacher, service: Service, total_timeslot_count: int) -> int:
+def _pairwise_cost(db: Session, teacher: Teacher, service: Service, total_timeslot_count: int, division_blocked_cache: dict) -> int:
     priority = _priority_for(db, teacher.id, service.ref_grade_id)
-    penalty = _compatibility_penalty(db, teacher.id, _division_id_for_service(service), total_timeslot_count)
+    penalty = _compatibility_penalty(db, teacher.id, _division_ids_for_service(service), total_timeslot_count, division_blocked_cache)
     return priority * PRIORITY_WEIGHT + penalty
 
 
@@ -227,6 +257,9 @@ def _build_graph(db: Session, services: list, forbidden_edges: frozenset = froze
     Retourne (graph, need_node_of, tier1_teacher_of, hsa_teacher_of, unmet_node_of).
     """
     total_timeslot_count = db.query(Timeslot).count()
+    # Voir _blocked_timeslots_for_division_cached : détenu par CET appel de _build_graph, jamais
+    # partagé avec un autre (chaque résolution/réparation reconstruit son propre graphe).
+    division_blocked_cache: dict = {}
 
     G = nx.DiGraph()
     G.add_node("SOURCE", demand=0)
@@ -272,7 +305,7 @@ def _build_graph(db: Session, services: list, forbidden_edges: frozenset = froze
             hsa_node = _hsa_pool(G, hsa_pool_of, teacher_sink_of, teacher)
             hsa_teacher_of[hsa_node] = teacher.id
 
-            cost = _pairwise_cost(db, teacher, service, total_timeslot_count)
+            cost = _pairwise_cost(db, teacher, service, total_timeslot_count, division_blocked_cache)
             G.add_edge(need_node, tier1_node, capacity=need, weight=TIER1_BASE_COST + cost)
             G.add_edge(need_node, hsa_node, capacity=need, weight=HSA_TIER_COST + cost)
 
@@ -339,15 +372,19 @@ def _solve_and_extract(db: Session, services: list, forbidden_edges: frozenset =
 def _conflicting_division_pairs(db: Session, services_by_id: dict, assignments: dict):
     """
     Balaie toutes les divisions occupées par les propositions courantes et retourne la liste des
-    conflits trouvés, sous la forme (service_id_a, teacher_id_a, service_id_b, teacher_id_b).
+    conflits trouvés, sous la forme (service_id_a, teacher_id_a, service_id_b, teacher_id_b). Un
+    service à plusieurs divisions (groupe de spécialité cross-division) est enregistré sous
+    CHACUNE d'entre elles : un conflit sur n'importe laquelle de ses divisions doit être détecté,
+    pas seulement sur la première.
     """
     by_division = {}
     for service_id, result in assignments.items():
-        division_id = _division_id_for_service(services_by_id[service_id])
-        if not division_id:
+        division_ids = _division_ids_for_service(services_by_id[service_id])
+        if not division_ids:
             continue
         for teacher_id in result["teacher_ids"]:
-            by_division.setdefault(division_id, []).append((service_id, teacher_id))
+            for division_id in division_ids:
+                by_division.setdefault(division_id, []).append((service_id, teacher_id))
 
     conflicts = []
     for entries in by_division.values():
@@ -407,11 +444,12 @@ def _repair_incompatibilities(db: Session, services: list, assignments: dict, un
                 break
 
         if not resolved:
-            division_id = _division_id_for_service(services_by_id[s_a])
+            division_ids = _division_ids_for_service(services_by_id[s_a])
+            division_label = ", ".join(f"#{d}" for d in division_ids) if division_ids else "?"
             structural_warnings.append(Warning_(
                 type="incompatibility_unresolved",
                 message=(
-                    f"Incompatibilité non résolue sur la division #{division_id} : aucune "
+                    f"Incompatibilité non résolue sur la/les division(s) {division_label} : aucune "
                     f"réaffectation possible (certitude vérifiée par re-résolution du flot dans "
                     f"les deux sens) — professeurs #{t_a} et #{t_b}."
                 ),
@@ -443,12 +481,16 @@ def _max_class_count_violations(db: Session, services_by_id: dict, assignments: 
     by_teacher_grade = {}
     for service_id, result in assignments.items():
         grade_id = _grade_id_of(services_by_id, service_id)
-        division_id = _division_id_for_service(services_by_id[service_id])
-        if grade_id is None or division_id is None:
+        division_ids = _division_ids_for_service(services_by_id[service_id])
+        if grade_id is None or not division_ids:
             continue
         for teacher_id in result["teacher_ids"]:
             key = (teacher_id, grade_id)
-            by_teacher_grade.setdefault(key, {}).setdefault(division_id, []).append(service_id)
+            # Un service à plusieurs divisions (groupe de spécialité cross-division) compte pour
+            # CHACUNE d'entre elles dans l'exposition du professeur — sous-compter reviendrait à
+            # ignorer que ce même service le met bel et bien en contact avec plusieurs classes.
+            for division_id in division_ids:
+                by_teacher_grade.setdefault(key, {}).setdefault(division_id, []).append(service_id)
 
     violations = []
     for (teacher_id, grade_id), divisions in by_teacher_grade.items():
@@ -465,9 +507,10 @@ def _max_class_count_violations(db: Session, services_by_id: dict, assignments: 
 
 def _repair_max_class_count(db: Session, services: list, assignments: dict, unmet_warnings: list, structural_warnings: list):
     """Même mécanique de réparation que _repair_incompatibilities (re-résolution contrainte, voir
-    sa docstring pour le traitement de unmet_warnings/structural_warnings), appliquée au
-    dépassement de TeacherGradePreference.max_class_count plutôt qu'à une incompatibilité entre
-    deux professeurs."""
+    sa docstring pour le traitement de unmet_warnings/structural_warnings ET pour le garde-fou
+    genuinely_replaced ci-dessous, repris ici à l'identique pour un comportement homogène entre les
+    deux passes de réparation), appliquée au dépassement de TeacherGradePreference.max_class_count
+    plutôt qu'à une incompatibilité entre deux professeurs."""
     services_by_id = {s.id: s for s in services}
     forbidden_edges = set()
     attempts = 0
@@ -481,7 +524,14 @@ def _repair_max_class_count(db: Session, services: list, assignments: dict, unme
 
         trial_forbidden = forbidden_edges | {(service_id, teacher_id)}
         trial_assignments, trial_unmet_warnings = _solve_and_extract(db, services, frozenset(trial_forbidden))
-        if len(_max_class_count_violations(db, services_by_id, trial_assignments)) < len(violations):
+        # Voir _repair_incompatibilities::genuinely_replaced (même garde-fou, même raison) :
+        # interdire cette arête peut laisser le service SANS AUCUN professeur — _max_class_count_
+        # violations n'y verrait alors plus de dépassement (il faut être affecté pour dépasser un
+        # plafond), mais on aurait juste transformé silencieusement le dépassement en besoin non
+        # couvert, pas trouvé un vrai remplaçant. Bug réel corrigé ici (voir teacher-assignment-
+        # proposal.md §11.17 pour la trace) : avant ce garde-fou, ce cas passait inaperçu.
+        genuinely_replaced = bool(trial_assignments[service_id]["teacher_ids"])
+        if genuinely_replaced and len(_max_class_count_violations(db, services_by_id, trial_assignments)) < len(violations):
             forbidden_edges = trial_forbidden
             assignments = trial_assignments
             unmet_warnings = trial_unmet_warnings

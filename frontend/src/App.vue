@@ -1751,7 +1751,11 @@ async function onMoveCourse(courseId: number, timeslotId: number, weekType?: 'A'
     // Alerte en cas de placement sur un créneau indisponible (Rouge / Unsuited) - T025b
     if (courseObj) {
       try {
-        const prefResData = await api.apiFetch(`/api/generic/resource_preferences?timeslot_id=${timeslotId}&limit=1000`).then(res => res.json());
+        // fetchAllGenericItems plutôt qu'un limit=1000 codé en dur : au-delà du seuil, les
+        // préférences excédentaires étaient perdues sans erreur — donc une préférence « Rouge »
+        // pouvait ne jamais déclencher l'alerte ci-dessous, silencieusement. La fonction pagine
+        // jusqu'à tout avoir (voir services/api.ts).
+        const prefResData = await api.fetchAllGenericItems('resource_preferences', undefined, { timeslot_id: timeslotId });
         const prefRes = prefResData.items || [];
         const unsuitedPref = prefRes.find((p: any) => 
           p.preference_level === 'Unsuited' && (
