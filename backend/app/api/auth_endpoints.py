@@ -14,6 +14,7 @@ from backend.app.core import db_registry
 from backend.app.core.client_ip import client_ip
 from backend.app.core.instance_session import set_session_cookie, clear_session_cookie
 from backend.app.core.oidc import oauth, claim_mapping_for
+from backend.app.core.route_guard import system_scoped
 from backend.app.core.mailer import send_password_reset_email
 from backend.app.models.user import UserIdentityProvider
 from backend.app.models.password_reset_token import PasswordResetToken
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/api/auth")
 
 
 @router.get("/providers")
+@system_scoped("Affiché sur l'écran de connexion, avant toute session. Ne renvoie que les fournisseurs actifs, jamais leurs secrets.")
 def list_providers():
     """Fournisseurs actifs de l'instance — jamais `params` (secrets client OIDC)."""
     return [
@@ -38,6 +40,7 @@ class LocalLoginPayload(BaseModel):
 
 
 @router.post("/login/local")
+@system_scoped("Authentification : on ne peut pas exiger un utilisateur déjà résolu pour se connecter.")
 def login_local(payload: LocalLoginPayload, request: Request, response: Response, db: Session = Depends(get_db)):
     """
     Connexion au provider "local", propre à UNE base (voir architecture.md : contrairement à un
@@ -79,6 +82,7 @@ class PasswordResetRequestPayload(BaseModel):
 
 
 @router.post("/password-reset/request")
+@system_scoped("Réinitialisation de mot de passe : par nature accessible à qui ne peut PAS se connecter. Réponse générique, aucune donnée renvoyée.")
 async def password_reset_request(payload: PasswordResetRequestPayload, db: Session = Depends(get_db)):
     """
     Provider "local" uniquement (voir architecture.md §17.G) — toujours la même réponse générique,
@@ -108,6 +112,7 @@ class PasswordResetConfirmPayload(BaseModel):
 
 
 @router.post("/password-reset/confirm")
+@system_scoped("Suite de /password-reset/request : le jeton à usage unique EST l'authentification (voir PasswordResetToken.consume).")
 def password_reset_confirm(payload: PasswordResetConfirmPayload, db: Session = Depends(get_db)):
     """Jeton invalide/expiré/déjà utilisé : un seul message générique (voir PasswordResetToken.consume,
     ne distingue jamais la raison précise — même principe d'énumération que /password-reset/request)."""
@@ -120,6 +125,7 @@ def password_reset_confirm(payload: PasswordResetConfirmPayload, db: Session = D
 
 
 @router.get("/oidc/login/{provider_key}")
+@system_scoped("Départ vers le fournisseur d'identité : c'est le point d'entrée de l'authentification elle-même.")
 async def oidc_login(provider_key: str, request: Request, next: str = "/"):
     client = oauth.create_client(provider_key)
     if client is None:
@@ -129,6 +135,7 @@ async def oidc_login(provider_key: str, request: Request, next: str = "/"):
 
 
 @router.get("/oidc/callback/{provider_key}", name="oidc_callback")
+@system_scoped("Retour du fournisseur d'identité : atteint par une redirection navigateur, qui ne peut porter ni session ni en-tête (voir docstring).")
 async def oidc_callback(provider_key: str, request: Request, response: Response, next: str = "/"):
     """
     ⚠️ Non vérifié contre un vrai fournisseur OIDC (EduConnect n'est configuré qu'avec des
@@ -175,6 +182,7 @@ class MasterLoginPayload(BaseModel):
 
 
 @router.post("/login/master")
+@system_scoped("Authentification par mot de passe maître. N'ouvre que la console d'instance : current_db_user rejette explicitement cette identité sur toute route applicative.")
 def login_master(payload: MasterLoginPayload, request: Request, response: Response):
     """
     Authentification par mot de passe maître pour la console d'administration (voir
@@ -190,6 +198,7 @@ def login_master(payload: MasterLoginPayload, request: Request, response: Respon
 
 
 @router.post("/logout")
+@system_scoped("Déconnecter quelqu'un de déjà déconnecté doit rester un no-op réussi, pas une 401 (voir docstring du module).")
 def logout(response: Response):
     clear_session_cookie(response)
     return {"status": "success"}

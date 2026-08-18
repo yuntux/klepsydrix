@@ -2518,6 +2518,53 @@ serveur** : une branche non autorisée n'est jamais envoyée au navigateur, pas 
 appel de `/api/ui/menus` (rechargement de page) — négligeable pour le nombre de menus actuel, à
 surveiller si l'arbre grossit beaucoup.
 
+### I. Garde-fou de portée des routes, vérifié au démarrage (`core/route_guard.py`)
+
+Le moteur de droits ne s'active que si `db.klepsydrix_user_id` est posé, ce que seul
+`current_db_user` fait, à la frontière HTTP (§18.B). Conséquence directe : **un routeur monté sans
+cette dépendance ne plante pas — il répond normalement, en mode système, avec l'intégralité des
+données.** `read()` croit alors être appelé par du code interne (seed, cascades, solveur) et ne
+filtre rien. Aucune erreur, aucun log : le seul type de défaillance qui ne se découvre jamais à
+l'usage.
+
+`assert_all_routes_scoped(app)`, appelé dans le `lifespan` de `main.py`, refuse le démarrage si une
+route n'est ni authentifiée ni explicitement dispensée. Trois issues possibles pour une route :
+
+| Portée | Marqueur | Ce que ça couvre |
+|---|---|---|
+| Données d'une base | `Depends(current_db_user)` | moteur de droits complet — toutes les routes applicatives |
+| Administration d'instance | `Depends(require_instance_session)` | agit sur des bases, pas sur des lignes : identité vérifiée, moteur de droits sans objet |
+| Aucune | `@system_scoped("raison")` | l'authentification elle-même + healthcheck + sélecteur de base |
+
+**Conception : liste blanche d'exceptions, pas liste de zones à protéger.** Une première version
+énumérait les préfixes applicatifs à contrôler (`/api/generic`, `/api/timetable`…) — rejetée, elle
+reproduisait exactement le problème qu'elle prétendait résoudre (on oublie d'y ajouter le préfixe
+suivant, et l'oubli est de nouveau silencieux). Ici, **toute** route est concernée par défaut et la
+dérogation se déclare sur la route elle-même : il n'existe aucune liste centrale à tenir à jour, et
+ajouter un routeur sans dépendance de portée fait échouer le démarrage en le nommant.
+
+L'argument `reason` de `@system_scoped` n'est pas décoratif : c'est ce qu'on relit en audit, et
+`test_route_guard.py` vérifie à la fois **la liste** des dérogations (en ajouter une casse le test
+— acte délibéré, pas une ligne qui passe en revue) et le fait que chacune soit motivée.
+
+Le parcours de l'arbre de dépendances est **récursif** : une dépendance posée par
+`include_router(dependencies=[...])` et une dépendance d'endpoint se retrouvent au même endroit,
+mais `current_db_user` peut aussi être atteint indirectement (il dépend lui-même de
+`require_instance_session` et `get_db`). Un parcours du premier niveau seul donnerait des faux
+positifs sur les 800+ routes de `generic.py`, qui ne déclarent que `Depends(get_db)` et tiennent
+leur protection du niveau routeur.
+
+État à la mise en place : 826 routes protégées par `current_db_user`, 7 par
+`require_instance_session`, 10 dispensées (authentification, `/`, `/api/instance/databases`).
+`GET /test-openapi` — vestige de debug qui exposait le schéma OpenAPI complet et les tracebacks —
+a été supprimé à cette occasion plutôt que marqué.
+
+💬 **Comparaison avec Odoo** : Odoo n'a pas d'équivalent, parce qu'il n'en a pas besoin — le
+contrôle y est porté par l'ORM (`_read` applique les `ir.rules` quel que soit l'appelant), pas par
+le routage. La contrepartie du choix retenu ici (point d'application au niveau `read()`, §18.B) est
+précisément qu'il dépend d'un câblage de routage correct — ce garde-fou est ce qui rend ce câblage
+non-oubliable.
+
 ## 19. Console d'Administration d'Instance
 
 Voir plan "Klepsydrix — Multi-SGBD, Multi-Base, Utilisateurs/IDP, Droits, Console Admin", lot 5.

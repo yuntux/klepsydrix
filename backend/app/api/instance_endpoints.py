@@ -16,6 +16,7 @@ from backend.app.core.instance_session import InstanceSession, require_instance_
 from backend.app.core.instance_admin import (
     require_super_admin, require_admin_of, is_super_admin, administrable_databases,
 )
+from backend.app.core.route_guard import system_scoped
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,13 @@ router = APIRouter(prefix="/api/instance")
 
 
 @router.get("/databases")
+@system_scoped(
+    "Alimente le sélecteur de base, affiché AVANT toute session — ne peut donc rien exiger. "
+    "Contrepartie assumée : n'importe qui peut énumérer les slugs des établissements hébergés "
+    "sur l'instance (aucune autre donnée). Si cette énumération devient indésirable, la sortie "
+    "est de déplacer le sélecteur après authentification et de servir /admin/databases, qui "
+    "filtre déjà selon la session."
+)
 def list_databases():
     return {"databases": sorted(db_registry.known_slugs())}
 

@@ -6,6 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from backend.app.core.config import settings
 from backend.app.core.database import check_write_token, current_db_user
 from backend.app.core.log_context import attach_to_handlers, DbSlugContextMiddleware
+from backend.app.core.route_guard import assert_all_routes_scoped, system_scoped
 
 # Logs applicatifs contextualisés par base (voir architecture.md, "Architecture de routage HTTP",
 # core/log_context.py::attach_to_handlers pour le détail du piège évité). Les logs d'accès uvicorn
@@ -34,6 +35,13 @@ async def lifespan(app: FastAPI):
         clear_exclusive_mode(db)
     finally:
         db.close()
+
+    # Refuse de démarrer si une route n'est ni authentifiée ni marquée @system_scoped — voir
+    # core/route_guard.py pour le pourquoi (une route qui oublie current_db_user ne plante pas,
+    # elle répond en mode système avec toutes les données). Ici plutôt qu'au niveau module : les
+    # include_router() ont déjà tous été exécutés à l'import, l'inventaire des routes est complet.
+    assert_all_routes_scoped(app)
+
     yield
 
 
@@ -72,6 +80,7 @@ app.add_middleware(DbSlugContextMiddleware)
 # Point d'entrée de santé (Healthcheck) et de bienvenue de l'API — portée instance, aucune base
 # résolue (voir architecture.md, "Architecture de routage HTTP").
 @app.get("/")
+@system_scoped("Healthcheck : doit répondre sans aucune session, y compris à une sonde de supervision. Ne sert aucune donnée de base.")
 def read_root():
     return {
         "status": "online",
@@ -99,11 +108,3 @@ app.include_router(generic_router, dependencies=[Depends(current_db_user), Depen
 app.include_router(ui_router)
 app.include_router(instance_router)
 app.include_router(auth_router)
-
-@app.get("/test-openapi")
-def test_openapi():
-    try:
-        return app.openapi()
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()}
