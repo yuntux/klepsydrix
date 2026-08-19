@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 
 from backend.app.core.database import get_db
 from backend.app.core import db_registry
+from backend.app.api.generic import sqla_to_dict
 from backend.app.models.teacher import Teacher
 from backend.app.models.classroom import Classroom
 from backend.app.models.division import Division
@@ -172,28 +173,17 @@ def update_course(course_id: int, payload: CourseUpdate, db: Session = Depends(g
             raise HTTPException(status_code=409, detail=str(e))
         
     modified_courses = [course] + list(course.children)
-    
-    serialized_courses = [
-        {
-            "id": c.id,
-            "subject": c.subject_relation.short_name if c.subject_relation else "Cours",
-            "color": c.subject_relation.color if c.subject_relation else "#cbd5e1",
-            "teacher_ids": [t.id for t in c.teachers],
-            "non_teaching_staff_ids": [s.id for s in c.non_teaching_staffs],
-            "division_ids": [d.id for d in c.divisions],
-            "timeslot_id": c.timeslot_id,
-            "classroom_requirement_ids": [{"id": r.id, "classroom_id": r.classroom_id, "quantity": r.quantity} for r in c.classroom_requirements],
-            "group_ids": [g.id for g in c.groups],
-            "is_pinned": c.is_pinned,
-            "duration_minutes": c.duration_minutes,
-            "week_type": c.week_type.value,
-            "parent_id": c.parent_id,
-            "status": c.status,
-            "decomposition_status": c.decomposition_status,
-        }
-        for c in modified_courses
-    ]
-    
+
+    # sqla_to_dict (le sérialiseur du CRUD générique), et non une projection maison : App.vue
+    # REMPLACE l'objet cours du store par celui renvoyé ici (voir onUnassignCourse/onDropCourse/
+    # onTogglePinCourse), donc toute clé absente de cette réponse est perdue côté client alors
+    # qu'elle était présente au chargement initial (fetchAllGenericItems('courses')). L'ancienne
+    # projection omettait notamment subject_id — devenu la seule source de vérité pour la matière
+    # et la couleur (voir CourseCard.vue) —, d'où un cours qui perdait sa matière en revenant
+    # dans la liste des cours à placer. Une seule sérialisation partagée = plus de divergence
+    # possible à chaque nouveau champ du modèle.
+    serialized_courses = [sqla_to_dict(c) for c in modified_courses]
+
     return {"status": "success", "courses": serialized_courses}
 
 
