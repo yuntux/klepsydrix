@@ -30,22 +30,11 @@
             :periods="periodsList"
             :loading="loading"
             :scoreData="scoreData"
-            :solverProgress="solverProgress"
-            :solverElapsedSeconds="solverElapsedSeconds"
-            :solverTimeLimitSeconds="solverTimeLimitSeconds"
-            :solverIsQueued="solverIsQueued"
-            :solverQueuePosition="solverQueuePosition"
-            :solverQueueLength="solverQueueLength"
-            :solverKind="solverKind"
-            :solverPipelineStep="solverPipelineStep"
-            :solverPipelineTotalSteps="solverPipelineTotalSteps"
             :selectedCourseIds="selectedCourseIds"
             @move="onMoveCourse"
             @unassign="onUnassignCourse"
             @togglePin="onTogglePinCourse"
             @selectCourse="toggleCourseSelection"
-            @course-placement="onCoursePlacement"
-            @stop-solve="onStopSolve"
             @reset="onReset"
           />
         </main>
@@ -160,6 +149,23 @@
       </template>
     </NotebooksTree>
 
+    <!-- Couche de progression du solveur (voir SolverProgressOverlay.vue) : montée ici plutôt que
+         dans TimetableGrid.vue pour couvrir tout le viewport et rester visible même si
+         l'utilisateur navigue vers un autre onglet pendant un calcul déclenché depuis un wizard. -->
+    <SolverProgressOverlay
+      :loading="loading"
+      :solverProgress="solverProgress"
+      :solverElapsedSeconds="solverElapsedSeconds"
+      :solverTimeLimitSeconds="solverTimeLimitSeconds"
+      :solverIsQueued="solverIsQueued"
+      :solverQueuePosition="solverQueuePosition"
+      :solverQueueLength="solverQueueLength"
+      :solverKind="solverKind"
+      :solverPipelineStep="solverPipelineStep"
+      :solverPipelineTotalSteps="solverPipelineTotalSteps"
+      @stop-solve="onStopSolve"
+    />
+
     <!-- Déclenchement direct d'une action de menu (voir NotebooksTree.vue, feuille "action" et
          onTriggerAction ci-dessous) : instance headless de GenericForm, invisible tant que son
          wizard n'est pas ouvert — ne touche à aucun état de la vue affichée derrière. -->
@@ -172,6 +178,7 @@
       :modelValue="actionWizardModel"
       :resourceKey="actionWizardResourceKey"
       :formConfig="{ editableForm: false, deletable: false, autoOpenActionId: actionWizardActionId }"
+      @wizard-success="onWizardJobStarted"
     />
 
     <!-- Modal Formulaire Générique Fallback -->
@@ -185,6 +192,7 @@
       @submit="onSubmitGeneric"
       @cancel="showFormModal = false"
       @delete="onDeleteGeneric"
+      @wizard-success="onWizardJobStarted"
     />
 
     <!-- Boîte de dialogue de confirmation d'impact de dépositionnement (T018b) -->
@@ -244,6 +252,7 @@
 import { ref, onMounted, watch, computed, provide, defineAsyncComponent } from 'vue';
 import type { Component, Ref } from 'vue';
 import NotebooksTree from './components/NotebooksTree.vue';
+import SolverProgressOverlay from './components/SolverProgressOverlay.vue';
 import { Course, Timeslot, Teacher, NonTeachingStaff, Division, Classroom } from './types';
 import * as api from './services/api';
 import { useDataStore } from './stores/data';
@@ -1892,14 +1901,15 @@ async function checkStatus() {
   }
 }
 
-async function onCoursePlacement() {
-  try {
-    const result = await api.startCoursePlacement();
-    showNotification('success', result.message || 'Placement automatique démarré en arrière-plan.');
+// Déclenché par GenericForm.vue (voir wizard-success) quand le wizard soumis vient de lancer une
+// résolution asynchrone en arrière-plan (placement, attribution des salles, optimisation — voir
+// startsBackgroundJob dans GenericWizard.vue) — même effet que l'ancien onCoursePlacement/
+// onClassroomAssignment directs, mais générique : App.vue n'a pas besoin de connaître la liste des
+// wizards concernés, seulement de réagir à ce flag déclaré côté backend.
+function onWizardJobStarted(payload: { startsBackgroundJob: boolean }) {
+  if (payload?.startsBackgroundJob) {
     loading.value = true;
     checkStatus();
-  } catch (err: any) {
-    showNotification('error', err.message || 'Erreur lors du lancement du placement automatique');
   }
 }
 

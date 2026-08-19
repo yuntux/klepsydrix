@@ -1389,6 +1389,15 @@
         ]
       },
       {
+        "id": "course_placement_action",
+        "icon": "wand",
+        "title": "Placement automatique",
+        "action": {
+          "resourceKey": "wizard_course_placements",
+          "actionId": "start_course_placement"
+        }
+      },
+      {
         "id": "classroom_assignment_action",
         "icon": "door-open",
         "title": "Attribuer les salles",

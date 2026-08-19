@@ -86,6 +86,12 @@ interface WizardStep {
   rpc?: string;
   rpcParams?: Record<string, string>;
   isLast?: boolean;
+  // Déclaré côté backend (__actions__) sur la dernière étape des wizards qui lancent une
+  // résolution asynchrone en arrière-plan (placement, attribution des salles, optimisation) —
+  // propagé jusqu'à App.vue (voir GenericForm.vue) pour qu'il démarre le polling de progression
+  // (loading + checkStatus) au bon moment, sans que ce composant générique n'ait besoin de
+  // connaître la liste des wizards concernés.
+  startsBackgroundJob?: boolean;
 }
 
 const props = defineProps<{
@@ -98,7 +104,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'cancel'): void;
-  (e: 'success'): void;
+  (e: 'success', payload: { startsBackgroundJob: boolean }): void;
 }>();
 
 const currentStepIndex = ref(0);
@@ -171,7 +177,7 @@ function advanceOrFinish(step: WizardStep) {
         window.dispatchEvent(new CustomEvent('resource:mutated', { detail: { resource_name: resourceName } }));
       }
     }
-    emit('success');
+    emit('success', { startsBackgroundJob: step.startsBackgroundJob === true });
   } else {
     currentStepIndex.value++;
   }

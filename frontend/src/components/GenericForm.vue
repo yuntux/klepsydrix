@@ -72,7 +72,7 @@
       :steps="activeAction.steps"
       :cancelRpc="activeAction.cancelRpc"
       @cancel="showWizard = false"
-      @success="showWizard = false"
+      @success="onWizardSuccess"
     />
   </BaseModal>
 </template>
@@ -123,6 +123,11 @@ function evaluateActionCondition(action: any, model: any) {
   } catch (e) {
     return false;
   }
+}
+
+function onWizardSuccess(payload: { startsBackgroundJob: boolean }) {
+  showWizard.value = false;
+  emit('wizard-success', payload);
 }
 
 function handleActionClick(action: any) {
@@ -290,6 +295,10 @@ const emit = defineEmits<{
   (e: 'submit', value: Record<string, any>): void;
   (e: 'cancel'): void;
   (e: 'delete', value: Record<string, any>): void;
+  // Relayé tel quel depuis GenericWizard.vue (voir startsBackgroundJob) — App.vue l'écoute pour
+  // démarrer le polling de progression (loading + checkStatus) quand le wizard soumis vient de
+  // lancer une résolution asynchrone en arrière-plan.
+  (e: 'wizard-success', payload: { startsBackgroundJob: boolean }): void;
 }>();
 
 const notificationStore = useNotificationStore();

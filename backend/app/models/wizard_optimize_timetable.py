@@ -39,6 +39,7 @@ class WizardOptimizeTimetable(TransientModel):
                 "title": "Paramètres de l'optimisation",
                 "submitLabel": "Lancer l'optimisation",
                 "isLast": True,
+                "startsBackgroundJob": True,
                 "rpc": "rpc_start_optimize",
                 "rpcParams": {
                     "max_compute_seconds": "max_compute_seconds",

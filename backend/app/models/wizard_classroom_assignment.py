@@ -33,6 +33,7 @@ class WizardClassroomAssignment(TransientModel):
                 "title": "Priorité de continuité des salles",
                 "submitLabel": "Attribuer les salles",
                 "isLast": True,
+                "startsBackgroundJob": True,
                 "rpc": "rpc_start_classroom_assignment",
                 "rpcParams": {
                     "optimize_target": "optimize_target",

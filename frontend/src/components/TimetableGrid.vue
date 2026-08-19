@@ -51,28 +51,6 @@
           <BaseButton variant="secondary" @click="$emit('reset')" :disabled="loading">
             Réinitialiser
           </BaseButton>
-          
-          <template v-if="!loading">
-            <BaseButton variant="primary" @click="$emit('course-placement')">
-              <template #icon>
-                <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </template>
-              Placement automatique
-            </BaseButton>
-          </template>
-
-          <BaseButton v-else variant="danger" @click="$emit('stop-solve')">
-            <template #icon>
-              <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z" />
-              </svg>
-            </template>
-            Arrêter
-          </BaseButton>
         </div>
       </template>
       
@@ -114,37 +92,14 @@
         />
       </template>
 
-      <!-- Overlay de chargement -->
+      <!-- Overlay de chargement de la Heatmap (voir plan mode assisté) — la progression du
+           solveur, elle, vit désormais dans SolverProgressOverlay.vue (monté au niveau d'App.vue,
+           plein écran, pas scopé à ce panneau, voir architecture.md). -->
       <template #overlay>
-        <div class="loader-overlay" v-if="loading || isLoadingHeatmap">
+        <div class="loader-overlay" v-if="isLoadingHeatmap">
           <div class="spinner"></div>
-          <div style="color: #black; font-weight: 500; font-size: 16px;">
-            {{ isLoadingHeatmap
-              ? 'Évaluation de la Heatmap...'
-              : (solverIsQueued ? 'En file d\'attente...' : solverStatusLabel) }}
-          </div>
-          <div v-if="!isLoadingHeatmap && !solverIsQueued && solverPipelineTotalSteps > 1" class="solver-pipeline-step">
-            Étape {{ solverPipelineStep }} sur {{ solverPipelineTotalSteps }}
-          </div>
-          <!-- Progression best-effort (voir solver.py) : le score dur/doux le plus récent connu
-               peut manquer par intermittence (limitation du paquet timefold bêta), le temps
-               écoulé/limite reste lui toujours fiable. Tant que la résolution est seulement en
-               file d'attente (voir solver.py::SolverState, "Concurrence des résolutions"), ni le
-               score ni le temps écoulé n'ont de sens (la résolution n'a pas encore démarré) —
-               seule la position dans la file est affichée. -->
-          <div v-if="!isLoadingHeatmap" class="solver-progress-info">
-            <span v-if="solverIsQueued">
-              Position {{ solverQueuePosition }} sur {{ solverQueueLength }}
-            </span>
-            <template v-else>
-              <span v-if="solverProgress">Score : {{ solverProgress.hard_score }}H / {{ solverProgress.soft_score }}S</span>
-              <span v-if="solverElapsedSeconds != null">
-                Temps écoulé : {{ Math.round(solverElapsedSeconds) }}s{{ solverTimeLimitSeconds ? ` / ${solverTimeLimitSeconds}s max` : '' }}
-              </span>
-            </template>
-            <BaseButton variant="danger" size="sm" @click="$emit('stop-solve')">
-              Arrêter le calcul
-            </BaseButton>
+          <div style="color: #1e293b; font-weight: 500; font-size: 16px;">
+            Évaluation de la Heatmap...
           </div>
         </div>
       </template>
@@ -191,15 +146,6 @@ const props = defineProps<{
   schools?: any[];
   schoolId?: number | null;
   scoreData?: any;
-  solverProgress?: { hard_score: number; soft_score: number } | null;
-  solverElapsedSeconds?: number | null;
-  solverTimeLimitSeconds?: number | null;
-  solverIsQueued?: boolean;
-  solverQueuePosition?: number | null;
-  solverQueueLength?: number;
-  solverKind?: string | null;
-  solverPipelineStep?: number;
-  solverPipelineTotalSteps?: number;
   periodTypes?: any[];
   periods?: any[];
   periodTypeId?: number | null;
@@ -223,8 +169,6 @@ const emit = defineEmits<{
   (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'reset'): void;
-  (e: 'course-placement'): void;
-  (e: 'stop-solve'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
@@ -235,21 +179,6 @@ const emit = defineEmits<{
 }>();
 
 const { currentStandardDuration, getCellKey } = useTimeslotGrid();
-
-// Libellé de l'overlay de chargement, selon le type de résolution en cours (voir plan salles §4,
-// SolverState.kind côté backend) — null/undefined (legacy /solve, ou pas encore reçu un premier
-// /status) retombe sur le libellé générique historique.
-const SOLVER_KIND_LABELS: Record<string, string> = {
-  COURSE_PLACEMENT: 'Placement automatique en cours...',
-  CLASSROOM_ASSIGNMENT: 'Attribution des salles en cours...',
-  OPTIMIZE_COURSE_PLACEMENT: 'Optimisation — placement des cours...',
-  OPTIMIZE_CLASSROOM_ASSIGNMENT: 'Optimisation — attribution des salles...',
-};
-const solverStatusLabel = computed(() => {
-  return (props.solverKind && SOLVER_KIND_LABELS[props.solverKind]) || 'Calcul de l\'emploi du temps optimal...';
-});
-const solverPipelineStep = computed(() => props.solverPipelineStep || 1);
-const solverPipelineTotalSteps = computed(() => props.solverPipelineTotalSteps || 1);
 
 const activeResources = computed(() => {
   if (props.layoutMode !== 'resource_columns' && props.layoutMode !== 'resource_grids') return [];
@@ -589,23 +518,6 @@ function onDrop(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B
 </script>
 
 <style scoped>
-/* Les styles étant scoped, la règle .icon-btn de ImpactConfirmDialog.vue (même convention,
-   16x16px) ne s'applique pas ici — sans sa propre déclaration, ces <svg class="icon-btn"> (voir
-   #actions plus haut) restaient sans contrainte de taille et gonflaient toute la hauteur des
-   boutons "Placement automatique"/"Arrêter" bien au-delà de "Réinitialiser". */
-.icon-btn {
-  width: 16px;
-  height: 16px;
-}
-
-.solver-progress-info .btn {
-  margin-top: 8px;
-}
-.solver-pipeline-step {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
 .unassign-btn {
   background: transparent;
   border: none;
