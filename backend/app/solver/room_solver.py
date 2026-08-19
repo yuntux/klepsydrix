@@ -19,6 +19,7 @@ from backend.app.solver.constraints import PlanningClassroom, PlanningPreference
 from backend.app.solver.room_constraints import (
     PlanningRoomAssignment,
     PlanningFixedRoomBooking,
+    PlanningRoomOptimizationSettings,
     PlanningRoomTimetable,
     define_room_constraints,
 )
@@ -81,12 +82,18 @@ def _effective_headcount(course: Course) -> Optional[int]:
     return total if has_audience else None
 
 
-def _build_classroom_assignment_problem(db: Session, school_id: Optional[int] = None) -> PlanningRoomTimetable:
+def _build_classroom_assignment_problem(
+    db: Session, school_id: Optional[int] = None, optimize_target: str = "TEACHER"
+) -> PlanningRoomTimetable:
     """
     Construit le problème CLASSROOM_ASSIGNMENT : une PlanningRoomAssignment par unité de besoin
     (quantity) de chaque CourseClassroomRequirement pointant vers un GROUPE, sur n'importe quel
     cours (parent ou enfant, §3.1 — la cascade décrémentée de la tâche #4 garantit déjà que la
     quantité stockée est correcte, aucune distinction de population nécessaire ici).
+
+    optimize_target ("TEACHER" ou "DIVISION") : axe choisi par l'utilisateur dans le wizard
+    "Attribuer les salles" pour la continuité de salle (voir room_constraints.py) — reçoit un
+    poids ×10 par rapport à l'autre axe.
     """
     query = select(Course)
     if school_id is not None:
@@ -173,6 +180,8 @@ def _build_classroom_assignment_problem(db: Session, school_id: Optional[int] = 
                 duration_minutes=course.duration_minutes,
                 week_type=week_type_value,
                 period_mask=period_mask,
+                teacher_ids=teacher_ids,
+                division_ids=division_ids,
             ))
             if req.classroom_id not in all_classrooms_seen:
                 all_classrooms_seen[req.classroom_id] = PlanningClassroom(
@@ -193,10 +202,14 @@ def _build_classroom_assignment_problem(db: Session, school_id: Optional[int] = 
         ) for pref in db_preferences
     ]
 
+    optimization_settings = [PlanningRoomOptimizationSettings(optimize_target=optimize_target)]
+    assert len(optimization_settings) == 1
+
     return PlanningRoomTimetable(
         classrooms=list(all_classrooms_seen.values()),
         fixed_bookings=fixed_bookings,
         preferences=preferences_list,
+        optimization_settings=optimization_settings,
         assignments=assignments,
         score=None,
     )
@@ -235,7 +248,12 @@ def _write_back_classroom_assignment(db, solution):
             req.delete(db)
 
 
-def solve_classroom_assignment(db: Session, school_id: Optional[int] = None, termination_config_override=None):
+def solve_classroom_assignment(
+    db: Session,
+    school_id: Optional[int] = None,
+    termination_config_override=None,
+    optimize_target: str = "TEACHER",
+):
     """
     Résout CLASSROOM_ASSIGNMENT et écrit le résultat en base. Write-back = mécanisme de sortie de
     domaine (Option 1, décidée en amont) : chaque PlanningRoomAssignment résolue passe par
@@ -256,7 +274,7 @@ def solve_classroom_assignment(db: Session, school_id: Optional[int] = None, ter
     from timefold.solver.config import SolverConfigOverride, TerminationConfig, Duration
     from backend.app.core.config import settings
 
-    problem = _build_classroom_assignment_problem(db, school_id)
+    problem = _build_classroom_assignment_problem(db, school_id, optimize_target)
     solver_factory = _get_classroom_assignment_solver_factory()
 
     override = termination_config_override or SolverConfigOverride(

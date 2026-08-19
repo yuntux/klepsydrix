@@ -2928,3 +2928,314 @@ def test_classroom_assignment_division_preferred_room_reward(db_session: Session
     assert resolved is not None
     assert resolved.id == l_preferred.id
     assert solution.score.soft_score == 1
+
+
+# =====================================================================================
+# Continuité de salle (room_constraints.py, teacher_room_continuity_penalty /
+# division_room_continuity_penalty / *_with_fixed_booking) — "cours consécutif" = le prochain
+# cours RÉEL de ce jour pour cette personne, même à travers un trou (heure libre), pas seulement
+# un enchaînement sans trou (choix utilisateur explicite).
+# =====================================================================================
+
+def _continuity_assignment(id, minutes, duration, room_id, teacher_ids=None, division_ids=None,
+                            week_type="W", period_mask=0):
+    from backend.app.solver.room_constraints import PlanningRoomAssignment
+    from backend.app.solver.constraints import PlanningClassroom
+    return PlanningRoomAssignment(
+        id=id, course_id=id, day_of_week=1, minutes_from_midnight=minutes, duration_minutes=duration,
+        week_type=week_type, period_mask=period_mask,
+        teacher_ids=teacher_ids or [], division_ids=division_ids or [],
+        classroom=PlanningClassroom(id=room_id, name=f"Room{room_id}", capacity=None),
+    )
+
+
+def test_count_room_continuity_breaks_matrix():
+    """Fonction pure appelée depuis un ConstraintCollectors.to_list() (voir
+    teacher_room_continuity_penalty) — chaque dimension isolée, même esprit que
+    test_rooms_overlap_matrix."""
+    from backend.app.solver.room_constraints import _count_room_continuity_breaks
+
+    # Chaîne réelle A -> B -> A (3 cours du même prof, ordonnés) : 2 vrais changements de salle.
+    rows = [
+        _continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1]),
+        _continuity_assignment(2, 600, 60, room_id=200, teacher_ids=[1]),
+        _continuity_assignment(3, 720, 60, room_id=100, teacher_ids=[1]),
+    ]
+    assert _count_room_continuity_breaks(rows, 'teacher_ids') == 2
+
+    # Même salle sur toute la chaîne : aucune pénalité.
+    rows_same_room = [
+        _continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1]),
+        _continuity_assignment(2, 600, 60, room_id=100, teacher_ids=[1]),
+    ]
+    assert _count_room_continuity_breaks(rows_same_room, 'teacher_ids') == 0
+
+    # Dernier cours du jour : aucun voisin, aucune pénalité.
+    rows_single = [_continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1])]
+    assert _count_room_continuity_breaks(rows_single, 'teacher_ids') == 0
+
+    # Semaines A/B disjointes : pas de relation de continuité entre ces deux cours — la recherche
+    # continue au-delà (ici aucun autre cours), pas de pénalité malgré des salles différentes.
+    rows_week_split = [
+        _continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1], week_type="A"),
+        _continuity_assignment(2, 600, 60, room_id=200, teacher_ids=[1], week_type="B"),
+    ]
+    assert _count_room_continuity_breaks(rows_week_split, 'teacher_ids') == 0
+
+    # Périodes disjointes : même raisonnement.
+    rows_period_split = [
+        _continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1], period_mask=0b001),
+        _continuity_assignment(2, 600, 60, room_id=200, teacher_ids=[1], period_mask=0b010),
+    ]
+    assert _count_room_continuity_breaks(rows_period_split, 'teacher_ids') == 0
+
+    # Cas critique : deux cours SIMULTANÉS (siblings quantity>1, forcés vers des salles
+    # différentes par room_conflict_between_assignments) ne sont jamais traités comme voisins —
+    # sans cette exclusion, on pénaliserait le solveur pour avoir fait exactement ce qui est
+    # demandé par ailleurs.
+    rows_simultaneous = [
+        _continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1]),
+        _continuity_assignment(2, 480, 60, room_id=200, teacher_ids=[1]),
+    ]
+    assert _count_room_continuity_breaks(rows_simultaneous, 'teacher_ids') == 0
+
+    # Deux personnes indépendantes le même jour : chaque chaîne comptée séparément, jamais
+    # mélangée (id_field paramétrable, ici division_ids sur un mélange, pour confirmer l'isolation).
+    rows_two_people = [
+        _continuity_assignment(1, 480, 60, room_id=100, teacher_ids=[1]),
+        _continuity_assignment(2, 600, 60, room_id=200, teacher_ids=[1]),
+        _continuity_assignment(3, 480, 60, room_id=300, teacher_ids=[2]),
+        _continuity_assignment(4, 600, 60, room_id=300, teacher_ids=[2]),
+    ]
+    assert _count_room_continuity_breaks(rows_two_people, 'teacher_ids') == 1
+
+    # id_field paramétrable : même mécanique sur division_ids.
+    rows_division = [
+        _continuity_assignment(1, 480, 60, room_id=100, division_ids=[9]),
+        _continuity_assignment(2, 600, 60, room_id=200, division_ids=[9]),
+    ]
+    assert _count_room_continuity_breaks(rows_division, 'division_ids') == 1
+
+
+def test_classroom_assignment_teacher_continuity_prefers_same_room(db_session: Session):
+    """teacher_room_continuity_penalty : un professeur avec deux cours réellement adjacents (même
+    groupe de salles, aucune autre contrainte) doit converger vers la même salle-feuille."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_CONT1", "first_name": "Prof", "last_name": "Cont1", "school_id": school.id})
+    d1 = Division.create(db_session, {"code": "DIV_CONT1", "name": "Div Cont1", "school_id": school.id})
+    d2 = Division.create(db_session, {"code": "DIV_CONT2", "name": "Div Cont2", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 600})
+
+    group = Classroom.create(db_session, {"code": "GRP-CONT1", "name": "Grp", "school_id": school.id})
+    Classroom.create(db_session, {"code": "R1-CONT1", "name": "Salle 1", "school_id": school.id, "parent_classroom_id": group.id})
+    Classroom.create(db_session, {"code": "R2-CONT1", "name": "Salle 2", "school_id": school.id, "parent_classroom_id": group.id})
+
+    course1 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts1.id, "teacher_ids": [teacher.id], "division_ids": [d1.id],
+    })
+    course2 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts2.id, "teacher_ids": [teacher.id], "division_ids": [d2.id],
+    })
+    CourseClassroomRequirement.create(db_session, {"course_id": course1.id, "classroom_id": group.id, "quantity": 1})
+    CourseClassroomRequirement.create(db_session, {"course_id": course2.id, "classroom_id": group.id, "quantity": 1})
+    db_session.commit()
+
+    solution = solve_classroom_assignment(db_session, school.id)
+
+    assert solution.score.hard_score == 0
+    rooms = {a.course_id: a.classroom.id for a in solution.assignments if a.classroom is not None}
+    assert rooms[course1.id] == rooms[course2.id]
+
+
+def test_classroom_assignment_division_continuity_prefers_same_room(db_session: Session):
+    """Pendant de test_classroom_assignment_teacher_continuity_prefers_same_room pour
+    division_room_continuity_penalty."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    t1 = Teacher.create(db_session, {"code": "T_DCONT1", "first_name": "Prof", "last_name": "Dcont1", "school_id": school.id})
+    t2 = Teacher.create(db_session, {"code": "T_DCONT2", "first_name": "Prof", "last_name": "Dcont2", "school_id": school.id})
+    division = Division.create(db_session, {"code": "DIV_DCONT", "name": "Div Dcont", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 600})
+
+    group = Classroom.create(db_session, {"code": "GRP-DCONT", "name": "Grp", "school_id": school.id})
+    Classroom.create(db_session, {"code": "R1-DCONT", "name": "Salle 1", "school_id": school.id, "parent_classroom_id": group.id})
+    Classroom.create(db_session, {"code": "R2-DCONT", "name": "Salle 2", "school_id": school.id, "parent_classroom_id": group.id})
+
+    course1 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts1.id, "teacher_ids": [t1.id], "division_ids": [division.id],
+    })
+    course2 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts2.id, "teacher_ids": [t2.id], "division_ids": [division.id],
+    })
+    CourseClassroomRequirement.create(db_session, {"course_id": course1.id, "classroom_id": group.id, "quantity": 1})
+    CourseClassroomRequirement.create(db_session, {"course_id": course2.id, "classroom_id": group.id, "quantity": 1})
+    db_session.commit()
+
+    solution = solve_classroom_assignment(db_session, school.id, optimize_target="DIVISION")
+
+    assert solution.score.hard_score == 0
+    rooms = {a.course_id: a.classroom.id for a in solution.assignments if a.classroom is not None}
+    assert rooms[course1.id] == rooms[course2.id]
+
+
+def _build_continuity_axis_conflict(db_session: Session, suffix: str):
+    """Construit un scénario où satisfaire la continuité du professeur ET celle de la division
+    est structurellement impossible : course2 (prochain cours réel du professeur partagé) et
+    course3 (prochain cours réel de la division partagée) sont simultanés sur un groupe à 2
+    salles-feuilles — room_conflict_between_assignments les force donc vers des salles distinctes,
+    si bien que course1 ne peut matcher qu'UNE seule des deux chaînes. Le score attendu diffère
+    alors de exactement 9 points (10-1) selon l'axe choisi — jamais un coin flip."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher_shared = Teacher.create(db_session, {"code": f"T_AX1{suffix}", "first_name": "Prof", "last_name": "Ax1", "school_id": school.id})
+    teacher_other = Teacher.create(db_session, {"code": f"T_AX2{suffix}", "first_name": "Prof", "last_name": "Ax2", "school_id": school.id})
+    division_shared = Division.create(db_session, {"code": f"DIV_AX1{suffix}", "name": "Div Ax1", "school_id": school.id})
+    division_other = Division.create(db_session, {"code": f"DIV_AX2{suffix}", "name": "Div Ax2", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 600})
+
+    group = Classroom.create(db_session, {"code": f"GRP-AX{suffix}", "name": "Grp", "school_id": school.id})
+    Classroom.create(db_session, {"code": f"R1-AX{suffix}", "name": "Salle 1", "school_id": school.id, "parent_classroom_id": group.id})
+    Classroom.create(db_session, {"code": f"R2-AX{suffix}", "name": "Salle 2", "school_id": school.id, "parent_classroom_id": group.id})
+
+    # course1 : point de départ commun aux deux chaînes (teacher_shared ET division_shared).
+    course1 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts1.id, "teacher_ids": [teacher_shared.id], "division_ids": [division_shared.id],
+    })
+    # course2 : prochain cours réel de teacher_shared (division différente).
+    course2 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts2.id, "teacher_ids": [teacher_shared.id], "division_ids": [division_other.id],
+    })
+    # course3 : prochain cours réel de division_shared (professeur différent), simultané à course2.
+    course3 = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts2.id, "teacher_ids": [teacher_other.id], "division_ids": [division_shared.id],
+    })
+    for c in (course1, course2, course3):
+        CourseClassroomRequirement.create(db_session, {"course_id": c.id, "classroom_id": group.id, "quantity": 1})
+    db_session.commit()
+    return course1, course2, course3
+
+
+def test_classroom_assignment_optimize_target_teacher_wins_continuity_conflict(db_session: Session):
+    """Le seul test qui prouve que le choix du wizard a un effet réel sur le résultat, pas
+    seulement que les deux contraintes existent — voir _build_continuity_axis_conflict."""
+    course1, course2, course3 = _build_continuity_axis_conflict(db_session, "T")
+    school = db_session.query(School).first()
+
+    solution = solve_classroom_assignment(db_session, school.id, optimize_target="TEACHER")
+
+    assert solution.score.hard_score == 0
+    rooms = {a.course_id: a.classroom.id for a in solution.assignments if a.classroom is not None}
+    assert rooms[course1.id] == rooms[course2.id]
+    assert rooms[course1.id] != rooms[course3.id]
+
+
+def test_classroom_assignment_optimize_target_division_wins_continuity_conflict(db_session: Session):
+    course1, course2, course3 = _build_continuity_axis_conflict(db_session, "D")
+    school = db_session.query(School).first()
+
+    solution = solve_classroom_assignment(db_session, school.id, optimize_target="DIVISION")
+
+    assert solution.score.hard_score == 0
+    rooms = {a.course_id: a.classroom.id for a in solution.assignments if a.classroom is not None}
+    assert rooms[course1.id] == rooms[course3.id]
+    assert rooms[course1.id] != rooms[course2.id]
+
+
+def test_classroom_assignment_teacher_continuity_with_fixed_booking_overrides_preference(db_session: Session):
+    """Phase 2 (PlanningFixedRoomBooking.teacher_ids/division_ids) : sans le peuplement de ces
+    champs (voir room_solver.py::_build_classroom_assignment_problem),
+    teacher_room_continuity_with_fixed_booking ne matcherait jamais aucune paire et resterait
+    silencieusement inerte pour tout cours à salle fixe — room_other, moins cher via
+    teacher_preferred_classroom_reward (+1), l'emporterait alors à tort sur room_fixed. Construit
+    un contre-force explicite (récompense de préférence, +1 pour room_other) que seule la
+    continuité de salle (poids 10, TEACHER) contre une réservation fixe peut faire perdre."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_FIXCONT", "first_name": "Prof", "last_name": "Fixcont", "school_id": school.id})
+    d1 = Division.create(db_session, {"code": "DIV_FIXCONT1", "name": "Div Fixcont1", "school_id": school.id})
+    d2 = Division.create(db_session, {"code": "DIV_FIXCONT2", "name": "Div Fixcont2", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 600})
+
+    group = Classroom.create(db_session, {"code": "GRP-FIXCONT", "name": "Grp", "school_id": school.id})
+    room_other = Classroom.create(db_session, {"code": "ROTH-FIXCONT", "name": "Salle autre", "school_id": school.id, "parent_classroom_id": group.id})
+    room_fixed = Classroom.create(db_session, {"code": "RFIX-FIXCONT", "name": "Salle fixe", "school_id": school.id, "parent_classroom_id": group.id})
+
+    teacher.update(db_session, {"preferred_classroom_id": room_other.id})
+
+    course_group = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts1.id, "teacher_ids": [teacher.id], "division_ids": [d1.id],
+    })
+    course_fixed = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts2.id, "teacher_ids": [teacher.id], "division_ids": [d2.id],
+    })
+    CourseClassroomRequirement.create(db_session, {"course_id": course_group.id, "classroom_id": group.id, "quantity": 1})
+    # Exigence précise, directement sur la salle-feuille : devient un PlanningFixedRoomBooking
+    # (voir room_solver.py), pas une PlanningRoomAssignment — c'est justement le cas que Phase 2
+    # doit couvrir.
+    CourseClassroomRequirement.create(db_session, {"course_id": course_fixed.id, "classroom_id": room_fixed.id, "quantity": 1})
+    db_session.commit()
+
+    solution = solve_classroom_assignment(db_session, school.id, optimize_target="TEACHER")
+
+    assert solution.score.hard_score == 0
+    resolved = solution.assignments[0].classroom
+    assert resolved is not None
+    assert resolved.id == room_fixed.id
+
+
+def test_build_classroom_assignment_problem_populates_fixed_booking_person_ids(db_session: Session):
+    """Vérifie directement le site de construction (room_solver.py, ~ligne 169) : teacher_ids/
+    division_ids doivent être recopiés sur PlanningFixedRoomBooking, pas laissés à leur défaut
+    (liste vide) — condition nécessaire pour que les contraintes Phase 2 puissent jamais matcher."""
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_FBIDS", "first_name": "Prof", "last_name": "Fbids", "school_id": school.id})
+    division = Division.create(db_session, {"code": "DIV_FBIDS", "name": "Div Fbids", "school_id": school.id})
+    ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
+    room = Classroom.create(db_session, {"code": "R_FBIDS", "name": "Salle", "school_id": school.id})
+
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "school_id": school.id, "duration_minutes": 30,
+        "timeslot_id": ts1.id, "teacher_ids": [teacher.id], "division_ids": [division.id],
+    })
+    CourseClassroomRequirement.create(db_session, {"course_id": course.id, "classroom_id": room.id, "quantity": 1})
+    db_session.commit()
+
+    from backend.app.solver.room_solver import _build_classroom_assignment_problem
+    problem = _build_classroom_assignment_problem(db_session, school.id)
+
+    assert len(problem.fixed_bookings) == 1
+    booking = problem.fixed_bookings[0]
+    assert booking.teacher_ids == [teacher.id]
+    assert booking.division_ids == [division.id]
+
+
+def test_build_classroom_assignment_problem_partial_threads_optimize_target(db_session: Session):
+    """Sanity check bon marché de la composition functools.partial utilisée par
+    start_classroom_assignment_async (voir solver.py) — avant de tester l'orchestration complète
+    (thread + file + polling), vérifie que le partial appelle bien avec le bon kwarg, et que le
+    fait PlanningRoomOptimizationSettings est toujours peuplé (jamais de liste vide, voir
+    l'assertion défensive de _build_classroom_assignment_problem)."""
+    from functools import partial
+    from backend.app.solver.room_solver import _build_classroom_assignment_problem
+
+    school = db_session.query(School).first()
+    build_fn = partial(_build_classroom_assignment_problem, optimize_target="DIVISION")
+    problem = build_fn(db_session, school.id)
+
+    assert len(problem.optimization_settings) == 1
+    assert problem.optimization_settings[0].optimize_target == "DIVISION"

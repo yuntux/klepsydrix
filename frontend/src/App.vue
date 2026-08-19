@@ -45,7 +45,6 @@
             @togglePin="onTogglePinCourse"
             @selectCourse="toggleCourseSelection"
             @course-placement="onCoursePlacement"
-            @classroom-assignment="onClassroomAssignment"
             @stop-solve="onStopSolve"
             @reset="onReset"
           />
@@ -1901,17 +1900,6 @@ async function onCoursePlacement() {
     checkStatus();
   } catch (err: any) {
     showNotification('error', err.message || 'Erreur lors du lancement du placement automatique');
-  }
-}
-
-async function onClassroomAssignment() {
-  try {
-    const result = await api.startClassroomAssignment();
-    showNotification('success', result.message || 'Attribution des salles démarrée en arrière-plan.');
-    loading.value = true;
-    checkStatus();
-  } catch (err: any) {
-    showNotification('error', err.message || "Erreur lors du lancement de l'attribution des salles");
   }
 }
 

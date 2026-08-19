@@ -62,15 +62,6 @@
               </template>
               Placement automatique
             </BaseButton>
-
-            <BaseButton variant="secondary" @click="$emit('classroom-assignment')">
-              <template #icon>
-                <svg xmlns="http://www.w3.org/2000/svg" class="icon-btn" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2M5 21H3m16 0h-5m-4 0H5m4 0v-6a2 2 0 012-2v0a2 2 0 012 2v6m-6 0h6" />
-                </svg>
-              </template>
-              Attribuer les salles
-            </BaseButton>
           </template>
 
           <BaseButton v-else variant="danger" @click="$emit('stop-solve')">
@@ -233,7 +224,6 @@ const emit = defineEmits<{
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
   (e: 'reset'): void;
   (e: 'course-placement'): void;
-  (e: 'classroom-assignment'): void;
   (e: 'stop-solve'): void;
   (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
@@ -602,7 +592,7 @@ function onDrop(day: number, hour: number, event: DragEvent, weekHalf?: 'A' | 'B
 /* Les styles étant scoped, la règle .icon-btn de ImpactConfirmDialog.vue (même convention,
    16x16px) ne s'applique pas ici — sans sa propre déclaration, ces <svg class="icon-btn"> (voir
    #actions plus haut) restaient sans contrainte de taille et gonflaient toute la hauteur des
-   boutons "Placement automatique"/"Attribuer les salles"/"Arrêter" bien au-delà de "Réinitialiser". */
+   boutons "Placement automatique"/"Arrêter" bien au-delà de "Réinitialiser". */
 .icon-btn {
   width: 16px;
   height: 16px;

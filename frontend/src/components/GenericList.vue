@@ -362,6 +362,7 @@ interface FormField {
   type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'duration' | 'multiselect' | 'json' | 'binary';
   required?: boolean;
   readOnly?: boolean;
+  readOnlyExpr?: string;
   placeholder?: string;
   min?: number;
   max?: number;

@@ -150,6 +150,8 @@ interface FormField {
   type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'duration' | 'multiselect' | 'html' | 'json' | 'binary';
   required?: boolean;
   requiredExpr?: string;
+  readOnly?: boolean;
+  readOnlyExpr?: string;
   invisibleExpr?: string;
   widget?: string;
   widgetParams?: any;

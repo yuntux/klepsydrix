@@ -27,7 +27,7 @@ from timefold.solver.domain import (
     PlanningScore,
     ValueRangeProvider,
 )
-from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore
+from timefold.solver.score import constraint_provider, ConstraintFactory, Joiners, Constraint, HardSoftScore, ConstraintCollectors
 
 from backend.app.solver.constraints import (
     PlanningClassroom,
@@ -43,6 +43,10 @@ class PlanningFixedRoomBooking:
     Fait : occupation déjà connue d'une salle-feuille — soit une exigence salle-feuille précise
     d'un cours quelconque (parent ou enfant), soit une exigence de groupe déjà résolue par un run
     antérieur de CLASSROOM_ASSIGNMENT (write-back = mécanisme de sortie de domaine, voir §3.4).
+
+    teacher_ids/division_ids (Phase 2 continuité, voir teacher_room_continuity_with_fixed_booking) :
+    permettent de faire jouer la continuité de salle contre un cours dont la salle est déjà figée,
+    pas seulement entre deux PlanningRoomAssignment en cours de résolution.
     """
     classroom_id: int
     day_of_week: int
@@ -50,6 +54,20 @@ class PlanningFixedRoomBooking:
     duration_minutes: int
     week_type: str
     period_mask: int
+    teacher_ids: List[int] = field(default_factory=list)
+    division_ids: List[int] = field(default_factory=list)
+
+
+@dataclass
+class PlanningRoomOptimizationSettings:
+    """
+    Fait de configuration, choisi par l'utilisateur dans le wizard "Attribuer les salles" —
+    toujours peuplé avec EXACTEMENT une instance (voir _build_classroom_assignment_problem) :
+    un inner join contre une liste vide ferait disparaître silencieusement toute correspondance
+    (piège déjà rencontré avec classroom_group_capacity), d'où l'assertion défensive côté
+    construction plutôt qu'une valeur par défaut ici qui masquerait un oubli.
+    """
+    optimize_target: str = "TEACHER"  # "TEACHER" ou "DIVISION" — l'axe qui reçoit le poids ×10
 
 
 @planning_entity
@@ -78,6 +96,7 @@ class PlanningRoomTimetable:
     classrooms: Annotated[List[PlanningClassroom], ProblemFactCollectionProperty] = field(default_factory=list)
     fixed_bookings: Annotated[List[PlanningFixedRoomBooking], ProblemFactCollectionProperty] = field(default_factory=list)
     preferences: Annotated[List[PlanningPreference], ProblemFactCollectionProperty] = field(default_factory=list)
+    optimization_settings: Annotated[List[PlanningRoomOptimizationSettings], ProblemFactCollectionProperty] = field(default_factory=list)
     assignments: Annotated[List[PlanningRoomAssignment], PlanningEntityCollectionProperty] = field(default_factory=list)
     score: Annotated[HardSoftScore, PlanningScore] = None
 
@@ -245,6 +264,202 @@ def division_preferred_classroom_reward(constraint_factory: ConstraintFactory) -
     )
 
 
+# ==========================================
+# CONTINUITÉ DE SALLE (limiter les déplacements d'un professeur/d'une division)
+# ==========================================
+# "Cours consécutif" = le prochain cours RÉEL de ce jour pour cette personne, même s'il y a un
+# trou (heure libre) entre les deux — pas seulement un enchaînement sans trou (choix utilisateur).
+
+def _count_room_continuity_breaks(rows, id_field: str) -> int:
+    """rows : PlanningRoomAssignment d'UN SEUL day_of_week, déjà filtrés classroom is not None.
+    Explose par personne (teacher_ids ou division_ids), trie par heure de début, ne compare que
+    les VRAIS voisins consécutifs — pas toutes les paires. Fonction Python pure appelée depuis un
+    ConstraintCollectors.to_list() : jamais de generator expression/bool() sur liste dans un lambda
+    passé à Timefold, jpyinterpreter a déjà planté sur ces deux formes cette session."""
+    from collections import defaultdict
+    by_person = defaultdict(list)
+    for a in rows:
+        for pid in getattr(a, id_field):
+            by_person[pid].append(a)
+
+    breaks = 0
+    for courses in by_person.values():
+        courses.sort(key=lambda a: (a.minutes_from_midnight, a.id))
+        for i, cur in enumerate(courses):
+            cur_end = cur.minutes_from_midnight + cur.duration_minutes
+            for nxt in courses[i + 1:]:
+                # Exclut les vraies simultanéités (siblings quantity>1, forcés vers des salles
+                # différentes par room_conflict_between_assignments) : ce n'est pas un déplacement,
+                # on ignore et on continue à chercher le vrai voisin suivant.
+                if nxt.minutes_from_midnight < cur_end:
+                    continue
+                if weeks_overlap(cur.week_type, nxt.week_type) and periods_overlap(cur.period_mask, nxt.period_mask):
+                    if cur.classroom.id != nxt.classroom.id:
+                        breaks += 1
+                    break
+    return breaks
+
+
+def teacher_room_continuity_penalty(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .group_by(lambda a: a.day_of_week, ConstraintCollectors.to_list())
+        .join(PlanningRoomOptimizationSettings)
+        .filter(lambda day, rows, settings: _count_room_continuity_breaks(rows, 'teacher_ids') > 0)
+        .penalize(HardSoftScore.ONE_SOFT, lambda day, rows, settings:
+                  _count_room_continuity_breaks(rows, 'teacher_ids') * (10 if settings.optimize_target == "TEACHER" else 1))
+        .as_constraint("Teacher room continuity")
+    )
+
+
+def division_room_continuity_penalty(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .group_by(lambda a: a.day_of_week, ConstraintCollectors.to_list())
+        .join(PlanningRoomOptimizationSettings)
+        .filter(lambda day, rows, settings: _count_room_continuity_breaks(rows, 'division_ids') > 0)
+        .penalize(HardSoftScore.ONE_SOFT, lambda day, rows, settings:
+                  _count_room_continuity_breaks(rows, 'division_ids') * (10 if settings.optimize_target == "DIVISION" else 1))
+        .as_constraint("Division room continuity")
+    )
+
+
+def _shares_person(ids_a: List[int], ids_b: List[int]) -> bool:
+    for pid in ids_a:
+        if pid in ids_b:
+            return True
+    return False
+
+
+def _pair_bounds(a_start: int, a_dur: int, b_start: int, b_dur: int):
+    """Bornes ordonnées (fin du plus tôt, début du plus tard) de la paire, quel que soit l'ordre
+    d'origine — a et b peuvent être dans n'importe quel ordre chronologique."""
+    if a_start <= b_start:
+        return a_start + a_dur, b_start
+    return b_start + b_dur, a_start
+
+
+def _teacher_pair_same_day_not_overlapping(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking) -> bool:
+    if not _shares_person(a.teacher_ids, b.teacher_ids):
+        return False
+    if not weeks_overlap(a.week_type, b.week_type) or not periods_overlap(a.period_mask, b.period_mask):
+        return False
+    a_end = a.minutes_from_midnight + a.duration_minutes
+    b_end = b.minutes_from_midnight + b.duration_minutes
+    # Exclut le chevauchement temporel (co-enseignement/quantity>1 simultané), même raison que
+    # _count_room_continuity_breaks : ce n'est pas un déplacement.
+    return a.minutes_from_midnight >= b_end or b.minutes_from_midnight >= a_end
+
+
+def _pair_different_room(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking) -> bool:
+    return a.classroom.id != b.classroom_id
+
+
+def _other_assignment_between_teacher(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking, other: PlanningRoomAssignment) -> bool:
+    if other.classroom is None or other.id == a.id:
+        return False
+    if not (_shares_person(other.teacher_ids, a.teacher_ids) or _shares_person(other.teacher_ids, b.teacher_ids)):
+        return False
+    if other.day_of_week != a.day_of_week:
+        return False
+    if not weeks_overlap(other.week_type, a.week_type) or not periods_overlap(other.period_mask, a.period_mask):
+        return False
+    earlier_end, later_start = _pair_bounds(a.minutes_from_midnight, a.duration_minutes, b.minutes_from_midnight, b.duration_minutes)
+    return earlier_end <= other.minutes_from_midnight < later_start
+
+
+def _other_booking_between_teacher(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking, other: PlanningFixedRoomBooking) -> bool:
+    if not (_shares_person(other.teacher_ids, a.teacher_ids) or _shares_person(other.teacher_ids, b.teacher_ids)):
+        return False
+    if other.day_of_week != a.day_of_week:
+        return False
+    if not weeks_overlap(other.week_type, a.week_type) or not periods_overlap(other.period_mask, a.period_mask):
+        return False
+    earlier_end, later_start = _pair_bounds(a.minutes_from_midnight, a.duration_minutes, b.minutes_from_midnight, b.duration_minutes)
+    return earlier_end <= other.minutes_from_midnight < later_start
+
+
+def _division_pair_same_day_not_overlapping(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking) -> bool:
+    if not _shares_person(a.division_ids, b.division_ids):
+        return False
+    if not weeks_overlap(a.week_type, b.week_type) or not periods_overlap(a.period_mask, b.period_mask):
+        return False
+    a_end = a.minutes_from_midnight + a.duration_minutes
+    b_end = b.minutes_from_midnight + b.duration_minutes
+    return a.minutes_from_midnight >= b_end or b.minutes_from_midnight >= a_end
+
+
+def _other_assignment_between_division(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking, other: PlanningRoomAssignment) -> bool:
+    if other.classroom is None or other.id == a.id:
+        return False
+    if not (_shares_person(other.division_ids, a.division_ids) or _shares_person(other.division_ids, b.division_ids)):
+        return False
+    if other.day_of_week != a.day_of_week:
+        return False
+    if not weeks_overlap(other.week_type, a.week_type) or not periods_overlap(other.period_mask, a.period_mask):
+        return False
+    earlier_end, later_start = _pair_bounds(a.minutes_from_midnight, a.duration_minutes, b.minutes_from_midnight, b.duration_minutes)
+    return earlier_end <= other.minutes_from_midnight < later_start
+
+
+def _other_booking_between_division(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking, other: PlanningFixedRoomBooking) -> bool:
+    if not (_shares_person(other.division_ids, a.division_ids) or _shares_person(other.division_ids, b.division_ids)):
+        return False
+    if other.day_of_week != a.day_of_week:
+        return False
+    if not weeks_overlap(other.week_type, a.week_type) or not periods_overlap(other.period_mask, a.period_mask):
+        return False
+    earlier_end, later_start = _pair_bounds(a.minutes_from_midnight, a.duration_minutes, b.minutes_from_midnight, b.duration_minutes)
+    return earlier_end <= other.minutes_from_midnight < later_start
+
+
+def teacher_room_continuity_with_fixed_booking(constraint_factory: ConstraintFactory) -> Constraint:
+    """
+    Repli Phase 2 : une PlanningFixedRoomBooking (salle déjà figée) n'est pas un
+    PlanningRoomAssignment, donc pas de group_by commun possible avec _count_room_continuity_breaks
+    — confirmé via lecture directe du SDK Timefold 1.24.0b0 (_constraint_stream.py) que join() ne
+    prend jamais un flux déjà group_by-é comme second membre. Repli : comparaison par paire avec
+    deux anti-jointures if_not_exists (pattern déjà utilisé par
+    constraints.py::subject_default_incompatible_same_day) pour vérifier qu'aucun AUTRE cours ne
+    s'intercale.
+
+    Limite assumée : "partage un professeur" matche sur "partage AU MOINS UN professeur", pas sur
+    l'identité précise de la personne dont la chaîne est rompue — un cours co-enseigné par deux
+    professeurs différents de ceux de la réservation fixe pourrait être imprécisément apparié.
+    Limite étroite (cas de co-enseignement à effectifs partiellement différents uniquement),
+    largement préférable à l'absence de vérification d'adjacence réelle contre les salles figées.
+    """
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .join(PlanningFixedRoomBooking, Joiners.equal(lambda a: a.day_of_week, lambda b: b.day_of_week))
+        .filter(_teacher_pair_same_day_not_overlapping)
+        .filter(_pair_different_room)
+        .if_not_exists(PlanningRoomAssignment, Joiners.filtering(_other_assignment_between_teacher))
+        .if_not_exists(PlanningFixedRoomBooking, Joiners.filtering(_other_booking_between_teacher))
+        .join(PlanningRoomOptimizationSettings)
+        .penalize(HardSoftScore.ONE_SOFT, lambda a, b, settings: 10 if settings.optimize_target == "TEACHER" else 1)
+        .as_constraint("Teacher room continuity with fixed booking")
+    )
+
+
+def division_room_continuity_with_fixed_booking(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningRoomAssignment)
+        .filter(lambda a: a.classroom is not None)
+        .join(PlanningFixedRoomBooking, Joiners.equal(lambda a: a.day_of_week, lambda b: b.day_of_week))
+        .filter(_division_pair_same_day_not_overlapping)
+        .filter(_pair_different_room)
+        .if_not_exists(PlanningRoomAssignment, Joiners.filtering(_other_assignment_between_division))
+        .if_not_exists(PlanningFixedRoomBooking, Joiners.filtering(_other_booking_between_division))
+        .join(PlanningRoomOptimizationSettings)
+        .penalize(HardSoftScore.ONE_SOFT, lambda a, b, settings: 10 if settings.optimize_target == "DIVISION" else 1)
+        .as_constraint("Division room continuity with fixed booking")
+    )
+
+
 @constraint_provider
 def define_room_constraints(constraint_factory: ConstraintFactory) -> list[Constraint]:
     return [
@@ -257,4 +472,8 @@ def define_room_constraints(constraint_factory: ConstraintFactory) -> list[Const
         room_preference_soft_reward(constraint_factory),
         teacher_preferred_classroom_reward(constraint_factory),
         division_preferred_classroom_reward(constraint_factory),
+        teacher_room_continuity_penalty(constraint_factory),
+        division_room_continuity_penalty(constraint_factory),
+        teacher_room_continuity_with_fixed_booking(constraint_factory),
+        division_room_continuity_with_fixed_booking(constraint_factory),
     ]

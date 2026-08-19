@@ -1389,6 +1389,15 @@
         ]
       },
       {
+        "id": "classroom_assignment_action",
+        "icon": "door-open",
+        "title": "Attribuer les salles",
+        "action": {
+          "resourceKey": "wizard_classroom_assignments",
+          "actionId": "start_classroom_assignment"
+        }
+      },
+      {
         "id": "optimize_timetable_action",
         "icon": "wrench",
         "title": "Optimiser l'emploi du temps",

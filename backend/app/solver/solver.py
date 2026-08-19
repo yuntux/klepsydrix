@@ -878,10 +878,18 @@ def start_course_placement_async(school_id: Optional[int] = None, slug: Optional
     thread.start()
 
 
-def start_classroom_assignment_async(school_id: Optional[int] = None, slug: Optional[str] = None):
+def start_classroom_assignment_async(
+    school_id: Optional[int] = None, slug: Optional[str] = None, optimize_target: str = "TEACHER"
+):
     """POST /classroom-assignment (endpoint 3, plan salles §4) — « Attribuer les salles »,
     résout la salle précise (domaine CLASSROOM_ASSIGNMENT) sur tous les cours porteurs d'une
-    exigence de groupe, mêmes conditions d'arrêt (durée/sans-amélioration) que le point d'entrée COURSE_PLACEMENT en dehors du cas best_score_feasible."""
+    exigence de groupe, mêmes conditions d'arrêt (durée/sans-amélioration) que le point d'entrée COURSE_PLACEMENT en dehors du cas best_score_feasible.
+
+    optimize_target ("TEACHER" ou "DIVISION") : axe de continuité de salle choisi par
+    l'utilisateur dans le wizard "Attribuer les salles" (voir wizard_classroom_assignment.py) —
+    injecté dans le problème via functools.partial, seul canal disponible puisque build_fn est
+    toujours appelé avec exactement (db, school_id) par _run_solve_phase."""
+    from functools import partial
     from backend.app.solver.room_solver import (
         _build_classroom_assignment_problem,
         _get_classroom_assignment_solver_factory,
@@ -897,7 +905,7 @@ def start_classroom_assignment_async(school_id: Optional[int] = None, slug: Opti
     )
     phases = [{
         "kind": "CLASSROOM_ASSIGNMENT",
-        "build_fn": _build_classroom_assignment_problem,
+        "build_fn": partial(_build_classroom_assignment_problem, optimize_target=optimize_target),
         "solver_factory_fn": _get_classroom_assignment_solver_factory,
         "termination_config": termination_config,
         "write_back_fn": lambda db, school_id, solution: _write_back_classroom_assignment(db, solution),
