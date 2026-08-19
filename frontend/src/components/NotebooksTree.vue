@@ -168,13 +168,7 @@ import MenuIcon from './MenuIcon.vue';
 import BaseLogo from './BaseLogo.vue';
 import { fetchMenus, fetchWhoAmI } from '../services/api';
 import { getSelectedDatabase, clearSelectedDatabase } from '../services/dbSession';
-
-interface Panel {
-  id: string;
-  component: string;
-  resourceKey?: string;
-  width: string;
-}
+import type { Panel } from '../types';
 
 interface NotebookNode {
   id: string;

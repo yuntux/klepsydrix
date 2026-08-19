@@ -14,7 +14,7 @@
 
 <script setup lang="ts">
 withDefaults(defineProps<{
-  variant?: 'primary' | 'secondary' | 'danger' | 'flat' | 'action';
+  variant?: 'primary' | 'secondary' | 'danger' | 'flat' | 'action' | 'success';
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   loading?: boolean;

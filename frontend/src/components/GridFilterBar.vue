@@ -73,7 +73,7 @@
       <label>Semaine :</label>
       <select 
         :value="weekType" 
-        @change="$emit('update:weekType', ($event.target as HTMLSelectElement).value)" 
+        @change="$emit('update:weekType', ($event.target as HTMLSelectElement).value as 'W' | 'A' | 'B')"
         class="select-custom select-small"
       >
         <option value="W">Toutes</option>

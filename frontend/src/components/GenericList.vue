@@ -390,6 +390,9 @@ interface ColumnConfig {
   readOnly?: boolean;
   required?: boolean;
   help?: string;
+  // Largeur (px) qui prime sur celle de la colonne d'origine (voir defaultColumnWidth) — même
+  // convention que ColumnDef.width, surchargeable par panneau via listConfig.columns.
+  width?: number;
   // Exclut cette colonne de la ligne de total en pied de tableau (voir ListConfig.showColumnTotals)
   // même si elle est numérique — sans effet si showColumnTotals n'est pas activé.
   hideTotal?: boolean;
@@ -661,7 +664,10 @@ function onRowClick(item: any, event: MouseEvent) {
   // Si c'est un clic normal sur un input ou un select (hors checkbox-td), on ignore pour laisser l'édition en ligne
   if (!isCheckboxClick && (target.closest('input') || target.closest('select'))) {
     const inputEl = (target.closest('input') || target.closest('select')) as HTMLInputElement | HTMLSelectElement;
-    if (inputEl && !inputEl.disabled && !inputEl.readOnly) {
+    // readOnly n'existe pas sur HTMLSelectElement (l'attribut HTML readonly est d'ailleurs ignoré
+    // par tous les navigateurs sur <select> — seul disabled compte pour cet élément).
+    const isReadOnly = inputEl instanceof HTMLInputElement && inputEl.readOnly;
+    if (inputEl && !inputEl.disabled && !isReadOnly) {
       if (!isSelectionShortcut) {
         return;
       }
@@ -872,14 +878,18 @@ const internalColumns = ref<ColumnDef[]>([]);
 
 watch([() => props.columns, () => props.listConfig, () => props.fields], () => {
   if (props.listConfig?.columns) {
+    // Capturé dans une const locale : narrowing TS non préservé à travers la closure forEach
+    // ci-dessous pour un accès `props.listConfig.columns` répété (le composant pourrait en théorie
+    // recevoir de nouvelles props entre-temps).
+    const columnsConfig = props.listConfig.columns;
     // Si la config spécifie des colonnes précises, on filtre et on réordonne selon la config
-    const configKeys = Object.keys(props.listConfig.columns);
+    const configKeys = Object.keys(columnsConfig);
     const mapped: ColumnDef[] = [];
 
     configKeys.forEach(key => {
       const originalCol = props.columns.find(c => c.key === key);
       if (originalCol) {
-        const colConf = props.listConfig.columns[key];
+        const colConf = columnsConfig[key];
         const isVisible = colConf.visibleByDefault !== undefined
           ? colConf.visibleByDefault
           : true;

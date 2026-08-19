@@ -305,8 +305,9 @@ const currentResourceName = computed(() => {
   if (resourceIds.value.length > 1) {
     return `${resourceIds.value.length} ressources sélectionnées`;
   }
-  if (!resourceId.value) return '';
-  const option = resourceOptions.value.find(o => o.id === resourceId.value);
+  const id = resourceIds.value[0];
+  if (!id) return '';
+  const option = resourceOptions.value.find(o => o.id === id);
   return option ? option.name : '';
 });
 
@@ -384,7 +385,7 @@ function findMatchingPreferences(resourceId: number, day: number, hour: number):
       // OU si elle intersecte les périodes sélectionnées
       matches = matches.filter(p => {
         const pIds = p.period_ids || [];
-        return pIds.length === 0 || pIds.some(pid => filterPeriodIds.includes(pid));
+        return pIds.length === 0 || pIds.some((pid: number) => filterPeriodIds.includes(pid));
       });
     }
   }
@@ -903,12 +904,21 @@ const handleGlobalMouseUp = () => {
   isMouseDown.value = false;
 };
 
+// Sélectionne automatiquement la première ressource disponible pour le type courant quand les
+// sélecteurs sont visibles (mode standalone, hideSelectors=false — voir resourceType/resourceIds
+// ci-dessus) et qu'aucune ressource n'est encore choisie. Appelé au montage ET à chaque changement
+// de resourceOptions (ex: changement de resourceType, ou premier chargement de la liste).
+function autoSelectFirstResourceIfNone() {
+  if (!props.hideSelectors && resourceIds.value.length === 0 && resourceOptions.value.length > 0) {
+    resourceIds.value = [resourceOptions.value[0].id];
+    loadPreferences();
+  }
+}
+
 // currentStandardDuration vient désormais de useTimeslotGrid (system_settings partagé via
 // useGenericCache) — plus de fetch local dupliqué ici.
 onMounted(() => {
-  if (!props.hideSelectors) {
-    onResourceChange();
-  }
+  autoSelectFirstResourceIfNone();
   window.addEventListener('mouseup', handleGlobalMouseUp);
 });
 
@@ -917,13 +927,7 @@ onUnmounted(() => {
 });
 
 // Re-charger si les listes changent
-watch(resourceOptions, () => {
-  if (!props.hideSelectors && !resourceId.value && resourceOptions.value.length > 0) {
-    resourceId.value = resourceOptions.value[0].id;
-    resourceIds.value = [resourceId.value];
-    loadPreferences();
-  }
-});
+watch(resourceOptions, autoSelectFirstResourceIfNone);
 </script>
 
 <style scoped>

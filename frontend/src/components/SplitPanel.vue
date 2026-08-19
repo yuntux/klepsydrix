@@ -24,13 +24,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-
-interface Panel {
-  id: string;
-  component: string;
-  resourceKey?: string;
-  width: string;
-}
+import type { Panel } from '../types';
 
 const props = defineProps<{
   panels: Panel[];

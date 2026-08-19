@@ -13,7 +13,7 @@
         <div v-if="isMultiEdit" class="multi-edit-banner">
           <span class="multi-edit-banner-icon">✏️</span>
           <div class="multi-edit-banner-content">
-            <div class="multi-edit-banner-title">Modification groupée ({{ selectedRecords.length }} éléments)</div>
+            <div class="multi-edit-banner-title">Modification groupée ({{ selectedRecords?.length }} éléments)</div>
             <div class="multi-edit-banner-text">
               Seuls les champs marqués du badge <span class="field-modified-badge-inline">✏️ Modifié</span> seront enregistrés pour tous les éléments sélectionnés. Les autres resteront inchangés.
             </div>
@@ -168,6 +168,11 @@ interface FormField {
   options?: Array<{ value: any; label: string }>;
   help?: string;
   resource?: string;
+  // Relation 1-à-N "possédée" (voir generic.py::parentField) — présent seulement sur un champ
+  // resource dont les enregistrements ciblés n'existent pas indépendamment du record courant.
+  parentField?: string;
+  // Reflète Column.nullable côté backend (voir generic.py) — utilisé pour la validation requise.
+  nullable?: boolean;
   // Pour un champ type: "duration" dont 0 minute est une valeur valide ("modalité non utilisée") —
   // voir DurationInput.vue::getDurationOptions.
   durationIncludeZero?: boolean;

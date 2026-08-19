@@ -407,6 +407,15 @@ body {
   background-color: rgba(239, 68, 68, 0.08);
 }
 
+.btn-success {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
+}
+
+.btn-success:hover {
+  background-color: rgba(16, 185, 129, 0.08);
+}
+
 .loader-overlay {
   position: absolute;
   top: 0;

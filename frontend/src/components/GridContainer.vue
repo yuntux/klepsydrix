@@ -242,8 +242,9 @@ defineEmits<{
   (e: 'update:selectedClassroomIds', value: number[]): void;
   (e: 'update:schoolId', value: number | null): void;
   (e: 'update:weekType', value: 'W' | 'A' | 'B'): void;
+  (e: 'update:periodTypeId', value: number | null): void;
   (e: 'update:periodIds', value: number[]): void;
-  
+
   // Grid events
   (e: 'cell-dragover', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;
   (e: 'cell-dragleave', day: number, time: number, event: DragEvent, weekHalf?: 'A' | 'B'): void;

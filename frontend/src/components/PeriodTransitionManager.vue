@@ -64,7 +64,7 @@
                   :value="p.end_date"
                   :min="p.start_date"
                   :max="addDays(localPeriods[index + 1].end_date, -1)"
-                  @change="handleTransitionChange(index, $event.target.value)"
+                  @change="handleTransitionChange(index, ($event.target as HTMLInputElement).value)"
                   class="input-date-inline"
                 />
               </td>

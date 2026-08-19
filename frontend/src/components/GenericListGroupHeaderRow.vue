@@ -41,7 +41,10 @@
     <!-- Pas le dernier niveau : récursion sur les sous-groupes -->
     <template v-if="node.children">
       <GenericListGroupHeaderRow v-for="child in node.children" :key="child.path" :node="child">
-        <template v-for="(_, slotName) in $slots" #[slotName]="slotProps" :key="slotName">
+        <!-- @vue-expect-error : composant auto-référencé (récursion), le type de slotProps dépend
+             de sa propre inférence — limitation connue de vue-tsc sur ce patron précis, sans
+             conséquence à l'exécution (voir forwardedSlotNames ci-dessus). -->
+        <template v-for="slotName in forwardedSlotNames" #[slotName]="slotProps" :key="slotName">
           <slot :name="slotName" v-bind="slotProps" />
         </template>
       </GenericListGroupHeaderRow>
@@ -49,7 +52,7 @@
     <!-- Dernier niveau : lignes feuilles, même composant que le mode plat -->
     <template v-else>
       <GenericListRow v-for="row in node.rows" :key="row.id" :item="row">
-        <template v-for="(_, slotName) in $slots" #[slotName]="slotProps" :key="slotName">
+        <template v-for="slotName in forwardedSlotNames" #[slotName]="slotProps" :key="slotName">
           <slot :name="slotName" v-bind="slotProps" />
         </template>
       </GenericListRow>
@@ -62,7 +65,7 @@
 // defineOptions ci-dessous. Contexte partagé (colonnes visibles, colonnes figées...) injecté via
 // GENERIC_LIST_ROW_CONTEXT (même contexte que GenericListRow.vue) + un second contexte propre au
 // regroupement, GENERIC_LIST_GROUP_CONTEXT (isNodeExpanded/toggleNodeExpanded/isSummableColumn).
-import { computed, inject } from 'vue';
+import { computed, inject, useSlots } from 'vue';
 import GenericListRow from './GenericListRow.vue';
 import { GENERIC_LIST_ROW_CONTEXT } from './genericListRowContext';
 import { GENERIC_LIST_GROUP_CONTEXT } from './genericListGroupContext';
@@ -70,6 +73,15 @@ import { GENERIC_LIST_GROUP_CONTEXT } from './genericListGroupContext';
 defineOptions({ name: 'GenericListGroupHeaderRow' });
 
 const props = defineProps<{ node: any }>();
+
+// Noms des slots à retransmettre tels quels lors de la récursion (voir template ci-dessous) —
+// capturés en string[] plutôt qu'itérés directement sur $slots dans le template : ce composant se
+// référençant lui-même récursivement, le type de $slots dépend de sa propre utilisation dans son
+// propre template, ce que vue-tsc ne peut pas résoudre (slotProps se retrouve dans son propre
+// initializer). Un string[] simple casse ce cycle sans changer le comportement à l'exécution.
+// useSlots() appelé une seule fois, de façon synchrone, à l'exécution de setup() — comme requis.
+const injectedSlots = useSlots();
+const forwardedSlotNames = computed<string[]>(() => Object.keys(injectedSlots));
 
 const ctx = inject(GENERIC_LIST_ROW_CONTEXT)!;
 const groupCtx = inject(GENERIC_LIST_GROUP_CONTEXT)!;

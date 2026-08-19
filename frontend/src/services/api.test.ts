@@ -38,7 +38,10 @@ describe('apiFetch', () => {
     // remplace l'objet entier par un espion pour observer les assignations sans effet de bord.
     // @ts-expect-error redéfinition volontaire pour le test
     delete window.location;
-    window.location = {
+    // (window as any) : le setter de Window.location n'accepte qu'une string dans lib.dom.d.ts
+    // (accesseur asymétrique get Location / set string) — cast nécessaire pour lui assigner
+    // l'objet espion ci-dessous, indépendamment du cast déjà présent sur la valeur assignée.
+    (window as any).location = {
       pathname: '/emplois-du-temps',
       search: '',
       reload: vi.fn(),
@@ -48,7 +51,7 @@ describe('apiFetch', () => {
   });
 
   afterEach(() => {
-    window.location = originalLocation;
+    (window as any).location = originalLocation;
     vi.unstubAllGlobals();
   });
 

@@ -26,7 +26,7 @@
         <!-- Lignes d'heures (8h à 17h) -->
         <template v-for="(hour, index) in hours" :key="hour">
           <!-- Cellule d'heure à gauche -->
-          <div class="grid-time-cell" :ref="el => { if (index === 0) gridCellRef = el }">
+          <div class="grid-time-cell" :ref="(el) => { if (index === 0) gridCellRef = el as HTMLElement | null }">
             {{ hour }}h00 - {{ hour + 1 }}h00
           </div>
 

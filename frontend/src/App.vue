@@ -73,7 +73,7 @@
           </div>
           <GenericList
             v-else
-            :title="panel.resourceKey"
+            :title="panel.resourceKey || ''"
             :columns="detailColumnsConfig"
             :fields="getFormFieldsConfig(panel.resourceKey)"
             :items="detailListItems"
@@ -120,7 +120,7 @@
              resourceKey + pivotConfig, ne dépend d'aucun état global d'App.vue (mêmes principes
              d'autonomie que GenericListModal). -->
         <section v-else-if="panel.component === 'GenericPivot'" class="admin-main-content">
-          <GenericPivot :resourceKey="panel.resourceKey" :pivotConfig="panel.pivotConfig" />
+          <GenericPivot :resourceKey="panel.resourceKey || ''" :pivotConfig="panel.pivotConfig" />
         </section>
 
         <!-- 4. Composant Formulaire Générique Inline -->
@@ -177,7 +177,7 @@
       :fields="[]"
       :modelValue="actionWizardModel"
       :resourceKey="actionWizardResourceKey"
-      :formConfig="{ editableForm: false, deletable: false, autoOpenActionId: actionWizardActionId }"
+      :formConfig="{ editableForm: false, deletable: false, autoOpenActionId: actionWizardActionId ?? undefined }"
       @wizard-success="onWizardJobStarted"
     />
 
@@ -329,7 +329,7 @@ watch(schoolId, () => {
 });
 
 function toggleCourseSelection(id: number, event?: MouseEvent) {
-  const isMulti = event && (event.ctrlKey || event.metaKey);
+  const isMulti = !!(event && (event.ctrlKey || event.metaKey));
   gridStore.toggleCourseSelection(id, isMulti);
   
   // Auto target logic : Si activé, le clic met à jour les filtres
@@ -362,7 +362,7 @@ watch(autoTarget, (newVal) => {
       selectedTeacherIds.value = [...(course.teacher_ids || [])];
       selectedNonTeachingStaffIds.value = [...(course.non_teaching_staff_ids || [])];
       selectedDivisionIds.value = [...(course.division_ids || [])];
-      selectedClassroomIds.value = [...(course.classroom_ids || [])];
+      selectedClassroomIds.value = [...(dataStore.courseClassroomIdsMap[course.id] || [])];
     }
   }
 });
@@ -548,7 +548,14 @@ const genericListQueryKey = computed(() => genericCacheKey(activeAdminModel.valu
 // admin n'est pas affiché.
 const genericListQuery = useQuery({
   queryKey: genericListQueryKey,
-  queryFn: () => api.fetchAllGenericItems(genericListQueryKey.value[1], undefined, genericListQueryKey.value[2]),
+  // genericCacheKey renvoie QueryKey (readonly unknown[], voir useGenericCache.ts) pour satisfaire
+  // le typage de useQuery — l'indexation ci-dessous s'appuie sur la forme documentée et garantie
+  // par cette fonction (['genericList', resource] ou ['genericList', resource, filters]).
+  queryFn: () => api.fetchAllGenericItems(
+    genericListQueryKey.value[1] as string,
+    undefined,
+    genericListQueryKey.value[2] as Record<string, any> | undefined,
+  ),
   enabled: computed(() => activeTab.value === 'admin'),
 });
 

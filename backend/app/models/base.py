@@ -90,10 +90,20 @@ class CRUDMixin:
             return str(self.name)
         return str(getattr(self, "id", "")) if getattr(self, "id", None) is not None else ""
 
+    @requires_access("read")
     def ensure_related_record(self, relation_name: str):
         """
         Garantit que l'objet lié existe et le retourne.
         Surchargeable par les classes enfants (ex: _ensure_constraint_record).
+
+        Appelée à distance via /call/ensure_related_record (voir App.vue::onSelectionChangeGeneric,
+        panneaux GenericForm à relationName) — d'où @requires_access("read") : bien qu'un override
+        comme _ensure_constraint_record puisse créer la ligne liée si elle n'existe pas encore
+        (voir Division._ensure_constraint_record), l'usage réel est uniquement de charger l'onglet
+        "Vœux et contraintes" pour AFFICHAGE. Exiger "write" bloquerait à tort tout utilisateur en
+        lecture seule (déjà autorisé à voir ce panneau, readOnly étant géré séparément côté
+        formulaire) — la sauvegarde effective d'une modification reste, elle, protégée par les
+        contrôles d'accès propres à create()/update() sur le modèle lié.
         """
         handler_name = f"_ensure_{relation_name}"
         if hasattr(self, handler_name):

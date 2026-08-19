@@ -292,10 +292,11 @@ function listCellSummary(rowKey: string, colVal: string): { label: string; child
 }
 
 function cellColor(rowKey: string, colVal: string): string | null {
-  if (!colorField.value) return null;
+  const field = colorField.value;
+  if (!field) return null;
   const svcIds = cellRecordIdsFor(rowKey, colVal);
   if (!svcIds.length) return null;
-  const colors = new Set(svcIds.map(id => recordsById.value[id]?.[colorField.value]).filter(Boolean));
+  const colors = new Set(svcIds.map(id => recordsById.value[id]?.[field]).filter(Boolean));
   if (colors.size === 0) return null;
   if (colors.size === 1) return Array.from(colors)[0] as string;
   return 'HATCHED';
