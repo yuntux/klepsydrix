@@ -638,7 +638,7 @@ def test_course_heatmap_detects_conflicts_for_course_and_others(db_session: Sess
     heatmap = calculate_course_heatmap(db_session, course.id, school.id)
 
     # ts1 : même enseignant que other_course, déjà placé là — conflit réel.
-    assert heatmap[str(ts1.id)]["hard"] == -1
+    assert heatmap[str(ts1.id)]["hard"] == -1000
     assert "Teacher conflict" in [r["name"] for r in heatmap[str(ts1.id)]["reasons"]]
 
     # ts2 : préférence "Indisponible" (Unsuited) sur la division du cours cible — of_hard(1000),
@@ -1229,6 +1229,20 @@ def test_solver_subject_constraint_optionality(db_session: Session):
     ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
     ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
 
+    # Sans GridDaySettings explicite, la fin de journée retombe sur max(timeslot) + pas standard
+    # (30 min) — insuffisant pour un cours de 60 min posé sur ts2 (déborderait). On fixe une vraie
+    # amplitude pour que le test porte uniquement sur la contrainte matière, pas sur un débordement
+    # de journée accidentel (voir Course.day_overflow, désormais of_hard(1000)).
+    from backend.app.models.grid_day_settings import GridDaySettings
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480
+    day_settings.hour_day_end_minutes_after_midnight = 1080
+    db_session.commit()
+
     # 2 courses: one of A, one of B, for the same division.
     c_a = Course.create(db_session, {"subject_id": sub_a.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
     c_b = Course.create(db_session, {"subject_id": sub_b.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
@@ -1290,6 +1304,21 @@ def test_solver_subject_constraint_division_scope(db_session: Session):
     # Create 2 timeslots on the SAME day
     ts1 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 480})
     ts2 = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+
+    # Sans GridDaySettings explicite, la fin de journée retombe sur max(timeslot) + pas standard
+    # (30 min) — insuffisant pour un cours de 60 min posé sur ts2 (déborderait). On fixe une vraie
+    # amplitude pour que le test porte uniquement sur le périmètre (division_ids) de la contrainte
+    # matière, pas sur un débordement de journée accidentel (voir Course.day_overflow, désormais
+    # of_hard(1000)).
+    from backend.app.models.grid_day_settings import GridDaySettings
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480
+    day_settings.hour_day_end_minutes_after_midnight = 1080
+    db_session.commit()
 
     # 4 courses: 2 for D1, 2 for D2
     c1_a = Course.create(db_session, {"subject_id": sub_a.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "school_id": school.id, "duration_minutes": 60})
@@ -2280,7 +2309,7 @@ def test_leaf_classroom_conflict_detects_same_room_same_slot(db_session: Session
 
     result = explain_timetable_score(db_session, school.id)
     assert result["matches"]["Leaf classroom conflict"]["count"] == 1
-    assert result["matches"]["Leaf classroom conflict"]["hard"] == -1
+    assert result["matches"]["Leaf classroom conflict"]["hard"] == -1000
 
 
 def test_leaf_classroom_conflict_ignores_different_week(db_session: Session):
@@ -2413,7 +2442,7 @@ def test_classroom_group_capacity_detects_concurrent_oversubscription(db_session
 
     result = explain_timetable_score(db_session, school.id)
     assert result["matches"]["Classroom group capacity"]["count"] == 1
-    assert result["matches"]["Classroom group capacity"]["hard"] == -1
+    assert result["matches"]["Classroom group capacity"]["hard"] == -1000
 
 
 def test_classroom_group_capacity_resolves_when_demands_spread_across_slots(db_session: Session):
@@ -2462,7 +2491,7 @@ def test_classroom_group_capacity_excludes_unsuited_leaf_from_available_count(db
 
     result = explain_timetable_score(db_session, school.id)
     assert result["matches"]["Classroom group capacity"]["count"] == 1
-    assert result["matches"]["Classroom group capacity"]["hard"] == -1
+    assert result["matches"]["Classroom group capacity"]["hard"] == -1000
 
 
 # =====================================================================================

@@ -51,6 +51,16 @@
             </BaseButton>
           </template>
 
+          <!-- Impression (voir architecture.md §22) : bouton unique, quelle que soit la portée
+               (mono-enregistrement courant, ou tous les enregistrements sélectionnés en édition
+               groupée) — resolveIds calcule les ids ciblés selon CE contexte, l'action elle-même
+               n'a plus de scope. Absent tant qu'aucun rapport n'est disponible pour ce modèle. -->
+          <ReportPrintMenu
+            v-if="canPrint"
+            :actions="reportActions"
+            :resolve-ids="resolvePrintIds"
+          />
+
           <BaseButton type="button" variant="secondary" @click="handleCancel">
             Annuler
           </BaseButton>
@@ -90,6 +100,7 @@ import BaseModal from './BaseModal.vue';
 import GenericWizard from './widgets/GenericWizard.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
 import BinaryFileField from './widgets/BinaryFileField.vue';
+import ReportPrintMenu from './widgets/ReportPrintMenu.vue';
 import { getWidgetForContext } from './widgets/registry';
 import { useNotificationStore } from '../stores/notifications';
 import * as api from '../services/api';
@@ -105,15 +116,38 @@ const activeActionTitle = ref<string>('');
 // entièrement passé au mécanisme générique.
 const componentsMap: Record<string, any> = {};
 
-// Actions rendues par CE composant : tout sauf celles de portée liste (scope="list"), qui sont du
-// ressort de GenericList.vue (voir architecture.md §22.D). Un bouton d'impression de liste posé
-// sur un formulaire mono-enregistrement laisse légitimement attendre qu'il n'imprime que
-// l'enregistrement affiché — l'écart avait été constaté à l'usage.
+// Actions "métier" (wizard, api, bulk_api...) rendues comme boutons individuels — les actions de
+// type "report" sont exclues d'ici : elles vivent toutes derrière le bouton unique "Imprimer" (voir
+// ReportPrintMenu et reportActions ci-dessous, architecture.md §22.D).
 const formActions = computed(() =>
   modelActions.value
-    .filter((action: any) => action.scope !== 'list')
+    .filter((action: any) => action.type !== 'report')
     .filter((action: any) => evaluateActionCondition(action, localModel.value)),
 );
+
+// Rapports disponibles pour l'enregistrement affiché — un seul point d'entrée ("Imprimer"), quelle
+// que soit la vue (voir GenericList.vue, même filtre). Les actions "report" n'ont plus de scope :
+// c'est resolvePrintIds ci-dessous, propre à CE composant, qui décide des ids ciblés.
+const reportActions = computed(() =>
+  modelActions.value
+    .filter((action: any) => action.type === 'report')
+    .filter((action: any) => evaluateActionCondition(action, localModel.value)),
+);
+
+const canPrint = computed(() => {
+  if (!reportActions.value.length) return false;
+  if (isMultiEdit.value) return !!(props.selectedRecords && props.selectedRecords.length);
+  return !!(localModel.value && localModel.value.id);
+});
+
+// Enregistrement(s) COURANT(s) : celui affiché, ou tous ceux de l'édition groupée — jamais une
+// portée plus large, contrairement à l'ancien bouton de portée "list" qui vivait sur GenericList.vue.
+function resolvePrintIds(): number[] {
+  if (isMultiEdit.value) {
+    return (props.selectedRecords || []).map((record: any) => record.id).filter((id: any) => id != null);
+  }
+  return [localModel.value?.id].filter((id: any) => id != null);
+}
 
 function evaluateActionCondition(action: any, model: any) {
   if (!action.condition) return true;
@@ -137,16 +171,8 @@ function handleActionClick(action: any) {
     showWizard.value = true;
     return;
   }
-  // Impression PDF (voir architecture.md §22) — même patron déclaratif que 'wizard' : l'action est
-  // décrite dans __actions__ côté modèle, rien n'est codé en dur ici. Toujours l'enregistrement
-  // COURANT : les actions de portée liste sont filtrées en amont (voir formActions) et rendues par
-  // GenericList.vue, seul endroit où une portée globale ne surprend pas l'utilisateur.
-  if (action.type === 'report') {
-    const ids = [localModel.value?.id].filter(Boolean);
-    api.downloadReport(action.report, ids as number[]).catch((error) => {
-      notificationStore.showNotification('error', error?.message || "Erreur lors de la génération du document.");
-    });
-  }
+  // Impression PDF (voir architecture.md §22) : plus traitée ici — voir ReportPrintMenu/
+  // reportActions/resolvePrintIds ci-dessus, seul chemin désormais pour les actions "report".
 }
 
 interface FormField {

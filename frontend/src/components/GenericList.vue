@@ -1,24 +1,19 @@
 <template>
   <div class="generic-list-container">
-    <!-- Barre d'actions de LISTE (voir architecture.md §22.D) — n'existe que pour les actions
-         déclarées avec scope="list" dans __actions__ côté modèle : aucune ressource qui n'en
-         déclare pas ne voit ce bandeau apparaître, donc aucun changement d'aspect ailleurs.
-         Complète GenericForm.vue, qui ne rend lui que les actions portant sur UN enregistrement :
-         un bouton d'impression de liste posé sur un formulaire mono-enregistrement laisse
-         légitimement attendre qu'il n'imprime que celui-ci. -->
+    <!-- Barre d'actions de LISTE (voir architecture.md §22.D) — n'existe que pour les ressources
+         déclarant au moins une action "report" dans __actions__ : aucune ressource qui n'en
+         déclare pas ne voit ce bandeau apparaître, donc aucun changement d'aspect ailleurs. Un
+         bouton unique "Imprimer" (ReportPrintMenu) déroule la liste des rapports disponibles ;
+         chacun imprime la sélection courante si elle existe, sinon toute la liste accessible. -->
     <div v-if="listActions.length" class="list-actions-bar">
-      <BaseButton
-        v-for="action in listActions"
-        :key="action.id"
-        type="button"
-        variant="secondary"
-        :title="selectedIds.size
+      <ReportPrintMenu
+        :actions="listActions"
+        :resolve-ids="resolveListPrintIds"
+        :badge="selectedIds.size || undefined"
+        :tooltip="selectedIds.size
           ? `Imprimer uniquement les ${selectedIds.size} ligne(s) sélectionnée(s)`
           : 'Imprimer toute la liste (aucune ligne sélectionnée)'"
-        @click="runListAction(action)"
-      >
-        {{ action.label }}<span v-if="selectedIds.size"> ({{ selectedIds.size }})</span>
-      </BaseButton>
+      />
     </div>
 
     <!-- Conteneur de table avec scroll -->
@@ -336,6 +331,7 @@ import SearchableMultiSelect from './SearchableMultiSelect.vue';
 import BaseToggle from './BaseToggle.vue';
 import BaseButton from './BaseButton.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
+import ReportPrintMenu from './widgets/ReportPrintMenu.vue';
 import GenericListRow from './GenericListRow.vue';
 import GenericListGroupHeaderRow from './GenericListGroupHeaderRow.vue';
 import GenericListGroupByPicker from './GenericListGroupByPicker.vue';
@@ -344,9 +340,6 @@ import { GENERIC_LIST_GROUP_CONTEXT } from './genericListGroupContext';
 import { getWidgetForContext } from './widgets/registry';
 import { formatDurationMinutes } from '../utils/duration';
 import * as api from '../services/api';
-import { useNotificationStore } from '../stores/notifications';
-
-const notificationStore = useNotificationStore();
 
 interface ColumnDef {
   key: string;
@@ -1015,20 +1008,20 @@ watch(() => props.title, async (resourceKey) => {
   }
 }, { immediate: true });
 
+// Rapports disponibles pour cette ressource — plus de filtre sur `scope` (voir architecture.md
+// §22.D) : une action "report" est désormais imprimable depuis n'importe quelle vue, seule la
+// résolution des ids ci-dessous est propre à ce composant.
 const listActions = computed(() =>
-  modelActions.value.filter((action: any) => action.type === 'report' && action.scope === 'list')
+  modelActions.value.filter((action: any) => action.type === 'report')
 );
 
-function runListAction(action: any) {
-  // Sélection vide = toute la liste accessible (une RECHERCHE, filtrage silencieux par le moteur
-  // de droits). Sélection non vide = une DÉSIGNATION, et le backend refuse alors si l'un des
-  // identifiants est inaccessible plutôt que de rendre un document amputé (voir base.py::browse).
-  const ids = Array.from(selectedIds.value)
+// Sélection vide = toute la liste accessible (une RECHERCHE, filtrage silencieux par le moteur
+// de droits). Sélection non vide = une DÉSIGNATION, et le backend refuse alors si l'un des
+// identifiants est inaccessible plutôt que de rendre un document amputé (voir base.py::browse).
+function resolveListPrintIds(): number[] {
+  return Array.from(selectedIds.value)
     .map(Number)
     .filter((id) => !Number.isNaN(id));
-  api.downloadReport(action.report, ids).catch((error: any) => {
-    notificationStore.showNotification('error', error?.message || "Erreur lors de la génération du document.");
-  });
 }
 
 // Restauration de sélection depuis l'URL — une seule fois par chargement de ressource (voir

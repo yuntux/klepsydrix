@@ -91,29 +91,15 @@ class Course(Base):
         {
             # Impression PDF (voir architecture.md §22) — type "report", même patron déclaratif que
             # "wizard"/"bulk_api" : le bouton apparaît tout seul, aucune vue à modifier, comme le
-            # binding_type="report" d'Odoo.
-            #
-            # DEUX actions parce que la PORTÉE change l'endroit où le bouton doit vivre : sans
-            # scope, l'action est rendue par GenericForm.vue et n'imprime que l'enregistrement
-            # affiché. C'est ce qu'un utilisateur attend d'un bouton posé sur un formulaire — une
-            # première version imprimait toute la liste depuis là, et l'écart a été constaté dès le
-            # premier usage réel.
-            "id": "print_course",
-            "label": "Imprimer ce cours (PDF)",
-            "type": "report",
-            "icon": "fa-print",
-            "report": "course_list",
-            "condition": "record.id",
-        },
-        {
-            # scope="list" : rendue par GenericList.vue, dans sa barre d'actions. Imprime la
-            # sélection courante si elle existe, sinon toute la liste accessible.
+            # binding_type="report" d'Odoo. Une seule action, quelle que soit la vue (liste ou
+            # formulaire) : c'est le composant appelant (ReportPrintMenu, posé par GenericList.vue
+            # ou GenericForm.vue) qui résout les ids ciblés selon son propre contexte — sélection
+            # courante côté liste, enregistrement(s) affiché(s) côté formulaire.
             "id": "print_course_list",
-            "label": "Liste des cours (PDF)",
+            "label": "Imprimer les cours (PDF)",
             "type": "report",
             "icon": "fa-print",
             "report": "course_list",
-            "scope": "list",
         },
         {
             "id": "compose_course",

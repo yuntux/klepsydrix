@@ -402,10 +402,11 @@ def penalize_unassigned_course(constraint_factory: ConstraintFactory) -> Constra
     """
     Overconstrained Planning : on autorise Timefold à ne pas placer un cours (timeslot=None)
     si le placer créerait un conflit dur (Hard Conflict).
-    Pour éviter que l'algorithme ne laisse tous les cours non assignés,
-    on applique une pénalité dure (ONE_HARD) à chaque cours non assigné.
-    Comme un conflit dur et une non-assignation coûtent le même prix (-1 Hard),
-    le solveur peut transiter par des états intermédiaires de conflit pour trouver la solution optimale.
+    Pour éviter que l'algorithme ne laisse tous les cours non assignés, on applique une
+    pénalité dure à chaque cours non assigné — délibérément la plus faible de tout le domaine
+    (ONE_HARD, jamais bumpée), voir la note de politique juste en dessous : le non-assigné doit
+    toujours rester l'option la MOINS coûteuse, pour que le solveur préfère systématiquement
+    laisser un cours non placé plutôt que de violer n'importe quelle autre contrainte dure.
     """
     return (
         constraint_factory.for_each_including_unassigned(PlanningCourse)
@@ -418,13 +419,24 @@ def penalize_unassigned_course(constraint_factory: ConstraintFactory) -> Constra
 # ==========================================
 # 1. CONTRAINTES DURES (HardScore)
 # ==========================================
+# Politique de poids (revue complète) : toutes les contraintes dures de ce fichier sont en
+# of_hard(1000), SAUF penalize_unassigned_course ci-dessus (ONE_HARD, jamais touchée — c'est la
+# référence). Objectif : qu'un cours non placé coûte TOUJOURS strictement moins cher que n'importe
+# quelle violation de contrainte dure, pour que le hill-climbing ait un gradient net vers "laisser
+# non placé" plutôt qu'un mouvement latéral à score égal (voir l'historique de discussion : avant
+# cette revue, seules leaf_classroom_unsuited/resource_preference_hard/course_break_overlap
+# avaient ce traitement au cas par cas). Pour les contraintes à poids variable (ex:
+# teacher_max_hours_per_day, pondérée par l'ampleur du dépassement × 10), seul le poids de base
+# passe à of_hard(1000) — le multiplicateur par match (2ᵉ argument de .penalize) est inchangé, donc
+# les proportions internes à chaque contrainte (1h de dépassement vs 3h) restent identiques,
+# seulement mises à l'échelle globalement.
 
 def course_day_overflow(constraint_factory: ConstraintFactory) -> Constraint:
     return (
         constraint_factory.for_each(PlanningCourse)
         .filter(lambda course: course.timeslot is not None)
         .filter(lambda course: course.timeslot.minutes_from_midnight + course.duration_minutes > course.timeslot.absolute_end_of_day)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Course day overflow")
     )
 
@@ -468,7 +480,7 @@ def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_teacher_overlap)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Teacher conflict")
     )
 
@@ -490,7 +502,7 @@ def non_teaching_staff_conflict(constraint_factory: ConstraintFactory) -> Constr
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_non_teaching_staff_overlap)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Non-teaching staff conflict")
     )
 
@@ -523,7 +535,7 @@ def leaf_classroom_conflict(constraint_factory: ConstraintFactory) -> Constraint
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_leaf_classroom_overlap)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Leaf classroom conflict")
     )
 
@@ -658,7 +670,7 @@ def classroom_group_capacity(constraint_factory: ConstraintFactory) -> Constrain
             ConstraintCollectors.to_list(lambda d, c, p: (d, c, p.resource_id))
         )
         .filter(lambda group_id, rows: _cluster_group_capacity_excess(group_id, rows) > 0)
-        .penalize(HardSoftScore.ONE_HARD, lambda group_id, rows: _cluster_group_capacity_excess(group_id, rows))
+        .penalize(HardSoftScore.of_hard(1000), lambda group_id, rows: _cluster_group_capacity_excess(group_id, rows))
         .as_constraint("Classroom group capacity")
     )
 
@@ -680,7 +692,7 @@ def division_conflict(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(lambda course1, course2: hierarchy_overlap(course1, course2))
         .filter(_courses_overlap_in_time)
         .filter(_check_division_overlap)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Division conflict")
     )
 
@@ -699,7 +711,7 @@ def group_link_conflict(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(lambda link, course1, course2: weeks_overlap(course1.week_type, course2.week_type))
         .filter(lambda link, course1, course2: periods_overlap(course1.period_mask, course2.period_mask))
         .filter(lambda link, course1, course2: hierarchy_overlap(course1, course2))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Group link conflict")
     )
 
@@ -882,7 +894,7 @@ def teacher_max_hours_per_day(constraint_factory: ConstraintFactory) -> Constrai
             Joiners.equal(lambda teacher_id, day, count: teacher_id, lambda rc: rc.resource_id)
         )
         .filter(lambda teacher_id, day, count, rc: rc.max_hours_per_day is not None and count > rc.max_hours_per_day)
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, day, count, rc: int((count - rc.max_hours_per_day) * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, day, count, rc: int((count - rc.max_hours_per_day) * 10))
         .as_constraint("Teacher max hours per day")
     )
 
@@ -902,7 +914,7 @@ def teacher_max_hours_per_am(constraint_factory: ConstraintFactory) -> Constrain
             Joiners.equal(lambda teacher_id, day, count: teacher_id, lambda rc: rc.resource_id)
         )
         .filter(lambda teacher_id, day, count, rc: rc.max_hours_per_am is not None and count > rc.max_hours_per_am)
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, day, count, rc: int((count - rc.max_hours_per_am) * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, day, count, rc: int((count - rc.max_hours_per_am) * 10))
         .as_constraint("Teacher max hours per morning")
     )
 
@@ -922,7 +934,7 @@ def teacher_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constrain
             Joiners.equal(lambda teacher_id, day, count: teacher_id, lambda rc: rc.resource_id)
         )
         .filter(lambda teacher_id, day, count, rc: rc.max_hours_per_pm is not None and count > rc.max_hours_per_pm)
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, day, count, rc: int((count - rc.max_hours_per_pm) * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, day, count, rc: int((count - rc.max_hours_per_pm) * 10))
         .as_constraint("Teacher max hours per afternoon")
     )
 
@@ -943,7 +955,7 @@ def teacher_only_one_half_day_per_day(constraint_factory: ConstraintFactory) -> 
             Joiners.equal(lambda teacher_id, day, timeslots_set: teacher_id, lambda rc: rc.resource_id)
         )
         .filter(lambda teacher_id, day, timeslots_set, rc: rc.only_one_half_day_per_day)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Teacher only one half day per day")
     )
 
@@ -963,7 +975,7 @@ def teacher_late_start_limit(constraint_factory: ConstraintFactory) -> Constrain
         )
         .filter(lambda teacher_id, timeslots_set, rc: rc.late_start_time is not None and rc.late_start_days_per_week is not None)
         .filter(lambda teacher_id, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight < time_to_minutes(rc.late_start_time)}) > (5 - rc.late_start_days_per_week))
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight < time_to_minutes(rc.late_start_time)}) - (5 - rc.late_start_days_per_week)) * 10)
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight < time_to_minutes(rc.late_start_time)}) - (5 - rc.late_start_days_per_week)) * 10)
         .as_constraint("Teacher late start limit")
     )
 
@@ -983,7 +995,7 @@ def teacher_early_end_limit(constraint_factory: ConstraintFactory) -> Constraint
         )
         .filter(lambda teacher_id, timeslots_set, rc: rc.early_end_time is not None and rc.early_end_days_per_week is not None)
         .filter(lambda teacher_id, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight >= time_to_minutes(rc.early_end_time)}) > (5 - rc.early_end_days_per_week))
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight >= time_to_minutes(rc.early_end_time)}) - (5 - rc.early_end_days_per_week)) * 10)
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight >= time_to_minutes(rc.early_end_time)}) - (5 - rc.early_end_days_per_week)) * 10)
         .as_constraint("Teacher early end limit")
     )
 
@@ -1003,7 +1015,7 @@ def teacher_max_presence_days(constraint_factory: ConstraintFactory) -> Constrai
         )
         .filter(lambda teacher_id, timeslots_set, rc: rc.max_presence_days_per_week is not None)
         .filter(lambda teacher_id, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set}) > rc.max_presence_days_per_week)
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set}) - rc.max_presence_days_per_week) * 10)
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set}) - rc.max_presence_days_per_week) * 10)
         .as_constraint("Teacher max presence days per week")
     )
 
@@ -1023,7 +1035,7 @@ def teacher_min_free_days(constraint_factory: ConstraintFactory) -> Constraint:
         )
         .filter(lambda teacher_id, timeslots_set, rc: rc.min_free_days_per_week is not None)
         .filter(lambda teacher_id, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set}) > (5 - rc.min_free_days_per_week))
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set}) - (5 - rc.min_free_days_per_week)) * 10)
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set}) - (5 - rc.min_free_days_per_week)) * 10)
         .as_constraint("Teacher min free days per week")
     )
 
@@ -1043,7 +1055,7 @@ def teacher_max_worked_am(constraint_factory: ConstraintFactory) -> Constraint:
         )
         .filter(lambda teacher_id, timeslots_set, rc: rc.max_worked_am_per_week is not None)
         .filter(lambda teacher_id, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight < ts.noon_boundary_minutes}) > rc.max_worked_am_per_week)
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight < ts.noon_boundary_minutes}) - rc.max_worked_am_per_week) * 10)
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight < ts.noon_boundary_minutes}) - rc.max_worked_am_per_week) * 10)
         .as_constraint("Teacher max worked mornings per week")
     )
 
@@ -1063,7 +1075,7 @@ def teacher_max_worked_pm(constraint_factory: ConstraintFactory) -> Constraint:
         )
         .filter(lambda teacher_id, timeslots_set, rc: rc.max_worked_pm_per_week is not None)
         .filter(lambda teacher_id, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight >= ts.noon_boundary_minutes}) > rc.max_worked_pm_per_week)
-        .penalize(HardSoftScore.ONE_HARD, lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight >= ts.noon_boundary_minutes}) - rc.max_worked_pm_per_week) * 10)
+        .penalize(HardSoftScore.of_hard(1000), lambda teacher_id, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.minutes_from_midnight >= ts.noon_boundary_minutes}) - rc.max_worked_pm_per_week) * 10)
         .as_constraint("Teacher max worked afternoons per week")
     )
 
@@ -1083,7 +1095,7 @@ def division_max_hours_per_day(constraint_factory: ConstraintFactory) -> Constra
             Joiners.equal(lambda division_id, day, count: division_id, lambda rc: rc.resource_id)
         )
         .filter(lambda division_id, day, count, rc: rc.max_hours_per_day is not None and count > rc.max_hours_per_day)
-        .penalize(HardSoftScore.ONE_HARD, lambda division_id, day, count, rc: int((count - rc.max_hours_per_day) * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda division_id, day, count, rc: int((count - rc.max_hours_per_day) * 10))
         .as_constraint("Division max hours per day")
     )
 
@@ -1103,7 +1115,7 @@ def division_max_hours_per_am(constraint_factory: ConstraintFactory) -> Constrai
             Joiners.equal(lambda division_id, day, count: division_id, lambda rc: rc.resource_id)
         )
         .filter(lambda division_id, day, count, rc: rc.max_hours_per_am is not None and count > rc.max_hours_per_am)
-        .penalize(HardSoftScore.ONE_HARD, lambda division_id, day, count, rc: int((count - rc.max_hours_per_am) * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda division_id, day, count, rc: int((count - rc.max_hours_per_am) * 10))
         .as_constraint("Division max hours per morning")
     )
 
@@ -1123,7 +1135,7 @@ def division_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constrai
             Joiners.equal(lambda division_id, day, count: division_id, lambda rc: rc.resource_id)
         )
         .filter(lambda division_id, day, count, rc: rc.max_hours_per_pm is not None and count > rc.max_hours_per_pm)
-        .penalize(HardSoftScore.ONE_HARD, lambda division_id, day, count, rc: int((count - rc.max_hours_per_pm) * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda division_id, day, count, rc: int((count - rc.max_hours_per_pm) * 10))
         .as_constraint("Division max hours per afternoon")
     )
 
@@ -1140,7 +1152,7 @@ def division_max_pedagogic_weight_per_day(constraint_factory: ConstraintFactory)
             ConstraintCollectors.sum(lambda division, course: int(course.pedagogic_weight_total * 10))
         )
         .filter(lambda division, day, total_weight_int: total_weight_int > int(division.max_pedagogic_weight_per_day * 10))
-        .penalize(HardSoftScore.ONE_HARD, lambda division, day, total_weight_int: total_weight_int - int(division.max_pedagogic_weight_per_day * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda division, day, total_weight_int: total_weight_int - int(division.max_pedagogic_weight_per_day * 10))
         .as_constraint("Division max pedagogic weight per day")
     )
 
@@ -1156,7 +1168,7 @@ def division_max_pedagogic_weight_per_am(constraint_factory: ConstraintFactory) 
             ConstraintCollectors.sum(lambda division, course: int(course.pedagogic_weight_total * 10))
         )
         .filter(lambda division, day, total_weight_int: total_weight_int > int(division.max_pedagogic_weight_per_morning * 10))
-        .penalize(HardSoftScore.ONE_HARD, lambda division, day, total_weight_int: total_weight_int - int(division.max_pedagogic_weight_per_morning * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda division, day, total_weight_int: total_weight_int - int(division.max_pedagogic_weight_per_morning * 10))
         .as_constraint("Division max pedagogic weight per morning")
     )
 
@@ -1172,7 +1184,7 @@ def division_max_pedagogic_weight_per_pm(constraint_factory: ConstraintFactory) 
             ConstraintCollectors.sum(lambda division, course: int(course.pedagogic_weight_total * 10))
         )
         .filter(lambda division, day, total_weight_int: total_weight_int > int(division.max_pedagogic_weight_per_afternoon * 10))
-        .penalize(HardSoftScore.ONE_HARD, lambda division, day, total_weight_int: total_weight_int - int(division.max_pedagogic_weight_per_afternoon * 10))
+        .penalize(HardSoftScore.of_hard(1000), lambda division, day, total_weight_int: total_weight_int - int(division.max_pedagogic_weight_per_afternoon * 10))
         .as_constraint("Division max pedagogic weight per afternoon")
     )
 
@@ -1244,7 +1256,7 @@ def course_to_course_force_same_scope_mandatory(constraint_factory: ConstraintFa
             Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
         )
         .filter(lambda ctc, c1, c2: not _share_reference_period(c1, c2, ctc.scope, ctc.custom_half_days))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Course-to-course force same scope mandatory")
     )
 
@@ -1280,7 +1292,7 @@ def course_to_course_forbid_same_scope_mandatory(constraint_factory: ConstraintF
             Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
         )
         .filter(lambda ctc, c1, c2: _share_reference_period(c1, c2, ctc.scope, ctc.custom_half_days))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Course-to-course forbid same scope mandatory")
     )
 
@@ -1317,7 +1329,7 @@ def course_to_course_order_mandatory(constraint_factory: ConstraintFactory) -> C
         )
         .filter(lambda ctc, c1, c2: ctc.course_ids.index(c1.id) < ctc.course_ids.index(c2.id))
         .filter(lambda ctc, c1, c2: _is_not_chronologically_before(c1, c2))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Course-to-course order mandatory")
     )
 
@@ -1354,7 +1366,7 @@ def course_to_course_forbid_consecutive_mandatory(constraint_factory: Constraint
             Joiners.filtering(lambda ctc, c1, c2: c2.id in ctc.course_ids and c1.id < c2.id and c2.timeslot is not None)
         )
         .filter(lambda ctc, c1, c2: _are_consecutive(c1, c2))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Course-to-course forbid consecutive mandatory")
     )
 
@@ -1403,7 +1415,7 @@ def subject_default_incompatible_same_day(constraint_factory: ConstraintFactory)
             Joiners.equal(lambda c1, c2: c2.subject_id, lambda rc: rc.target_subject_b_id),
             Joiners.filtering(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         )
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Default Incompatible Same Day")
     )
 
@@ -1421,7 +1433,7 @@ def subject_incompatible_same_half_day_mandatory(constraint_factory: ConstraintF
         .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         .filter(lambda c1, c2, rc: rc.incompatible_same_half_day is True and not rc.is_optional)
         .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Incompatible Same Half Day Mandatory")
     )
 
@@ -1457,7 +1469,7 @@ def subject_incompatible_same_day_mandatory(constraint_factory: ConstraintFactor
         .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         .filter(lambda c1, c2, rc: rc.incompatible_same_day is True and not rc.is_optional)
         .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Incompatible Same Day Mandatory")
     )
 
@@ -1493,7 +1505,7 @@ def subject_incompatible_two_consecutive_days_mandatory(constraint_factory: Cons
         .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         .filter(lambda c1, c2, rc: rc.incompatible_two_consecutive_days is True and not rc.is_optional)
         .filter(lambda c1, c2, rc: (c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or (c2.subject_id == rc.resource_id and c1.subject_id == rc.target_subject_b_id))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Incompatible Two Consecutive Days Mandatory")
     )
 
@@ -1531,7 +1543,7 @@ def subject_prevent_consecutive_mandatory(constraint_factory: ConstraintFactory)
             (rc.prevent_consecutive_a_then_b is True and c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or
             (rc.prevent_consecutive_b_then_a is True and c1.subject_id == rc.target_subject_b_id and c2.subject_id == rc.resource_id)
         ))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Prevent Consecutive A then B or B then A Mandatory")
     )
 
@@ -1571,7 +1583,7 @@ def subject_weekly_order_mandatory(constraint_factory: ConstraintFactory) -> Con
             (rc.weekly_order == "B_BEFORE_A" and c1.subject_id == rc.resource_id and c2.subject_id == rc.target_subject_b_id) or
             (rc.weekly_order == "A_BEFORE_B" and c1.subject_id == rc.target_subject_b_id and c2.subject_id == rc.resource_id)
         ))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Weekly Order Mandatory")
     )
 
@@ -1610,7 +1622,7 @@ def subject_max_separation_successive_days_mandatory(constraint_factory: Constra
         .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         .filter(lambda c1, c2, rc: rc.max_separation == "SUCCESSIVE_DAYS" and not rc.is_optional)
         .filter(lambda c1, c2, rc: abs(c1.timeslot.day_of_week - c2.timeslot.day_of_week) > 1)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Max Separation Successive Days Mandatory")
     )
 
@@ -1648,7 +1660,7 @@ def subject_group_course_order_group_before_mandatory(constraint_factory: Constr
         .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         .filter(lambda c1, c2, rc: rc.group_course_order == "GROUP_BEFORE" and not rc.is_optional)
         .filter(lambda c1, c2, rc: _is_not_chronologically_before(c1, c2))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Group Course Order Group Before Mandatory")
     )
 
@@ -1686,7 +1698,7 @@ def subject_group_course_order_group_after_mandatory(constraint_factory: Constra
         .filter(lambda c1, c2, rc: _courses_match_rc_divisions(c1, c2, rc))
         .filter(lambda c1, c2, rc: rc.group_course_order == "GROUP_AFTER" and not rc.is_optional)
         .filter(lambda c1, c2, rc: _is_not_chronologically_before(c2, c1))
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Group Course Order Group After Mandatory")
     )
 
@@ -1729,7 +1741,7 @@ def subject_group_course_order_group_before_or_after_mandatory(constraint_factor
             (not _is_not_chronologically_before(c1, c3) and not _is_not_chronologically_before(c3, c2)) or
             (not _is_not_chronologically_before(c2, c3) and not _is_not_chronologically_before(c3, c1))
         )
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Group Course Order Group Before Or After Mandatory")
     )
 
@@ -1777,7 +1789,7 @@ def subject_group_course_order_group_before_or_after_fortnight_mandatory(constra
             (not _is_not_chronologically_before(c1, c3) and not _is_not_chronologically_before(c2, c3)) or
             (not _is_not_chronologically_before(c3, c1) and not _is_not_chronologically_before(c3, c2))
         )
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Subject Group Course Order Group Before Or After Fortnight Mandatory")
     )
 

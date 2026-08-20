@@ -9,6 +9,18 @@ from backend.app.models.user import HasUserAccount
 class NonTeachingStaff(HasUserAccount, Base):
     __tablename__ = "non_teaching_staffs"
 
+    # Impression PDF (voir architecture.md §22, reports/timetable.py) — voir Teacher pour le
+    # commentaire complet, même patron mutualisé sur les 7 ressources liées à un cours.
+    __actions__ = [
+        {
+            "id": "print_timetable",
+            "label": "Imprimer l'emploi du temps",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "timetable_non_teaching_staff",
+        },
+    ]
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     first_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Prénom", "placeholder": "ex: Jean"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})

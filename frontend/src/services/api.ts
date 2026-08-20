@@ -514,10 +514,15 @@ export async function fetchGenericActions(resourceName: string): Promise<any[]> 
 export async function downloadReport(
   reportName: string,
   ids: number[] = [],
-  params: Record<string, string> = {},
+  // Options propres à CE rapport (ex: show_breaks du rapport "emploi du temps") — encodées en un
+  // unique paramètre `params` (objet JSON), jamais en query params de premier niveau : voir
+  // api/report.py::generate_report, même raison (la route générique ne connaît aucun rapport en
+  // particulier, seul `get_values(db, ids, params)` lit ces clés).
+  reportParams: Record<string, unknown> = {},
 ): Promise<void> {
-  const query = new URLSearchParams({ ...params });
+  const query = new URLSearchParams();
   if (ids.length) query.set('ids', ids.join(','));
+  if (Object.keys(reportParams).length) query.set('params', JSON.stringify(reportParams));
 
   const response = await apiFetch(`/api/report/${reportName}?${query}`);
   if (!response.ok) {

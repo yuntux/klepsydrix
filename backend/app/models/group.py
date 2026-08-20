@@ -71,6 +71,18 @@ class Partition(Base):
 class ClassPart(Base):
     __tablename__ = "class_parts"
 
+    # Impression PDF (voir architecture.md §22, reports/timetable.py) — voir Teacher (teacher.py)
+    # pour le commentaire complet, même patron mutualisé sur les 7 ressources liées à un cours.
+    __actions__ = [
+        {
+            "id": "print_timetable",
+            "label": "Imprimer l'emploi du temps",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "timetable_class_part",
+        },
+    ]
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     partition_id: Mapped[int] = mapped_column(Integer, ForeignKey("partitions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
     division_id = related_field("partition", "division_id", info={"label": "Division", "readOnly": True})
@@ -239,6 +251,18 @@ class ClassPartLink(Base):
 
 class Group(Base):
     __tablename__ = "groups"
+
+    # Impression PDF (voir architecture.md §22, reports/timetable.py) — voir Teacher (teacher.py)
+    # pour le commentaire complet, même patron mutualisé sur les 7 ressources liées à un cours.
+    __actions__ = [
+        {
+            "id": "print_timetable",
+            "label": "Imprimer l'emploi du temps",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "timetable_group",
+        },
+    ]
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: Groupe 1"})

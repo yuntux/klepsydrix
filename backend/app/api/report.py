@@ -10,6 +10,8 @@ ici c'est impossible — `resolve_database` exige l'en-tête `X-Klepsydrix-Datab
 puis un blob (voir services/api.ts::downloadReport), ce qui a l'avantage de garder TOUTES les
 requêtes sur le chemin unique qui gère le jeton d'écriture et les redirections d'authentification.
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
@@ -39,6 +41,12 @@ def generate_report(
     report_name: str,
     ids: str = Query("", description="Identifiants séparés par des virgules. Vide = tout ce qui est accessible."),
     format: str = Query("pdf", pattern="^(pdf|html)$"),
+    # Canal UNIQUE et générique pour les options propres à UN rapport (ex: show_breaks du rapport
+    # "emploi du temps", reports/timetable.py) — jamais un paramètre de premier niveau ici, qui
+    # ferait fuiter la connaissance d'un rapport précis dans la route générique. Un objet JSON
+    # encodé en une seule chaîne, décodé tel quel dans `params` (voir get_values(db, ids, params)) :
+    # chaque rapport lit ses propres clés, cette route n'en connaît et n'en valide aucune.
+    params: str = Query("", description='Objet JSON de paramètres propres au rapport, ex: {"show_breaks": false}.'),
     db: Session = Depends(get_db),
 ):
     """
@@ -61,10 +69,17 @@ def generate_report(
     except ValueError:
         raise HTTPException(status_code=400, detail="Le paramètre « ids » doit être une liste d'entiers séparés par des virgules.")
 
-    if format == "html":
-        return Response(content=render_html(report, db, parsed_ids, {}), media_type="text/html")
+    try:
+        report_params = json.loads(params) if params else {}
+        if not isinstance(report_params, dict):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Le paramètre « params » doit être un objet JSON valide.")
 
-    pdf = render_pdf(report, db, parsed_ids, {})
+    if format == "html":
+        return Response(content=render_html(report, db, parsed_ids, report_params), media_type="text/html")
+
+    pdf = render_pdf(report, db, parsed_ids, report_params)
     return Response(
         content=pdf,
         media_type="application/pdf",

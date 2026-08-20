@@ -472,7 +472,7 @@ def teacher_late_start_limit(constraint_factory: ConstraintFactory) -> Constrain
         .filter(lambda teacher, timeslots_set, rc: rc.late_start_time is not None and rc.late_start_days_per_week is not None)
         .filter(lambda teacher, timeslots_set, rc: len({ts.day_of_week for ts in timeslots_set if ts.hour < int(rc.late_start_time.split(':')[0])}) > (5 - rc.late_start_days_per_week))
         .penalize(
-            HardSoftScore.ONE_HARD,
+            HardSoftScore.of_hard(1000),
             lambda teacher, timeslots_set, rc: (len({ts.day_of_week for ts in timeslots_set if ts.hour < int(rc.late_start_time.split(':')[0])}) - (5 - rc.late_start_days_per_week)) * 10
         )
         .as_constraint("Teacher late start limit")
@@ -926,23 +926,25 @@ Une implémentation classique de l'Overconstrained Planning consiste à pénalis
 * Le placer sur un créneau occupé (conflit de professeur) dégrade le score à `-1 Hard / 0 Soft`.
 * Les scores `Hard` étant strictement prioritaires sur les `Soft` dans Timefold, le solveur considère `-1 Hard` comme infiniment pire que `0 Hard`. Il refuse donc de faire passer temporairement un cours à l'état conflictuel pour réorganiser l'emploi du temps, ce qui bloque la recherche locale dans un minimum local.
 
-### C. Alignement des Pénalités sur le Score Hard (`ONE_HARD`)
-Pour surmonter cette impasse, Klepsydrix applique une pénalité de non-assignation directement dans le score **`Hard`** via la contrainte `penalize_unassigned_course` avec un poids de `1` (`HardSoftScore.ONE_HARD`).
+### C. Alignement des Pénalités sur le Score Hard (`ONE_HARD` pour la non-assignation, `of_hard(1000)` pour tout le reste)
+Pour surmonter cette impasse, Klepsydrix applique une pénalité de non-assignation directement dans le score **`Hard`** via la contrainte `penalize_unassigned_course` (`COURSE_PLACEMENT`) / `unassigned_room_assignment_penalty` (`CLASSROOM_ASSIGNMENT`), avec un poids de `1` (`HardSoftScore.ONE_HARD`) — ce sont les DEUX SEULES contraintes dures de tout le solveur à rester à ce poids, délibérément : ce sont les valves d'échappement de l'Overconstrained Planning, la référence par rapport à laquelle tout le reste doit être strictement plus cher.
 
 ```mermaid
 graph TD
     classDef state fill:#f9f,stroke:#333,stroke-width:2px;
     classDef good fill:#bbf,stroke:#333,stroke-width:2px;
-    
-    A["Non assigné (-1 Hard)"] -->|Transition à coût nul| B("Placé avec Conflit (-1 Hard)")
-    B -->|Résolution du conflit| C("Placé sans Conflit (0 Hard)")
-    
+    classDef bad fill:#fbb,stroke:#333,stroke-width:2px;
+
+    A["Non assigné (-1 Hard)"] -->|Coûte 1000x moins cher qu'une violation| C("Placé sans Conflit (0 Hard)")
+    A -.->|Mouvement rejeté : -1000 Hard, bien pire que rester non assigné| B("Placé avec Conflit (-1000 Hard)")
+
     class C good;
+    class B bad;
 ```
 
-* **Transition en plateau** : Comme la non-assignation et un conflit dur (ex: professeur occupé) coûtent tous deux `-1 Hard`, le solveur peut temporairement placer un cours sur un créneau conflictuel sans dégrader son score Hard. Il effectue ainsi des mouvements horizontaux pour "shuffler" le planning.
-* **Résolution** : Une fois le cours positionné, le solveur résout le conflit en décalant le cours gênant vers un créneau libre, élevant le score à `0 Hard` (amélioration acceptée).
-* **Résilience** : Si le problème est réellement insoluble, le solveur choisira de laisser le cours non placé (`-1 Hard`) plutôt que de forcer son affectation sur un créneau qui générerait des conflits multiples en cascade (qui cumuleraient un score de `-2 Hard` ou pire).
+* **Historique (première version, révisée après audit)** : la version initiale de ce patron laissait *toutes* les contraintes dures à `ONE_HARD`, y compris les conflits génériques (professeur/salle/division déjà occupés) — non-assignation et conflit coûtaient alors tous deux `-1 Hard`, permettant au hill-climbing de transiter temporairement par un état en conflit (« plateau », mouvement à coût nul) avant de le résoudre en décalant le cours gênant. Un audit complet du fichier de contraintes (suite à l'introduction de l'option `Course.forbid_break_overlap`, voir `spec.md` BR-004) a montré que ce plateau était en réalité un piège : à égalité stricte de score, rien ne garantit qu'un hill-climbing sans mouvement latéral choisisse de résoudre le conflit plutôt que de s'y arrêter durablement — constaté empiriquement sur plusieurs contraintes (`leaf_classroom_unsuited`, `resource_preference_hard`, `room_preference_hard`, puis généralisé) et confirmé par deux régressions découvertes dans `test_solver.py` (`test_solver_subject_constraint_optionality`/`_division_scope` validaient sans le vouloir un débordement de journée silencieusement toléré, exactement à cause de cette égalité).
+* **Politique actuelle** : toutes les contraintes dures, dans les deux domaines (`COURSE_PLACEMENT` et `CLASSROOM_ASSIGNMENT`), sont à `HardSoftScore.of_hard(1000)`, à l'exception des deux valves d'échappement ci-dessus. Un cours/une affectation non assigné(e) est donc **toujours** strictement moins coûteux que n'importe quelle violation de contrainte dure — le hill-climbing dispose d'un gradient net vers « laisser non placé » chaque fois qu'aucun créneau valide n'existe, sans jamais de mouvement latéral ambigu. Pour les contraintes à poids variable (ex: `teacher_max_hours_per_day`, pondérée par l'ampleur du dépassement × 10), seul le poids de base passe à `of_hard(1000)` — le multiplicateur par match (2ᵉ argument de `.penalize`) reste inchangé, donc les proportions internes à chaque contrainte (1h de dépassement vs 3h) sont préservées, seulement mises à l'échelle globalement.
+* **Résilience** : si le problème est réellement insoluble, le solveur choisit systématiquement de laisser le cours non placé (`-1 Hard`) plutôt que de forcer son affectation sur un créneau qui générerait une violation (`-1000 Hard` ou pire en cas de cumul).
 
 ---
 
@@ -3275,35 +3277,35 @@ Réutilise `__actions__` plutôt qu'un mécanisme parallèle — le répartiteur
 d'affichage et le rendu des boutons existaient déjà. Équivalent du `binding_type="report"` d'Odoo :
 le bouton apparaît tout seul, aucune vue à modifier.
 
-**La portée détermine où vit le bouton**, et c'est le point qui compte :
+**Une seule action par rapport, sans `scope`** — c'est le composant appelant qui résout les ids
+imprimés, pas la déclaration de l'action :
 
 ```python
 __actions__ = [
-    {   # Pas de scope -> GenericForm.vue : l'enregistrement AFFICHÉ, et lui seul.
-        "id": "print_course", "label": "Imprimer ce cours (PDF)",
-        "type": "report", "report": "course_list", "condition": "record.id",
-    },
-    {   # scope="list" -> barre d'actions de GenericList.vue.
-        "id": "print_course_list", "label": "Liste des cours (PDF)",
-        "type": "report", "report": "course_list", "scope": "list",
+    {
+        "id": "print_course_list", "label": "Imprimer les cours (PDF)",
+        "type": "report", "report": "course_list",
     },
 ]
 ```
 
-| Portée | Composant | Ce qui est imprimé |
-|---|---|---|
-| (aucune) | `GenericForm.vue` | l'enregistrement courant |
-| `"list"` | `GenericList.vue` | la sélection si elle existe, **toute la liste accessible sinon** |
+Les deux vues génériques (`GenericList.vue`, `GenericForm.vue`) rendent la même action derrière un
+**bouton unique "Imprimer"** (`frontend/src/components/widgets/ReportPrintMenu.vue`, positionné via
+`useFloatingDropdown` — même patron que `SearchableMultiSelect.vue`) qui déroule la liste des
+rapports disponibles pour l'objet ; ce bouton est absent du DOM tant qu'aucune action `"report"`
+n'est déclarée sur le modèle. Seule la résolution des ids cliqués change selon le composant :
 
-`GenericForm` filtre les actions `scope="list"` (voir `formActions`) et réciproquement — la barre de
-`GenericList` n'apparaît pas du tout pour une ressource qui n'en déclare aucune, donc aucune autre
-liste de l'application ne change d'aspect.
+| Composant | Ids imprimés |
+|---|---|
+| `GenericList.vue` | la sélection courante si elle existe, **toute la liste accessible sinon** |
+| `GenericForm.vue` | l'enregistrement affiché, ou tous les enregistrements de l'édition groupée (`isMultiEdit`) |
 
-⚠️ Cette séparation vient d'un **écart constaté à l'usage**, pas d'une intuition de conception : la
-première version posait l'unique action (de portée globale) sur le formulaire, faute de mécanisme
-d'actions dans `GenericList`. Cliquer « Liste des cours » depuis le formulaire d'UN cours imprimait
-les 60 autres. Un bouton posé sur un formulaire mono-enregistrement laisse légitimement attendre
-qu'il n'agit que sur celui-ci.
+⚠️ Une action de portée globale (l'ancien `scope="list"`) posée sur un formulaire
+mono-enregistrement a été **constaté** imprimer 60 cours au lieu d'un seul dans une première
+version — d'où, historiquement, deux actions distinctes. Ce risque n'existe plus : `resolveIds` est
+désormais une fonction propre à CHAQUE composant (`GenericForm.vue::resolvePrintIds` /
+`GenericList.vue::resolveListPrintIds`), jamais partagée entre les deux, donc structurellement
+incapable de mélanger les deux portées — l'action elle-même n'a plus besoin de le distinguer.
 
 Le bouton de liste affiche le nombre de lignes sélectionnées et son infobulle annonce lequel des
 deux comportements s'applique — imprimer toute la liste sans sélection est un choix assumé, pas un
@@ -3323,7 +3325,45 @@ du code seul :
   le PDF produit, pas dans les tests. Le tri porte donc sur `(day_of_week, minutes_from_midnight)`,
   tirés des mêmes enregistrements déjà chargés, cours non placés en fin de liste.
 
-### F. Ce qui n'est délibérément PAS repris d'Odoo
+### F. Deuxième rapport : grille d'emploi du temps (`reports/timetable.py`)
+
+Imprime la grille hebdomadaire d'une ressource — professeur, personnel non enseignant, salle,
+matériel, classe, groupe ou partie de classe : les **7 relations** que `Course` porte vers une
+ressource affectable (`Course._RESOURCE_RELATIONS` + `classroom_requirements`, voir course.py). Un
+seul gabarit (`templates/timetable.html`, format paysage) et une seule logique Python
+(`get_values_factory(model)`) servent les **7 entrées** du registre — une par modèle, parce que
+`ReportDef.model` détermine le `browse()`/`read()` appliqué (§B ci-dessus) : la sécurité impose un
+modèle par rapport, mais rien n'empêche de mutualiser tout le reste.
+
+- **Résolution ressource → cours, jamais par traversée ORM** (même contrainte qu'au §B) : les tables
+  d'association (`course_teachers`, `course_divisions`...) sont lues en Core pur pour ne récupérer
+  que des `id` de corrélation, jamais `resource.courses` — la lecture réelle des cours passe
+  ensuite par `Course.read(db, domain={"id": [...]})`, qui applique le domaine d'accès de `Course`.
+  `Classroom` est un cas à part : sa table de corrélation est `CourseClassroomRequirement` (une
+  vraie entité, pas une association pure), pas `course_classrooms` (supprimée, voir
+  course_classroom_requirement.py).
+- **Cours retenus : feuilles et placés.** `not is_composed` (colonne déjà stockée sur `Course`,
+  jamais recalculée ici) exclut les cours parents — seul un cours sans enfant a un horaire propre à
+  imprimer. `timeslot_id is not None` exclut les cours non placés.
+- **Grille complète, pas seulement les créneaux occupés** : l'axe des lignes vient de TOUS les
+  `Timeslot` existants (groupés par `intraday_sequence_number`), pas seulement ceux de la ressource
+  imprimée — cohérent avec la grille écran (`TimetableGrid.vue`), cases vides comprises. Les heures
+  affichées par ligne réutilisent telles quelles les propriétés déjà exposées sur `Timeslot`
+  (`public_display_start/end_minutes_after_midnight`, pilotées par `PUBLIC_DISPLAY_HOURS_BY_
+  SEQUENCE` — une valeur `None` explicite y reste une case blanche, pas un repli). L'ordre des
+  colonnes (jours) réutilise `day_of_week_sort_key`/`get_first_day_of_week` (`core/time_utils.py`),
+  déjà mutualisé et déjà consommé par `course_list.py`.
+- **Couleur, selon ce qui est imprimé** (règle produit, pas une déduction technique) :
+  - Professeur / Personnel non enseignant / Salle / Matériel (une ressource qui SERT des classes) →
+    couleur de la classe du cours : le `Group` s'il y en a exactement un ; sinon la `Division` s'il
+    y en a exactement une ; sinon (plusieurs groupes, plusieurs divisions, ou aucun des deux)
+    **aucune couleur** plutôt qu'un choix arbitraire ambigu.
+  - Division / Group / ClassPart (une ressource qui EST une audience) → couleur de `Course.subject_id`
+    (colonne scalaire directe, aucune traversée nécessaire).
+  - Résolution mutualisée : mêmes tables d'association que pour la résolution ressource → cours
+    ci-dessus, jamais `course.groups`/`course.divisions` directement.
+
+### G. Ce qui n'est délibérément PAS repris d'Odoo
 
 - **Le cache en pièce jointe** (`attachment`/`attachment_use`) : n'a de sens que pour un document
   légal qui ne doit plus jamais changer (facture). Un emploi du temps est toujours regénéré. À

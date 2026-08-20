@@ -29,6 +29,19 @@ teacher_incompatibilities = Table(
 class Teacher(HasUserAccount, Base):
     __tablename__ = "teachers"
 
+    # Impression PDF (voir architecture.md §22, reports/timetable.py) — un seul gabarit mutualisé
+    # sur les 7 ressources pouvant être liées à un cours, voir aussi NonTeachingStaff, Classroom,
+    # Material, Division, Group, ClassPart.
+    __actions__ = [
+        {
+            "id": "print_timetable",
+            "label": "Imprimer l'emploi du temps",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "timetable_teacher",
+        },
+    ]
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, unique=True, info={"label": "Compte utilisateur"})
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code Enseignant", "placeholder": "ex: T1"})

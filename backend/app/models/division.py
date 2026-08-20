@@ -8,6 +8,18 @@ from backend.app.models.base import Base, related_field, exposed
 class Division(Base):
     __tablename__ = "divisions"
 
+    # Impression PDF (voir architecture.md §22, reports/timetable.py) — voir Teacher (teacher.py)
+    # pour le commentaire complet, même patron mutualisé sur les 7 ressources liées à un cours.
+    __actions__ = [
+        {
+            "id": "print_timetable",
+            "label": "Imprimer l'emploi du temps",
+            "type": "report",
+            "icon": "fa-print",
+            "report": "timetable_division",
+        },
+    ]
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False, info={"label": "Code de la classe", "placeholder": "ex: 6EME_A"})
     name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de la classe", "placeholder": "ex: 6ème A"})

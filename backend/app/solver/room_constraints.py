@@ -128,6 +128,11 @@ def _assignment_overlaps_booking(a: PlanningRoomAssignment, b: PlanningFixedRoom
     )
 
 
+# Politique de poids (revue complète, voir constraints.py section 1 pour le détail) : toutes les
+# contraintes dures de ce fichier sont en of_hard(1000), SAUF unassigned_room_assignment_penalty
+# plus bas (ONE_HARD, jamais touchée — c'est la référence, symétrique de penalize_unassigned_course
+# côté COURSE_PLACEMENT).
+
 def room_conflict_between_assignments(constraint_factory: ConstraintFactory) -> Constraint:
     """
     Mêmes 5 conditions de chevauchement que leaf_classroom_conflict (constraints.py), SAUF
@@ -144,7 +149,7 @@ def room_conflict_between_assignments(constraint_factory: ConstraintFactory) -> 
         )
         .filter(lambda a1, a2: a1.classroom is not None and a2.classroom is not None)
         .filter(_assignments_overlap)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Room conflict between assignments")
     )
 
@@ -158,7 +163,7 @@ def room_conflict_with_fixed_booking(constraint_factory: ConstraintFactory) -> C
             Joiners.equal(lambda a: a.classroom.id, lambda b: b.classroom_id)
         )
         .filter(_assignment_overlaps_booking)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Room conflict with fixed booking")
     )
 
@@ -172,15 +177,18 @@ def room_capacity_hard(constraint_factory: ConstraintFactory) -> Constraint:
                 and a.classroom.capacity is not None
                 and a.effective_headcount is not None
                 and a.effective_headcount > a.classroom.capacity)
-        .penalize(HardSoftScore.ONE_HARD)
+        .penalize(HardSoftScore.of_hard(1000))
         .as_constraint("Room capacity exceeded")
     )
 
 
 def unassigned_room_assignment_penalty(constraint_factory: ConstraintFactory) -> Constraint:
     """Même philosophie que penalize_unassigned_course (COURSE_PLACEMENT, Overconstrained
-    Planning) : une unité non résolue coûte le même prix qu'un conflit dur, pour que le solveur
-    puisse transiter par des états intermédiaires plutôt que de rester bloqué."""
+    Planning) : une unité non résolue coûte délibérément le poids le plus faible du domaine
+    (ONE_HARD, jamais bumpée) — toujours moins cher que n'importe quelle autre contrainte dure
+    (toutes à of_hard(1000)), pour que le solveur préfère systématiquement laisser une affectation
+    non résolue plutôt que de violer une contrainte, tout en pouvant transiter par des états
+    intermédiaires de conflit pendant la recherche."""
     return (
         constraint_factory.for_each_including_unassigned(PlanningRoomAssignment)
         .filter(lambda a: a.classroom is None)

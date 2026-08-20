@@ -5,11 +5,12 @@ Ajouter un rapport = un module ici (données + définition) et un gabarit dans `
 ligne dans `REGISTRY`. Aucune route à écrire : `api/report.py` est générique et paramétré par le
 nom du rapport.
 """
-from backend.app.reports import course_list
+from backend.app.reports import course_list, timetable
 from backend.app.reports.base import ReportDef
 
 REGISTRY: dict[str, ReportDef] = {
     course_list.REPORT.name: course_list.REPORT,
+    **{report.name: report for report in timetable.ALL_REPORTS},
 }
 
 

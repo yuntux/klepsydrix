@@ -1,0 +1,205 @@
+/*
+Grille d'emploi du temps (reports/timetable.py) — une page par ressource imprimée. Isolé de
+base.css (voir ReportDef.extra_css) : rien ici n'est réutilisé par un autre rapport.
+
+Positionnement en POURCENTAGE plutôt qu'un <tr> par créneau (voir docstring de timetable.py) :
+chaque colonne jour est un bloc `position: relative` de hauteur FIXE (.timetable-body-row), dans
+lequel créneaux gris, trait de récréation et boîtes de cours sont posés en `top`/`height` absolus —
+seule façon d'obtenir une hauteur de boîte proportionnelle à la durée réelle d'un cours tout en
+gardant plusieurs cours parallèles côte à côte (voir CourseCard.vue, même modèle
+overlapIndex/overlapCount).
+
+Hauteur de .timetable-body-row : constante délibérée, pas un calcul dynamique — voir le commentaire
+détaillé au-dessus de la règle elle-même, plus bas, pour le calcul exact du budget disponible. Avec
+un pas horaire fin (STANDARD_TIMESLOT_DURATION) et une grande amplitude, les lignes deviennent
+mécaniquement très fines : c'est le prix de tenir sur une seule page, pas un bug.
+*/
+h2.timetable-page-title {
+    font-size: 12pt;
+    /* margin-bottom : une ligne vide avant la grille, pas un simple espacement resserré. */
+    margin: 0 0 14pt 0;
+    text-align: center;
+}
+
+.timetable-page-break {
+    break-before: page;
+}
+
+.timetable-wrapper {
+    display: flex;
+    flex-direction: column;
+}
+
+.timetable-header-row {
+    display: flex;
+    border-bottom: 1pt solid #94a3b8;
+}
+
+.timetable-hour-header,
+.timetable-day-header {
+    font-size: 7.5pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #475569;
+    text-align: center;
+    padding: 3pt 0;
+}
+
+.timetable-hour-header {
+    width: 18mm;
+    flex-shrink: 0;
+    border-right: 1pt solid #cbd5e1;
+}
+
+.timetable-day-header {
+    flex: 1;
+    border-right: 1pt solid #e2e8f0;
+}
+
+.timetable-day-header:last-child {
+    border-right: none;
+}
+
+/* Zone de contenu utile en a4-LANDSCAPE (voir PAPERFORMATS dans reports/base.py) : la page fait
+   210mm de HAUTEUR en paysage (pas 297mm — c'est la largeur ; confusion source d'un bug constaté :
+   une valeur calculée sur 297mm débordait silencieusement sur 2-3 pages). Marges 15mm/18mm ->
+   210 - 15 - 18 = 177mm utiles — l'établissement, l'heure d'impression et la pagination sont
+   HORS de cette zone (contenu de page `@top-left`/`@top-right`, voir base.py::_page_chrome_css,
+   pas du contenu de flux). Titre fusionné (.timetable-page-title) + ligne d'en-tête de colonnes
+   (.timetable-header-row) en consomment environ 15mm — 145mm laisse une marge de sécurité mesurée
+   empiriquement (rendu PDF réel, voir TestTimetablePageBudget dans test_reports_timetable.py, qui
+   vérifie qu'une grille d'une seule ressource tient bien sur une seule page produite). */
+.timetable-body-row {
+    display: flex;
+    height: 145mm;
+    position: relative;
+}
+
+.timetable-hour-col {
+    width: 18mm;
+    flex-shrink: 0;
+    position: relative;
+    border-right: 1pt solid #cbd5e1;
+}
+
+.timetable-hour-start,
+.timetable-hour-end {
+    position: absolute;
+    left: 2pt;
+    right: 2pt;
+    font-size: 8pt;
+    color: #475569;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.timetable-hour-start {
+    text-align: left;
+}
+
+/* translateY(-100%) : ancre le BAS de l'étiquette sur la frontière de ligne (row.bottom_pct),
+   plutôt que son haut — c'est ce qui la place réellement "en bas à droite" du créneau qu'elle
+   referme, sans avoir à connaître la hauteur de la ligne précédente. */
+.timetable-hour-end {
+    text-align: right;
+    transform: translateY(-100%);
+}
+
+/* Posé directement dans .timetable-body-row (voir timetable.html), PAS dans .timetable-hour-col :
+   left:0/right:0 s'étend alors sur toute la largeur de la grille (horaire + tous les jours), pas
+   seulement la colonne horaire. En pointillés — `border-top` (pas `background-color`, qui ne peut
+   pas produire de pointillés) sur un élément `height: 0`. z-index STRICTEMENT sous
+   .timetable-course-box (2) : un cours à cheval sur la ligne la recouvre entièrement (fond opaque
+   de la boîte), la ligne ne doit jamais transparaître à travers un cours. */
+.timetable-hour-divider {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0;
+    border-top: 1pt dotted #94a3b8;
+    z-index: 1;
+}
+
+.timetable-day-col {
+    flex: 1;
+    position: relative;
+    border-right: 1pt solid #e2e8f0;
+    overflow: hidden;
+}
+
+.timetable-day-col:last-child {
+    border-right: none;
+}
+
+/* Case grisée : aucun créneau en base pour ce couple (jour, séquence) — ex: samedi après-midi non
+   ouvert. z-index le plus bas : sous le trait de récréation et sous les cours. */
+.timetable-inactive-block {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background-color: #f1f5f9;
+    z-index: 0;
+}
+
+/* Trait de récréation : plus épais que le pointillé de créneau (.timetable-hour-divider) pour
+   rester bien distinct de lui, et toujours en trait PLEIN (background-color, jamais dotted) — "en
+   arrière-plan" signifie sous les boîtes de cours (jamais les masquer), pas sous les cases grisées
+   — d'où un z-index intermédiaire, comme à l'écran (BaseGrid.vue, .break-line en surimpression du
+   fond mais sous les cours). */
+.timetable-break-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2.5pt;
+    background-color: #94a3b8;
+    z-index: 1;
+}
+
+.timetable-course-box {
+    position: absolute;
+    z-index: 2;
+    box-sizing: border-box;
+    border: 0.5pt solid rgba(15, 23, 42, 0.15);
+    border-radius: 1.5pt;
+    padding: 1pt 2pt;
+    overflow: hidden;
+    background-color: #e2e8f0;
+    break-inside: avoid;
+}
+
+.timetable-course-line {
+    font-size: 8pt;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #0f172a;
+}
+
+.timetable-course-line:first-child {
+    font-weight: bold;
+}
+
+.timetable-week-badge {
+    position: absolute;
+    bottom: 1pt;
+    right: 1pt;
+    font-size: 7pt;
+    font-weight: bold;
+    line-height: 1.3;
+    padding: 0 2pt;
+    border-radius: 1pt;
+}
+
+/* Mêmes couleurs que la grille écran (CourseCard.vue, .week-indicator.week-A/.week-B) — semaine A
+   en bleu, semaine B en ambre (la teinte réellement utilisée à l'écran, pas un rouge littéral). */
+.timetable-week-badge--a {
+    background-color: rgba(14, 165, 233, 0.2);
+    color: rgb(2, 132, 199);
+}
+
+.timetable-week-badge--b {
+    background-color: rgba(245, 158, 11, 0.2);
+    color: rgb(180, 83, 9);
+}

@@ -1,0 +1,68 @@
+{% extends "layout.html" %}
+
+{% block content %}
+    {% if pages %}
+        {% for page in pages %}
+            <div class="timetable-page{{ ' timetable-page-break' if not loop.first else '' }}">
+                {# Établissement DE CETTE ressource (voir timetable.py) — remplace, à partir de
+                   cette page, la valeur par défaut posée une fois par layout.html (voir son
+                   commentaire) : chaque page peut ainsi montrer un établissement différent. Posé
+                   même quand vide ("") pour ne jamais laisser transparaître la valeur de la page
+                   précédente (string-set conserve sinon la dernière valeur vue). #}
+                <div class="page-school-marker" data-school="{{ page.resource_school_name }}"></div>
+                <h2 class="timetable-page-title">{{ report_title }} — {{ page.resource_name }}</h2>
+                <div class="timetable-wrapper">
+                    <div class="timetable-header-row">
+                        <div class="timetable-hour-header">Horaire</div>
+                        {% for day in days %}
+                            <div class="timetable-day-header">{{ day.label }}</div>
+                        {% endfor %}
+                    </div>
+                    <div class="timetable-body-row">
+                        {# .timetable-hour-col n'a pas de notion de jour (pas de case grisée, pas de
+                           cours à masquer) : ses séparateurs suivent seulement show_divider_after,
+                           sans condition par jour — voir col.dividers ci-dessous pour le pendant
+                           PAR JOUR (celui qui doit disparaître sur les cases grisées / sous un
+                           cours). #}
+                        <div class="timetable-hour-col">
+                            {% for row in hour_rows %}
+                                {% if row.show_divider_after %}
+                                    <div class="timetable-hour-divider" style="top: {{ row.bottom_pct }}%;"></div>
+                                {% endif %}
+                                <span class="timetable-hour-start" style="top: {{ row.top_pct }}%;">{{ row.start_label }}</span>
+                                <span class="timetable-hour-end" style="top: {{ row.bottom_pct }}%;">{{ row.end_label }}</span>
+                            {% endfor %}
+                        </div>
+                        {% for col in page.day_columns %}
+                            <div class="timetable-day-col">
+                                {% for block in col.inactive_blocks %}
+                                    <div class="timetable-inactive-block" style="top: {{ block.top_pct }}%; height: {{ block.height_pct }}%;"></div>
+                                {% endfor %}
+                                {# Séparateurs et récréations POSÉS ICI, frères directs des boîtes de
+                                   cours ci-dessous (pas un bloc unique pleine largeur ailleurs dans
+                                   le document) : c'est ce qui rend leur z-index fiable pour
+                                   disparaître sous un cours qui les recouvre — voir
+                                   timetable.py::_day_lines pour le détail de ce choix. Déjà filtrés
+                                   par jour (absents des cases grisées, voir la même fonction). #}
+                                {% for line in col.dividers %}
+                                    <div class="timetable-hour-divider" style="top: {{ line.top_pct }}%;"></div>
+                                {% endfor %}
+                                {% for line in col.breaks %}
+                                    <div class="timetable-break-line" style="top: {{ line.top_pct }}%;"></div>
+                                {% endfor %}
+                                {% for course in col.courses %}
+                                    <div class="timetable-course-box" style="top: {{ course.top_pct }}%; height: {{ course.height_pct }}%; left: {{ course.left_pct }}%; width: {{ course.width_pct }}%;{% if course.color %} background-color: {{ course.color }};{% endif %}">
+                                        {% for line in course.lines %}<div class="timetable-course-line">{{ line }}</div>{% endfor %}
+                                        {% if course.week_badge %}<div class="timetable-week-badge timetable-week-badge--{{ course.week_badge|lower }}">{{ course.week_badge }}</div>{% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p class="empty">Aucune ressource à imprimer.</p>
+    {% endif %}
+{% endblock %}

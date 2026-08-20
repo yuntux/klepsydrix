@@ -137,6 +137,13 @@ def seed_demo_data():
         # wizard « Grille horaire » afficherait (lundi-vendredi 8h-18h, samedi 8h-12h, dimanche fermé).
         Timeslot.reconcile_all_days(db)
 
+        # 6bis. Récréations — démo UNIQUEMENT : init_prod_data() n'en seede volontairement aucune
+        # (voir son commentaire, ces réglages n'ont pas de valeur par défaut légitime pour un
+        # établissement réel). Matin à 10h00 (600 min après minuit), après-midi à 15h30 (930 min).
+        db.execute(text("INSERT INTO system_settings (key, value) VALUES ('HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT', '600')"))
+        db.execute(text("INSERT INTO system_settings (key, value) VALUES ('HOUR_AFTERNOON_BREAK_START_MINUTES_AFTER_MIDNIGHT', '930')"))
+        db.commit()
+
         # 7. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
         db.execute(text("INSERT INTO period_types (name) VALUES ('Trimestre')"))
         db.execute(text("INSERT INTO period_types (name) VALUES ('Semestre')"))

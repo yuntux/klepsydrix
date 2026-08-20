@@ -1,26 +1,29 @@
 {#
-  Gabarit de base dont hérite tout rapport — l'équivalent de `web.external_layout` chez Odoo :
-  en-tête d'établissement, titre, date d'édition. La pagination, elle, n'est PAS ici : elle est
-  entièrement portée par `@page` dans base.css (voir ce fichier), là où Odoo doit passer un
-  document HTML séparé à wkhtmltopdf.
+  Gabarit de base dont hérite tout rapport — l'équivalent de `web.external_layout` chez Odoo.
+  L'établissement, l'heure d'impression et la pagination ne sont PAS en contenu de flux ici (qui ne
+  s'afficherait qu'une fois, avant la boucle de pages d'un rapport multi-pages) : ils vivent dans
+  `@page { @top-left / @top-right }` (voir base.py::_page_chrome_css), donc répétés sur CHAQUE page.
+
+  `.page-school-marker` dépose la valeur COURANTE de l'établissement dans le flux (`string-set`,
+  voir base.css) — celle affichée par `@top-left` est la DERNIÈRE valeur vue avant chaque page. Un
+  premier marqueur ici, avec `school_name` (valeur globale du rapport), sert de valeur par défaut ;
+  un gabarit qui imprime une ressource différente par page (ex: timetable.html) peut poser SON
+  PROPRE marqueur à l'intérieur de sa boucle de pages, qui prend alors le relais à partir de là.
 #}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <title>{{ title }}</title>
+    <title>{{ meta_title }}</title>
     {# |safe obligatoire : l'autoescape transformerait les guillemets du CSS (content: "Page ")
        en &quot; et casserait la feuille de style. Sans risque, cette feuille est un fichier du
        dépôt, jamais une saisie utilisateur — contrairement aux valeurs du corps du document. #}
     <style>{{ stylesheet|safe }}</style>
 </head>
 <body>
-    <header class="report-header">
-        <div class="report-header__school">{{ school_name }}</div>
-        <div class="report-header__meta">Édité le {{ printed_on }}</div>
-    </header>
+    <div class="page-school-marker" data-school="{{ school_name }}"></div>
 
-    <h1>{{ title }}</h1>
+    {% if title %}<h1>{{ title }}</h1>{% endif %}
 
     {% block content %}{% endblock %}
 </body>
