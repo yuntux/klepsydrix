@@ -337,16 +337,28 @@ def _build_course_placement_problem(db: Session, school_id: Optional[int] = None
     val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
     std_duration_min = int(val)
     
+    # Fin de journée par jour : lue sur GridDaySettings (source d'autorité de l'heure de
+    # fermeture, voir Course.validate_placement_conflicts) — repli sur le dernier créneau posé
+    # + durée standard uniquement si la grille n'a pas encore été configurée pour ce jour.
+    from backend.app.models.grid_day_settings import GridDaySettings
+    day_settings_by_day = {gds.day_of_week: gds for gds in db.execute(select(GridDaySettings)).scalars().all()}
     max_minutes_by_day = {}
     for ts in db_timeslots:
         if ts.day_of_week not in max_minutes_by_day or ts.minutes_from_midnight > max_minutes_by_day[ts.day_of_week]:
             max_minutes_by_day[ts.day_of_week] = ts.minutes_from_midnight
+    end_of_day_by_day = {}
+    for day, max_minutes in max_minutes_by_day.items():
+        gds = day_settings_by_day.get(day)
+        if gds and gds.hour_day_end_minutes_after_midnight is not None:
+            end_of_day_by_day[day] = gds.hour_day_end_minutes_after_midnight
+        else:
+            end_of_day_by_day[day] = max_minutes + std_duration_min
 
     # Un seul calcul (valeur globale à la grille, pas par jour/par créneau — voir
     # Timeslot.get_noon_boundary_minutes) plutôt qu'un appel par créneau dans la compréhension
     # ci-dessous : évite N requêtes SQL identiques.
     noon_boundary_minutes = Timeslot.get_noon_boundary_minutes(db)
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, max_minutes_by_day[ts.day_of_week] + std_duration_min, noon_boundary_minutes) for ts in db_timeslots}
+    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, end_of_day_by_day[ts.day_of_week], noon_boundary_minutes) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())

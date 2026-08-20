@@ -660,15 +660,14 @@ class Course(Base):
         target_start = target_ts.minutes_from_midnight
         target_end = target_start + self.duration_minutes
 
-        # Vérification du débordement en fin de journée
-        from sqlalchemy import func
-        from backend.app.models.system_setting import SystemSetting, SystemSettingKey
-        max_minutes = db.query(func.max(Timeslot.minutes_from_midnight)).filter(Timeslot.day_of_week == target_ts.day_of_week).scalar()
-        if max_minutes is not None:
-            val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
-            std_duration_min = int(val)
-            absolute_end_minutes = max_minutes + std_duration_min
-            if target_end > absolute_end_minutes:
+        # Vérification du débordement en fin de journée — lue directement sur la grille
+        # (GridDaySettings, source d'autorité de l'heure de fermeture) plutôt que re-dérivée du
+        # MAX des Timeslot déjà existants pour ce jour (qui manquerait la vérification si aucun
+        # créneau n'était encore posé ce jour-là).
+        from backend.app.models.grid_day_settings import GridDaySettings
+        day_settings = db.query(GridDaySettings).filter(GridDaySettings.day_of_week == target_ts.day_of_week).first()
+        if day_settings and day_settings.hour_day_end_minutes_after_midnight is not None:
+            if target_end > day_settings.hour_day_end_minutes_after_midnight:
                 raise ValueError("Le cours déborde de la grille horaire de la journée.")
 
         target_week_type = getattr(self, 'week_type', 'W')
@@ -764,13 +763,9 @@ class Course(Base):
                     if child_ts.minutes_from_midnight < parent_ts.minutes_from_midnight:
                         raise ValueError("Le cours enfant ne peut pas commencer avant son parent.")
                     
-                    # On compte le nombre de créneaux exacts qui séparent le parent de l'enfant
-                    offset = db.query(Timeslot).filter(
-                        Timeslot.day_of_week == parent_ts.day_of_week,
-                        Timeslot.minutes_from_midnight > parent_ts.minutes_from_midnight,
-                        Timeslot.minutes_from_midnight <= child_ts.minutes_from_midnight
-                    ).count()
-                    vals['parent_timeslot_offset'] = offset
+                    # Inverse de Timeslot.get_offset_timeslot : le nombre de créneaux qui séparent
+                    # le parent de l'enfant.
+                    vals['parent_timeslot_offset'] = parent_ts.count_timeslots_between(db, child_ts)
 
             # Sync descendante (écrasement du timeslot de l'enfant)
             offset = vals.get('parent_timeslot_offset', getattr(instance, 'parent_timeslot_offset', 0))

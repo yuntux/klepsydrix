@@ -27,6 +27,7 @@ const SETTING_FIELD_TYPES: Record<string, { type: string; options?: typeof NUMBE
   GROUP_NAME_HAS_DIV_CODE: { type: 'boolean' },
   GROUP_NAME_HAS_SUBJECT_CODE: { type: 'boolean' },
   GROUP_NAME_NUMBER_FORMAT: { type: 'select', options: NUMBER_FORMAT_OPTIONS },
+  MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT: { type: 'boolean' },
 };
 
 const props = defineProps<{

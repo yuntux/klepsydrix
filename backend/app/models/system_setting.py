@@ -187,14 +187,14 @@ class SystemSetting(Base):
             #    (sauté si le wizard de grille assume déjà les dépositionnements induits — voir bypass_grid_checks)
             if new_duration > old_duration and not bypass_grid_checks:
                 from backend.app.models.timeslot import Timeslot
-                new_step = new_duration / 60.0
+                from backend.app.core.time_utils import minutes_to_hours
                 # On inspecte les cours qui ont un timeslot assigné
                 for c in db.query(Course).join(Timeslot).filter(Course.timeslot_id != None).all():
-                    ts_hour = c.timeslot.minutes_from_midnight / 60.0
-                    if abs((ts_hour / new_step) - round(ts_hour / new_step)) >= 0.001:
+                    if c.timeslot.minutes_from_midnight % new_duration != 0:
+                        _, hour_text = minutes_to_hours(c.timeslot.minutes_from_midnight)
                         raise ValueError(
                             f"Modification interdite : le cours (ID {c.id}) est positionné sur un créneau "
-                            f"({ts_hour}h) qui n'est pas un multiple de {new_duration} minutes."
+                            f"({hour_text}) qui n'est pas un multiple de {new_duration} minutes."
                         )
 
             # 2. Ensuite, on vérifie et on recalcule les offsets relatifs des cours enfants

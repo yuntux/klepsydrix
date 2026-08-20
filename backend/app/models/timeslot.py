@@ -129,8 +129,23 @@ class Timeslot(Base):
 
         if len(timeslots) < offset:
             raise ValueError(f"Le créneau de destination (offset +{offset}) n'existe pas ou déborde de la journée.")
-            
+
         return timeslots[-1].id
+
+    def count_timeslots_between(self, db, other: "Timeslot") -> int:
+        """
+        Inverse de get_offset_timeslot : le nombre de créneaux du même jour strictement compris
+        entre self (exclu) et other (inclus) — cet offset, appliqué à self via
+        get_offset_timeslot(db, offset), redonne other.id.
+        """
+        if other.day_of_week != self.day_of_week:
+            raise ValueError("Les deux créneaux doivent être le même jour.")
+
+        return db.query(Timeslot).filter(
+            Timeslot.day_of_week == self.day_of_week,
+            Timeslot.minutes_from_midnight > self.minutes_from_midnight,
+            Timeslot.minutes_from_midnight <= other.minutes_from_midnight,
+        ).count()
 
     @exposed
     @property

@@ -111,9 +111,7 @@ def _rooms_overlap(day1, week1, period1, start1, dur1, day2, week2, period2, sta
         return False
     if not periods_overlap(period1, period2):
         return False
-    end1 = start1 + dur1
-    end2 = start2 + dur2
-    return start1 < end2 and start2 < end1
+    return not _not_overlapping(start1, dur1, start2, dur2)
 
 
 def _assignments_overlap(a1: PlanningRoomAssignment, a2: PlanningRoomAssignment) -> bool:
@@ -286,7 +284,7 @@ def _count_room_continuity_breaks(rows, id_field: str) -> int:
     for courses in by_person.values():
         courses.sort(key=lambda a: (a.minutes_from_midnight, a.id))
         for i, cur in enumerate(courses):
-            cur_end = cur.minutes_from_midnight + cur.duration_minutes
+            cur_end = _end_minutes(cur.minutes_from_midnight, cur.duration_minutes)
             for nxt in courses[i + 1:]:
                 # Exclut les vraies simultanéités (siblings quantity>1, forcés vers des salles
                 # différentes par room_conflict_between_assignments) : ce n'est pas un déplacement,
@@ -333,12 +331,20 @@ def _shares_person(ids_a: List[int], ids_b: List[int]) -> bool:
     return False
 
 
+def _end_minutes(start: int, duration: int) -> int:
+    return start + duration
+
+
+def _not_overlapping(a_start: int, a_dur: int, b_start: int, b_dur: int) -> bool:
+    return a_start >= _end_minutes(b_start, b_dur) or b_start >= _end_minutes(a_start, a_dur)
+
+
 def _pair_bounds(a_start: int, a_dur: int, b_start: int, b_dur: int):
     """Bornes ordonnées (fin du plus tôt, début du plus tard) de la paire, quel que soit l'ordre
     d'origine — a et b peuvent être dans n'importe quel ordre chronologique."""
     if a_start <= b_start:
-        return a_start + a_dur, b_start
-    return b_start + b_dur, a_start
+        return _end_minutes(a_start, a_dur), b_start
+    return _end_minutes(b_start, b_dur), a_start
 
 
 def _teacher_pair_same_day_not_overlapping(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking) -> bool:
@@ -346,11 +352,9 @@ def _teacher_pair_same_day_not_overlapping(a: PlanningRoomAssignment, b: Plannin
         return False
     if not weeks_overlap(a.week_type, b.week_type) or not periods_overlap(a.period_mask, b.period_mask):
         return False
-    a_end = a.minutes_from_midnight + a.duration_minutes
-    b_end = b.minutes_from_midnight + b.duration_minutes
     # Exclut le chevauchement temporel (co-enseignement/quantity>1 simultané), même raison que
     # _count_room_continuity_breaks : ce n'est pas un déplacement.
-    return a.minutes_from_midnight >= b_end or b.minutes_from_midnight >= a_end
+    return _not_overlapping(a.minutes_from_midnight, a.duration_minutes, b.minutes_from_midnight, b.duration_minutes)
 
 
 def _pair_different_room(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking) -> bool:
@@ -386,9 +390,7 @@ def _division_pair_same_day_not_overlapping(a: PlanningRoomAssignment, b: Planni
         return False
     if not weeks_overlap(a.week_type, b.week_type) or not periods_overlap(a.period_mask, b.period_mask):
         return False
-    a_end = a.minutes_from_midnight + a.duration_minutes
-    b_end = b.minutes_from_midnight + b.duration_minutes
-    return a.minutes_from_midnight >= b_end or b.minutes_from_midnight >= a_end
+    return _not_overlapping(a.minutes_from_midnight, a.duration_minutes, b.minutes_from_midnight, b.duration_minutes)
 
 
 def _other_assignment_between_division(a: PlanningRoomAssignment, b: PlanningFixedRoomBooking, other: PlanningRoomAssignment) -> bool:

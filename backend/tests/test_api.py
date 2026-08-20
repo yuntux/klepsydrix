@@ -1394,13 +1394,14 @@ def test_course_day_overflow_conflict(db_session: Session):
     Par exemple, si le dernier créneau est à 17h30, on ne peut pas y placer un cours de 1h.
     """
     from backend.app.models.system_setting import SystemSetting
-    
+    from backend.app.models.grid_day_settings import GridDaySettings
+
     school = db_session.query(School).first()
     subject = db_session.query(Subject).first()
     teacher = Teacher(code="T_OVERFLOW", first_name="Prof", last_name="Overflow", school_id=school.id)
     teacher._via_crud_mixin_create = True
     db_session.add(teacher)
-    
+
     # On crée deux créneaux : l'avant-dernier et le dernier de la journée
     # Ex: 17h00 et 17h30.
     ts1 = Timeslot(day_of_week=1, minutes_from_midnight=1020)
@@ -1408,6 +1409,19 @@ def test_course_day_overflow_conflict(db_session: Session):
     ts1._via_crud_mixin_create = True
     ts2._via_crud_mixin_create = True
     db_session.add_all([ts1, ts2])
+    db_session.commit()
+
+    # Le débordement de fin de journée (Course.validate_placement_conflicts) est désormais lu sur
+    # GridDaySettings (source d'autorité), pas re-dérivé du MAX des Timeslot déjà posés — sans
+    # cette ligne, aucune heure de fermeture n'est configurée pour ce jour et la vérification est
+    # silencieusement sautée.
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480
+    day_settings.hour_day_end_minutes_after_midnight = 1080  # 18h00 : dernier créneau (1050) + 30 min
     db_session.commit()
 
     # Création d'un cours d'une heure (60 minutes), donc 2 blocs de 30 minutes.

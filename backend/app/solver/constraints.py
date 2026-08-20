@@ -101,6 +101,30 @@ class PlanningTimeslot:
     noon_boundary_minutes: int
 
 
+# Fonctions nommées à arg scalaire/objet plutôt que propriétés sur PlanningTimeslot — même
+# précaution déjà en place dans room_constraints.py (_rooms_overlap, _pair_bounds...). Une
+# @property a d'abord été essayée ici : mesurablement plus lente à l'évaluation (franchissement
+# JPype d'un appel de méthode plutôt qu'un accès de champ), au point de faire échouer un test
+# solveur borné en temps (CH terminée prématurément, cours non placé).
+#
+# PIÈGE JPype confirmé en écrivant ce fichier (RuntimeError Java "X does not exist in global
+# scope") : ces fonctions sont sûres à appeler depuis un lambda SIMPLE passé à Timefold (voir
+# _share_reference_period plus bas, qui les appelle en cascade), y compris depuis une lambda de
+# 2 niveaux — mais PAS depuis l'intérieur d'une generator/set-comprehension elle-même passée à
+# Timefold (`any(_is_morning(ts) for ts in ...)`, `{... for ts in ... if _is_morning(ts)}`) :
+# jpyinterpreter échoue alors à résoudre le nom de la fonction à l'exécution. Dans ce cas précis,
+# revenir à la comparaison inline (`ts.minutes_from_midnight < ts.noon_boundary_minutes`) au lieu
+# d'appeler la fonction — voir teacher_max_worked_am/pm plus bas pour l'exemple.
+def _is_morning(ts: PlanningTimeslot) -> bool:
+    return ts.minutes_from_midnight < ts.noon_boundary_minutes
+
+
+def _half_day_index(ts: PlanningTimeslot) -> int:
+    """Index de demi-journée sur la semaine (0 = lundi matin, 1 = lundi après-midi, 2 = mardi
+    matin, ...) — utilisé par les contraintes CUSTOM_HALF_DAYS."""
+    return (ts.day_of_week - 1) * 2 + (0 if _is_morning(ts) else 1)
+
+
 @dataclass
 class PlanningClassPartLink:
     class_part_a_id: int
@@ -833,7 +857,7 @@ def teacher_max_hours_per_am(constraint_factory: ConstraintFactory) -> Constrain
     return (
         constraint_factory.for_each(PlanningTeacher)
         .join(PlanningCourse, Joiners.filtering(_course_has_teacher))
-        .filter(lambda teacher, course: course.timeslot is not None and course.timeslot.minutes_from_midnight < course.timeslot.noon_boundary_minutes)
+        .filter(lambda teacher, course: course.timeslot is not None and _is_morning(course.timeslot))
         .group_by(
             lambda teacher, course: teacher.id,
             lambda teacher, course: course.timeslot.day_of_week,
@@ -853,7 +877,7 @@ def teacher_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constrain
     return (
         constraint_factory.for_each(PlanningTeacher)
         .join(PlanningCourse, Joiners.filtering(_course_has_teacher))
-        .filter(lambda teacher, course: course.timeslot is not None and course.timeslot.minutes_from_midnight >= course.timeslot.noon_boundary_minutes)
+        .filter(lambda teacher, course: course.timeslot is not None and (not _is_morning(course.timeslot)))
         .group_by(
             lambda teacher, course: teacher.id,
             lambda teacher, course: course.timeslot.day_of_week,
@@ -1034,7 +1058,7 @@ def division_max_hours_per_am(constraint_factory: ConstraintFactory) -> Constrai
     return (
         constraint_factory.for_each(PlanningDivision)
         .join(PlanningCourse, Joiners.filtering(_course_has_division))
-        .filter(lambda division, course: course.timeslot is not None and course.timeslot.minutes_from_midnight < course.timeslot.noon_boundary_minutes)
+        .filter(lambda division, course: course.timeslot is not None and _is_morning(course.timeslot))
         .group_by(
             lambda division, course: division.id,
             lambda division, course: course.timeslot.day_of_week,
@@ -1054,7 +1078,7 @@ def division_max_hours_per_pm(constraint_factory: ConstraintFactory) -> Constrai
     return (
         constraint_factory.for_each(PlanningDivision)
         .join(PlanningCourse, Joiners.filtering(_course_has_division))
-        .filter(lambda division, course: course.timeslot is not None and course.timeslot.minutes_from_midnight >= course.timeslot.noon_boundary_minutes)
+        .filter(lambda division, course: course.timeslot is not None and (not _is_morning(course.timeslot)))
         .group_by(
             lambda division, course: division.id,
             lambda division, course: course.timeslot.day_of_week,
@@ -1092,7 +1116,7 @@ def division_max_pedagogic_weight_per_am(constraint_factory: ConstraintFactory) 
         constraint_factory.for_each(PlanningDivision)
         .filter(lambda division: division.max_pedagogic_weight_per_morning is not None)
         .join(PlanningCourse, Joiners.filtering(_course_has_division))
-        .filter(lambda division, course: course.timeslot is not None and course.timeslot.minutes_from_midnight < course.timeslot.noon_boundary_minutes)
+        .filter(lambda division, course: course.timeslot is not None and _is_morning(course.timeslot))
         .group_by(
             lambda division, course: division,
             lambda division, course: course.timeslot.day_of_week,
@@ -1108,7 +1132,7 @@ def division_max_pedagogic_weight_per_pm(constraint_factory: ConstraintFactory) 
         constraint_factory.for_each(PlanningDivision)
         .filter(lambda division: division.max_pedagogic_weight_per_afternoon is not None)
         .join(PlanningCourse, Joiners.filtering(_course_has_division))
-        .filter(lambda division, course: course.timeslot is not None and course.timeslot.minutes_from_midnight >= course.timeslot.noon_boundary_minutes)
+        .filter(lambda division, course: course.timeslot is not None and (not _is_morning(course.timeslot)))
         .group_by(
             lambda division, course: division,
             lambda division, course: course.timeslot.day_of_week,
@@ -1165,14 +1189,12 @@ def _share_reference_period(c1: PlanningCourse, c2: PlanningCourse, scope: str, 
     elif scope == "DAY":
         return c1.timeslot.day_of_week == c2.timeslot.day_of_week
     elif scope == "HALF_DAY":
-        c1_am = c1.timeslot.minutes_from_midnight < c1.timeslot.noon_boundary_minutes
-        c2_am = c2.timeslot.minutes_from_midnight < c2.timeslot.noon_boundary_minutes
+        c1_am = _is_morning(c1.timeslot)
+        c2_am = _is_morning(c2.timeslot)
         return c1.timeslot.day_of_week == c2.timeslot.day_of_week and c1_am == c2_am
     elif scope == "CUSTOM_HALF_DAYS":
         n = custom_half_days if custom_half_days is not None and custom_half_days > 0 else 1
-        c1_hd = (c1.timeslot.day_of_week - 1) * 2 + (0 if c1.timeslot.minutes_from_midnight < c1.timeslot.noon_boundary_minutes else 1)
-        c2_hd = (c2.timeslot.day_of_week - 1) * 2 + (0 if c2.timeslot.minutes_from_midnight < c2.timeslot.noon_boundary_minutes else 1)
-        return (c1_hd // n) == (c2_hd // n)
+        return (_half_day_index(c1.timeslot) // n) == (_half_day_index(c2.timeslot) // n)
     return False
 
 

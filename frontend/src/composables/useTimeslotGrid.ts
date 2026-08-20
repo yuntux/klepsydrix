@@ -13,14 +13,36 @@ export function getTimeslotHour(ts: { minutes_from_midnight: number }): number {
   return ts.minutes_from_midnight / 60;
 }
 
-// Recherche du timeslot correspondant à un jour/heure donné (tolérance flottante sur l'heure,
-// motif dupliqué à l'identique à plusieurs endroits avant cette factorisation).
+// Cache par référence de tableau (même technique que stores/data.ts::timeslotByTimeMap) : évite
+// de refaire un Array.find() à chaque appel sans imposer de contexte réactif à ce plain export.
+const _timeslotByTimeMapCache = new WeakMap<object, Map<string, unknown>>();
+
+function _timeslotTimeKey(day: number, hour: number): string {
+  return `${day}-${Math.round(hour * 100) / 100}`;
+}
+
+function _getOrBuildTimeslotByTimeMap<T extends { day_of_week: number; minutes_from_midnight: number }>(
+  timeslots: T[]
+): Map<string, T> {
+  let map = _timeslotByTimeMapCache.get(timeslots);
+  if (!map) {
+    map = new Map();
+    for (const t of timeslots) {
+      map.set(_timeslotTimeKey(t.day_of_week, getTimeslotHour(t)), t);
+    }
+    _timeslotByTimeMapCache.set(timeslots, map);
+  }
+  return map as Map<string, T>;
+}
+
+// Recherche du timeslot correspondant à un jour/heure donné — O(1) amorti (voir cache ci-dessus),
+// motif dupliqué à l'identique à plusieurs endroits avant cette factorisation.
 export function findTimeslotAt<T extends { day_of_week: number; minutes_from_midnight: number }>(
   timeslots: T[],
   day: number,
   hour: number
 ): T | undefined {
-  return timeslots.find(t => t.day_of_week === day && Math.abs(getTimeslotHour(t) - hour) < 0.001);
+  return _getOrBuildTimeslotByTimeMap(timeslots).get(_timeslotTimeKey(day, hour));
 }
 
 export function useTimeslotGrid(timeslotsRef?: Ref<any[]>) {
