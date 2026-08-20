@@ -7,6 +7,21 @@
     <div class="input-tags-wrapper" @click="focusInput">
       <div v-for="val in selectedOptions" :key="val.value" class="tag-badge" :class="{ 'tag-badge-highlight': isHighlighted(val.value) }">
         <span class="tag-label">{{ val.label }}</span>
+        <!-- Sélecteur de sous-mode par item (capacité optionnelle itemModeOptions, voir script) :
+             select natif plutôt qu'un dropdown maison — pas de positionnement Teleport/Floating UI
+             à gérer, comportement natif clavier/accessibilité gratuit. @click.stop seul (jamais
+             .prevent, qui empêcherait l'ouverture native du select) : suffit à ne pas remonter vers
+             input-tags-wrapper (@click="focusInput" ouvrirait le dropdown principal en plus). -->
+        <select
+          v-if="!disabled && itemModeOptions"
+          class="tag-mode-select"
+          :value="val.mode"
+          @click.stop
+          @mousedown.stop
+          @change="setItemMode(val.value, ($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="modeOpt in itemModeOptions" :key="modeOpt.value" :value="modeOpt.value">{{ modeOpt.label }}</option>
+        </select>
         <!-- mousedown.prevent (pas click) : voir SearchableSelect.vue, même piège avec le
              focusout de ligne de GenericList.vue qui flush avant que le clic ne s'exécute. -->
         <span v-if="!disabled" class="tag-remove" @mousedown.prevent.stop="removeOption(val.value)">×</span>
@@ -93,6 +108,12 @@ const props = defineProps<{
   // que préchargées en entier. `options`, si fourni, sert alors uniquement de repli pour garder
   // visibles les libellés des valeurs déjà sélectionnées sorties du filtre courant.
   dynamicSource?: { resource: string; filterQueryParam: string; filterValue: any };
+  // Capacité optionnelle : quand fournie, chaque tag sélectionné porte un petit select natif pour
+  // choisir un "sous-mode" propre à cet item (ex: wizard de composition de cours — une classe
+  // ciblée peut être "classe entière"/"dédoublement F-G"/"dédoublement Alpha"). Change la forme de
+  // `modelValue` de `id[]` à `{id, mode}[]` — voir currentEntries/emitEntries ci-dessous. Absente :
+  // comportement strictement inchangé (immense majorité des usages actuels de ce composant).
+  itemModeOptions?: { value: string; label: string }[];
 }>();
 
 const emit = defineEmits<{
@@ -130,12 +151,38 @@ const visibleOptions = computed(() => {
   }));
 });
 
-// Normaliser modelValue en tableau
-const currentValues = computed(() => {
+interface TaggedValue { id: any; mode: string }
+
+// Normalise modelValue en tableau {id, mode} interne, quelle que soit la forme reçue :
+// - itemModeOptions fourni : modelValue est {id, mode}[] (ou une valeur brute pour un item pas
+//   encore doté d'un mode explicite — repli sur la première option de mode).
+// - itemModeOptions absent (immense majorité des usages) : modelValue reste id[] comme toujours,
+//   mode vaut '' et n'est jamais lu/émis.
+const currentEntries = computed<TaggedValue[]>(() => {
   if (!props.modelValue) return [];
-  if (Array.isArray(props.modelValue)) return props.modelValue;
-  return [props.modelValue];
+  const raw = Array.isArray(props.modelValue) ? props.modelValue : [props.modelValue];
+  if (!props.itemModeOptions) return raw.map((v: any) => ({ id: v, mode: '' }));
+  const defaultMode = props.itemModeOptions[0]?.value ?? '';
+  return raw.map((v: any) => (v !== null && typeof v === 'object' && 'id' in v)
+    ? { id: v.id, mode: v.mode ?? defaultMode }
+    : { id: v, mode: defaultMode });
 });
+
+// Vue plate (juste les ids) pour tout ce qui n'a pas besoin du mode : isSelected, comparaisons,
+// fallback d'options — inchangé par rapport à l'ancien currentValues pour ces usages.
+const currentValues = computed(() => currentEntries.value.map(e => e.id));
+
+// Émission dans la forme attendue par l'appelant selon itemModeOptions — seul point d'écriture de
+// modelValue de tout le composant, pour ne jamais désynchroniser les deux formes possibles.
+function emitEntries(entries: TaggedValue[]) {
+  const value = props.itemModeOptions ? entries.map(e => ({ id: e.id, mode: e.mode })) : entries.map(e => e.id);
+  emit('update:modelValue', value);
+  emit('change', value);
+}
+
+function setItemMode(id: any, mode: string) {
+  emitEntries(currentEntries.value.map(e => (String(e.id) === String(id) ? { ...e, mode } : e)));
+}
 
 const dynamicOptions = ref<Option[]>([]);
 let dynamicDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -181,11 +228,15 @@ onMounted(() => {
 
 const activeOptions = computed(() => props.dynamicSource ? dynamicOptions.value : props.options);
 
-// Trouver les options sélectionnées
+// Trouver les options sélectionnées — porte aussi `mode` (chaîne vide si itemModeOptions absent),
+// lu par le select de sous-mode dans le template.
 const selectedOptions = computed(() => {
-  return currentValues.value
-    .map(val => activeOptions.value.find(opt => String(opt.value) === String(val)))
-    .filter((opt): opt is Option => !!opt);
+  return currentEntries.value
+    .map(entry => {
+      const opt = activeOptions.value.find(o => String(o.value) === String(entry.id));
+      return opt ? { ...opt, mode: entry.mode } : null;
+    })
+    .filter((opt): opt is Option & { mode: string } => !!opt);
 });
 
 // Vérifier si une option est sélectionnée
@@ -238,23 +289,20 @@ function closeDropdown() {
 }
 
 function toggleOption(option: Option) {
-  let newValues = [...currentValues.value];
-  const idx = newValues.findIndex(val => String(val) === String(option.value));
+  const entries = [...currentEntries.value];
+  const idx = entries.findIndex(e => String(e.id) === String(option.value));
   if (idx > -1) {
-    newValues.splice(idx, 1);
+    entries.splice(idx, 1);
   } else {
-    newValues.push(option.value);
+    entries.push({ id: option.value, mode: props.itemModeOptions?.[0]?.value ?? '' });
   }
-  emit('update:modelValue', newValues);
-  emit('change', newValues);
+  emitEntries(entries);
   searchQuery.value = ''; // Vider la recherche pour enchaîner
   focusInput();
 }
 
 function removeOption(value: any) {
-  const newValues = currentValues.value.filter(val => String(val) !== String(value));
-  emit('update:modelValue', newValues);
-  emit('change', newValues);
+  emitEntries(currentEntries.value.filter(e => String(e.id) !== String(value)));
 }
 
 function selectHighlighted() {
@@ -264,11 +312,10 @@ function selectHighlighted() {
 }
 
 function handleBackspace() {
-  if (!searchQuery.value && currentValues.value.length > 0) {
-    const newValues = [...currentValues.value];
-    newValues.pop();
-    emit('update:modelValue', newValues);
-    emit('change', newValues);
+  if (!searchQuery.value && currentEntries.value.length > 0) {
+    const entries = [...currentEntries.value];
+    entries.pop();
+    emitEntries(entries);
   }
 }
 
@@ -383,6 +430,18 @@ onUnmounted(() => {
   opacity: 0.7;
   font-weight: bold;
   transition: opacity 0.15s;
+}
+
+.tag-mode-select {
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--accent-primary);
+  background-color: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0 2px;
+  max-width: 120px;
+  cursor: pointer;
 }
 
 .tag-badge-highlight {

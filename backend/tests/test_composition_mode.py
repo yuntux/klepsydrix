@@ -87,6 +87,12 @@ def _set_setting(db, key, value):
     setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
     setting.update(db, {"value": value})
 
+def division_target(division_id, mode="CLASS_PART"):
+    """Une entrée de row['division_targets'] — voir CompositionModes.DIVISION_TARGET_MODES.
+    CLASS_PART par défaut : reproduit le comportement historique (avant division_targets), le plus
+    utilisé dans les tests existants ci-dessous."""
+    return {"id": division_id, "mode": mode}
+
 class TestCompositionModes:
     def test_mode_1_one_session_per_teacher(self, db_session):
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
@@ -265,7 +271,7 @@ class TestCompositionModes:
 
 
     def test_dynamic_part_class_creates_and_reuses_by_division_subject(self, db_session):
-        # Une ligne ciblant une division entière (division_ids) doit être résolue en une ClassPart
+        # Une ligne ciblant une division en mode CLASS_PART (division_targets) doit être résolue en une ClassPart
         # {division, matière de la ligne}, réutilisée si une composition ultérieure retombe sur la
         # même clé (ex: relance de "Générer l'aperçu").
         from backend.app.models.group import ClassPart
@@ -275,7 +281,7 @@ class TestCompositionModes:
         discipline_id = db_session.query(Subject).first().discipline_id
         other_subject = Subject.create(db_session, {"code": "SUBX", "code_nomenclature": "NX", "short_name": "SubX", "name": "Espagnol", "discipline_id": discipline_id})
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
         children_1 = CompositionModes.apply(db_session, parent, 1, mapping_1)
         assert len(children_1) == 1
         assert len(children_1[0].class_parts) == 1
@@ -288,7 +294,7 @@ class TestCompositionModes:
         parent_subject = db_session.get(Subject, subject_id)
         assert children_1[0].class_parts[0].partition.name == parent_subject.code
 
-        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
+        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id)], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
         children_2 = CompositionModes.apply(db_session, parent, 1, mapping_2)
         assert len(children_2) == 1
         assert children_2[0].class_parts[0].id == children_1[0].class_parts[0].id
@@ -307,14 +313,14 @@ class TestCompositionModes:
         _set_setting(db_session, "DIVISION_PART_NAME_NUMBER_FORMAT", "alphabetique")
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         children_1 = CompositionModes.apply(db_session, parent, 1, mapping_1)
         assert children_1[0].class_parts[0].name == "XA"
 
         from backend.app.models.subject import Subject
         discipline_id = db_session.query(Subject).first().discipline_id
         other_subject = Subject.create(db_session, {"code": "AUTREMAT", "code_nomenclature": "NY", "short_name": "AutreMat", "name": "Autre matière", "discipline_id": discipline_id})
-        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
+        mapping_2 = [{"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id)], "subject_id": other_subject.id, "classroom_requirement_ids": []}]
         children_2 = CompositionModes.apply(db_session, parent, 1, mapping_2)
         # Même préfixe "X" (codes désactivés) : 2e lettre de la séquence, malgré une matière différente.
         assert children_2[0].class_parts[0].name == "XB"
@@ -330,7 +336,7 @@ class TestCompositionModes:
 
         mapping_2div = [{
             "teacher_ids": [teachers[0].id],
-            "division_ids": [divisions[0].id, divisions[1].id],
+            "division_targets": [division_target(divisions[0].id), division_target(divisions[1].id)],
             "subject_id": parent.subject_id,
             "classroom_requirement_ids": [],
         }]
@@ -347,8 +353,8 @@ class TestCompositionModes:
         subjects = db_session.query(Subject).order_by(Subject.code).all()
 
         mapping_pole = [
-            {"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": subjects[0].id, "classroom_requirement_ids": []},
-            {"teacher_ids": [teachers[1].id], "division_ids": [divisions[0].id], "subject_id": subjects[1].id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": subjects[0].id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id)], "subject_id": subjects[1].id, "classroom_requirement_ids": []},
         ]
         children = CompositionModes.apply(db_session, parent, 1, mapping_pole)
         assert len(children) == 2
@@ -368,7 +374,7 @@ class TestCompositionModes:
 
         mapping_multi_division = [{
             "teacher_ids": [teachers[0].id],
-            "division_ids": [divisions[0].id, divisions[1].id],
+            "division_targets": [division_target(divisions[0].id), division_target(divisions[1].id)],
             "subject_id": parent.subject_id,
             "classroom_requirement_ids": [],
         }]
@@ -404,7 +410,7 @@ class TestCompositionModes:
         assert db_session.get(ClassPart, manual_cp.id) is not None
 
         # Auto-générée mais toujours utilisée par un cours réel : pas de suppression.
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         children = CompositionModes.apply(db_session, parent, 1, mapping_1)
         used_cp_id = children[0].class_parts[0].id
         cleanup_orphaned_class_part(db_session, used_cp_id)
@@ -414,7 +420,7 @@ class TestCompositionModes:
         from backend.app.models.group import ClassPart
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         children_1 = CompositionModes.apply(db_session, parent, 1, mapping_1)
         class_part_id = children_1[0].class_parts[0].id
 
@@ -435,7 +441,7 @@ class TestCompositionModes:
             db_session.query(ClassPart).count(), db_session.query(Partition).count(), db_session.query(Group).count()
         )
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         result = parent.rpc_preview_composition(db_session, 1, mapping_1)
         child_vals = result["children_vals"][0]
 
@@ -459,7 +465,7 @@ class TestCompositionModes:
         })
         assert simple_parent.is_composed is False
 
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         simple_parent.rpc_preview_composition(db_session, 1, mapping_1)
         result = simple_parent.rpc_cancel_composition(db_session)
 
@@ -469,7 +475,7 @@ class TestCompositionModes:
         # Idempotence : rouvrir "Générer l'aperçu" avec un mapping inchangé (ex: bouton "Précédent"
         # puis re-soumission) doit produire le même jeton virtuel, jamais un doublon.
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
-        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
 
         result_a = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_1])
         result_b = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_1])
@@ -486,7 +492,7 @@ class TestCompositionModes:
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_divisions=1)
         mapping_2div = [{
             "teacher_ids": [teachers[0].id],
-            "division_ids": [divisions[0].id, divisions[1].id],
+            "division_targets": [division_target(divisions[0].id), division_target(divisions[1].id)],
             "subject_id": parent.subject_id,
             "classroom_requirement_ids": [],
         }]
@@ -521,7 +527,7 @@ class TestCompositionModes:
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
         mapping_1div = [{
             "teacher_ids": [teachers[0].id],
-            "division_ids": [divisions[0].id],
+            "division_targets": [division_target(divisions[0].id)],
             "subject_id": parent.subject_id,
             "classroom_requirement_ids": [],
         }]
@@ -833,9 +839,13 @@ class TestDefaultCompositionMapping:
         by_teacher = {row["teacher_ids"][0]: row for row in rows}
         assert by_teacher[teachers[0].id]["subject_id"] == parent.subject_id
         assert by_teacher[teachers[1].id]["subject_id"] is None
+        # Par défaut (aucune répartition déjà validée), CHAQUE ligne cible la totalité des
+        # divisions du cours composé, en mode CLASS_PART — reproduit le comportement historique
+        # (une Partition/ClassPart par matière générée automatiquement pour chaque classe).
         for row in rows:
             assert row["group_ids"] == [] and row["class_part_ids"] == []
-            assert row["division_ids"] == [] and row["classroom_ids"] == []
+            assert row["division_targets"] == [division_target(d.id) for d in divisions]
+            assert row["classroom_ids"] == []
 
     def test_rows_have_unique_ids(self, db_session):
         # Régression : GenericList.vue suit chaque ligne éditable par item.id (Map d'édition en
@@ -850,6 +860,22 @@ class TestDefaultCompositionMapping:
         ids = [row["id"] for row in rows]
         assert all(isinstance(i, int) for i in ids)
         assert len(set(ids)) == len(ids), "chaque ligne doit avoir un id unique"
+
+    def test_all_course_divisions_targeted_as_class_part_by_default_on_every_row(self, db_session):
+        # Régression : sans répartition déjà validée, chaque ligne doit cibler TOUTES les
+        # divisions du cours composé (pas seulement la 1re), chacune en CLASS_PART.
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_divisions=1)
+
+        rows = parent.composition_mapping
+
+        expected = [division_target(d.id) for d in divisions]
+        assert len(divisions) == 2
+        for row in rows:
+            assert row["division_targets"] == expected
+        # Chaque ligne a sa PROPRE liste (pas une référence partagée) : muter l'une ne doit pas
+        # affecter les autres (voir CompositionModes.default_mapping, list(default_division_targets)).
+        rows[0]["division_targets"].append({"id": 999, "mode": "WHOLE_CLASS"})
+        assert rows[1]["division_targets"] == expected
 
     def test_empty_when_course_has_no_teacher(self, db_session):
         from backend.app.models.discipline import Discipline
@@ -886,3 +912,160 @@ class TestCompositionModeOption:
         from backend.app.models.composition_mode import CompositionModeOption
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
         assert CompositionModeOption.read(db_session, domain={"course_id": str(parent.id)}) == []
+
+
+class TestDivisionTargetModes:
+    """4 modes de row['division_targets'] : WHOLE_CLASS / CLASS_PART / HALF_GENDER / HALF_ALPHA
+    (voir CompositionModes.DIVISION_TARGET_MODES, composition_mode.py). CLASS_PART est déjà
+    couvert par les tests _dynamic_part_class_* ci-dessus (comportement historique inchangé) —
+    cette classe couvre les 3 autres modes, l'appariement de dédoublement, et les 2 niveaux de
+    règles de cohérence cross-lignes (backend, garde-fou final)."""
+
+    def test_whole_class_leaves_division_untouched_creates_no_partition(self, db_session):
+        from backend.app.models.group import ClassPart, Partition
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        cp_count = db_session.query(ClassPart).count()
+        partition_count = db_session.query(Partition).count()
+
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "WHOLE_CLASS")], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        children = CompositionModes.apply(db_session, parent, 1, mapping_1)
+
+        assert len(children) == 1
+        child = children[0]
+        assert [d.id for d in child.divisions] == [divisions[0].id]
+        assert list(child.class_parts) == []
+        assert list(child.groups) == []
+        assert db_session.query(ClassPart).count() == cp_count
+        assert db_session.query(Partition).count() == partition_count
+
+    def test_half_gender_preview_leaves_pending_tokens_then_materializes_two_distinct_parts(self, db_session):
+        from backend.app.models.group import Partition, PartitionSpecialType
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+
+        mapping_split = [
+            {"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "HALF_GENDER")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id, "HALF_GENDER")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+        ]
+        preview = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_split])
+        child_vals = preview["children_vals"]
+        assert len(child_vals) == 2
+        for v in child_vals:
+            assert v["class_part_ids"] == []
+            assert len(v["pending_class_parts"]) == 1
+            assert v["pending_class_parts"][0]["kind"] == "class_part_by_split"
+            assert v["pending_class_parts"][0]["special_type"] == "HALF_GENDER"
+        # Même jeton pour les 2 lignes (1 seule Partition à créer), positions distinctes 0/1.
+        assert {v["pending_class_parts"][0]["token"] for v in child_vals} == {child_vals[0]["pending_class_parts"][0]["token"]}
+        assert {v["pending_class_parts"][0]["position"] for v in child_vals} == {0, 1}
+        assert db_session.query(Partition).count() == 0
+
+        res = parent.rpc_save_composition(db_session, preview["children_vals"])
+        assert res["status"] == "ok"
+        partitions = db_session.query(Partition).filter(Partition.special_type == PartitionSpecialType.HALF_GENDER).all()
+        assert len(partitions) == 1
+        assert {cp.name for cp in partitions[0].class_parts} == {"Garçons", "Filles"}
+        # Position 0 (1re ligne du mapping) -> ClassPart trié en premier par nom ("Filles" < "Garçons").
+        child_by_teacher = {c.teachers[0].id: c for c in parent.children}
+        assert child_by_teacher[teachers[0].id].class_parts[0].name == "Filles"
+        assert child_by_teacher[teachers[1].id].class_parts[0].name == "Garçons"
+
+    def test_half_alpha_reuses_existing_partition_across_calls(self, db_session):
+        from backend.app.models.group import Partition, PartitionSpecialType, find_or_create_partition
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        existing = find_or_create_partition(db_session, divisions[0].id, "", special_type=PartitionSpecialType.HALF_ALPHA)
+        partition_id = existing.id
+
+        mapping_split = [
+            {"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "HALF_ALPHA")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id, "HALF_ALPHA")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+        ]
+        children = CompositionModes.apply(db_session, parent, 1, mapping_split)
+
+        assert len(children) == 2
+        assert db_session.query(Partition).filter(Partition.special_type == PartitionSpecialType.HALF_ALPHA).count() == 1
+        for child in children:
+            assert child.class_parts[0].partition_id == partition_id
+        assert {c.class_parts[0].name for c in children} == {"P1", "P2"}
+
+    def test_more_than_two_rows_targeting_same_division_in_split_mode_raises(self, db_session):
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_teachers=1)
+        mapping_split = [
+            {"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "HALF_GENDER")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id, "HALF_GENDER")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[2].id], "division_targets": [division_target(divisions[0].id, "HALF_GENDER")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+        ]
+        with pytest.raises(CompositionError, match="dédoublement ne peut concerner"):
+            CompositionModes.apply(db_session, parent, 1, mapping_split)
+
+    def test_coherence_whole_class_mixed_with_class_part_on_other_row_raises(self, db_session):
+        # Garde-fou final : l'IHM corrige déjà ceci en direct (ListPreviewField.vue::
+        # applyCrossRowRules) — ce test simule un payload qui l'aurait contourné.
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_mixed = [
+            {"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "WHOLE_CLASS")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id, "CLASS_PART")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+        ]
+        with pytest.raises(CompositionError, match="modes incompatibles"):
+            CompositionModes.apply(db_session, parent, 1, mapping_mixed)
+
+    def test_coherence_half_gender_mixed_with_half_alpha_on_other_row_raises(self, db_session):
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_mixed = [
+            {"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "HALF_GENDER")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+            {"teacher_ids": [teachers[1].id], "division_targets": [division_target(divisions[0].id, "HALF_ALPHA")], "subject_id": parent.subject_id, "classroom_requirement_ids": []},
+        ]
+        with pytest.raises(CompositionError, match="modes incompatibles"):
+            CompositionModes.apply(db_session, parent, 1, mapping_mixed)
+
+
+class TestCompositionConfigPersistence:
+    """Course.composition_config (JSON) : persisté par rpc_save_composition quand mapping/mode
+    sont fournis, relu par Course.composition_mapping/composition_mode pour pré-remplir le wizard
+    et permettre de "repréciser" le cours a posteriori (voir course.py)."""
+
+    def test_composition_mapping_falls_back_to_default_when_never_saved(self, db_session):
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        assert parent.composition_config is None
+        assert parent.composition_mode is None
+        rows = parent.composition_mapping
+        assert len(rows) == len(teachers)
+
+    def test_save_composition_without_mapping_and_mode_leaves_composition_config_untouched(self, db_session):
+        # Chemin legacy (appel direct sans mapping/mode, cf. test_rpc_save_composition_safe_update) :
+        # composition_config ne doit pas être créé à moitié.
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        children_vals = [{"subject_id": parent.subject_id, "duration_minutes": 30, "teacher_ids": [teachers[0].id]}]
+        res = parent.rpc_save_composition(db_session, children_vals)
+        assert res["status"] == "ok"
+        assert parent.composition_config is None
+        assert parent.composition_mode is None
+
+    def test_save_composition_persists_mapping_and_mode_for_reprecising_the_course(self, db_session):
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id)], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        preview = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_1])
+
+        res = parent.rpc_save_composition(db_session, preview["children_vals"], mapping=mapping_1, mode=1)
+
+        assert res["status"] == "ok"
+        assert parent.composition_mode == 1
+        persisted_rows = parent.composition_mapping
+        assert len(persisted_rows) == 1
+        assert persisted_rows[0]["division_targets"] == [division_target(divisions[0].id)]
+        assert persisted_rows[0]["teacher_ids"] == [teachers[0].id]
+
+    def test_composition_mapping_persisted_can_be_reused_to_reprecise_the_course(self, db_session):
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_targets": [division_target(divisions[0].id, "WHOLE_CLASS")], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        preview = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_1])
+        parent.rpc_save_composition(db_session, preview["children_vals"], mapping=mapping_1, mode=1)
+
+        reopened_mapping = parent.composition_mapping
+        reopened_mode = parent.composition_mode
+        assert reopened_mapping == mapping_1
+        assert reopened_mode == 1
+
+        # Le mapping relu doit être directement réutilisable pour une nouvelle décomposition
+        # ("repréciser le cours") sans passer par CompositionModes.default_mapping.
+        new_preview = parent.rpc_preview_composition(db_session, reopened_mode, [dict(row) for row in reopened_mapping])
+        assert len(new_preview["children_vals"]) == 1

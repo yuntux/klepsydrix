@@ -2001,6 +2001,18 @@ async function refreshActiveGenericPanelIfMatches(resource: string) {
   if (activeTab.value !== 'admin') return;
   if (resource === activeAdminModel.value) {
     await queryClient.invalidateQueries({ queryKey: ['genericList', resource] });
+    // Le formulaire ouvert (formModel) est un INSTANTANÉ pris à la sélection (onSelectionChangeGeneric/
+    // onEditGeneric), jamais lui-même relié à la query — une mutation hors du cycle submit/update
+    // habituel (ex: le wizard "Décomposer le cours", dont chaque étape écrit directement en base via
+    // RPC, voir GenericWizard.vue) ne le rafraîchit donc pas tout seul : sans ça, le champ "Cours
+    // enfants" et le mapping pré-rempli à la réouverture du wizard resteraient périmés jusqu'au
+    // prochain changement de sélection. genericItems.value est déjà à jour à cet instant (watch
+    // flush:'sync' sur genericListQuery.data, voir plus haut) : on y relit la copie fraîche plutôt que
+    // de refaire un appel réseau dédié.
+    if (formModel.value?.id != null) {
+      const fresh = genericItems.value.find((x: any) => x.id === formModel.value.id);
+      if (fresh) formModel.value = { ...fresh };
+    }
     await loadDetailListItems();
     return;
   }

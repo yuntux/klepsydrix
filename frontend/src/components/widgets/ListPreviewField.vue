@@ -107,7 +107,14 @@ const fields = computed(() => columns.value);
 
 const listConfig = computed(() => ({
   ...(props.widgetParams?.listConfig || {}),
-  // Seule exception au passe-plat : le contrat générique `disabled` de tout widget de champ,
+  // Ces lignes ne sont jamais un vrai PATCH réseau (voir le commentaire d'en-tête, "aucun appel
+  // réseau") : rien ne justifie ici le blur-jusqu'à-la-ligne de GenericList.vue (pensé pour batcher
+  // plusieurs cellules en UN SEUL PATCH sur une vraie ressource) — au contraire, il retarde
+  // silencieusement applyCrossRowRules ci-dessous jusqu'à ce que l'utilisateur clique en dehors de
+  // la ligne éditée. Toujours forcé à true, jamais un passe-plat de widgetParams.listConfig (aucune
+  // raison de le désactiver pour CE widget).
+  immediateInlineUpdate: true,
+  // Seule autre exception au passe-plat : le contrat générique `disabled` de tout widget de champ,
   // sans rapport avec la configuration propre à cette ressource — une vue désactivée ne doit
   // jamais autoriser d'interaction, quel que soit ce que widgetParams.listConfig déclare par
   // ailleurs.
@@ -169,9 +176,53 @@ function applyPrefills(previous: any, updated: any): any {
   return result;
 }
 
+// Correction croisée entre lignes (voir course.py::widgetParams.crossRowExclusiveColumn, ex.
+// composition_mapping::division_targets) — seul mécanisme de ce genre dans tout GenericList/
+// GenericListRow (architecture volontairement mono-ligne ailleurs, voir readOnlyExpr/parentRecord
+// scopés à UNE ligne) : `onUpdateItem` est le seul point qui a déjà `rows.value` complet en main
+// juste avant son unique émission. Reste générique (pas de nom de mode/domaine codé en dur) :
+// - un même `id` dans la colonne désignée ne peut porter qu'UN SEUL mode à travers tout le
+//   tableau — la ligne qu'on vient d'éditer fait foi, ses entrées remplacent silencieusement toute
+//   entrée contradictoire (mode différent) du même id sur les autres lignes ;
+// - `crossRowMaxRowsByMode` plafonne en plus le nombre de lignes portant un `id` donné pour les
+//   modes qui y figurent (au-delà, les lignes les plus anciennes perdent cette entrée) — la ligne
+//   éditée n'est jamais celle qu'on retire.
+function applyCrossRowRules(enriched: any, allRows: any[]): any[] {
+  const columnKey = props.widgetParams?.crossRowExclusiveColumn;
+  let rows2 = allRows.map((r) => (r.id === enriched.id ? enriched : r));
+  if (!columnKey) return rows2;
+
+  const maxRowsByMode: Record<string, number> = props.widgetParams?.crossRowMaxRowsByMode || {};
+  const entries: { id: any; mode: string }[] = enriched[columnKey] || [];
+
+  for (const entry of entries) {
+    // Un seul mode par id à travers tout le tableau : retire toute entrée contradictoire ailleurs.
+    rows2 = rows2.map((r) => {
+      if (r.id === enriched.id) return r;
+      const col = r[columnKey];
+      if (!Array.isArray(col)) return r;
+      const filtered = col.filter((e: any) => !(String(e.id) === String(entry.id) && e.mode !== entry.mode));
+      return filtered.length === col.length ? r : { ...r, [columnKey]: filtered };
+    });
+
+    // Plafond de lignes pour ce mode (dédoublement : 2 max) — la ligne éditée n'est jamais retirée,
+    // les lignes en trop les plus anciennes (ordre du tableau) perdent l'entrée.
+    const maxRows = maxRowsByMode[entry.mode];
+    if (!maxRows) continue;
+    const rowsWithEntry = rows2.filter((r) => (r[columnKey] || []).some((e: any) => String(e.id) === String(entry.id) && e.mode === entry.mode));
+    const overflow = rowsWithEntry.filter((r) => r.id !== enriched.id).slice(maxRows - 1);
+    if (!overflow.length) continue;
+    const overflowIds = new Set(overflow.map((r) => r.id));
+    rows2 = rows2.map((r) => (overflowIds.has(r.id)
+      ? { ...r, [columnKey]: (r[columnKey] || []).filter((e: any) => !(String(e.id) === String(entry.id) && e.mode === entry.mode)) }
+      : r));
+  }
+  return rows2;
+}
+
 function onUpdateItem(updated: any) {
   const previous = rows.value.find((r) => r.id === updated.id);
   const enriched = applyPrefills(previous, updated);
-  emit('update:modelValue', rows.value.map((r) => (r.id === enriched.id ? enriched : r)));
+  emit('update:modelValue', applyCrossRowRules(enriched, rows.value));
 }
 </script>

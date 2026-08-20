@@ -453,6 +453,16 @@ interface ListConfig {
   // dans la barre de pagination, à droite du badge de sélection — true par défaut.
   showGroupByWidget?: boolean;
   columns?: Record<string, ColumnConfig>;
+  // Émet `update-item` dès updateInline (chaque changement de cellule), au lieu d'attendre que le
+  // focus quitte toute la ligne (voir onRowFocusOut) — défaut false, comportement de tout panneau
+  // CRUD classique inchangé (le blur-jusqu'à-la-ligne bat plusieurs éditions de cellules en UN
+  // seul PATCH). N'a de sens que pour un panneau sans coût réseau par émission, typiquement
+  // list_preview (ListPreviewField.vue, lignes transitoires en mémoire, jamais un vrai PATCH) —
+  // seul consommateur à ce jour : sans lui, la correction croisée entre lignes
+  // (ListPreviewField.vue::applyCrossRowRules) n'apparaît qu'au clic en dehors de la ligne éditée,
+  // pas au moment même du choix (bug constaté sur le picker de sous-mode par tag, voir
+  // SearchableMultiSelect.vue::itemModeOptions).
+  immediateInlineUpdate?: boolean;
 }
 
 // Granularités de troncature disponibles pour regrouper par un champ "date" (suffixe
@@ -826,10 +836,24 @@ function rowSource(item: any): any {
   return pendingUpdates.get(item.id) || item;
 }
 
+function flushPendingUpdate(itemId: any) {
+  if (pendingUpdates.has(itemId)) {
+    emit('update-item', pendingUpdates.get(itemId));
+    pendingUpdates.delete(itemId);
+  }
+}
+
 function updateInline(item: any, key: string, value: any) {
   const current = rowSource(item);
   if (current[key] === value) return;
   pendingUpdates.set(item.id, { ...current, [key]: value });
+  // Voir ListConfig.immediateInlineUpdate : pas de blur à attendre pour un panneau sans coût
+  // réseau par émission (list_preview) — le brouillon est de toute façon flushé immédiatement,
+  // le passage par pendingUpdates ci-dessus ne sert alors qu'à fusionner plusieurs clés modifiées
+  // dans le même tick (rowSource ci-dessus).
+  if (props.listConfig?.immediateInlineUpdate) {
+    flushPendingUpdate(item.id);
+  }
 }
 
 function onRowFocusOut(item: any, event: FocusEvent) {
@@ -838,10 +862,7 @@ function onRowFocusOut(item: any, event: FocusEvent) {
     return; // Focus is still inside the same row
   }
 
-  if (pendingUpdates.has(item.id)) {
-    emit('update-item', pendingUpdates.get(item.id));
-    pendingUpdates.delete(item.id);
-  }
+  flushPendingUpdate(item.id);
 }
 
 // Palette unifiée de 30 couleurs premium

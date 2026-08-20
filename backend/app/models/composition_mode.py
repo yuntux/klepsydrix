@@ -25,13 +25,36 @@ class CompositionModes:
         duration = int(val)
         return (course.duration_minutes // 2) // duration
 
+    #: Modes de ciblage d'une division au sein de `row['division_targets']` — voir
+    #: _resolve_dynamic_part_class. "CLASS_PART" reproduit le seul comportement qui existait avant
+    #: l'introduction de ce champ (une Partition partagée par division, une ClassPart par matière) ;
+    #: "WHOLE_CLASS"/"HALF_GENDER"/"HALF_ALPHA" sont les nouveaux modes.
+    DIVISION_TARGET_MODES = ("WHOLE_CLASS", "CLASS_PART", "HALF_GENDER", "HALF_ALPHA")
+    #: Sous-ensemble des modes ci-dessus qui se résolvent via find_partition/find_or_create_partition
+    #: special_type=... (dédoublement à 2 ClassPart fixes) plutôt que la stratégie subject_ids.
+    _SPECIAL_TYPE_BY_SPLIT_MODE = {"HALF_GENDER": "HALF_GENDER", "HALF_ALPHA": "HALF_ALPHA"}
+
     @staticmethod
     def _partition_token(division_id: int, subject_ids) -> str:
         """Jeton virtuel déterministe identifiant "la Partition de cette division couvrant
         exactement cet ensemble de matières" avant qu'elle n'existe réellement — même division +
         même ensemble de matières (peu importe l'ordre) produit toujours le même jeton, pour que
-        régénérer l'aperçu avec un mapping inchangé ne duplique rien."""
+        régénérer l'aperçu avec un mapping inchangé ne duplique rien. Sert au mode CLASS_PART."""
         return f"classpart:{division_id}:{'-'.join(str(s) for s in sorted(subject_ids))}"
+
+    @staticmethod
+    def _split_token(division_id: int, mode: str) -> str:
+        """Jeton virtuel déterministe pour la Partition de dédoublement (HALF_GENDER/HALF_ALPHA)
+        d'une division — au plus une par (division, mode), voir _resolve_dynamic_part_class."""
+        return f"split:{division_id}:{mode}"
+
+    @staticmethod
+    def _pending_split_label(db: Session, division_id: int, mode: str) -> str:
+        from backend.app.models.division import Division
+        division = db.get(Division, division_id)
+        div_label = division.name if division else str(division_id)
+        mode_label = "Filles/Garçons" if mode == "HALF_GENDER" else "Alphabétique"
+        return f"Dédoublement {mode_label} à créer : {div_label}"
 
     @staticmethod
     def _group_token(real_class_part_ids, pending_class_part_tokens) -> str:
@@ -118,44 +141,51 @@ class CompositionModes:
     @staticmethod
     def _resolve_dynamic_part_class(db: Session, course: Course, mapping: list[dict], materialize: bool):
         """
-        Convertit les lignes de répartition ciblant une classe entière (division_ids) en parties
-        de classe (class_part_ids) : une Partition par division est trouvée (et, si materialize,
-        créée) pour couvrir toutes les matières composées sur cette division lors de cet appel,
-        puis chaque ligne y retrouve la ClassPart de sa propre matière.
+        Résout chaque entrée de `row['division_targets']` (`[{id, mode}]` — `id` et non
+        `division_id`, pour rester la même forme générique `{id, mode}` que produit la capacité
+        itemModeOptions de SearchableMultiSelect.vue, sans transformation entre front et back ; mode
+        parmi DIVISION_TARGET_MODES) selon son mode :
 
-        materialize=False (aperçu du wizard) : AUCUNE écriture en base. Toute Partition/ClassPart
-        qui n'existe pas encore reçoit un jeton virtuel déterministe dans row['pending_class_parts']
-        plutôt qu'un id réel — résolu pour de vrai uniquement à la sauvegarde (voir
-        rpc_save_composition -> CompositionModes.materialize_pending_resources). materialize=True
-        (compose_by_mode legacy, jamais appelé depuis le wizard) : comportement historique inchangé.
+        - WHOLE_CLASS : rien à résoudre — la division reste directement sur `division_ids` de
+          l'enfant, ni Partition ni ClassPart créée. Seul mode qui ne produit jamais de
+          class_part_ids/pending_class_parts.
+        - CLASS_PART : comportement HISTORIQUE inchangé (seul mode qui existait avant
+          l'introduction de `division_targets`) — une Partition par division, couvrant AU MOINS
+          toutes les matières nécessaires à cet appel (voir find_or_create_partition), une
+          ClassPart par matière, réutilisée entre lignes de matières différentes ciblant la même
+          division. La clé de recherche/création est la matière PROPRE À LA LIGNE
+          (row['subject_id']), jamais la matière "chapeau" du cours complexe (course.subject_id) —
+          celle-ci ne sert qu'à nommer la Partition, cf. _compute_partition_label.
+        - HALF_GENDER/HALF_ALPHA : dédoublement via find_partition/find_or_create_partition
+          special_type=... (2 ClassPart fixes, "Garçons"/"Filles" ou "P1"/"P2"). Auto-appariement :
+          toutes les lignes du mapping ciblant la même (division_id, mode) — au plus 2, imposé par
+          les règles de cohérence de l'IHM et revalidé ici — se partagent l'unique Partition,
+          chaque ligne reçoit un ClassPart distinct par ordre déterministe (rang de la ligne dans
+          `mapping` parmi celles du groupe, ClassPart trié par nom).
 
-        Attention : la clé de recherche/création est la matière PROPRE À LA LIGNE de répartition
-        (row['subject_id']), jamais la matière "chapeau" du cours complexe (course.subject_id) —
-        celle-ci ne sert qu'à nommer la Partition, cf. _compute_partition_label.
+        materialize=False (aperçu du wizard) : AUCUNE écriture en base pour CLASS_PART/dédoublement
+        — jeton virtuel déterministe dans row['pending_class_parts'] à la place d'un id réel,
+        résolu pour de vrai uniquement à la sauvegarde (rpc_save_composition ->
+        CompositionModes.materialize_pending_resources). materialize=True (compose_by_mode legacy,
+        jamais appelé depuis le wizard) : comportement historique inchangé.
         """
-        from backend.app.models.group import find_partition, find_or_create_partition
+        from backend.app.models.group import find_partition, find_or_create_partition, PartitionSpecialType
 
+        # --- CLASS_PART : regroupement par division, identique au comportement historique ---
         subjects_by_division: dict[int, set] = {}
         for row in mapping:
-            if not row.get('division_ids'):
-                continue
-            if not row.get('subject_id'):
-                raise CompositionError("Impossible de générer les parties de classe : une ligne de répartition ciblant une classe entière n'a pas de matière renseignée.")
-            for division_id in row['division_ids']:
-                subjects_by_division.setdefault(division_id, set()).add(row.get('subject_id'))
+            for target in row.get('division_targets', []):
+                if target.get('mode') != 'CLASS_PART':
+                    continue
+                if not row.get('subject_id'):
+                    raise CompositionError("Impossible de générer les parties de classe : une ligne de répartition ciblant une classe entière en mode Partie de classe n'a pas de matière renseignée.")
+                subjects_by_division.setdefault(target['id'], set()).add(row.get('subject_id'))
 
-        if not subjects_by_division:
-            return
-
-        # Une Partition par division, couvrant AU MOINS toutes les matières nécessaires à cet
-        # appel (voir find_or_create_partition) — résolue une seule fois par division, réutilisée
-        # pour chaque ligne de mapping ciblant cette division. En aperçu (materialize=False),
-        # aucune écriture : une division sans Partition existante correspondante reçoit un jeton.
-        partitions_by_division: dict[int, "Partition"] = {}
-        pending_by_division: dict[int, tuple] = {}
+        class_part_partitions_by_division: dict[int, "Partition"] = {}
+        class_part_pending_by_division: dict[int, tuple] = {}
         for division_id, subject_ids in subjects_by_division.items():
             if materialize:
-                partitions_by_division[division_id] = find_or_create_partition(
+                class_part_partitions_by_division[division_id] = find_or_create_partition(
                     db, division_id,
                     CompositionModes._compute_partition_label(db, course, subject_ids),
                     subject_ids=list(subject_ids),
@@ -163,43 +193,106 @@ class CompositionModes:
             else:
                 existing = find_partition(db, division_id, subject_ids=list(subject_ids))
                 if existing:
-                    partitions_by_division[division_id] = existing
+                    class_part_partitions_by_division[division_id] = existing
                 else:
-                    pending_by_division[division_id] = (
+                    class_part_pending_by_division[division_id] = (
                         CompositionModes._partition_token(division_id, subject_ids),
                         sorted(subject_ids),
                     )
 
-        for row in mapping:
-            if not row.get('division_ids'):
+        # --- HALF_GENDER/HALF_ALPHA : appariement par (division, mode), au plus 2 lignes ---
+        split_row_indices: dict[tuple, list[int]] = {}
+        for row_index, row in enumerate(mapping):
+            for target in row.get('division_targets', []):
+                mode = target.get('mode')
+                if mode in CompositionModes._SPECIAL_TYPE_BY_SPLIT_MODE:
+                    split_row_indices.setdefault((target['id'], mode), []).append(row_index)
+
+        for (division_id, mode), row_indices in split_row_indices.items():
+            if len(row_indices) > 2:
+                raise CompositionError(f"Le dédoublement ne peut concerner que 2 lignes de répartition au maximum pour une même classe (division {division_id}, mode {mode}).")
+
+        split_partitions: dict[tuple, "Partition"] = {}
+        split_pending_token: dict[tuple, str] = {}
+        for key in split_row_indices:
+            division_id, mode = key
+            # PartitionSpecialType(mode) : find_partition/find_or_create_partition attendent le vrai
+            # membre d'enum, pas la chaîne brute qui identifie le mode dans row['division_targets']
+            # (même si PartitionSpecialType(str, Enum) les rend égaux en Python, la comparaison SQL
+            # via la colonne Enum de Partition.special_type doit recevoir le type exact).
+            special_type = PartitionSpecialType(mode)
+            if materialize:
+                split_partitions[key] = find_or_create_partition(db, division_id, "", special_type=special_type)
+            else:
+                existing = find_partition(db, division_id, special_type=special_type)
+                if existing:
+                    split_partitions[key] = existing
+                else:
+                    split_pending_token[key] = CompositionModes._split_token(division_id, mode)
+
+        # --- Application par ligne ---
+        for row_index, row in enumerate(mapping):
+            division_targets = row.get('division_targets')
+            if not division_targets:
                 continue
 
-            subject_id = row.get('subject_id')
-            class_part_ids = []
+            class_part_ids = list(row.get('class_part_ids', []))
+            division_ids = list(row.get('division_ids', []))
             pending_class_parts = list(row.get('pending_class_parts', []))
-            for division_id in row['division_ids']:
-                if division_id in partitions_by_division:
-                    partition = partitions_by_division[division_id]
-                    resolved_class_part = next(cp for cp in partition.class_parts if cp.subject_id == subject_id)
 
-                    # Le cours parent doit lister cette ClassPart pour que ses enfants (qui la
-                    # référencent) passent validate_child_constraints (miroir de _resolve_dynamic_groups).
-                    if materialize and resolved_class_part not in course.class_parts:
-                        course.update(db, {"class_part_ids": [cp.id for cp in course.class_parts] + [resolved_class_part.id]})
+            for target in division_targets:
+                division_id, mode = target['id'], target.get('mode')
 
-                    class_part_ids.append(resolved_class_part.id)
+                if mode == 'WHOLE_CLASS':
+                    division_ids.append(division_id)
+
+                elif mode == 'CLASS_PART':
+                    subject_id = row.get('subject_id')
+                    if division_id in class_part_partitions_by_division:
+                        partition = class_part_partitions_by_division[division_id]
+                        resolved = next(cp for cp in partition.class_parts if cp.subject_id == subject_id)
+                        # Le cours parent doit lister cette ClassPart pour que ses enfants (qui la
+                        # référencent) passent validate_child_constraints (miroir de _resolve_dynamic_groups).
+                        if materialize and resolved not in course.class_parts:
+                            course.update(db, {"class_part_ids": [cp.id for cp in course.class_parts] + [resolved.id]})
+                        class_part_ids.append(resolved.id)
+                    else:
+                        token, partition_subject_ids = class_part_pending_by_division[division_id]
+                        pending_class_parts.append({
+                            "kind": "class_part_by_subject",
+                            "token": token,
+                            "division_id": division_id,
+                            "subject_id": subject_id,
+                            "partition_subject_ids": partition_subject_ids,
+                            "label": CompositionModes._pending_class_part_label(db, division_id, subject_id),
+                        })
+
+                elif mode in CompositionModes._SPECIAL_TYPE_BY_SPLIT_MODE:
+                    key = (division_id, mode)
+                    position = split_row_indices[key].index(row_index)  # 0 ou 1, déterministe
+                    if key in split_partitions:
+                        partition = split_partitions[key]
+                        ordered = sorted(partition.class_parts, key=lambda cp: cp.name)
+                        resolved = ordered[position]
+                        if materialize and resolved not in course.class_parts:
+                            course.update(db, {"class_part_ids": [cp.id for cp in course.class_parts] + [resolved.id]})
+                        class_part_ids.append(resolved.id)
+                    else:
+                        pending_class_parts.append({
+                            "kind": "class_part_by_split",
+                            "token": split_pending_token[key],
+                            "division_id": division_id,
+                            "special_type": mode,
+                            "position": position,
+                            "label": CompositionModes._pending_split_label(db, division_id, mode),
+                        })
+
                 else:
-                    token, partition_subject_ids = pending_by_division[division_id]
-                    pending_class_parts.append({
-                        "token": token,
-                        "division_id": division_id,
-                        "subject_id": subject_id,
-                        "partition_subject_ids": partition_subject_ids,
-                        "label": CompositionModes._pending_class_part_label(db, division_id, subject_id),
-                    })
+                    raise CompositionError(f"Mode de ciblage de division inconnu : {mode!r} (attendu parmi {CompositionModes.DIVISION_TARGET_MODES}).")
 
             row['class_part_ids'] = class_part_ids
-            row['division_ids'] = []
+            row['division_ids'] = division_ids
+            row.pop('division_targets', None)
             if pending_class_parts:
                 row['pending_class_parts'] = pending_class_parts
 
@@ -212,9 +305,9 @@ class CompositionModes:
         valid_mapping = [
             row for row in (mapping or [])
             if row.get('teacher_ids') and (
-                row.get('group_ids') or 
-                row.get('class_part_ids') or 
-                row.get('division_ids')
+                row.get('group_ids') or
+                row.get('class_part_ids') or
+                row.get('division_targets')
             )
         ]
         n = len(valid_mapping)
@@ -249,6 +342,12 @@ class CompositionModes:
         cours, matière pré-remplie depuis sa matière préférée — exposé par Course.composition_mapping
         (course.py), repris tel quel par GenericWizard.vue via draft = {...props.model}.
 
+        `division_targets` : par défaut (aucune répartition déjà validée, seul cas où ce bootstrap
+        est utilisé — voir Course.composition_mapping), CHAQUE ligne cible la totalité des divisions
+        du cours composé, en mode CLASS_PART — reproduit le comportement historique d'avant
+        l'introduction de division_targets (une Partition/ClassPart par matière générée
+        automatiquement pour chaque classe), pour ne rien changer par défaut à l'existant.
+
         `id` : identifiant purement local à ce widget (jamais un id réel de quoi que ce soit, jamais
         relu par le backend — _build_base_vals/apply() n'y touchent pas) mais OBLIGATOIRE : GenericList.
         vue suit chaque ligne éditable par `item.id` (`:key`, Map d'édition en attente `pendingUpdates`
@@ -256,15 +355,43 @@ class CompositionModes:
         et une édition sur une ligne se répercute sur toutes les autres. ListPreviewField.vue poursuit
         cette même numérotation pour toute ligne ajoutée ensuite via "+ Ajouter une ligne".
         """
+        default_division_targets = [{"id": d.id, "mode": "CLASS_PART"} for d in course.divisions]
         return [
             {
                 "id": index + 1,
                 "teacher_ids": [teacher.id],
                 "subject_id": teacher.preferred_subject_id,
-                "group_ids": [], "class_part_ids": [], "division_ids": [], "classroom_ids": [],
+                "group_ids": [], "class_part_ids": [], "division_targets": list(default_division_targets), "classroom_ids": [],
             }
             for index, teacher in enumerate(course.teachers)
         ]
+
+    @staticmethod
+    def _validate_division_target_coherence(mapping: list[dict]):
+        """
+        Garde-fou final avant génération (l'IHM corrige déjà ceci en direct, voir
+        ListPreviewField.vue::applyCrossRowRules — ceci ne se déclenche que si elle a été
+        contournée : payload manuel, bug frontend, etc.) : une même division ne peut être ciblée
+        qu'avec UN SEUL mode à travers tout le mapping. WHOLE_CLASS exclut toute autre présence de
+        cette division ; CLASS_PART peut apparaître sur autant de lignes que nécessaire (chacune sa
+        propre matière, c'est même l'usage normal) mais jamais mélangé à un autre mode ; un
+        dédoublement (HALF_GENDER/HALF_ALPHA) ne peut pas non plus être mélangé à un autre mode
+        pour la même division — la limite à 2 lignes, elle, est vérifiée séparément dans
+        _resolve_dynamic_part_class, au moment de l'appariement réel.
+        """
+        modes_by_division: dict[int, set] = {}
+        for row in mapping:
+            for target in row.get('division_targets') or []:
+                modes_by_division.setdefault(target['id'], set()).add(target.get('mode'))
+
+        for division_id, modes in modes_by_division.items():
+            if len(modes) > 1:
+                raise CompositionError(
+                    f"La classe (division {division_id}) est ciblée avec des modes incompatibles entre "
+                    f"plusieurs lignes de répartition ({sorted(modes)}) — une classe entière est "
+                    f"exclusive, un dédoublement ne peut pas être mélangé à un autre mode ; seule une "
+                    f"partie de classe peut apparaître sur plusieurs lignes."
+                )
 
     @staticmethod
     def apply(db: Session, course: Course, mode: int, mapping: list[dict] = None, preview: bool = False) -> list:
@@ -281,24 +408,30 @@ class CompositionModes:
         seen_teachers = set()
         for row in mapping:
             has_teacher = bool(row.get('teacher_ids'))
-            has_target = bool(row.get('group_ids') or row.get('class_part_ids') or row.get('division_ids'))
+            has_target = bool(row.get('group_ids') or row.get('class_part_ids') or row.get('division_targets'))
 
             if not has_teacher or not has_target:
-                raise CompositionError("Chaque ligne de répartition doit obligatoirement inclure au moins un professeur ET au moins un ensemble d'élèves (groupe, partie de classe ou classe entière).")
+                raise CompositionError("Chaque ligne de répartition doit obligatoirement inclure au moins un professeur ET au moins un ensemble d'élèves (groupe, partie de classe ou classe).")
 
             if not row.get('subject_id'):
                 raise CompositionError("Chaque ligne de répartition doit obligatoirement indiquer une matière.")
 
+            for target in row.get('division_targets') or []:
+                if target.get('mode') not in CompositionModes.DIVISION_TARGET_MODES:
+                    raise CompositionError(f"Mode de ciblage de division inconnu : {target.get('mode')!r} (attendu parmi {CompositionModes.DIVISION_TARGET_MODES}).")
+
             # Vérification de l'exclusion mutuelle des cibles
-            targets = [bool(row.get('group_ids')), bool(row.get('class_part_ids')), bool(row.get('division_ids'))]
+            targets = [bool(row.get('group_ids')), bool(row.get('class_part_ids')), bool(row.get('division_targets'))]
             if sum(targets) > 1:
-                raise CompositionError("Un groupe, une partie de classe et une classe ne peuvent pas être affectés simultanément sur la même ligne de répartition.")
+                raise CompositionError("Un groupe, une partie de classe (champ direct) et une ou plusieurs classes ne peuvent pas être affectés simultanément sur la même ligne de répartition.")
                 
             # Vérification de l'unicité des profs par ligne
             for teacher_id in (row.get('teacher_ids') or []):
                 if teacher_id in seen_teachers:
                     raise CompositionError(f"Le professeur (ID: {teacher_id}) ne peut pas être affecté sur plusieurs lignes de répartition différentes.")
                 seen_teachers.add(teacher_id)
+
+        CompositionModes._validate_division_target_coherence(mapping)
 
         available_modes = CompositionModes.get_available_modes(db, course, mapping)
         if mode not in available_modes:
@@ -360,20 +493,34 @@ class CompositionModes:
         directement : Course._cascade_resources_to_parent s'en charge automatiquement dès que
         Course.create() est appelé juste après pour chaque enfant (voir architecture.md).
         """
-        from backend.app.models.group import find_or_create_partition, find_or_create_group
+        from backend.app.models.group import find_or_create_partition, find_or_create_group, PartitionSpecialType
 
+        # Deux natures de jeton en attente (voir _resolve_dynamic_part_class) : CLASS_PART (une
+        # Partition par matières, comportement historique) et dédoublement HALF_GENDER/HALF_ALPHA
+        # (une Partition special_type à 2 ClassPart fixes) — caches de résolution séparés, un même
+        # jeton d'un type ne collisionne jamais avec un jeton de l'autre type par construction
+        # (préfixes "classpart:"/"split:" différents, voir _partition_token/_split_token).
         resolved_partitions: dict[str, "Partition"] = {}
         for vals in children_vals:
             for pending in vals.get('pending_class_parts') or []:
                 token = pending['token']
-                if token not in resolved_partitions:
-                    resolved_partitions[token] = find_or_create_partition(
-                        db, pending['division_id'],
-                        CompositionModes._compute_partition_label(db, course, set(pending['partition_subject_ids'])),
-                        subject_ids=pending['partition_subject_ids'],
-                    )
-                partition = resolved_partitions[token]
-                resolved_class_part = next(cp for cp in partition.class_parts if cp.subject_id == pending['subject_id'])
+                if pending['kind'] == 'class_part_by_subject':
+                    if token not in resolved_partitions:
+                        resolved_partitions[token] = find_or_create_partition(
+                            db, pending['division_id'],
+                            CompositionModes._compute_partition_label(db, course, set(pending['partition_subject_ids'])),
+                            subject_ids=pending['partition_subject_ids'],
+                        )
+                    partition = resolved_partitions[token]
+                    resolved_class_part = next(cp for cp in partition.class_parts if cp.subject_id == pending['subject_id'])
+                else:  # 'class_part_by_split'
+                    if token not in resolved_partitions:
+                        resolved_partitions[token] = find_or_create_partition(
+                            db, pending['division_id'], "", special_type=PartitionSpecialType(pending['special_type']),
+                        )
+                    partition = resolved_partitions[token]
+                    ordered = sorted(partition.class_parts, key=lambda cp: cp.name)
+                    resolved_class_part = ordered[pending['position']]
                 vals['class_part_ids'] = list(set((vals.get('class_part_ids') or []) + [resolved_class_part.id]))
             vals.pop('pending_class_parts', None)
 

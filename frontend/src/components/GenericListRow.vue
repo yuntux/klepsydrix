@@ -99,6 +99,7 @@
           v-else-if="ctx.getFieldDef(col.key)?.type === 'multiselect'"
           :model-value="ctx.rowSource(item)[col.key]"
           :options="ctx.getFieldDef(col.key)?.options || []"
+          :itemModeOptions="ctx.getFieldDef(col.key)?.itemModeOptions"
           :disabled="ctx.isColumnReadOnly(col.key, ctx.rowSource(item))"
           :required="ctx.isColumnRequired(col.key)"
           :inline="true"

@@ -146,19 +146,41 @@ class Course(Base):
                                     },
                                     {
                                         "key": "group_ids", "label": "Groupes", "width": 160, "type": "multiselect", "resource": "groups",
-                                        "readOnlyExpr": "(model.class_part_ids && model.class_part_ids.length > 0) || (model.division_ids && model.division_ids.length > 0)",
+                                        "readOnlyExpr": "(model.class_part_ids && model.class_part_ids.length > 0) || (model.division_targets && model.division_targets.length > 0)",
                                     },
                                     {
                                         "key": "class_part_ids", "label": "Parties de classe", "width": 160, "type": "multiselect", "resource": "class_parts",
-                                        "readOnlyExpr": "(model.group_ids && model.group_ids.length > 0) || (model.division_ids && model.division_ids.length > 0)",
+                                        "readOnlyExpr": "(model.group_ids && model.group_ids.length > 0) || (model.division_targets && model.division_targets.length > 0)",
                                     },
                                     {
-                                        "key": "division_ids", "label": "Classes", "width": 160, "type": "multiselect", "resource": "divisions",
+                                        "key": "division_targets", "label": "Classes", "width": 260, "type": "multiselect", "resource": "divisions",
                                         "readOnlyExpr": "(model.group_ids && model.group_ids.length > 0) || (model.class_part_ids && model.class_part_ids.length > 0)",
+                                        # Sous-mode par classe ciblée (voir SearchableMultiSelect.vue::itemModeOptions) :
+                                        # modelValue de cette colonne devient [{id, mode}] au lieu de [id]. "CLASS_PART"
+                                        # reproduit EXACTEMENT le comportement historique (une ClassPart par matière,
+                                        # partagée entre lignes de matières différentes ciblant la même classe) — ce
+                                        # n'est PAS le champ class_part_ids ci-dessus (choix manuel d'une ClassPart déjà
+                                        # connue). Voir CompositionModes.DIVISION_TARGET_MODES (composition_mode.py).
+                                        "itemModeOptions": [
+                                            {"value": "CLASS_PART", "label": "Partie de classe"},
+                                            {"value": "WHOLE_CLASS", "label": "Classe entière"},
+                                            {"value": "HALF_GENDER", "label": "Dédoublement F-G"},
+                                            {"value": "HALF_ALPHA", "label": "Dédoublement Alpha"},
+                                        ],
                                     },
                                     {"key": "classroom_ids", "label": "Salles", "width": 160, "type": "multiselect", "resource": "classrooms"},
                                 ],
                                 "listConfig": {"editableInline": True, "disableAdd": False, "disableDelete": False, "allowMultiSelect": False},
+                                # Règles de cohérence entre lignes (voir ListPreviewField.vue::applyCrossRowRules) :
+                                # pour un même id de la colonne division_targets, un seul mode à la fois à travers
+                                # tout le tableau (WHOLE_CLASS/CLASS_PART/dédoublement ne se mélangent jamais pour
+                                # une même classe — CLASS_PART peut en revanche apparaître sur autant de lignes que
+                                # voulu) ; les modes listés dans crossRowMaxRowsByMode sont en plus plafonnés en
+                                # nombre de lignes (dédoublement : 2 maximum). Miroir exact du garde-fou serveur
+                                # CompositionModes._validate_division_target_coherence, en correction live plutôt
+                                # qu'en rejet a posteriori.
+                                "crossRowExclusiveColumn": "division_targets",
+                                "crossRowMaxRowsByMode": {"HALF_GENDER": 2, "HALF_ALPHA": 2},
                             },
                         },
                         {
@@ -176,7 +198,15 @@ class Course(Base):
                     "title": "2. Aperçu des cours enfants (brouillon)",
                     "submitLabel": "Valider",
                     "rpc": "rpc_save_composition",
-                    "rpcParams": {"children_vals": "children_vals"},
+                    # mapping/mode : toujours le brouillon ORIGINAL saisi à l'étape 1
+                    # (composition_mapping/composition_mode restent dans draft, accumulé par
+                    # GenericWizard.vue au fil des étapes) — jamais muté par le passage dans
+                    # rpc_preview_composition, qui mute sa propre copie Python côté serveur sans
+                    # jamais renvoyer cette mutation au frontend. Sert à persister
+                    # composition_config (voir rpc_save_composition) pour repréciser le cours
+                    # plus tard en repartant de ce qui a réellement été choisi, pas d'une version
+                    # déjà résolue (division_targets -> class_part_ids).
+                    "rpcParams": {"children_vals": "children_vals", "mapping": "composition_mapping", "mode": "composition_mode"},
                     "isLast": True,
                     "fields": [
                         {
@@ -259,7 +289,13 @@ class Course(Base):
     # absents de TOUS ses enfants]}, uniquement les types en défaut. None si non composé, sans
     # enfant, ou FULLY_VENTILATED.
     underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées", "type": "json", "readOnly": True})
-    
+    # {"mapping": [...], "mode": int} — dernière configuration du wizard "Décomposer le cours"
+    # effectivement validée (voir rpc_save_composition, composition_mapping/composition_mode
+    # ci-dessous). None tant que le cours n'a jamais été décomposé via ce wizard. Même patron que
+    # underventilated_resource_ids (JSON brut, aucune validation de schéma au niveau colonne — la
+    # forme est garantie par le seul point d'écriture, rpc_save_composition).
+    composition_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Configuration de décomposition", "type": "json", "readOnly": True})
+
     mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
@@ -347,17 +383,35 @@ class Course(Base):
     @property
     def composition_mapping(self) -> list[dict]:
         """
-        Mapping par défaut proposé à l'ouverture du wizard "Décomposer le cours" (voir
-        __actions__ ci-dessous) — calculé à la demande, jamais stocké. Simple délégué : toute la
-        logique vit dans CompositionModes.default_mapping (composition_mode.py), pas ici (même
-        règle que rpc_preview_composition/rpc_save_composition juste en dessous). Le nom de ce
-        champ est délibérément identique à la clé du champ `list_preview` de l'étape "mapping" du
-        wizard : GenericWizard.vue initialise son brouillon par un simple spread de l'enregistrement
-        (`draft = {...props.model}`), donc ce mapping par défaut y est déjà présent à l'ouverture,
-        sans code de plomberie wizard supplémentaire.
+        Mapping proposé à l'ouverture du wizard "Décomposer le cours" (voir __actions__
+        ci-dessous) — calculé à la demande, jamais stocké lui-même (seul composition_config l'est,
+        voir plus haut). Priorité à la dernière configuration réellement validée
+        (composition_config["mapping"], posée par rpc_save_composition — permet de "repréciser" le
+        cours plus tard en repartant de ce qui a déjà été choisi) ; repli sur
+        CompositionModes.default_mapping (composition_mode.py) si le cours n'a jamais été décomposé
+        via ce wizard. Le nom de ce champ est délibérément identique à la clé du champ
+        `list_preview` de l'étape "mapping" du wizard : GenericWizard.vue initialise son brouillon
+        par un simple spread de l'enregistrement (`draft = {...props.model}`), donc cette valeur y
+        est déjà présente à l'ouverture, sans code de plomberie wizard supplémentaire.
         """
+        if self.composition_config and self.composition_config.get("mapping"):
+            return self.composition_config["mapping"]
         from backend.app.models.composition_mode import CompositionModes
         return CompositionModes.default_mapping(self)
+
+    @exposed(info={"label": "Mode de répartition (dernier utilisé)", "readOnly": True})
+    @property
+    def composition_mode(self) -> Optional[int]:
+        """
+        Symétrique de composition_mapping pour le mode temporel (1-9) : dernière valeur validée
+        (composition_config["mode"]), None si le cours n'a jamais été décomposé via ce wizard —
+        contrairement au mapping, il n'existe pas de "mode par défaut" à calculer, la grille de
+        modes disponibles (CompositionModeOption) reste vide tant qu'aucune ligne de mapping n'est
+        renseignée de toute façon.
+        """
+        if self.composition_config:
+            return self.composition_config.get("mode")
+        return None
 
     # Relations de ressources (hors matière) prises en compte pour la ventilation composé/enfants
     # — associées au champ _ids correspondant, seul nom que le front connaît (voir
@@ -1158,11 +1212,17 @@ class Course(Base):
         return {"status": "ok"}
 
     @requires_access("write")
-    def rpc_save_composition(self, db: Session, children_vals: list[dict]) -> dict:
+    def rpc_save_composition(self, db: Session, children_vals: list[dict], mapping: list[dict] = None, mode: int = None) -> dict:
         """
         Sauvegarde définitivement les enfants modifiés par l'utilisateur. Résout d'abord pour de
         vrai (materialize_pending_resources) toute ressource (Partition/ClassPart/Group) restée en
         attente depuis l'aperçu — c'est le SEUL moment où ces ressources sont réellement créées.
+
+        mapping/mode (optionnels, envoyés par le wizard — voir __actions__ ci-dessus, rpcParams de
+        l'étape "preview") : persistés sur composition_config pour pré-remplir le wizard à sa
+        prochaine ouverture et permettre de "repréciser" le cours plus tard (voir
+        Course.composition_mapping/composition_mode). Absents pour un appel direct (tests, chemin
+        legacy) : composition_config n'est alors simplement pas mis à jour.
         """
         from backend.app.models.composition_mode import CompositionModes
         children_vals = CompositionModes.materialize_pending_resources(db, self, children_vals)
@@ -1202,9 +1262,14 @@ class Course(Base):
         cleanup_orphaned_resources(db, list(former_class_part_ids), list(former_group_ids))
 
         # 3. Rattacher tous les enfants au parent via la méthode officielle update()
-        # Cela déclenchera correctement les calculs métier (@onchange, etc)
-        self.update(db, {'children_ids': [c.id for c in children]})
-            
+        # Cela déclenchera correctement les calculs métier (@onchange, etc). composition_config
+        # embarqué dans le même appel (pas un update() séparé) : mapping/mode ne sont significatifs
+        # que si la sauvegarde des enfants réussit, les deux doivent progresser ensemble.
+        update_vals = {'children_ids': [c.id for c in children]}
+        if mapping is not None and mode is not None:
+            update_vals['composition_config'] = {"mapping": mapping, "mode": mode}
+        self.update(db, update_vals)
+
         return {
             "status": "ok",
             "parent_id": self.id,
