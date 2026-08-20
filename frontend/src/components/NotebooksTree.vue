@@ -166,7 +166,7 @@ import { ref, shallowRef, onMounted, onUnmounted, watch } from 'vue';
 import SplitPanel from './SplitPanel.vue';
 import MenuIcon from './MenuIcon.vue';
 import BaseLogo from './BaseLogo.vue';
-import { fetchMenus, fetchWhoAmI } from '../services/api';
+import { fetchMenus, fetchWhoAmI, fetchGenericList } from '../services/api';
 import { getSelectedDatabase, clearSelectedDatabase } from '../services/dbSession';
 import type { Panel } from '../types';
 
@@ -324,6 +324,38 @@ function selectLeaf(leaf: NotebookNode, parent?: NotebookNode | null, grandParen
   emit('change-leaf', leaf, pathIds);
 }
 
+// Recherche en profondeur d'une feuille "action" par resourceKey — utilisé uniquement pour
+// l'auto-lancement du wizard de grille horaire ci-dessous (voir onMounted). L'arbre reçu de
+// fetchMenus() est déjà filtré par droits côté backend (filter_menu_for_user, ui_endpoints.py) :
+// un nœud "action" n'y survit que si l'utilisateur a le droit d'ÉCRITURE sur son resourceKey —
+// donc le trouver ici suffit à prouver ce droit, sans second appel réseau dédié.
+function findActionNode(nodes: NotebookNode[], resourceKey: string): NotebookNode | null {
+  for (const node of nodes) {
+    if (node.action?.resourceKey === resourceKey) return node;
+    if (node.children) {
+      const found = findActionNode(node.children, resourceKey);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// Auto-lancement du wizard de paramétrage de grille horaire (voir wizard_grid_settings.py) tant
+// qu'aucun Timeslot n'existe — best-effort, ne bloque jamais le montage normal du menu si le
+// contrôle échoue (ex: ressource "timeslots" inaccessible en lecture pour une autre raison).
+async function maybeAutoLaunchGridWizard() {
+  const actionNode = findActionNode(config.value, 'wizard_grid_settings');
+  if (!actionNode?.action) return;
+  try {
+    const { total } = await fetchGenericList('timeslots', 0, 1);
+    if (total === 0) {
+      emit('trigger-action', actionNode.action);
+    }
+  } catch {
+    // Best-effort : pas de wizard forcé si la vérification elle-même échoue.
+  }
+}
+
 function onDocClick(e: Event) {
   const target = e.target as HTMLElement;
   if (!target.closest('.mini-popup') && !target.closest('.nav-group-header')) {
@@ -362,6 +394,7 @@ onMounted(async () => {
         selectLeaf(firstLeaf, p, gp);
       }
     }
+    maybeAutoLaunchGridWizard();
   } catch (e) {
     console.error("Failed to load menus from backend:", e);
   }

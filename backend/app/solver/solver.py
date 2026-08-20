@@ -342,7 +342,11 @@ def _build_course_placement_problem(db: Session, school_id: Optional[int] = None
         if ts.day_of_week not in max_minutes_by_day or ts.minutes_from_midnight > max_minutes_by_day[ts.day_of_week]:
             max_minutes_by_day[ts.day_of_week] = ts.minutes_from_midnight
 
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, max_minutes_by_day[ts.day_of_week] + std_duration_min, ts.get_noon_boundary_minutes()) for ts in db_timeslots}
+    # Un seul calcul (valeur globale à la grille, pas par jour/par créneau — voir
+    # Timeslot.get_noon_boundary_minutes) plutôt qu'un appel par créneau dans la compréhension
+    # ci-dessous : évite N requêtes SQL identiques.
+    noon_boundary_minutes = Timeslot.get_noon_boundary_minutes(db)
+    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, max_minutes_by_day[ts.day_of_week] + std_duration_min, noon_boundary_minutes) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())

@@ -130,19 +130,12 @@ def seed_demo_data():
         mef_6_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '10010012110'")).scalar()
         mef_2_id = db.execute(text("SELECT id FROM mefs WHERE code_national = '20010012110'")).scalar()
 
-        # 6. Création des Créneaux Temporels (Lundi index 1 au Samedi index 6, de 8h à 18h, pas de 15 minutes)
-        timeslots = []
-        for day in range(1, 7):
-            m_val = 480
-            while m_val < 1080:
-                if day == 3 and m_val >= Timeslot.get_noon_boundary_minutes():
-                    m_val += 15
-                    continue
-                db.execute(text("INSERT INTO timeslots (day_of_week, minutes_from_midnight) VALUES (:day, :minutes_from_midnight)"), {"day": day, "minutes_from_midnight": m_val})
-                db.commit()
-                ts_id = db.execute(text("SELECT id FROM timeslots WHERE day_of_week = :day AND minutes_from_midnight = :minutes_from_midnight"), {"day": day, "minutes_from_midnight": m_val}).scalar()
-                timeslots.append(ts_id)
-                m_val += 15
+        # 6. Génération des Créneaux Temporels à partir de la grille horaire déjà seedée par
+        # init_prod_data() (grid_day_settings + STANDARD_TIMESLOT_DURATION, voir spec.md §0bis) —
+        # réutilise le mécanisme de réconciliation générique plutôt qu'un INSERT raw indépendant,
+        # pour que les Timeslot du jeu de démo restent PAR CONSTRUCTION cohérents avec ce que le
+        # wizard « Grille horaire » afficherait (lundi-vendredi 8h-18h, samedi 8h-12h, dimanche fermé).
+        Timeslot.reconcile_all_days(db)
 
         # 7. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
         db.execute(text("INSERT INTO period_types (name) VALUES ('Trimestre')"))

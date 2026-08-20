@@ -98,8 +98,25 @@
             </div>
           </div>
         </template>
+
+        <!-- Récréations : ligne grise fine en SURIMPRESSION (position absolute, hors flux CSS
+             grid) — ne perturbe donc jamais la correspondance minutes -> pixels dont dépend la
+             hauteur des cours (voir Sidebar.vue, --grid-cell-height). Activée par défaut, voir
+             prop displayBreaks (paramètre du composant, pas un SystemSetting). -->
+        <div
+          v-if="props.displayBreaks && morningBreakTopPx !== null"
+          class="break-line"
+          :style="{ top: morningBreakTopPx + 'px' }"
+          title="Récréation du matin"
+        ></div>
+        <div
+          v-if="props.displayBreaks && afternoonBreakTopPx !== null"
+          class="break-line"
+          :style="{ top: afternoonBreakTopPx + 'px' }"
+          title="Récréation de l'après-midi"
+        ></div>
       </div>
-      
+
       <div v-else class="no-timeslots-error">
         <div class="error-icon">⚠️</div>
         <div class="error-title">Aucun créneau horaire configuré</div>
@@ -129,20 +146,26 @@ const props = withDefaults(defineProps<{
   // est affichée, aucune ambiguïté à résoudre).
   weekType?: 'W' | 'A' | 'B';
   draggedCourseWeekType?: string | null;
+  // Affichage des lignes de récréation (voir break-line ci-dessous) : un paramètre du composant
+  // graphique, PAS un réglage système — HOUR_MORNING/AFTERNOON_BREAK_START restent des
+  // SystemSetting (donnée métier), mais le fait de les DESSINER sur cette grille précise est une
+  // simple préférence d'affichage locale, activée par défaut.
+  displayBreaks?: boolean;
 }>(), {
   dragOverCells: () => ({}),
   layoutMode: 'merged',
   activeResources: () => [],
   isMini: false,
   weekType: 'W',
-  draggedCourseWeekType: null
+  draggedCourseWeekType: null,
+  displayBreaks: true,
 });
 
 const shouldSplitCells = computed(() => {
   return props.weekType === 'W' && !!props.draggedCourseWeekType && props.draggedCourseWeekType !== 'W';
 });
 
-const { days, hours, currentStandardDuration, subCellCount, getCellKey, isTimeslotActive } = useTimeslotGrid(computed(() => props.timeslots));
+const { days, hours, currentStandardDuration, subCellCount, getCellKey, isTimeslotActive, morningBreakStart, afternoonBreakStart } = useTimeslotGrid(computed(() => props.timeslots));
 
 const gridColumns = computed(() => {
   if (props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0) {
@@ -231,6 +254,11 @@ defineEmits<{
 const gridCellRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 
+// Miroir réactif de --grid-cell-height (CSS var, voir Sidebar.vue) : nécessaire ici en JS pur
+// pour calculer la position en pixels des lignes de récréation (voir break-line ci-dessous), la
+// CSS var elle-même n'étant pas lisible de façon réactive depuis un computed().
+const gridCellHeightPx = ref(75);
+
 onMounted(() => {
   if (gridCellRef.value) {
     resizeObserver = new ResizeObserver(entries => {
@@ -238,6 +266,7 @@ onMounted(() => {
         // Obtenir la hauteur réelle (y compris les bordures/padding)
         const height = entry.borderBoxSize?.[0]?.blockSize || entry.contentRect.height;
         document.documentElement.style.setProperty('--grid-cell-height', `${height}px`);
+        gridCellHeightPx.value = height;
       }
     });
     resizeObserver.observe(gridCellRef.value);
@@ -249,6 +278,26 @@ onUnmounted(() => {
     resizeObserver.disconnect();
   }
 });
+
+// Hauteur de l'en-tête (voir computedGridTemplateRows : 40px, +30px pour la sous-ligne de
+// ressources en layoutMode="resource_columns") — offset de départ pour tout calcul minutes -> px.
+const headerHeightPx = computed(() => {
+  const hasResourceHeader = props.layoutMode === 'resource_columns' && props.activeResources && props.activeResources.length > 0;
+  return hasResourceHeader ? 70 : 40;
+});
+
+// Position verticale (px, depuis le haut de .timetable-grid) d'un horaire donné — null s'il tombe
+// hors de la plage d'heures actuellement affichée (hours, voir useTimeslotGrid).
+function breakOffsetPx(minutesFromMidnight: number | null): number | null {
+  if (minutesFromMidnight === null || hours.value.length === 0) return null;
+  const firstHourMinutes = hours.value[0] * 60;
+  const lastHourEndMinutes = (hours.value[hours.value.length - 1] + 1) * 60;
+  if (minutesFromMidnight < firstHourMinutes || minutesFromMidnight >= lastHourEndMinutes) return null;
+  return headerHeightPx.value + ((minutesFromMidnight - firstHourMinutes) / 60) * gridCellHeightPx.value;
+}
+
+const morningBreakTopPx = computed(() => breakOffsetPx(morningBreakStart.value));
+const afternoonBreakTopPx = computed(() => breakOffsetPx(afternoonBreakStart.value));
 </script>
 
 <style scoped>

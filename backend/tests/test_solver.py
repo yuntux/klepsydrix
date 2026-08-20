@@ -949,8 +949,8 @@ def test_course_to_course_constraints(db_session: Session):
     ts_hd1 = db_session.get(Timeslot, course_hd_1.timeslot_id)
     ts_hd2 = db_session.get(Timeslot, course_hd_2.timeslot_id)
     if ts_hd1.day_of_week == ts_hd2.day_of_week:
-        hd1_am = ts_hd1.minutes_from_midnight < Timeslot.get_noon_boundary_minutes()
-        hd2_am = ts_hd2.minutes_from_midnight < Timeslot.get_noon_boundary_minutes()
+        hd1_am = ts_hd1.minutes_from_midnight < Timeslot.get_noon_boundary_minutes(db_session)
+        hd2_am = ts_hd2.minutes_from_midnight < Timeslot.get_noon_boundary_minutes(db_session)
         assert hd1_am != hd2_am
 
     # FORCE_SAME_SCOPE (CUSTOM_HALF_DAYS) : même bloc de 4 demi-journées (2 jours)
@@ -1010,14 +1010,15 @@ def test_course_to_course_constraint_validations(db_session: Session):
     with pytest.raises(ValueError, match="Il n'est pas possible de modifier le périmètre"):
         ctc.update(db_session, {"scope": CourseToCourseConstraintScope.DAY})
 
-def test_share_reference_period():
+def test_share_reference_period(db_session: Session):
     from backend.app.solver.constraints import _share_reference_period, PlanningCourse, PlanningTimeslot
 
     # Création des timeslots de test
-    ts1 = PlanningTimeslot(id=1, day_of_week=1, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes())
-    ts2 = PlanningTimeslot(id=2, day_of_week=1, minutes_from_midnight=600, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes()) # même jour, même demi-journée (matin)
-    ts3 = PlanningTimeslot(id=3, day_of_week=1, minutes_from_midnight=840, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes()) # même jour, après-midi
-    ts4 = PlanningTimeslot(id=4, day_of_week=2, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes())  # jour différent
+    noon_boundary_minutes = Timeslot.get_noon_boundary_minutes(db_session)
+    ts1 = PlanningTimeslot(id=1, day_of_week=1, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=noon_boundary_minutes)
+    ts2 = PlanningTimeslot(id=2, day_of_week=1, minutes_from_midnight=600, absolute_end_of_day=18.0, noon_boundary_minutes=noon_boundary_minutes) # même jour, même demi-journée (matin)
+    ts3 = PlanningTimeslot(id=3, day_of_week=1, minutes_from_midnight=840, absolute_end_of_day=18.0, noon_boundary_minutes=noon_boundary_minutes) # même jour, après-midi
+    ts4 = PlanningTimeslot(id=4, day_of_week=2, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=noon_boundary_minutes)  # jour différent
 
     c1 = PlanningCourse(id=1, duration_minutes=60, timeslot=ts1, week_type="A")
     c2 = PlanningCourse(id=2, duration_minutes=60, timeslot=ts2, week_type="A")
@@ -1054,7 +1055,7 @@ def test_share_reference_period():
 
     # 5. CUSTOM_HALF_DAYS (ex: n=4 demi-journées, soit tranches de 2 jours)
     assert _share_reference_period(c1, c4, "CUSTOM_HALF_DAYS", 4)
-    ts_wed = PlanningTimeslot(id=5, day_of_week=3, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=Timeslot.get_noon_boundary_minutes())
+    ts_wed = PlanningTimeslot(id=5, day_of_week=3, minutes_from_midnight=540, absolute_end_of_day=18.0, noon_boundary_minutes=noon_boundary_minutes)
     c_wed = PlanningCourse(id=7, duration_minutes=60, timeslot=ts_wed, week_type="A")
     assert not _share_reference_period(c1, c_wed, "CUSTOM_HALF_DAYS", 4)
 

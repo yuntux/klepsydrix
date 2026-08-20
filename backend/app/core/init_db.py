@@ -1,4 +1,5 @@
 import argparse
+import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from backend.app.core.database import engine, SessionLocal
@@ -108,8 +109,59 @@ def init_prod_data(slug: str = None):
             ('GROUP_NAME_SEPARATOR', 'G'),
             ('GROUP_NAME_NUMBER_FORMAT', 'numerique'),
             ('MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT', 'false'),
+            # Grille horaire (voir spec.md §0bis, architecture.md §10.D) : FIRST_DAY_OF_THE_WEEK et
+            # les horaires de récréation n'ont volontairement aucune valeur par défaut ici (repli
+            # applicatif géré côté wizard_grid_settings.py/time_utils.py). PUBLIC_DISPLAY_HOURS_
+            # BY_SEQUENCE, lui, EST seedé — voir plus bas, une fois grid_day_settings inséré (calcul
+            # dépendant de cette grille). L'affichage des lignes de récréation n'est PAS un
+            # SystemSetting : c'est un paramètre du composant graphique (BaseGrid.vue::displayBreaks,
+            # défaut true).
         ]:
             db.execute(text("INSERT INTO system_settings (key, value) VALUES (:key, :value)"), {"key": setting_key, "value": setting_value})
+        db.commit()
+
+        # Grille horaire : 7 lignes fixes (une par jour, voir GridDaySettings — création/suppression
+        # bloquées au niveau du modèle, seul ce seed raw SQL peut en produire). Défauts alignés sur
+        # les logiciels du marché comparés (spec.md §0bis) : lundi-vendredi 8h-18h, samedi fermé
+        # l'après-midi (8h-12h), dimanche entièrement fermé. Aucun Timeslot n'est généré ici : la
+        # grille reste vide tant que le wizard « Grille horaire » n'a pas été confirmé une première
+        # fois (auto-lancé à la connexion si la base n'en a aucun, voir NotebooksTree.vue).
+        grid_day_defaults = [
+            (1, 480, 1080), (2, 480, 1080), (3, 480, 1080), (4, 480, 1080), (5, 480, 1080),
+            (6, 480, 720),
+            (7, None, None),
+        ]
+        for day_of_week, start, end in grid_day_defaults:
+            db.execute(
+                text(
+                    "INSERT INTO grid_day_settings (day_of_week, hour_day_start_minutes_after_midnight, hour_day_end_minutes_after_midnight) "
+                    "VALUES (:day_of_week, :start, :end)"
+                ),
+                {"day_of_week": day_of_week, "start": start, "end": end},
+            )
+        db.commit()
+
+        # PUBLIC_DISPLAY_HOURS_BY_SEQUENCE en cohérence avec la grille ci-dessus (voir spec.md
+        # §0bis) : un couple [début, fin] par numéro de séquence, calculé sur la même base que
+        # Timeslot.intraday_sequence_number (heure d'ouverture la plus matinale, tous jours
+        # confondus, jusqu'à l'heure de fermeture la plus tardive). Exercice délibéré du mécanisme
+        # de repli PAR VALEUR (voir Timeslot.public_display_start/end_minutes_after_midnight) :
+        # séquence impaire -> seul le début est renseigné (fin = null, retombe sur l'heure réelle
+        # à la lecture) ; séquence paire -> seule la fin est renseignée (début = null, idem).
+        standard_duration = 30
+        starts = [s for _, s, _ in grid_day_defaults if s is not None]
+        ends = [e for _, _, e in grid_day_defaults if e is not None]
+        min_start, max_end = min(starts), max(ends)
+        public_display_hours_by_sequence = {}
+        for seq, minute in enumerate(range(min_start, max_end, standard_duration), start=1):
+            if seq % 2 == 1:
+                public_display_hours_by_sequence[str(seq)] = [minute, None]
+            else:
+                public_display_hours_by_sequence[str(seq)] = [None, minute + standard_duration]
+        db.execute(
+            text("INSERT INTO system_settings (key, value) VALUES ('PUBLIC_DISPLAY_HOURS_BY_SEQUENCE', :value)"),
+            {"value": json.dumps(public_display_hours_by_sequence)},
+        )
         db.commit()
 
         # Tables de référence RH (fiche enseignant) — simples listes en texte libre. ref_country,

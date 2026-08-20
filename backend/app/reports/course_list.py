@@ -7,6 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from backend.app.core.time_utils import day_of_week_sort_key, get_first_day_of_week
 from backend.app.models.course import Course
 from backend.app.models.school import School
 from backend.app.models.timeslot import Timeslot
@@ -22,14 +23,17 @@ def _timeslots_by_id(db: Session, ids: set) -> dict:
 
     Retourne le libellé ET la clé de tri chronologique, tirés du même enregistrement : trier sur le
     libellé donnerait un ordre ALPHABÉTIQUE des jours (« Jeudi, Lundi, Mardi… »), ce qui passe pour
-    un défaut sur une liste imprimée.
+    un défaut sur une liste imprimée. La clé de tri respecte FIRST_DAY_OF_THE_WEEK (voir
+    time_utils.day_of_week_sort_key) plutôt que l'ordre brut 1=lundi..7=dimanche, pour que
+    l'imprimé retombe sur le même ordre de jours que la grille écran.
     """
     if not ids:
         return {}
+    first_day = get_first_day_of_week(db)
     return {
         timeslot.id: {
             "label": timeslot.display_name,
-            "sort_key": (timeslot.day_of_week, timeslot.minutes_from_midnight),
+            "sort_key": (day_of_week_sort_key(timeslot.day_of_week, first_day), timeslot.minutes_from_midnight),
         }
         for timeslot in Timeslot.read(db, domain={"id": list(ids)})
     }

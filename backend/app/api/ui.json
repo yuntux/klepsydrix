@@ -1988,6 +1988,15 @@
     "title": "Paramètres",
     "children": [
       {
+        "id": "grid_settings_action",
+        "icon": "wrench",
+        "title": "Grille horaire",
+        "action": {
+          "resourceKey": "wizard_grid_settings",
+          "actionId": "configure_grid"
+        }
+      },
+      {
         "id": "schools_setting",
         "icon": "school",
         "title": "Établissements",

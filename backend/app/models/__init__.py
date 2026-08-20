@@ -24,6 +24,7 @@ from backend.app.models.period_type import PeriodType
 from backend.app.models.alternation import Alternation
 from backend.app.models.site import Site, SiteTravelTime
 from backend.app.models.timeslot import Timeslot
+from backend.app.models.grid_day_settings import GridDaySettings
 from backend.app.models.course import Course
 from backend.app.models.course_classroom_requirement import CourseClassroomRequirement
 from backend.app.models.service import Service, ServiceRepartition, Alignment

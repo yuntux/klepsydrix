@@ -2,9 +2,11 @@
   <GenericList
     title="Propositions"
     :columns="columns"
+    :fields="fields"
     :items="rows"
     :listConfig="listConfig"
     @selection-change="onSelectionChange"
+    @update-item="onUpdateItem"
   />
 </template>
 
@@ -31,6 +33,13 @@
 // wizard_teacher_assignment.py) qui pilote ce comportement, un paramètre générique de
 // GenericList, pas une bidouille propre à ce widget. Décocher une ligne la retire de
 // modelValue, donc de ce que rpc_apply recevra à la validation de l'étape.
+//
+// Édition inline (@update-item, voir wizard_grid_settings.py) : symétrique du panneau détail
+// (architecture.md §15.E, onUpdateDetailGenericInline) mais sur des lignes TRANSITOIRES — aucun
+// appel réseau, l'édition ne fait que remplacer la ligne dans modelValue par son id. C'est ce qui
+// permet à un wizard de proposer une GenericList "éditable" (listConfig.editableInline: true) dont
+// rien n'est jamais persisté avant sa propre étape de confirmation finale (rpc_apply) : la ressource
+// éditée n'est jamais une vraie ressource /api/generic/{resource}, seulement le champ courant.
 import { computed } from 'vue';
 import GenericList from '../GenericList.vue';
 
@@ -48,6 +57,13 @@ const emit = defineEmits<{
 
 const rows = computed(() => props.modelValue || []);
 const columns = computed(() => props.widgetParams?.columns || []);
+// GenericList lit width/label sur `columns` mais widget/type/options/readOnlyExpr sur `fields`
+// (deux props distinctes, voir GenericList.vue::getFieldDef) — un list_preview n'a pas de schéma
+// OpenAPI dont dériver `fields` séparément (contrairement à un panneau ui.json classique), donc le
+// même tableau `widgetParams.columns` sert directement les deux : chaque entrée peut porter à la
+// fois les clés de présentation (label, width) ET de comportement (widget, widgetParams,
+// readOnlyExpr, options) sans redondance à déclarer côté appelant (ex: wizard_grid_settings.py).
+const fields = computed(() => columns.value);
 
 const listConfig = computed(() => ({
   ...(props.widgetParams?.listConfig || {}),
@@ -61,5 +77,9 @@ const listConfig = computed(() => ({
 function onSelectionChange(ids: any[]) {
   const kept = new Set(ids);
   emit('update:modelValue', rows.value.filter((r) => kept.has(r.id)));
+}
+
+function onUpdateItem(updated: any) {
+  emit('update:modelValue', rows.value.map((r) => (r.id === updated.id ? updated : r)));
 }
 </script>

@@ -22,6 +22,8 @@ import SystemSettingValueField from './SystemSettingValueField.vue';
 import ImageField from './ImageField.vue';
 import RelationBrowserField from './RelationBrowserField.vue';
 import ListPreviewField from './ListPreviewField.vue';
+import TimeslotPickerField from './TimeslotPickerField.vue';
+import ClockTimeField from './ClockTimeField.vue';
 
 export type WidgetContext = 'list' | 'form';
 
@@ -48,6 +50,10 @@ const REGISTRY: Record<string, WidgetRegistryEntry> = {
   // ListPreviewField.vue. 'form' uniquement : utilisé comme champ d'étape de wizard
   // (GenericWizard.vue délègue déjà à GenericForm, même contrat que tout autre widget de champ).
   list_preview: { component: ListPreviewField, contexts: ['form'] },
+  // Voir wizard_grid_settings.py — 'list' pour les colonnes de day_rows/display_rows (cellules
+  // éditées inline dans un list_preview), 'form' pour les champs de récréation du wizard lui-même.
+  timeslot_picker: { component: TimeslotPickerField, contexts: ['list', 'form'] },
+  clock_time: { component: ClockTimeField, contexts: ['list', 'form'] },
 };
 
 export function getWidgetForContext(name: string | undefined, context: WidgetContext): any {

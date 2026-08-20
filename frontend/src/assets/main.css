@@ -286,6 +286,26 @@ body {
   display: grid;
   height: 100%;
   width: 100%;
+  /* Containing block pour .break-line (voir BaseGrid.vue) : un enfant position:absolute d'une
+     grille CSS est retiré du flux de grille et positionné par rapport à cet ancêtre positionné,
+     sans jamais perturber gridTemplateRows/Columns. */
+  position: relative;
+}
+
+/* Récréation — ligne grise fine en surimpression (voir BaseGrid.vue::breakOffsetPx). Hors flux :
+   ne modifie jamais la correspondance minutes -> pixels dont dépend la hauteur des cours
+   (--grid-cell-height, voir Sidebar.vue). Volontairement plus fine qu'un demi-créneau (marquage
+   visuel, pas une zone bloquante — même esprit que les barres de récréation d'EDT). */
+.break-line {
+  position: absolute;
+  left: 60px; /* aligné sur la colonne "Horaire" (voir computedGridTemplateColumns) */
+  right: 0;
+  height: 4px;
+  margin-top: -2px;
+  background-color: var(--text-muted);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 9;
 }
 
 .grid-header-cell {
