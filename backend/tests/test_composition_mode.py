@@ -73,9 +73,12 @@ def _prepare_parent_course(db, extra_teachers=0, extra_groups=0, extra_divisions
         'period_type_id': period_type.id if period_type else None,
     })
     
+    # classroom_ids (pas classroom_requirement_ids) : c'est la vraie forme produite par la colonne
+    # "Salles" du wizard (liste d'ids de Classroom bruts) — voir CompositionModes._build_base_vals,
+    # qui convertit cette liste en dicts CourseClassroomRequirement.
     mock_mapping = [
-        {"teacher_ids": [teachers[0].id], "group_ids": [groups_gen[0].id], "classroom_requirement_ids": [{"classroom_id": classrooms[0].id, "quantity": 1}], "subject_id": subjects[0].id},
-        {"teacher_ids": [teachers[1].id], "group_ids": [groups_gen[1].id], "classroom_requirement_ids": [{"classroom_id": classrooms[1].id, "quantity": 1}], "subject_id": subjects[0].id}
+        {"teacher_ids": [teachers[0].id], "group_ids": [groups_gen[0].id], "classroom_ids": [classrooms[0].id], "subject_id": subjects[0].id},
+        {"teacher_ids": [teachers[1].id], "group_ids": [groups_gen[1].id], "classroom_ids": [classrooms[1].id], "subject_id": subjects[0].id}
     ]
 
     return parent, teachers, groups_gen, divisions, periods, mock_mapping
@@ -95,6 +98,36 @@ class TestCompositionModes:
         assert children[0].classroom_requirements[0].classroom_id != children[1].classroom_requirements[0].classroom_id
         assert children[0].teachers[0].id == teachers[0].id
         assert children[1].teachers[0].id == teachers[1].id
+
+    def test_mapping_classroom_ids_become_classroom_requirements(self, db_session):
+        # Régression : la colonne "Salles" du wizard produit `classroom_ids` (liste d'ids de
+        # Classroom bruts) sur la ligne de mapping, jamais `classroom_requirement_ids` — un id de
+        # Classroom passé nu à Course.create() serait interprété comme un id de
+        # CourseClassroomRequirement à conserver (voir _apply_owned_collection_commands, base.py),
+        # pas comme une salle à affecter. _build_base_vals doit convertir explicitement.
+        from backend.app.models.classroom import Classroom
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        classroom = db_session.query(Classroom).first()
+        mapping_with_classroom = [{
+            "teacher_ids": [teachers[0].id], "group_ids": [groups[0].id],
+            "classroom_ids": [classroom.id], "subject_id": parent.subject_id,
+        }]
+
+        children = CompositionModes.apply(db_session, parent, 1, mapping_with_classroom)
+
+        assert len(children[0].classroom_requirements) == 1
+        assert children[0].classroom_requirements[0].classroom_id == classroom.id
+        assert children[0].classroom_requirements[0].quantity == 1
+
+    def test_mapping_without_classroom_ids_yields_no_requirement(self, db_session):
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_no_classroom = [{
+            "teacher_ids": [teachers[0].id], "group_ids": [groups[0].id], "subject_id": parent.subject_id,
+        }]
+
+        children = CompositionModes.apply(db_session, parent, 1, mapping_no_classroom)
+
+        assert children[0].classroom_requirements == []
 
     def test_mode_2_one_session_per_teacher_per_fortnight(self, db_session):
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
@@ -391,18 +424,117 @@ class TestCompositionModes:
 
         assert db_session.get(ClassPart, class_part_id) is None
 
-    def test_rpc_cancel_composition_cleans_up_unsaved_preview_resources(self, db_session):
-        from backend.app.models.group import ClassPart
+    def test_preview_creates_no_class_part_leaves_pending_token_instead(self, db_session):
+        # Depuis l'écriture différée (voir composition_mode.py, _resolve_dynamic_part_class avec
+        # materialize=False), "Générer l'aperçu" ne crée plus la moindre ClassPart/Partition/Group
+        # réelle : une ligne ciblant une division entière reçoit un jeton virtuel dans
+        # pending_class_parts, class_part_ids reste vide, et rien n'est ajouté sur le parent.
+        from backend.app.models.group import ClassPart, Partition, Group
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        cp_count, partition_count, group_count = (
+            db_session.query(ClassPart).count(), db_session.query(Partition).count(), db_session.query(Group).count()
+        )
 
         mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
         result = parent.rpc_preview_composition(db_session, 1, mapping_1)
-        class_part_id = result["children_vals"][0]["class_part_ids"][0]
-        assert db_session.get(ClassPart, class_part_id) is not None
+        child_vals = result["children_vals"][0]
 
-        parent.rpc_cancel_composition(db_session)
+        assert child_vals["class_part_ids"] == []
+        assert len(child_vals["pending_class_parts"]) == 1
+        assert child_vals["pending_class_parts"][0]["division_id"] == divisions[0].id
+        assert child_vals["pending_class_parts"][0]["subject_id"] == parent.subject_id
+        assert child_vals["pending_summary"] != ""
+        assert db_session.query(ClassPart).count() == cp_count
+        assert db_session.query(Partition).count() == partition_count
+        assert db_session.query(Group).count() == group_count
+        assert list(parent.class_parts) == []
 
-        assert db_session.get(ClassPart, class_part_id) is None
+    def test_rpc_cancel_composition_is_a_pure_noop(self, db_session):
+        # rpc_preview_composition n'ayant plus rien créé (voir test ci-dessus), il n'y a
+        # structurellement plus rien à nettoyer — plus de piège possible sur un cours pas encore
+        # composé (is_composed=False), qui laissait auparavant fuir des ressources orphelines.
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        simple_parent = Course.create(db_session, {
+            "school_id": parent.school_id, "subject_id": parent.subject_id, "duration_minutes": 60,
+        })
+        assert simple_parent.is_composed is False
+
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+        simple_parent.rpc_preview_composition(db_session, 1, mapping_1)
+        result = simple_parent.rpc_cancel_composition(db_session)
+
+        assert result == {"status": "ok"}
+
+    def test_preview_regeneration_with_same_mapping_yields_same_token(self, db_session):
+        # Idempotence : rouvrir "Générer l'aperçu" avec un mapping inchangé (ex: bouton "Précédent"
+        # puis re-soumission) doit produire le même jeton virtuel, jamais un doublon.
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_1 = [{"teacher_ids": [teachers[0].id], "division_ids": [divisions[0].id], "subject_id": parent.subject_id, "classroom_requirement_ids": []}]
+
+        result_a = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_1])
+        result_b = parent.rpc_preview_composition(db_session, 1, [dict(row) for row in mapping_1])
+
+        token_a = result_a["children_vals"][0]["pending_class_parts"][0]["token"]
+        token_b = result_b["children_vals"][0]["pending_class_parts"][0]["token"]
+        assert token_a == token_b
+
+    def test_save_composition_materializes_pending_class_part_and_group(self, db_session):
+        # rpc_save_composition doit résoudre pour de vrai les jetons pending_* reçus (round-trip
+        # depuis un rpc_preview_composition édité par l'utilisateur) — c'est le seul moment où la
+        # ClassPart/le Group sont réellement créés.
+        from backend.app.models.group import ClassPart, Group
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_divisions=1)
+        mapping_2div = [{
+            "teacher_ids": [teachers[0].id],
+            "division_ids": [divisions[0].id, divisions[1].id],
+            "subject_id": parent.subject_id,
+            "classroom_requirement_ids": [],
+        }]
+        preview = parent.rpc_preview_composition(db_session, 1, mapping_2div)
+        child_vals = preview["children_vals"][0]
+        assert child_vals["class_part_ids"] == []
+        assert len(child_vals["pending_class_parts"]) == 2
+        assert child_vals["pending_group"] is not None
+        cp_count_before = db_session.query(ClassPart).count()
+        group_count_before = db_session.query(Group).count()
+
+        res = parent.rpc_save_composition(db_session, preview["children_vals"])
+
+        assert res["status"] == "ok"
+        assert db_session.query(ClassPart).count() == cp_count_before + 2
+        assert db_session.query(Group).count() == group_count_before + 1
+        child = parent.children[0]
+        assert len(child.class_parts) == 2
+        assert len(child.groups) == 1
+        # La cascade ressources -> parent (Course._cascade_resources_to_parent) doit avoir propagé
+        # ces ressources fraîchement matérialisées sur le parent, sans intervention manuelle.
+        assert {cp.id for cp in child.class_parts}.issubset({cp.id for cp in parent.class_parts})
+        assert {g.id for g in child.groups}.issubset({g.id for g in parent.groups})
+
+    def test_save_composition_single_pending_class_part_without_group(self, db_session):
+        # Régression : une ligne à UNE seule division en attente (pending_class_parts non vide,
+        # mais pending_group=None puisqu'un seul jeton ne déclenche jamais de groupe) doit pouvoir
+        # être sauvegardée — _build_base_vals pose toujours la clé 'pending_group' (valant None
+        # quand absente) sur children_vals, que materialize_pending_resources doit retirer même
+        # dans ce cas, sous peine de faire échouer Course.create() ("'pending_group' is an invalid
+        # keyword argument for Course").
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        mapping_1div = [{
+            "teacher_ids": [teachers[0].id],
+            "division_ids": [divisions[0].id],
+            "subject_id": parent.subject_id,
+            "classroom_requirement_ids": [],
+        }]
+        preview = parent.rpc_preview_composition(db_session, 1, mapping_1div)
+        child_vals = preview["children_vals"][0]
+        assert len(child_vals["pending_class_parts"]) == 1
+        assert child_vals["pending_group"] is None
+
+        res = parent.rpc_save_composition(db_session, preview["children_vals"])
+
+        assert res["status"] == "ok"
+        assert len(parent.children[0].class_parts) == 1
+        assert parent.children[0].class_parts[0].partition.division_id == divisions[0].id
 
     def test_course_rpc_compose_by_mode_method(self, db_session):
         parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
@@ -684,3 +816,73 @@ class TestFindOrCreateGroup:
         group_abc = find_or_create_group(db_session, [cp1.id, cp2.id, cp3.id], parent.subject_id)
 
         assert group_abc.id != group_ab.id
+
+
+class TestDefaultCompositionMapping:
+    def test_one_row_per_existing_teacher_with_preferred_subject(self, db_session):
+        # Course.composition_mapping (course.py) délègue à CompositionModes.default_mapping —
+        # bootstrap de l'étape 1 du wizard, une ligne par professeur déjà affecté au cours,
+        # matière pré-remplie depuis sa matière préférée (voir GenericWizard.vue,
+        # draft = {...props.model}).
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        teachers[0].update(db_session, {"preferred_subject_id": parent.subject_id})
+
+        rows = parent.composition_mapping
+
+        assert len(rows) == len(teachers)
+        by_teacher = {row["teacher_ids"][0]: row for row in rows}
+        assert by_teacher[teachers[0].id]["subject_id"] == parent.subject_id
+        assert by_teacher[teachers[1].id]["subject_id"] is None
+        for row in rows:
+            assert row["group_ids"] == [] and row["class_part_ids"] == []
+            assert row["division_ids"] == [] and row["classroom_ids"] == []
+
+    def test_rows_have_unique_ids(self, db_session):
+        # Régression : GenericList.vue suit chaque ligne éditable par item.id (Map d'édition en
+        # attente, :key de la boucle de rendu) — sans id unique par ligne, toutes les lignes
+        # partagent la même clé `undefined` et éditer une ligne (matière, professeur...) se
+        # répercute silencieusement sur toutes les autres.
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_teachers=2)
+
+        rows = parent.composition_mapping
+
+        assert len(rows) == len(teachers)
+        ids = [row["id"] for row in rows]
+        assert all(isinstance(i, int) for i in ids)
+        assert len(set(ids)) == len(ids), "chaque ligne doit avoir un id unique"
+
+    def test_empty_when_course_has_no_teacher(self, db_session):
+        from backend.app.models.discipline import Discipline
+        school = db_session.query(School).first()
+        discipline = Discipline.create(db_session, {"code": "GENY", "name": "GénéralY"})
+        subject = Subject.create(db_session, {"code": "SUBY", "code_nomenclature": "NY", "short_name": "SubY", "name": "SubjY", "discipline_id": discipline.id})
+        course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 60})
+        assert course.composition_mapping == []
+
+
+class TestCompositionModeOption:
+    def test_read_returns_available_modes_filtered_by_course_and_mapping(self, db_session):
+        from backend.app.models.composition_mode import CompositionModeOption
+        import json
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session, extra_periods=2)
+
+        rows = CompositionModeOption.read(db_session, domain={
+            "course_id": str(parent.id),
+            "mapping": json.dumps(mapping),
+        })
+
+        assert {row.id for row in rows} == {1, 2, 3, 4, 5, 7, 8, 9}
+        # "name" (jamais "label") : convention de libellé résolue par SearchableSelect.vue/
+        # App.vue::fkOptionsCache (display_name || name || code || id) — voir CompositionModeOption.
+        assert all(row.name for row in rows)
+        assert all(row.name.startswith(f"{row.id} - ") for row in rows)
+
+    def test_read_without_course_id_returns_empty(self, db_session):
+        from backend.app.models.composition_mode import CompositionModeOption
+        assert CompositionModeOption.read(db_session, domain={}) == []
+        assert CompositionModeOption.read(db_session, domain={"mapping": "[]"}) == []
+
+    def test_read_without_mapping_matches_empty_mapping(self, db_session):
+        from backend.app.models.composition_mode import CompositionModeOption
+        parent, teachers, groups, divisions, periods, mapping = _prepare_parent_course(db_session)
+        assert CompositionModeOption.read(db_session, domain={"course_id": str(parent.id)}) == []

@@ -180,6 +180,10 @@ interface FormField {
   // n'existe que pour nourrir le readOnlyExpr d'un AUTRE champ ne doit jamais devenir son propre
   // champ de formulaire — respecté ici même si l'appelant ne l'a pas déjà filtré en amont.
   hidden?: boolean;
+  // Voir LayoutElement.dynamicOptionsFilter plus bas — déclaré ici aussi car un champ de wizard
+  // (voir GenericWizard.vue) le porte directement sur le FormField, jamais sur un LayoutElement
+  // explicite (les wizards ne passent pas de formConfig.fields).
+  dynamicOptionsFilter?: { sourceField: string; filterQueryParam: string; recordIdQueryParam?: string };
 }
 interface LayoutElement {
   type: 'field' | 'group' | 'separator' | 'newline' | 'notebook' | 'page';
@@ -212,8 +216,12 @@ interface LayoutElement {
   // filtrée à chaque changement du champ source plutôt que de précharger toute la ressource.
   // sourceField : champ dont on lit la valeur courante dans le modèle ; filterQueryParam :
   // paramètre de requête à passer à l'endpoint liste générique (déjà filtrable par n'importe
-  // quelle colonne, voir generic.py::_apply_domain).
-  dynamicOptionsFilter?: { sourceField: string; filterQueryParam: string };
+  // quelle colonne, voir generic.py::_apply_domain). recordIdQueryParam (optionnel) : ajoute un
+  // second paramètre de requête statique portant l'id de l'enregistrement en cours d'édition
+  // (widgetParams.recordId, injecté par GenericWizard.vue pour tout champ d'étape) — nécessaire
+  // quand la ressource filtrée dépend à la fois d'un champ frère ET de l'enregistrement lui-même
+  // (ex: composition_mode_options, qui a besoin du mapping ET du cours en cours de décomposition).
+  dynamicOptionsFilter?: { sourceField: string; filterQueryParam: string; recordIdQueryParam?: string };
 }
 const markdownCache = new Map<string, string>();
 function renderMarkdown(md: string | undefined): string {
@@ -523,7 +531,12 @@ const layoutTree = computed<LayoutElement[]>(() => {
     widget: f.widget,
     widgetParams: f.widgetParams,
     originalField: f,
-    help: f.help
+    help: f.help,
+    // Absent jusqu'ici de ce fallback (contrairement à parseLayoutElement ci-dessus) : un champ FK
+    // à dynamicOptionsFilter déclaré directement sur le field (cas de tout wizard, voir
+    // GenericWizard.vue qui ne passe jamais de formConfig.fields explicite) atterrissait toujours
+    // ici sans jamais activer le filtre dynamique.
+    dynamicOptionsFilter: f.dynamicOptionsFilter
   }));
 });
 
@@ -745,7 +758,16 @@ const FormLayoutGrid: any = defineComponent({
             const dynamicSource = elem.dynamicOptionsFilter ? {
               resource: field.resource!,
               filterQueryParam: elem.dynamicOptionsFilter.filterQueryParam,
-              filterValue: gridProps.localModel[elem.dynamicOptionsFilter.sourceField]
+              filterValue: gridProps.localModel[elem.dynamicOptionsFilter.sourceField],
+              // recordIdQueryParam : second filtre statique (l'enregistrement en cours d'édition
+              // lui-même, pas un champ frère) — voir LayoutElement.dynamicOptionsFilter plus haut.
+              // widgetParams.recordId est injecté par GenericWizard.vue pour tout champ d'étape ;
+              // absent hors contexte wizard, où recordIdQueryParam n'est de toute façon jamais
+              // déclaré aujourd'hui.
+              ...(elem.dynamicOptionsFilter.recordIdQueryParam ? {
+                recordIdQueryParam: elem.dynamicOptionsFilter.recordIdQueryParam,
+                recordId: elem.widgetParams?.recordId,
+              } : {}),
             } : undefined;
 
             const widgetComponent = getWidgetForContext(elem.widget, 'form');

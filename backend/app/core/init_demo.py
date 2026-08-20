@@ -403,19 +403,38 @@ def seed_demo_data():
                 ), {"service_id": s_id, "teacher_id": t_id})
         db.commit()
 
-        # 10d. Matière(s) enseignée(s) pour 2 profs du collège (m2m teacher_subjects) : chacun
-        # n'a que Maths -> preferred_subject_id calculé manuellement (le seed est en raw SQL, donc
-        # le @constrains de Teacher._sync_preferred_subject ne se déclenche jamais ici, comme pour
-        # tout autre champ calculé du seed, ex: ServiceRepartition.name). Sert à tester la
-        # pré-saisie automatique de la matière dans l'assistant de décomposition de cours.
-        for t_id in teacher_pool_clg[:2]:
+        # 10d. Matière enseignée (m2m teacher_subjects) + preferred_subject_id pour TOUS les
+        # enseignants, par répartition tournante sur les 8 matières réellement utilisées à l'étape
+        # 12 (cours simples + complexes + alternés — EPS exclue, aucun cours n'y est jamais généré,
+        # préférer EPS ne servirait donc jamais la pré-saisie du wizard) -> calculé manuellement
+        # (le seed est en raw SQL, donc le @constrains de Teacher._sync_preferred_subject ne se
+        # déclenche jamais ici, comme pour tout autre champ calculé du seed, ex: ServiceRepartition.
+        # name). `teachers_by_course_subject_id` (indexé par subject_id ET school_id, un enseignant
+        # n'enseignant jamais hors de son établissement) est réutilisé à l'étape 12 pour que les
+        # cours générés restent cohérents avec cette préférence : un professeur affecté à un cours
+        # de Maths y a de bonnes chances d'avoir Maths pour matière préférée, plutôt qu'un tirage
+        # totalement indépendant comme auparavant. Sert aussi à tester la pré-saisie automatique de
+        # la matière dans l'assistant de décomposition de cours (Course.composition_mapping).
+        course_subject_codes = ["MATHS", "FRAN", "HG", "SVT", "PC", "TECHNO", "ARTS", "ANG"]
+        teachers_by_course_subject_id: dict[tuple[int, int], list[int]] = {}
+        for idx, (t_id, school_idx) in enumerate(teachers):
+            subject_code = course_subject_codes[idx % len(course_subject_codes)]
+            subj_id = subject_ids[subject_code]
             db.execute(text(
                 "INSERT INTO teacher_subjects (teacher_id, subject_id) VALUES (:teacher_id, :subject_id)"
-            ), {"teacher_id": t_id, "subject_id": maths_id})
+            ), {"teacher_id": t_id, "subject_id": subj_id})
             db.execute(text(
                 "UPDATE teachers SET preferred_subject_id = :subject_id WHERE id = :teacher_id"
-            ), {"teacher_id": t_id, "subject_id": maths_id})
+            ), {"teacher_id": t_id, "subject_id": subj_id})
+            teachers_by_course_subject_id.setdefault((subj_id, school_idx), []).append(t_id)
         db.commit()
+
+        def teacher_for_subject(subj_id: int, school_idx: int, pool: list) -> int:
+            """Pioche en priorité un enseignant dont la matière préférée est `subj_id` (voir
+            teachers_by_course_subject_id ci-dessus) — repli sur tout le pool si, par construction
+            de la répartition tournante, aucun n'est disponible pour cette matière/école."""
+            preferred = teachers_by_course_subject_id.get((subj_id, school_idx))
+            return random.choice(preferred) if preferred else random.choice(pool)
 
         # 10e. Référentiel des types de salles (nomenclature ministérielle) — pas de contrainte
         # d'unicité sur code (voir ref_classroom_type.py) : la donnée de référence fournie contient
@@ -544,7 +563,7 @@ def seed_demo_data():
             # 1. Cours simples
             for s_code in simple_subjects:
                 subj_id = subject_ids[s_code]
-                t_id = random.choice(teacher_pool)
+                t_id = teacher_for_subject(subj_id, s_id, teacher_pool)
                 duration = 60
 
                 db.execute(text(
@@ -592,8 +611,11 @@ def seed_demo_data():
                 db.execute(text("INSERT INTO group_class_parts (group_id, class_part_id) VALUES (:g_id, :cp_id)"), {"g_id": grp_id, "cp_id": cp_id})
                 div_groups.append(grp_id)
 
-            # Sélection de 3 professeurs distincts
-            selected_teachers = random.sample(teacher_pool, 3)
+            # Sélection de 3 professeurs distincts, un par matière du Pôle Sciences (voir
+            # teacher_for_subject ci-dessus) : selected_teachers[idx] enseigne complex_subjects[idx]
+            # ci-dessous (idx % 3 == idx, les deux listes ont la même longueur) -> cohérent avec sa
+            # matière préférée, plutôt qu'un tirage indépendant des 3 matières effectivement affectées.
+            selected_teachers = [teacher_for_subject(subject_ids[code], s_id, teacher_pool) for code in complex_subjects]
             # Sélection de 3 salles distinctes (classrooms contient (id, school_id))
             room_pool = [c[0] for c in classrooms if c[1] == s_id]
             selected_rooms = random.sample(room_pool, 3) if len(room_pool) >= 3 else room_pool
@@ -642,7 +664,7 @@ def seed_demo_data():
             # Ajout d'Arts Plastiques en Semaine A, et Anglais en Semaine B
             for s_code, w_type in [("ARTS", "A"), ("ANG", "B")]:
                 subj_id = subject_ids[s_code]
-                t_id = random.choice(teacher_pool)
+                t_id = teacher_for_subject(subj_id, s_id, teacher_pool)
 
                 db.execute(text(
                     "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "

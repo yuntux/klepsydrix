@@ -16,8 +16,6 @@
 // (Division.mef_links, many2many_ordered_list) s'affichait en pleine mini-table dans la colonne
 // de la liste "Classes" avant ce correctif).
 import Many2ManyOrderedList from './Many2ManyOrderedList.vue';
-import CourseCompositionMapping from './CourseCompositionMapping.vue';
-import CourseCompositionPreview from './CourseCompositionPreview.vue';
 import SystemSettingValueField from './SystemSettingValueField.vue';
 import ImageField from './ImageField.vue';
 import RelationBrowserField from './RelationBrowserField.vue';
@@ -34,8 +32,6 @@ interface WidgetRegistryEntry {
 
 const REGISTRY: Record<string, WidgetRegistryEntry> = {
   many2many_ordered_list: { component: Many2ManyOrderedList, contexts: ['form'] },
-  course_composition_mapping: { component: CourseCompositionMapping, contexts: ['form'] },
-  course_composition_preview: { component: CourseCompositionPreview, contexts: ['form'] },
   system_setting_value: { component: SystemSettingValueField, contexts: ['form', 'list'] },
   // 'list' volontairement absent : un champ binaire (avec ou sans widget="image") ne doit jamais
   // afficher son contenu dans une cellule de liste, seulement un badge de présence — voir

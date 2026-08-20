@@ -362,6 +362,41 @@ def compute_class_part_name(db: Session, division_id, subject_id) -> str:
     return prefix + next_number_suffix(db, existing_count, "DIVISION_PART_NAME_NUMBER_FORMAT")
 
 
+def find_partition(
+    db: Session,
+    division_id: int,
+    subject_ids: list = None,
+    special_type: "PartitionSpecialType" = None,
+    part_count: int = None,
+) -> Optional[Partition]:
+    """
+    Moitié « recherche » (lecture seule, aucune écriture) de find_or_create_partition — voir son
+    docstring pour le contrat des trois stratégies mutuellement exclusives. Retourne None si rien
+    ne correspond. Extraite pour permettre un aperçu (wizard de composition de cours,
+    composition_mode.py) qui doit pouvoir savoir si une Partition existe déjà SANS en créer une
+    tant que l'utilisateur n'a pas confirmé.
+    """
+    strategies_set = [subject_ids is not None, special_type is not None, part_count is not None]
+    if sum(strategies_set) != 1:
+        raise ValueError("find_partition attend exactement un des trois paramètres subject_ids, special_type ou part_count.")
+
+    if subject_ids is not None:
+        wanted_subject_ids = set(subject_ids)
+        for partition in db.query(Partition).filter(Partition.division_id == division_id).all():
+            existing_subject_ids = {cp.subject_id for cp in partition.class_parts if cp.subject_id is not None}
+            if wanted_subject_ids.issubset(existing_subject_ids):
+                return partition
+        return None
+
+    if special_type is not None:
+        return db.query(Partition).filter(Partition.division_id == division_id, Partition.special_type == special_type).first()
+
+    for partition in db.query(Partition).filter(Partition.division_id == division_id).all():
+        if len(partition.class_parts) == part_count:
+            return partition
+    return None
+
+
 def find_or_create_partition(
     db: Session,
     division_id: int,
@@ -390,19 +425,11 @@ def find_or_create_partition(
     (générée entièrement par le système) ; une Partition issue de `subject_ids` aussi, seul son
     label reste au choix de l'appelant via `name`.
     """
-    from backend.app.models.division import Division
-
-    strategies_set = [subject_ids is not None, special_type is not None, part_count is not None]
-    if sum(strategies_set) != 1:
-        raise ValueError("find_or_create_partition attend exactement un des trois paramètres subject_ids, special_type ou part_count.")
+    existing = find_partition(db, division_id, subject_ids=subject_ids, special_type=special_type, part_count=part_count)
+    if existing:
+        return existing
 
     if subject_ids is not None:
-        wanted_subject_ids = set(subject_ids)
-        for partition in db.query(Partition).filter(Partition.division_id == division_id).all():
-            existing_subject_ids = {cp.subject_id for cp in partition.class_parts if cp.subject_id is not None}
-            if wanted_subject_ids.issubset(existing_subject_ids):
-                return partition
-
         partition = Partition.create(db, {"code": name, "name": name, "division_id": division_id, "is_system_generated": True})
         for subject_id in subject_ids:
             ClassPart.create(db, {
@@ -415,10 +442,6 @@ def find_or_create_partition(
         return partition
 
     if special_type is not None:
-        existing = db.query(Partition).filter(Partition.division_id == division_id, Partition.special_type == special_type).first()
-        if existing:
-            return existing
-
         if special_type == PartitionSpecialType.HALF_GENDER:
             label, part_names = "Fille/Garçon", ["Garçons", "Filles"]
         else:
@@ -434,10 +457,6 @@ def find_or_create_partition(
                 "is_system_generated": True, "_system_write": True,
             })
         return partition
-
-    for partition in db.query(Partition).filter(Partition.division_id == division_id).all():
-        if len(partition.class_parts) == part_count:
-            return partition
 
     partition = Partition.create(db, {"code": name, "name": name, "division_id": division_id, "is_system_generated": True})
     for _ in range(part_count):
@@ -485,17 +504,30 @@ def _ensure_specialty_class_parts(db: Session, partition: Partition, subject, co
     return parts
 
 
+def find_group(db: Session, class_part_ids: list) -> Optional[Group]:
+    """
+    Moitié « recherche » (lecture seule) de find_or_create_group : le Group composé EXACTEMENT de
+    ces ClassPart (même ensemble, peu importe l'ordre), ou None si aucun n'existe. Extraite pour le
+    même besoin d'aperçu sans écriture que find_partition ci-dessus.
+    """
+    target_ids = set(class_part_ids)
+    for group in db.query(Group).all():
+        if {cp.id for cp in group.class_parts} == target_ids:
+            return group
+    return None
+
+
 def find_or_create_group(db: Session, class_part_ids: list, subject_id) -> Group:
     """
     Trouve ou crée le Group composé EXACTEMENT de ces ClassPart (même ensemble, peu importe
     l'ordre passé en paramètre) — jamais un Group qui en contiendrait un sous-ensemble ou un
     sur-ensemble.
     """
-    target_ids = set(class_part_ids)
-    for group in db.query(Group).all():
-        if {cp.id for cp in group.class_parts} == target_ids:
-            return group
+    existing = find_group(db, class_part_ids)
+    if existing:
+        return existing
 
+    target_ids = set(class_part_ids)
     class_parts = [db.get(ClassPart, cid) for cid in target_ids]
     division_ids = {cp.division_id for cp in class_parts if cp}
     common_division_id = next(iter(division_ids)) if len(division_ids) == 1 else None

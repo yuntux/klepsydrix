@@ -128,9 +128,47 @@ class Course(Base):
                     "title": "1. Mapping et mode de répartition",
                     "submitLabel": "Générer l'aperçu",
                     "rpc": "rpc_preview_composition",
-                    "rpcParams": {"mode": "composition.mode", "mapping": "composition.mapping"},
+                    "rpcParams": {"mode": "composition_mode", "mapping": "composition_mapping"},
                     "fields": [
-                        {"key": "composition", "label": "Répartition", "type": "text", "widget": "course_composition_mapping", "fullWidth": True}
+                        {
+                            "key": "composition_mapping", "label": "Répartition (mapping)", "type": "text",
+                            "widget": "list_preview", "fullWidth": True,
+                            "widgetParams": {
+                                "columns": [
+                                    {"key": "teacher_ids", "label": "Professeurs", "width": 200, "type": "multiselect", "resource": "teachers"},
+                                    {
+                                        "key": "subject_id", "label": "Matière", "width": 160, "type": "select", "resource": "subjects",
+                                        # Pré-remplissage depuis la matière préférée du 1er professeur choisi sur CETTE
+                                        # ligne — seulement si la matière n'a pas déjà été choisie (jamais d'écrasement),
+                                        # voir ListPreviewField.vue::applyPrefills. Miroir de Course.composition_mapping/
+                                        # CompositionModes.default_mapping, qui fait la même chose une fois à l'ouverture.
+                                        "prefillFromField": {"sourceField": "teacher_ids", "sourceItemField": "preferred_subject_id", "onlyIfEmpty": True},
+                                    },
+                                    {
+                                        "key": "group_ids", "label": "Groupes", "width": 160, "type": "multiselect", "resource": "groups",
+                                        "readOnlyExpr": "(model.class_part_ids && model.class_part_ids.length > 0) || (model.division_ids && model.division_ids.length > 0)",
+                                    },
+                                    {
+                                        "key": "class_part_ids", "label": "Parties de classe", "width": 160, "type": "multiselect", "resource": "class_parts",
+                                        "readOnlyExpr": "(model.group_ids && model.group_ids.length > 0) || (model.division_ids && model.division_ids.length > 0)",
+                                    },
+                                    {
+                                        "key": "division_ids", "label": "Classes", "width": 160, "type": "multiselect", "resource": "divisions",
+                                        "readOnlyExpr": "(model.group_ids && model.group_ids.length > 0) || (model.class_part_ids && model.class_part_ids.length > 0)",
+                                    },
+                                    {"key": "classroom_ids", "label": "Salles", "width": 160, "type": "multiselect", "resource": "classrooms"},
+                                ],
+                                "listConfig": {"editableInline": True, "disableAdd": False, "disableDelete": False, "allowMultiSelect": False},
+                            },
+                        },
+                        {
+                            "key": "composition_mode", "label": "Mode de répartition temporelle", "type": "select",
+                            "resource": "composition_mode_options", "fullWidth": True,
+                            "dynamicOptionsFilter": {
+                                "filterQueryParam": "mapping", "sourceField": "composition_mapping",
+                                "recordIdQueryParam": "course_id",
+                            },
+                        },
                     ]
                 },
                 {
@@ -141,7 +179,36 @@ class Course(Base):
                     "rpcParams": {"children_vals": "children_vals"},
                     "isLast": True,
                     "fields": [
-                        {"key": "children_vals", "label": "Cours enfants", "type": "text", "widget": "course_composition_preview", "fullWidth": True}
+                        {
+                            "key": "children_vals", "label": "Cours enfants", "type": "text",
+                            "widget": "list_preview", "fullWidth": True,
+                            "widgetParams": {
+                                "columns": [
+                                    {"key": "subject_id", "label": "Matière", "width": 140, "type": "select", "resource": "subjects", "readOnly": True},
+                                    {
+                                        "key": "week_type", "label": "Semaine", "width": 140, "type": "select", "readOnly": False,
+                                        "options": [
+                                            {"value": "W", "label": "Hebdomadaire"},
+                                            {"value": "Q", "label": "Quinzaine à déterminer"},
+                                            {"value": "A", "label": "Semaine A"},
+                                            {"value": "B", "label": "Semaine B"},
+                                        ],
+                                    },
+                                    {"key": "duration_minutes", "label": "Durée (min)", "width": 110, "type": "number"},
+                                    {"key": "parent_timeslot_offset", "label": "Décalage", "width": 100, "type": "number"},
+                                    {"key": "period_ids", "label": "Périodes", "width": 160, "type": "multiselect", "resource": "periods"},
+                                    {"key": "teacher_ids", "label": "Professeurs", "width": 180, "type": "multiselect", "resource": "teachers", "readOnly": True},
+                                    {"key": "is_co_teaching", "label": "Co-enseignement", "width": 120, "type": "boolean", "readOnly": True},
+                                    {"key": "division_ids", "label": "Classes", "width": 140, "type": "multiselect", "resource": "divisions", "readOnly": True},
+                                    {"key": "class_part_ids", "label": "Parties de classe", "width": 160, "type": "multiselect", "resource": "class_parts", "readOnly": True},
+                                    {"key": "group_ids", "label": "Groupes", "width": 140, "type": "multiselect", "resource": "groups", "readOnly": True},
+                                    {"key": "material_ids", "label": "Matériel", "width": 140, "type": "multiselect", "resource": "materials", "readOnly": True},
+                                    {"key": "non_teaching_staff_ids", "label": "Personnel non enseignant", "width": 180, "type": "multiselect", "resource": "non_teaching_staffs", "readOnly": True},
+                                    {"key": "pending_summary", "label": "Ressources à créer", "width": 220, "type": "text", "readOnly": True},
+                                ],
+                                "listConfig": {"editableInline": True, "disableAdd": True, "disableDelete": True, "allowMultiSelect": False},
+                            },
+                        },
                     ]
                 }
             ]
@@ -274,6 +341,22 @@ class Course(Base):
         if division_ids:
             conditions.append(Student.division_id.in_(division_ids))
         return list(db.execute(select(Student.id).where(or_(*conditions)).distinct()).scalars().all())
+
+    @exposed(info={"label": "Répartition initiale", "readOnly": True})
+    @property
+    def composition_mapping(self) -> list[dict]:
+        """
+        Mapping par défaut proposé à l'ouverture du wizard "Décomposer le cours" (voir
+        __actions__ ci-dessous) — calculé à la demande, jamais stocké. Simple délégué : toute la
+        logique vit dans CompositionModes.default_mapping (composition_mode.py), pas ici (même
+        règle que rpc_preview_composition/rpc_save_composition juste en dessous). Le nom de ce
+        champ est délibérément identique à la clé du champ `list_preview` de l'étape "mapping" du
+        wizard : GenericWizard.vue initialise son brouillon par un simple spread de l'enregistrement
+        (`draft = {...props.model}`), donc ce mapping par défaut y est déjà présent à l'ouverture,
+        sans code de plomberie wizard supplémentaire.
+        """
+        from backend.app.models.composition_mode import CompositionModes
+        return CompositionModes.default_mapping(self)
 
     # Relations de ressources (hors matière) prises en compte pour la ventilation composé/enfants
     # — associées au champ _ids correspondant, seul nom que le front connaît (voir
@@ -1037,13 +1120,6 @@ class Course(Base):
             "count": len(children),
         }
 
-    @requires_access("read")
-    def rpc_get_available_modes(self, db: Session, mapping: list[dict]) -> dict:
-        """Retourne la liste des modes de composition applicables."""
-        from backend.app.models.composition_mode import CompositionModes
-        modes = CompositionModes.get_available_modes(db, self, mapping)
-        return {"status": "ok", "available_modes": modes}
-
     @requires_access("write")
     def rpc_preview_composition(self, db: Session, mode: int, mapping: list[dict]) -> dict:
         """Génère l'aperçu des enfants sans les sauvegarder."""
@@ -1054,19 +1130,25 @@ class Course(Base):
     @requires_access("write")
     def rpc_cancel_composition(self, db: Session) -> dict:
         """
-        Appelée quand l'utilisateur quitte l'assistant sans valider. "Générer l'aperçu" a pu créer
-        pour de vrai des parties de classe/partitions/groupes (voir CompositionModes) : on nettoie
-        ici celles devenues orphelines (mêmes règles qu'après une suppression/modification de cours,
-        voir backend/app/models/group.py, cleanup_orphaned_resources — sans effet sur une ressource
-        créée manuellement).
+        Appelée quand l'utilisateur quitte l'assistant sans valider. Ne fait plus rien : depuis que
+        "Générer l'aperçu" (rpc_preview_composition) ne crée plus la moindre ressource réelle
+        (Partition/ClassPart/Group restent de simples jetons virtuels tant que "Valider" n'a pas été
+        cliqué, voir CompositionModes._resolve_dynamic_part_class/_resolve_dynamic_groups et
+        materialize_pending_resources), il n'y a structurellement plus rien à nettoyer — élimine la
+        classe de bug qui existait ici auparavant (fuite de ressources orphelines quand le cours
+        parent n'était pas encore composé, is_composed=False, avant ce changement).
         """
-        from backend.app.models.group import cleanup_orphaned_resources
-        cleanup_orphaned_resources(db, [cp.id for cp in self.class_parts], [g.id for g in self.groups])
         return {"status": "ok"}
 
     @requires_access("write")
     def rpc_save_composition(self, db: Session, children_vals: list[dict]) -> dict:
-        """Sauvegarde définitivement les enfants modifiés par l'utilisateur."""
+        """
+        Sauvegarde définitivement les enfants modifiés par l'utilisateur. Résout d'abord pour de
+        vrai (materialize_pending_resources) toute ressource (Partition/ClassPart/Group) restée en
+        attente depuis l'aperçu — c'est le SEUL moment où ces ressources sont réellement créées.
+        """
+        from backend.app.models.composition_mode import CompositionModes
+        children_vals = CompositionModes.materialize_pending_resources(db, self, children_vals)
         # 1. Supprimer les anciens enfants proprement sans déclencher de synchronisation intermédiaire sur le parent
         # Pas de détachement préalable (child.parent_id = None) : ce serait une mutation directe
         # hors CRUDMixin, or Course.delete() fait un premier db.flush() (nettoyage

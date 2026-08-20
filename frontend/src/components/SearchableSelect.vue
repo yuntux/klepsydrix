@@ -95,7 +95,9 @@ const props = withDefaults(defineProps<{
   // changement de filterValue (débounce) — équivalent de l'attribut `domain` d'Odoo sur un champ
   // relationnel. `options`, si fourni, sert alors uniquement de repli pour garder visible le
   // libellé de la valeur déjà sélectionnée si elle sort du filtre courant.
-  dynamicSource?: { resource: string; filterQueryParam: string; filterValue: any };
+  // recordIdQueryParam/recordId (optionnels) : second filtre statique, voir GenericForm.vue —
+  // envoyé en plus de filterQueryParam/filterValue, jamais à sa place.
+  dynamicSource?: { resource: string; filterQueryParam: string; filterValue: any; recordIdQueryParam?: string; recordId?: any };
 }>(), {
   nullable: true
 });
@@ -147,13 +149,17 @@ function currentValueFallback(): Option[] {
 
 async function refreshDynamicOptions() {
   if (!props.dynamicSource) return;
-  const { resource, filterQueryParam, filterValue } = props.dynamicSource;
+  const { resource, filterQueryParam, filterValue, recordIdQueryParam, recordId } = props.dynamicSource;
   if (!resource || filterValue === undefined || filterValue === null || filterValue === '') {
     dynamicOptions.value = currentValueFallback();
     return;
   }
+  const filters: Record<string, any> = { [filterQueryParam]: filterValue };
+  if (recordIdQueryParam !== undefined && recordId !== undefined && recordId !== null) {
+    filters[recordIdQueryParam] = recordId;
+  }
   try {
-    const res = await fetchGenericList(resource, 0, 50, undefined, { [filterQueryParam]: filterValue });
+    const res = await fetchGenericList(resource, 0, 50, undefined, filters);
     const fetched: Option[] = (res.items || []).map((item: any) => ({
       value: item.id,
       label: item.display_name || item.name || item.code || String(item.id)
@@ -323,12 +329,19 @@ function handleClickOutside(e: MouseEvent) {
   }
 }
 
+// Écouteur posé en phase de CAPTURE (3e argument `true`), pas la phase bubble par défaut : le
+// conteneur de CE widget (comme celui de tout autre SearchableSelect/SearchableMultiSelect voisin,
+// ex: une autre colonne éditable de la même ligne) stoppe volontairement la propagation de ses
+// propres clics (`@click="...stopPropagation()"`, nécessaire pour ne pas resélectionner la ligne
+// en édition inline) — un écouteur en phase bubble sur document ne verrait donc jamais un clic
+// commencé dans un widget voisin, laissant ce dropdown ouvert indéfiniment. La capture s'exécute
+// AVANT que quoi que ce soit ne puisse stopPropagation() en phase bubble, donc toujours déclenchée.
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
+  document.addEventListener('click', handleClickOutside, true);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('click', handleClickOutside, true);
 });
 </script>
 
@@ -371,7 +384,6 @@ onUnmounted(() => {
   color: var(--text-muted);
   font-size: 9px;
   user-select: none;
-  pointer-events: none;
 }
 
 .disabled-text {

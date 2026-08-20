@@ -52,8 +52,9 @@
 // - rpc : nom de la méthode d'instance à appeler à la soumission de cette étape (facultatif : une
 //   étape sans rpc avance simplement au brouillon accumulé, sans aller-retour serveur).
 // - rpcParams : associe chaque paramètre attendu par la méthode RPC à un chemin (à points) dans le
-//   brouillon accumulé — nécessaire quand un widget porte plusieurs valeurs sous une seule clé de
-//   champ (ex: {mapping, mode} sous la clé "composition", voir CourseCompositionMapping.vue).
+//   brouillon accumulé — utile dès qu'un widget porte plusieurs valeurs sous une seule clé de champ
+//   composite, ou simplement pour associer un nom de paramètre RPC différent de la clé du champ
+//   (cas le plus courant, ex: Course.__actions__ -> compose_course).
 // - Le résultat JSON de l'appel RPC est fusionné tel quel dans le brouillon (Object.assign) : si
 //   une clé de la réponse correspond à la clé d'un champ d'une étape suivante, ce champ est déjà
 //   peuplé sans code de "plomberie" supplémentaire (ex: rpc_preview_composition renvoie

@@ -283,7 +283,14 @@ export async function fetchGenericList(
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
       if (value !== undefined && value !== null) {
-        url += `&${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
+        // Une valeur non scalaire (tableau/objet — ex: le mapping du wizard de composition de
+        // cours) doit être sérialisée en JSON avant l'URL-encodage : String([...]) produirait
+        // "[object Object]", illisible côté serveur (voir generic.py, domain[key] reçoit alors la
+        // chaîne brute et la parse lui-même avec json.loads). Une valeur déjà string traverse
+        // inchangée pour ne rien changer au comportement existant (filtres scalaires classiques,
+        // ex: address_city_id/zip_code).
+        const raw = typeof value === 'string' ? value : JSON.stringify(value);
+        url += `&${encodeURIComponent(key)}=${encodeURIComponent(raw)}`;
       }
     }
   }

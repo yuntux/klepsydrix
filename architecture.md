@@ -1276,7 +1276,7 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
 
 ### M. Assistants Multi-Étapes Génériques (`GenericWizard.vue`) — IMPLÉMENTÉ
 
-**Le besoin** : le seul wizard du projet (« Décomposer le cours ») était un composant Vue de ~540 lignes entièrement écrit à la main — sa propre UI multi-écrans, son propre chargement de données, ses 3 appels RPC nommés en dur côté frontend ET backend (`rpc_get_available_modes`, `rpc_preview_composition`, `rpc_save_composition`), et son enregistrement dans une table `componentsMap` codée en dur dans `GenericForm.vue` (import + entrée de dict à ajouter à chaque nouveau wizard). Aucune de ces briques n'était réutilisable pour un futur wizard.
+**Le besoin** : le seul wizard du projet (« Décomposer le cours ») était un composant Vue de ~540 lignes entièrement écrit à la main — sa propre UI multi-écrans, son propre chargement de données, ses 3 appels RPC nommés en dur côté frontend ET backend (`rpc_get_available_modes`, `rpc_preview_composition`, `rpc_save_composition`), et son enregistrement dans une table `componentsMap` codée en dur dans `GenericForm.vue` (import + entrée de dict à ajouter à chaque nouveau wizard). Aucune de ces briques n'était réutilisable pour un futur wizard. `rpc_get_available_modes` a depuis été supprimée (voir point 4bis plus bas) — remplacée par une ressource virtuelle générique, pas par une nouvelle RPC dédiée.
 
 **Rejet de la persistance façon Odoo** : le mécanisme de wizard d'Odoo repose sur un `TransientModel` — une vraie ligne en base, temporaire, créée/modifiée/relue à chaque étape. Décision explicite de ne pas suivre ce modèle ici : (1) le pattern déjà en place (chaque appel RPC reçoit l'état complet en paramètres et renvoie un résultat calculé, sans rien persister) fonctionne déjà et est plus simple (pas de table à créer, pas de purge des brouillons abandonnés à gérer) ; (2) `TransientModel` chez Klepsydrix (section B) n'a de toute façon aucune table et, depuis le refactor vers le polymorphisme documenté dans cette même section B, ses `create()`/`update()`/`delete()` lèvent systématiquement — le réutiliser pour des brouillons de wizard aurait demandé une classe sœur, pas une réutilisation gratuite malgré le nom identique à celui d'Odoo.
 
@@ -1289,15 +1289,17 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
     "title": "1. Mapping et mode de répartition",
     "submitLabel": "Générer l'aperçu",
     "rpc": "rpc_preview_composition",
-    "rpcParams": {"mode": "composition.mode", "mapping": "composition.mapping"},
+    "rpcParams": {"mode": "composition_mode", "mapping": "composition_mapping"},
     "fields": [
-        {"key": "composition", "label": "Répartition", "type": "text", "widget": "course_composition_mapping", "fullWidth": True}
+        {"key": "composition_mapping", "label": "Répartition (mapping)", "type": "text", "widget": "list_preview", "fullWidth": True, "widgetParams": {"columns": [...]}},
+        {"key": "composition_mode", "label": "Mode de répartition temporelle", "type": "select", "resource": "composition_mode_options", "fullWidth": True,
+         "dynamicOptionsFilter": {"filterQueryParam": "mapping", "sourceField": "composition_mapping", "recordIdQueryParam": "course_id"}}
     ]
 }
 ```
-- `fields` : mêmes objets `FormField` qu'un formulaire classique (voir section 5.F) — un champ scalaire simple se rend automatiquement via le moteur de champs existant ; un champ complexe passe par `widget`/`widgetParams`, exactement comme `many2many_ordered_list` déjà en place.
+- `fields` : mêmes objets `FormField` qu'un formulaire classique (voir section 5.F) — un champ scalaire simple se rend automatiquement via le moteur de champs existant ; un champ complexe passe par `widget`/`widgetParams`, exactement comme `many2many_ordered_list` déjà en place, ou reste un simple champ FK (`resource`) piloté par `dynamicOptionsFilter` (voir §15.R) sans le moindre widget dédié.
 - `rpc` (facultatif) : nom de la méthode d'instance appelée à la soumission de cette étape. Une étape sans `rpc` avance simplement au brouillon accumulé, sans aller-retour serveur — couvre le cas des wizards purement collecte de champs.
-- `rpcParams` : associe chaque paramètre attendu par la méthode RPC à un **chemin à points** dans le brouillon accumulé (`"composition.mode"` va chercher `draft.composition.mode`) — nécessaire dès qu'un widget porte plusieurs valeurs sous une seule clé de champ (voir `CourseCompositionMapping.vue`, dont la valeur est `{mapping, mode}` sous la clé `"composition"`, car la disponibilité des modes dépend en direct du contenu du mapping et les deux doivent rester dans le même widget pour ça).
+- `rpcParams` : associe chaque paramètre attendu par la méthode RPC à un **chemin à points** dans le brouillon accumulé — reste utile dès qu'un widget porte plusieurs valeurs sous une seule clé de champ composite, ou simplement pour nommer différemment le paramètre RPC et la clé de champ (cas de l'exemple ci-dessus : deux champs PLATS, `composition_mapping`/`composition_mode`, plutôt que la première version de ce wizard qui les empilait sous une seule clé composite `"composition": {mapping, mode}` — abandonné avec la suppression des deux widgets dédiés, voir point 4bis).
 - Le JSON renvoyé par l'appel RPC est fusionné tel quel dans le brouillon (`Object.assign`). Si une clé de la réponse correspond à la clé d'un champ d'une étape suivante, ce champ est déjà peuplé sans code de plomberie supplémentaire : `rpc_preview_composition` renvoie `children_vals`, lu directement par l'étape "preview" qui porte un champ de cette même clé — coïncidence de nommage exploitée délibérément, pas un mécanisme de mapping séparé à écrire.
 - `isLast` (ou la dernière étape déclarée) : après l'appel RPC réussi, ferme le wizard (`success`, invalide le cache de `resourceKey`) au lieu d'avancer à l'étape suivante.
 
@@ -1317,15 +1319,21 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
 - **Imbrication à deux niveaux (`list_preview`)** : `widgetParams.columns` d'un champ `list_preview` (ex: `_DAY_ROWS_WIDGET_PARAMS` de `wizard_grid_settings.py`) est lui-même un tableau où CHAQUE entrée peut porter son propre `widget`/`widgetParams` — un `widgetParams` de premier niveau (celui du champ `day_rows`) qui configure `GenericList`, contenant des `widgetParams` de second niveau (ceux de chaque colonne) qui configurent le widget de CHAQUE cellule éditable de cette colonne.
 - **Ne pas confondre avec `readOnlyExpr`/`requiredExpr`** : mécanisme voisin mais séparé — une chaîne JS évaluée via `new Function('model', ...)` avec `model` = le même `parentRecord`, mais ce n'est PAS transporté par `widgetParams` (ce sont des clés dédiées, `readOnlyExpr`/`requiredExpr`, lues directement par `GenericForm.vue`/`GenericList.vue` avant même de déléguer au widget).
 
-**Régression rencontrée en étendant ce registre à `GenericList.vue`** : `widget` est déclaré au niveau du **modèle** (dict `info`, ex: `Division.mef_links` → `"widget": "many2many_ordered_list"`), donc valable pour *toute* vue affichant ce champ — mais un widget conçu pour l'espace généreux d'un formulaire (une mini-table éditable complète, ex. `Many2ManyOrderedList.vue`) n'est pas adapté à une cellule de tableau compacte. Faire honorer `widget` en liste sans distinction a fait apparaître ce mini-tableau en pleine cellule dans la colonne "Effectifs par MEF" de la liste "Classes" — d'autant plus visible que `mef_link_ids` porte *aussi* `resource`+`parentField` (relation possédée), donc avant ce changement il retombait correctement sur `OwnedRelationField` (tags + crayon), un rendu compact déjà adapté à la liste ; le registre codé en dur avec priorité absolue a court-circuité ce repli. Correctif : chaque entrée du registre porte désormais un `contexts?: ('list' | 'form')[]` (défaut `['form']` uniquement — un widget doit *demander* explicitement le support liste plutôt que s'y retrouver par accident), via `getWidgetForContext(name, context)` plutôt qu'un accès direct au registre. Les 3 widgets actuels (`many2many_ordered_list` et les 2 widgets du wizard de décomposition) restent `['form']` — aucun n'est aujourd'hui conçu pour un rendu compact.
+**Régression rencontrée en étendant ce registre à `GenericList.vue`** : `widget` est déclaré au niveau du **modèle** (dict `info`, ex: `Division.mef_links` → `"widget": "many2many_ordered_list"`), donc valable pour *toute* vue affichant ce champ — mais un widget conçu pour l'espace généreux d'un formulaire (une mini-table éditable complète, ex. `Many2ManyOrderedList.vue`) n'est pas adapté à une cellule de tableau compacte. Faire honorer `widget` en liste sans distinction a fait apparaître ce mini-tableau en pleine cellule dans la colonne "Effectifs par MEF" de la liste "Classes" — d'autant plus visible que `mef_link_ids` porte *aussi* `resource`+`parentField` (relation possédée), donc avant ce changement il retombait correctement sur `OwnedRelationField` (tags + crayon), un rendu compact déjà adapté à la liste ; le registre codé en dur avec priorité absolue a court-circuité ce repli. Correctif : chaque entrée du registre porte désormais un `contexts?: ('list' | 'form')[]` (défaut `['form']` uniquement — un widget doit *demander* explicitement le support liste plutôt que s'y retrouver par accident), via `getWidgetForContext(name, context)` plutôt qu'un accès direct au registre.
 
-**4. Migration du wizard de décomposition de cours, comme validation du mécanisme** : l'ancien `CourseCompositionWizard.vue` (bespoke, supprimé) est devenu 2 étapes déclarées sur `Course.__actions__` + 2 widgets dédiés :
-- `CourseCompositionMapping.vue` (étape 1) : reprend telle quelle la logique de mapping (profs × groupes/parties/classes/salles, exclusion mutuelle des cibles, unicité des profs) et de sélection du mode, y compris l'appel RPC débounced à `rpc_get_available_modes` à chaque changement de mapping — cette dépendance croisée (mode ↔ mapping) reste **interne au widget**, pas générique, parce que ce n'est pas un besoin qui se généralise à n'importe quel wizard. C'est exactement le compromis discuté : la complexité spécifique reste locale à un widget, l'orchestration (étapes, soumission, brouillon) devient commune.
-- `CourseCompositionPreview.vue` (étape 2, `isLast`) : le tableau d'aperçu éditable, quasiment inchangé.
-- **Simplification assumée, pas une régression accidentelle** : l'ancien bouton "Générer l'aperçu" était désactivé côté client tant que le mapping n'était pas valide (`isMappingValid`). `GenericForm.vue` n'a pas de mécanisme pour qu'un widget bloque dynamiquement le bouton de soumission d'un formulaire générique. `CourseCompositionMapping.vue` affiche toujours un indice visuel si le mapping est invalide, mais le bouton reste cliquable — une soumission invalide échoue proprement côté serveur (erreur affichée), au lieu d'être bloquée en amont côté client. Étendre `GenericForm`/le registre de widgets pour qu'un widget puisse exposer une validité bloquante n'a pas été fait : aucun autre besoin connu ne le demande aujourd'hui.
+**4. Migration du wizard de décomposition de cours, comme validation du mécanisme** : l'ancien `CourseCompositionWizard.vue` (bespoke, supprimé) est devenu 2 étapes déclarées sur `Course.__actions__`, initialement portées par 2 widgets dédiés (`CourseCompositionMapping.vue`, `CourseCompositionPreview.vue`) — **eux-mêmes supprimés depuis**, voir point 4bis.
+
+**4bis. Suppression des 2 derniers widgets dédiés — le wizard de composition devient 100% générique** : les deux widgets du point 4 ont été remplacés par des champs génériques, fermant la seule exception qui restait à la philosophie "config plutôt que composant" de ce projet. Trois capacités génériques ont dû être ajoutées pour y arriver, chacune réutilisable au-delà de ce wizard :
+- **Colonnes `list_preview` résolvant leurs options FK par `resource`** (`ListPreviewField.vue`) : jusqu'ici, une colonne FK d'un `list_preview` (comme de tout `GenericList`, voir `GenericListRow.vue::getFieldDef`) ne résolvait ses options que depuis un tableau `options` **statique**, jamais depuis un fetch dynamique par `resource` — obligeant tout wizard à précharger lui-même ces options dans un widget bespoke (c'était tout le rôle de `CourseCompositionMapping.vue`). `ListPreviewField.vue` le fait maintenant lui-même : toute colonne déclarant `resource` sans `options` statique est résolue via `useGenericCache(resource)`, un seul appel par ressource distincte référencée. Les lignes de mapping (`teacher_ids`, `subject_id`, `group_ids`/`class_part_ids`/`division_ids` en exclusion mutuelle via `readOnlyExpr` croisé, `classroom_ids`) et le tableau d'aperçu des cours enfants (`children_vals`) sont ainsi de purs champs `list_preview` configurés par `widgetParams.columns`, sans plus aucun code Vue spécifique à ce wizard.
+- **`dynamicOptionsFilter.recordIdQueryParam`** (voir §15.R) : le choix du mode de répartition temporelle (1-9, grille de cartes cliquables dans l'ancien widget) devient un `<select>` FK classique sur une nouvelle ressource virtuelle, `CompositionModeOption` (`TransientModel`, `composition_mode.py`, `__tablename__ = "composition_mode_options"` — auto-enregistrée par `generic.py::MODEL_MAP` comme tout modèle, aucune registration manuelle). Son `read()` a besoin de DEUX filtres simultanés (le mapping en cours de saisie ET le cours en décomposition), alors que `dynamicOptionsFilter` ne portait jusqu'ici qu'un seul filtre issu d'un champ frère — `recordIdQueryParam` ajoute un second filtre statique, l'id de l'enregistrement en cours d'édition lui-même (`widgetParams.recordId`, déjà injecté par `GenericWizard.vue` pour tout champ d'étape). Corrigé au passage : le fallback de layout sans `formConfig.fields` explicite (celui qu'utilisent tous les wizards, `GenericForm.vue::layoutTree`) ne recopiait jamais `dynamicOptionsFilter` du `FormField` vers son `LayoutElement` — `dynamicOptionsFilter` n'avait donc, dans les faits, jamais pu fonctionner sur un champ de wizard avant ce correctif.
+- **Sérialisation JSON des filtres non scalaires** (`fetchGenericList`, `api.ts`) : un filtre dynamique portait jusqu'ici toujours une valeur scalaire (`String(value)` suffisait) — le mapping est un tableau d'objets, sérialisé désormais en JSON avant l'URL-encodage (lu côté serveur via `json.loads` dans `CompositionModeOption.read()`).
+
+**Écriture différée jusqu'à la confirmation finale, en miroir du wizard Grille horaire (§5.D)** : à l'occasion de cette suppression, le wizard a aussi été aligné sur le patron "aucune écriture avant confirmation" déjà établi par `wizard_grid_settings.py` — jusqu'ici, "Générer l'aperçu" créait déjà pour de vrai (via `find_or_create_group`/`find_or_create_partition`) toute `Partition`/`ClassPart`/`Group` nécessaire, avec un `rpc_cancel_composition` chargé de nettoyer ces écritures intermédiaires si l'utilisateur abandonnait le wizard — mécanisme qui fuyait silencieusement pour un cours pas encore composé (`is_composed=False`, cas pourtant explicitement supporté). `find_or_create_group`/`find_or_create_partition` (`group.py`) sont désormais scindées en une moitié `find_*` (lecture seule, réutilisable pour un aperçu) et la façade `find_or_create_*` (réservée à la matérialisation). En aperçu, toute ressource introuvable reçoit un **jeton virtuel déterministe** (`CompositionModes._partition_token`/`_group_token`, dérivé de la division/matière ou de l'ensemble des parties de classe — stable d'une régénération à l'autre, donc jamais dupliqué) plutôt qu'un id réel, porté par `pending_class_parts`/`pending_group` sur chaque ligne de `children_vals` ; `rpc_save_composition` les résout pour de vrai (`CompositionModes.materialize_pending_resources`) juste avant de créer chaque enfant — le seul moment où ces ressources existent réellement. `rpc_cancel_composition` est désormais un pur no-op : il n'y a structurellement plus rien à nettoyer, la classe de bug entière disparaît plutôt que d'être corrigée au cas par cas.
+
+- **Simplification assumée, pas une régression accidentelle** : l'ancien bouton "Générer l'aperçu" était désactivé côté client tant que le mapping n'était pas valide (`isMappingValid`, calculé dans l'ancien widget). `GenericForm.vue` n'a pas de mécanisme pour qu'un widget/champ bloque dynamiquement le bouton de soumission d'un formulaire générique — cette validation (unicité des profs, exactement une cible par ligne) existe déjà côté serveur (`CompositionModes.apply`) et s'exécutait de toute façon à la soumission ; seul le rappel visuel *avant* soumission a disparu avec le widget qui le portait.
 - ~~Pas de bouton "Précédent"~~ **Ajouté depuis** : `GenericWizard.vue` rend lui-même ce bouton (à côté de l'indicateur d'étapes), pas `GenericForm.vue` — la navigation entre étapes est un concept propre au wizard, `GenericForm` reste un composant à usage général sans rien connaître des étapes. Revenir en arrière est une **navigation purement locale** (décrémente l'index, ré-affiche l'étape précédente avec le brouillon déjà accumulé) — aucun ré-appel RPC, contrairement à "suivant".
 
-**Vérifié** : suite de tests backend 96/96 (un échec du solveur en cours de route s'est avéré être un test flaky préexistant, sans rapport — repassé au vert isolément puis en suite complète), build de production Vite propre, et la séquence complète `rpc_get_available_modes` → `rpc_preview_composition` → `rpc_save_composition` rejouée via `curl` exactement comme `GenericWizard`/les deux widgets l'orchestreraient (mapping réaliste à 3 professeurs, avec vérification du recalcul du statut du cours parent). **Non vérifié** : le rendu visuel réel dans le navigateur (interdit par la constitution du projet, Principe II) — en particulier la mise en page des deux nouveaux widgets et la navigation effective entre les deux étapes.
+**Vérifié** : suite de tests backend complète (564/564) après la suppression des 2 widgets et le passage à l'écriture différée, dont des tests dédiés (aucune écriture DB pendant l'aperçu, non-régression de la fuite de ressources orphelines, idempotence du jeton virtuel entre deux régénérations, matérialisation correcte à la sauvegarde). **Non vérifié** : le rendu visuel réel dans le navigateur (interdit par la constitution du projet, Principe II) — en particulier la mise en page des colonnes `list_preview` et le nouveau `<select>` de mode.
 
 ### N. Troncature Silencieuse au-delà de 1000 Enregistrements — Corrigée (`fetchAllGenericItems`)
 
@@ -1416,6 +1424,7 @@ Filtrer une **liste d'options** est un problème différent, qu'`@onchange`/`pro
 - `dynamicOptionsFilter: { sourceField, filterQueryParam }` (déclaré sur le `LayoutElement` d'un champ FK dans `ui.json`, ex: `address_city_id` avec `{"sourceField": "address_zipcode", "filterQueryParam": "zip_code"}`) — traduit dans `FormLayoutGrid` (`GenericForm.vue`) en une prop `dynamicSource: { resource, filterQueryParam, filterValue }` transmise à `SearchableSelect`/`SearchableMultiSelect`.
 - **`SearchableSelect.vue`/`SearchableMultiSelect.vue`** : nouvelle prop optionnelle `dynamicSource`, `undefined` pour tout champ FK qui n'en déclare pas (comportement strictement inchangé, c'est la quasi-totalité des champs FK du projet). Quand elle est fournie, un `watch` (débounce 300ms) sur `dynamicSource.filterValue` déclenche `fetchGenericList(resource, 0, 50, undefined, {[filterQueryParam]: filterValue})` — l'endpoint liste générique accepte déjà nativement un filtre par n'importe quelle colonne via ses query params (`generic.py`, `CRUDMixin._apply_domain`), donc **aucun changement backend** n'a été nécessaire pour ce mécanisme. Les options actives (`activeOptions`, computed) basculent alors du prop `options` statique vers ce résultat dynamique — toute la logique interne existante (recherche texte, scroll virtuel, sélection) continue d'opérer sur `activeOptions` sans distinction entre les deux modes.
 - **Valeur(s) déjà sélectionnée(s) toujours visible(s)** : si l'enregistrement en cours d'édition référence une valeur qui ne correspond plus au filtre courant (ex: le CP vient de changer), elle est réinjectée dans la liste dynamique depuis `props.options` (la liste préchargée classique, déjà transmise par l'appelant comme pour tout champ FK — réutilisée ici uniquement comme repli) — sans quoi le champ afficherait vide pour une valeur pourtant bien enregistrée.
+- **Second filtre optionnel, `recordIdQueryParam`** (ajouté pour le wizard de composition de cours, voir §15.M point 4bis) : `dynamicOptionsFilter` ne portait jusqu'ici qu'un seul filtre, dérivé d'un champ frère (`sourceField`). Certaines ressources virtuelles ont besoin d'un second filtre statique — l'enregistrement en cours d'édition lui-même, pas un champ du formulaire (ex: `composition_mode_options` a besoin à la fois du mapping ET du `course_id` en décomposition). `dynamicOptionsFilter.recordIdQueryParam`, quand présent, ajoute `widgetParams.recordId` (déjà injecté par `GenericWizard.vue` pour tout champ d'étape) comme second paramètre de la requête filtrée — rétrocompatible, absent pour tout champ existant qui ne le déclare pas.
 
 ### S. URLs Profondes (Deep-Linking) — Navigation et Sélection Reflétées dans l'URL
 
@@ -2373,6 +2382,94 @@ laissé tel quel (inoffensif) ; les filtres fail2ban continuent eux aussi d'acce
 valeur pour le `[db=...]` externe (`\[db=\S+\]`), par robustesse, sans plus en dépendre pour la
 raison qui avait initialement motivé ce choix.
 
+### I. Désactivation de compte (`User.active`) et robustesse des mots de passe locaux
+
+`User.active` (bool, défaut `True`) : coupe l'accès d'un compte sans le supprimer — conserve
+l'historique et les rattachements (`Teacher`, cours, vœux…), utilisable aussi bien pour un compte
+local que fédéré OIDC (un compte OIDC n'a pas de mot de passe à invalider, la désactivation est donc
+la SEULE coupure possible pour lui). Point d'application unique : `current_db_user` (`database.py`)
+— le même point que celui qui résout `idp`/`idp.user` pour les deux familles de provider, `raise
+HTTPException(403, {"code": "USER_INACTIVE"})` juste avant de retourner l'utilisateur. `login_local`
+ajoute un rejet **immédiat**, avant même de poser la session (meilleure UX qu'attendre le premier
+appel applicatif) — mais `current_db_user` reste la protection FAISANT AUTORITÉ : elle seule couvre
+OIDC (dont la session s'établit via `oidc_callback`, hors de portée d'un contrôle à la connexion) et
+les sessions déjà ouvertes au moment où le compte est désactivé.
+
+`_validate_password_strength` (`models/user.py`) : longueur minimale (`auth.password_min_length`,
+8 par défaut) **et** diversité de caractères (au moins 3 des 4 catégories majuscule/minuscule/
+chiffre/spécial) — la longueur seule laisserait passer des mots de passe triviaux. Point
+d'application unique, à la RACINE (`UserIdentityProvider.register_local_password`/
+`set_local_password`), jamais dupliqué endpoint par endpoint : tout appelant (reset par email,
+changement volontaire — voir J — création du compte admin initial d'une base) passe forcément par
+l'un des deux.
+
+`User.update()` refuse désormais de vider un email déjà renseigné (`if 'email' in vals and not
+vals['email'] and self.email: raise ValueError(...)`) — comparaison faite contre l'état AVANT
+délégation à `super().update()`, donc contre l'ancienne valeur. Un email peut toujours être
+**remplacé** par un autre, ou posé pour la première fois (`self.email` alors `None`, donc falsy —
+la condition ne se déclenche pas) ; seul un RETRAIT pur est bloqué. `HasUserAccount.
+_sync_user_account` (§17.A) ne propage jamais `None`, donc aucun conflit avec la synchro Teacher/
+Student → User existante.
+
+⚠️ **Piège de `server_default` sur une colonne booléenne, trouvé en vérifiant en conditions
+réelles** (invisible à `pytest`, qui écrit toujours via l'ORM) : `server_default="false"` (une
+chaîne Python passée telle quelle) se compile en le littéral SQL **`DEFAULT 'false'`** — une chaîne
+de texte, pas un booléen. `init_demo.py`/`init_db.py` seedent `res_groups`/`user_identity_providers`
+en **SQL brut** (`db.execute(text("INSERT INTO ..."))`), qui ne passe jamais par le `default=`
+Python-côté-ORM ; une ligne insérée sans lister explicitement une nouvelle colonne NOT NULL retombe
+sur ce `server_default`, et SQLite stocke alors la chaîne non-vide `"false"` — relue par l'ORM,
+n'importe quelle chaîne non-vide est *truthy*. Résultat observé : `must_change_password` valait
+`True` pour TOUT compte fraîchement seedé, y compris `demo@klepsydrix.fr`, provoquant une
+redirection forcée vers `/password-change` dès la première connexion. Corrigé avec
+`sqlalchemy.true()`/`false()` (`from sqlalchemy import true as sa_true, false as sa_false`), qui
+compilent vers le littéral correct par dialecte (`1`/`0` sur SQLite, `true`/`false` sur PostgreSQL).
+
+### J. Changement de mot de passe — volontaire et forcé (`must_change_password`)
+
+**Volontaire** : `POST /api/auth/password/change` (`auth_endpoints.py`), `{current_password,
+new_password}`, exige une session déjà ouverte (`user=Depends(current_db_user)` posé directement sur
+la route, comme `whoami`/`get_menus` — voir §18.H — pas au niveau routeur, `auth_router` restant
+public par ailleurs). Vérifie le mot de passe actuel (`UserIdentityProvider.verify_password`,
+factorisé hors de `verify_local_password` pour être appelable sur une identité déjà résolue plutôt
+que sur un identifiant à chercher depuis zéro), puis délègue à `set_local_password` (robustesse +
+purge de `must_change_password`, voir I).
+
+**Bypass DÉLIBÉRÉ et ÉTROIT du moteur de droits**, documenté dans le code : la plupart des
+utilisateurs (un enseignant, par ex.) n'ont structurellement aucun droit d'écriture sur
+`user_identity_providers` — ce n'est pas censé être le cas, changer SON PROPRE mot de passe doit
+rester possible quel que soit le profil de droits. `db.klepsydrix_user_id` est mis à `None`
+temporairement (drapeau ambiant restauré dans un `finally` — même idiome que `HasUserAccount.
+_sync_user_account`/`db._syncing_user_account`, §17.A) autour de `verify_password`/
+`set_local_password` — la légitimité de cette écriture précise est déjà entièrement vérifiée par le
+code AVANT le bypass (`idp.user_id == user.id`, mot de passe actuel contrôlé), pas une ouverture
+générale du moteur de droits.
+
+**Forcé** : `UserIdentityProvider.must_change_password` (bool, défaut `False`) — posé par un admin
+(via le CRUD générique sur `user_identity_providers`, aucun endpoint dédié, voir §18.L), jamais côté
+`User` : conceptuellement lié au provider "local" uniquement (comme `password_hash`), un compte
+purement OIDC n'a pas de mot de passe à forcer. Vérifié dans `current_db_user`, juste après
+`USER_INACTIVE` : `if idp.provider_key == "local" and idp.must_change_password and request.url.path
+not in _PASSWORD_CHANGE_GATE_EXEMPT_PATHS: raise HTTPException(403, {"code":
+"PASSWORD_CHANGE_REQUIRED"})`. Deux routes exemptées, et seulement deux : `/api/auth/password/
+change` (la route qui permet d'en sortir) et `/api/ui/whoami` (seul moyen pour le frontend de
+DÉTECTER l'état — sans cette exemption, `whoami` elle-même serait bloquée et le frontend n'aurait
+aucun moyen de savoir pourquoi). `set_local_password` purge systématiquement le drapeau, quel que
+soit le chemin qui pose effectivement un nouveau mot de passe (changement volontaire ci-dessus,
+reset par email — §17.G — ou tout code interne) : la seule chose qui compte est qu'un nouveau mot de
+passe ait été choisi.
+
+**Frontend** (`pages/PasswordChange.vue`, route `/password-change`) : formulaire unique réutilisé
+pour les deux cas (mot de passe actuel + nouveau + confirmation), différencié par `?forced=1` pour
+le message/la redirection post-succès. Défense en profondeur à deux niveaux, cohérente avec le
+principe déjà en place pour `NOT_AUTHENTICATED`/`DATABASE_REQUIRED` (§16.D) : `NotebooksTree.vue`
+redirige dès que `fetchWhoAmI()` renvoie `must_change_password: true` (avant que l'utilisateur ait
+l'occasion d'interagir avec le reste de l'IHM) ; `apiFetch()` intercepte en plus le code
+`PASSWORD_CHANGE_REQUIRED` sur N'IMPORTE QUEL appel ultérieur — couvre le cas où le drapeau est posé
+PENDANT une session déjà ouverte, que le premier mécanisme ne peut pas anticiper. `USER_INACTIVE`
+(voir I) suit le même patron d'interception dans `apiFetch()`, avec retour vers `/login?reason=
+inactive` plutôt que `/password-change` — aucune échappatoire prévue pour un compte désactivé,
+contrairement à `must_change_password`.
+
 ## 18. Droits et Habilitations Façon Odoo
 
 Modèle réduit par rapport à Odoo (voir plan) : `IrModelAccess` fusionne `ir.model.access` (perms
@@ -2703,6 +2800,62 @@ contrôle y est porté par l'ORM (`_read` applique les `ir.rules` quel que soit 
 le routage. La contrepartie du choix retenu ici (point d'application au niveau `read()`, §18.B) est
 précisément qu'il dépend d'un câblage de routage correct — ce garde-fou est ce qui rend ce câblage
 non-oubliable.
+
+### L. Groupes système protégés, groupe "Consultation", dernier administrateur
+
+`ResGroup.is_system_generated`/`IrModelAccess.is_system_generated` (bool, défaut `False`) — même
+patron que `Partition.is_system_generated`/`ClassPart.is_system_generated` (§15, `models/group.py`) :
+un objet créé par le seed (`init_db.py::seed_admin_access`/`seed_readonly_access`) n'est ni
+renommable ni supprimable. `create()`/`update()` protègent le champ lui-même par un sentinel
+`_system_write` (poppé du dict, jamais atteignable depuis un payload API filtré par `clean_payload`)
+— même convention que `Partition.special_type` ; les `INSERT` bruts du seed contournent de toute
+façon `CRUDMixin`, donc n'ont pas besoin de ce sentinel, seule la colonne compte pour eux.
+
+**Carve-out volontaire sur `ResGroup`, absent sur `IrModelAccess`** : un groupe système protège sa
+propre structure (`name`, `implied_group_ids`…) mais laisse `user_ids` (l'appartenance) librement
+modifiable — `instance_endpoints.py::create_database` en dépend déjà pour rattacher l'admin désigné
+d'une nouvelle base au groupe "Admin" via un simple `admin_group.update(db, {"user_ids": [...]})`.
+Une ligne `ir_model_access`, elle, n'a pas d'équivalent "appartenance" à faire évoluer : protégée
+dans son intégralité.
+
+**Groupe "Consultation"** (`seed_readonly_access`, miroir de `seed_admin_access` — factorisé via
+`_all_tablenames()`) : lecture seule sur tous les modèles, à L'EXCEPTION de
+`SECURITY_SENSITIVE_TABLENAMES` (`users`, `user_identity_providers`, `res_groups`,
+`ir_model_access`, `password_reset_tokens`) — **aucune** ligne `ir_model_access` n'est créée pour ces
+tables, donc aucun accès du tout (même principe "aucune ligne = aucun accès" que partout ailleurs,
+§18), pas seulement une restriction en écriture. Un simple consultant en lecture seule sur le reste
+de la base ne doit pas pouvoir lister les comptes, leurs emails, ni la configuration des droits.
+Conséquence gratuite : `filter_menu_for_user` (§18.H) masque déjà, sans code dédié, toute la section
+de menu "Comptes & droits" (voir plus bas) à un membre de Consultation.
+
+**Dernier administrateur — trois chemins indépendants, trois points d'application** (`_admin_group`,
+`access.py`, cherche le `ResGroup` nommé "Admin") :
+- `ResGroup.update()` : après délégation à `super()` (donc la nouvelle collection déjà appliquée),
+  `if instance.name == "Admin" and not instance.users: raise ValueError(...)` — vide le groupe via
+  `user_ids`.
+- `User.update()` : si `group_ids` fait partie de la requête, revérifie `_admin_group(db).users`
+  après délégation — retire le groupe depuis le côté utilisateur.
+- `User.delete()` : avant délégation, si `self` est l'UNIQUE membre du groupe "Admin", refuse — couvre
+  aussi la suppression indirecte via `HasUserAccount.delete()` (§17.A, un `Teacher`/`Student` lié).
+
+⚠️ **Piège du dict `vals` muté en place, trouvé en écrivant le test correspondant** : `CRUDMixin.
+update()` retire ("pop") les clés de relation collection (dont `group_ids`) du dict `vals` PENDANT
+son propre traitement — `vals` étant passé par référence, un test `'group_ids' in vals` fait APRÈS
+l'appel à `super().update(db, vals)` verrait toujours cette clé absente, qu'elle ait ou non fait
+partie de la requête initiale. Le booléen `group_ids_changed = 'group_ids' in vals` doit être capturé
+AVANT l'appel à `super()`, pas après.
+
+Trois lignes de droit protégées (`is_system_generated`) ne se substituent PAS au garde-fou "dernier
+administrateur" ci-dessus : même un groupe "Admin" verrouillé contre le renommage/la suppression
+resterait vidable de tous ses membres sans ce contrôle dédié — deux mécanismes orthogonaux,
+répondant à deux risques distincts (structure du groupe vs. composition de ses membres).
+
+**Frontend** : nouvelle section de menu "Comptes & droits" (`ui.json`, nœud `accounts_setting` sous
+"Paramètres") exposant `users`/`res_groups`/`user_identity_providers` via trois panneaux `GenericList`
+/`GenericForm` — aucun nouveau composant, pure config déclarative (même patron que `groups_setting`/
+`schools_setting`). Visibilité entièrement gouvernée par le moteur de droits existant (§18.H) : un
+membre de "Consultation" ne la voit pas du tout (aucun accès sur les 3 `resourceKey`, voir plus
+haut), un membre de "Admin" y accède en écriture complète.
 
 ## 19. Console d'Administration d'Instance
 

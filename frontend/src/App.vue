@@ -784,7 +784,7 @@ function toFkOptions(items: any[]) {
 // filtre (voir genericCacheKey) alimente automatiquement cette entrée, quelle que soit son
 // origine — un des 7 caches globaux (bindGenericListQuery), le panneau admin actif sans filtre
 // (genericListQuery), ou n'importe quel composant utilisant useGenericCache(resource) ailleurs
-// dans l'app (CourseCompositionPreview, GenericPivot...). Remplace l'ancienne écriture manuelle
+// dans l'app (ListPreviewField, GenericPivot...). Remplace l'ancienne écriture manuelle
 // propre à refreshFkOptionsForResource seul : désormais N'IMPORTE QUEL déclencheur du même fetch
 // (ex: une mutation invalidant la query via resource:mutated ailleurs) tient fkOptionsCache à
 // jour, pas seulement un appel explicite à cette fonction précise — la duplication qu'on cherchait

@@ -305,12 +305,15 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
+// Phase de CAPTURE (3e argument `true`) — voir SearchableSelect.vue::handleClickOutside pour le
+// raisonnement complet (un widget voisin qui stoppe la propagation de ses propres clics en phase
+// bubble ne doit jamais empêcher CE dropdown de détecter un clic extérieur).
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
+  document.addEventListener('click', handleClickOutside, true);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('click', handleClickOutside, true);
 });
 </script>
 
@@ -406,7 +409,6 @@ onUnmounted(() => {
   color: var(--text-muted);
   font-size: 9px;
   user-select: none;
-  pointer-events: none;
 }
 
 .options-dropdown {

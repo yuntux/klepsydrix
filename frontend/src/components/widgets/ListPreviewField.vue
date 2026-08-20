@@ -1,12 +1,14 @@
 <template>
   <GenericList
-    title="Propositions"
+    title=""
     :columns="columns"
     :fields="fields"
     :items="rows"
     :listConfig="listConfig"
     @selection-change="onSelectionChange"
     @update-item="onUpdateItem"
+    @add="onAdd"
+    @delete="onDelete"
   />
 </template>
 
@@ -20,19 +22,23 @@
 // enrobage qui adapte modelValue à la prop `items`, et fait passe-plat de `widgetParams.columns`/
 // `widgetParams.listConfig` vers les props `columns`/`listConfig` de GenericList — exactement le
 // même dictionnaire de config qu'un panneau GenericList classique déclarerait dans ui.json, rien
-// de spécifique à ce widget n'est codé en dur ici. C'est `wizard_teacher_assignment.py` (le champ
-// "proposals" de l'étape de review) qui porte la configuration réelle des colonnes et du
-// listConfig, pas ce fichier.
+// de spécifique à un wizard précis n'est codé en dur ici. C'est chaque `__actions__`/wizard_*.py
+// appelant (ex: wizard_teacher_assignment.py::proposals, Course.__actions__::compose_course) qui
+// porte la configuration réelle des colonnes et du listConfig.
 //
-// Sert l'étape de review du wizard d'affectation des professeurs (voir
-// wizard_teacher_assignment.py, specs/002-yearly-timetabling-core/teacher-assignment-
-// proposal.md §8) : chaque ligne est une proposition {id, service_id, teacher_ids, ...}. La
-// sélection multiple existante de GenericList (cases à cocher) sert ici à choisir quelles
-// propositions garder plutôt qu'à déclencher une action groupée classique — le widget ne force
-// plus lui-même "tout coché par défaut" : c'est listConfig.selectAllLine (déclaré côté
-// wizard_teacher_assignment.py) qui pilote ce comportement, un paramètre générique de
-// GenericList, pas une bidouille propre à ce widget. Décocher une ligne la retire de
-// modelValue, donc de ce que rpc_apply recevra à la validation de l'étape.
+// `title=""` (jamais un libellé cosmétique) : GenericList.vue réutilise sa prop `title` comme clé
+// de ressource pour chercher les actions de portée liste (`GET /api/generic/{title}/actions`,
+// voir son commentaire "props.title EST la clé de ressource") — un list_preview n'a par
+// définition AUCUNE ressource propre, donc aucune action de ce genre n'a de sens ici. Une chaîne
+// vide laisse ce watch se taire (`if (!resourceKey) return`) au lieu de déclencher un 404 silencieux
+// à chaque rendu vers une fausse ressource ("Propositions", valeur historique codée en dur ici).
+//
+// Sélection multiple (cases à cocher, voir wizard_teacher_assignment.py::proposals) : sert à
+// choisir quelles lignes garder plutôt qu'à déclencher une action groupée classique — le widget ne
+// force plus lui-même "tout coché par défaut" : c'est listConfig.selectAllLine (déclaré côté
+// appelant) qui pilote ce comportement, un paramètre générique de GenericList, pas une bidouille
+// propre à ce widget. Décocher une ligne la retire de modelValue, donc de ce que l'étape suivante
+// du wizard recevra à sa soumission.
 //
 // Édition inline (@update-item, voir wizard_grid_settings.py) : symétrique du panneau détail
 // (architecture.md §15.E, onUpdateDetailGenericInline) mais sur des lignes TRANSITOIRES — aucun
@@ -42,6 +48,7 @@
 // éditée n'est jamais une vraie ressource /api/generic/{resource}, seulement le champ courant.
 import { computed } from 'vue';
 import GenericList from '../GenericList.vue';
+import { useGenericCache } from '../../composables/useGenericCache';
 
 const props = defineProps<{
   modelValue: any[];
@@ -56,13 +63,46 @@ const emit = defineEmits<{
 }>();
 
 const rows = computed(() => props.modelValue || []);
-const columns = computed(() => props.widgetParams?.columns || []);
+const rawColumns = computed(() => props.widgetParams?.columns || []);
+
+// Résolution générique des options FK d'une colonne qui déclare `resource` sans `options` statique
+// (ex: teacher_ids -> resource: "teachers") : GenericList/GenericListRow ne résolvent jamais un
+// `resource` dynamiquement elles-mêmes (voir GenericListRow.vue::getFieldDef, toujours des
+// `options` déjà résolues en amont) — pour un panneau de ressource classique, c'est App.vue qui le
+// fait via fkOptionsCache avant de construire `fields` ; un list_preview n'a pas cette étape (pas de
+// ressource propre), donc ce widget générique s'en charge lui-même. Un seul useGenericCache() par
+// ressource DISTINCTE référencée, appelé une seule fois à l'initialisation du composant (le tableau
+// de colonnes d'un wizard step est fixe pour la durée de vie de ce champ) — respecte les règles
+// d'appel des composables de Vue tout en restant piloté par la config plutôt que codé en dur.
+const resourcesToResolve: string[] = Array.from(new Set(
+  (props.widgetParams?.columns || [])
+    .filter((c: any) => c.resource && !c.options)
+    .map((c: any) => c.resource as string)
+));
+const resourceItemsByName: Record<string, ReturnType<typeof useGenericCache>['items']> = {};
+for (const resource of resourcesToResolve) {
+  resourceItemsByName[resource] = useGenericCache(resource).items;
+}
+
+// Même convention de libellé que SearchableSelect.vue/App.vue (fkOptionsCache) : display_name en
+// priorité, avec les mêmes replis — cohérent partout où une option FK est affichée dans l'appli.
+function optionsForResource(resource: string) {
+  return (resourceItemsByName[resource]?.value || []).map((item: any) => ({
+    value: item.id,
+    label: item.display_name || item.name || item.code || String(item.id),
+  }));
+}
+
+const columns = computed(() => rawColumns.value.map((c: any) => (
+  c.resource && !c.options ? { ...c, options: optionsForResource(c.resource) } : c
+)));
 // GenericList lit width/label sur `columns` mais widget/type/options/readOnlyExpr sur `fields`
 // (deux props distinctes, voir GenericList.vue::getFieldDef) — un list_preview n'a pas de schéma
 // OpenAPI dont dériver `fields` séparément (contrairement à un panneau ui.json classique), donc le
-// même tableau `widgetParams.columns` sert directement les deux : chaque entrée peut porter à la
-// fois les clés de présentation (label, width) ET de comportement (widget, widgetParams,
-// readOnlyExpr, options) sans redondance à déclarer côté appelant (ex: wizard_grid_settings.py).
+// même tableau `widgetParams.columns` (options désormais résolues ci-dessus) sert directement les
+// deux : chaque entrée peut porter à la fois les clés de présentation (label, width) ET de
+// comportement (widget, widgetParams, readOnlyExpr, options) sans redondance à déclarer côté
+// appelant (ex: wizard_grid_settings.py).
 const fields = computed(() => columns.value);
 
 const listConfig = computed(() => ({
@@ -79,7 +119,59 @@ function onSelectionChange(ids: any[]) {
   emit('update:modelValue', rows.value.filter((r) => kept.has(r.id)));
 }
 
+// GenericList.vue suit chaque ligne éditable par `item.id` (Map d'édition en attente
+// `pendingUpdates`, `:key` de la boucle de rendu) — sans id unique par ligne, TOUTES les lignes
+// partagent la même clé `undefined` : éditer une ligne recopiait alors son contenu complet sur
+// toutes les autres (bug constaté : choisir une matière/un professeur sur la 1re ligne se
+// répercutait sur toutes). Les lignes issues d'un champ calculé côté backend (ex:
+// Course.composition_mapping) portent déjà un id ; toute ligne ajoutée ici doit continuer la même
+// numérotation, jamais en revenir à `undefined`.
+function nextRowId(): number {
+  const maxId = rows.value.reduce((max: number, r: any) => (typeof r.id === 'number' && r.id > max ? r.id : max), 0);
+  return maxId + 1;
+}
+
+function onAdd() {
+  const blank: Record<string, any> = { id: nextRowId() };
+  for (const col of rawColumns.value) {
+    blank[col.key] = col.type === 'multiselect' ? [] : null;
+  }
+  emit('update:modelValue', [...rows.value, blank]);
+}
+
+function onDelete(item: any) {
+  emit('update:modelValue', rows.value.filter((r) => r.id !== item.id));
+}
+
+// Capacité générique symétrique du pré-remplissage déjà fait une fois côté backend à l'ouverture
+// du wizard (ex: Course.composition_mapping) : une colonne peut déclarer `prefillFromField` pour
+// se faire remplir automatiquement depuis un champ FK frère de LA MÊME ligne dès que celui-ci
+// change — ex: la matière depuis la matière préférée du professeur qu'on vient de choisir.
+// `onlyIfEmpty` (recommandé) ne remplace jamais une valeur déjà choisie, manuellement ou par un
+// pré-remplissage précédent.
+function applyPrefills(previous: any, updated: any): any {
+  let result = updated;
+  for (const col of rawColumns.value) {
+    const prefill = col.prefillFromField;
+    if (!prefill) continue;
+    const newSource = updated[prefill.sourceField];
+    if (JSON.stringify(previous?.[prefill.sourceField]) === JSON.stringify(newSource)) continue;
+    if (prefill.onlyIfEmpty && result[col.key] !== null && result[col.key] !== undefined) continue;
+    const sourceResource = rawColumns.value.find((c: any) => c.key === prefill.sourceField)?.resource;
+    const firstId = Array.isArray(newSource) ? newSource[0] : newSource;
+    if (firstId == null || !sourceResource) continue;
+    const rawItem = (resourceItemsByName[sourceResource]?.value || []).find((i: any) => i.id === firstId);
+    const prefillValue = rawItem?.[prefill.sourceItemField];
+    if (prefillValue !== null && prefillValue !== undefined) {
+      result = { ...result, [col.key]: prefillValue };
+    }
+  }
+  return result;
+}
+
 function onUpdateItem(updated: any) {
-  emit('update:modelValue', rows.value.map((r) => (r.id === updated.id ? updated : r)));
+  const previous = rows.value.find((r) => r.id === updated.id);
+  const enriched = applyPrefills(previous, updated);
+  emit('update:modelValue', rows.value.map((r) => (r.id === enriched.id ? enriched : r)));
 }
 </script>
