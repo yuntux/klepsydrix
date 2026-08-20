@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 from typing import Optional, Any
 import enum
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, Float, String, ForeignKey, Boolean, Text, select, Enum, Table, event, JSON
+from sqlalchemy import Column, Integer, Float, String, ForeignKey, Boolean, Text, select, Enum, Table, event, JSON, false as sa_false
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.hybrid import hybrid_property
 from backend.app.models.base import Base, exposed, constrains, onchange, requires_access
@@ -251,6 +251,7 @@ class Course(Base):
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True, info={"label": "Mémo / Note interne"})
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})
     lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Structure verrouillée"})
+    forbid_break_overlap: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Ne pas chevaucher les récréations"})
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED", info={"label": "Statut de placement"})
     decomposition_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED", info={"label": "Statut de décomposition"})
     # Recalculé dans recompute_status() en même temps que decomposition_status (voir
@@ -715,7 +716,7 @@ class Course(Base):
         if self.is_pinned and self.timeslot_id is None:
             raise ValueError("Impossible d'épingler un cours qui n'est pas placé sur un créneau.")
 
-    @constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_requirement_ids', 'division_ids', 'non_teaching_staff_ids')
+    @constrains('timeslot_id', 'duration_minutes', 'week_type', 'period_id', 'parent_id', 'teacher_ids', 'classroom_requirement_ids', 'division_ids', 'non_teaching_staff_ids', 'forbid_break_overlap')
     def validate_placement_conflicts(self, db):
         target_ts_id = self.timeslot_id
         if target_ts_id is None:
@@ -752,6 +753,22 @@ class Course(Base):
         if day_settings and day_settings.hour_day_end_minutes_after_midnight is not None:
             if target_end > day_settings.hour_day_end_minutes_after_midnight:
                 raise ValueError("Le cours déborde de la grille horaire de la journée.")
+
+        # Option "Ne pas chevaucher les récréations" : la récréation n'est stockée qu'avec une
+        # minute de début (pas de durée en base, voir SystemSetting), donc le chevauchement
+        # interdit est le fait de contenir strictement cet instant (bornes strictes : un cours qui
+        # démarre ou finit pile sur cette minute est autorisé).
+        if self.forbid_break_overlap:
+            from backend.app.models.system_setting import SystemSetting, SystemSettingKey
+            for key, label in (
+                (SystemSettingKey.HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT, "récréation du matin"),
+                (SystemSettingKey.HOUR_AFTERNOON_BREAK_START_MINUTES_AFTER_MIDNIGHT, "récréation de l'après-midi"),
+            ):
+                raw = SystemSetting.get_system_setting_value(db, key.value)
+                if raw and raw.isdigit():
+                    break_minutes = int(raw)
+                    if target_start < break_minutes < target_end:
+                        raise ValueError(f"Le cours chevauche la {label} (option « Ne pas chevaucher les récréations » activée).")
 
         target_week_type = getattr(self, 'week_type', 'W')
 

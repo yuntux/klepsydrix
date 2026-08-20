@@ -99,6 +99,8 @@ class PlanningTimeslot:
     minutes_from_midnight: int
     absolute_end_of_day: int
     noon_boundary_minutes: int
+    morning_break_minutes: typing.Optional[int] = None
+    afternoon_break_minutes: typing.Optional[int] = None
 
 
 # Fonctions nommées à arg scalaire/objet plutôt que propriétés sur PlanningTimeslot — même
@@ -230,6 +232,7 @@ class PlanningCourse:
     divisions: List[PlanningDivision] = field(default_factory=list)
     timeslot: Annotated[typing.Optional[PlanningTimeslot], PlanningVariable(value_range_provider_refs=['timeslotRange'], allows_unassigned=True)] = None
     is_pinned: Annotated[bool, PlanningPin] = False
+    forbid_break_overlap: bool = False
     original_timeslot_id: typing.Optional[int] = None
     parent_id: typing.Optional[int] = None
     pedagogic_weight_total: float = 0.0
@@ -319,6 +322,7 @@ def define_constraints(constraint_factory: ConstraintFactory) -> list[Constraint
         division_conflict(constraint_factory),
         group_link_conflict(constraint_factory),
         course_day_overflow(constraint_factory),
+        course_break_overlap(constraint_factory),
         stability_penalty(constraint_factory),
         student_group_subject_variety(constraint_factory),
         teacher_time_efficiency(constraint_factory),
@@ -422,6 +426,35 @@ def course_day_overflow(constraint_factory: ConstraintFactory) -> Constraint:
         .filter(lambda course: course.timeslot.minutes_from_midnight + course.duration_minutes > course.timeslot.absolute_end_of_day)
         .penalize(HardSoftScore.ONE_HARD)
         .as_constraint("Course day overflow")
+    )
+
+def _course_overlaps_break_boundary(course) -> bool:
+    """Option "Ne pas chevaucher les récréations" (Course.forbid_break_overlap) : la récréation
+    n'est qu'un instant (pas de durée stockée, voir SystemSetting), donc chevaucher signifie
+    contenir strictement cet instant — un cours qui démarre ou finit pile dessus est autorisé."""
+    if course.timeslot is None or not course.forbid_break_overlap:
+        return False
+    start = course.timeslot.minutes_from_midnight
+    end = start + course.duration_minutes
+    morning = course.timeslot.morning_break_minutes
+    if morning is not None and start < morning < end:
+        return True
+    afternoon = course.timeslot.afternoon_break_minutes
+    if afternoon is not None and start < afternoon < end:
+        return True
+    return False
+
+def course_break_overlap(constraint_factory: ConstraintFactory) -> Constraint:
+    return (
+        constraint_factory.for_each(PlanningCourse)
+        .filter(_course_overlaps_break_boundary)
+        # of_hard(1000), pas ONE_HARD : même raisonnement que leaf_classroom_unsuited/
+        # resource_preference_hard ci-dessus — à égalité stricte avec penalize_unassigned_course
+        # (ONE_HARD), rien ne pousserait le solveur à préférer laisser le cours non placé plutôt
+        # que de violer l'option "Ne pas chevaucher les récréations" quand c'est le seul créneau
+        # disponible.
+        .penalize(HardSoftScore.of_hard(1000))
+        .as_constraint("Course break overlap")
     )
 
 def teacher_conflict(constraint_factory: ConstraintFactory) -> Constraint:

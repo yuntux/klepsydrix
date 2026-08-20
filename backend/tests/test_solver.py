@@ -350,6 +350,94 @@ def test_solver_prevents_day_overflow(db_session: Session):
     assert (target_p_course.timeslot.minutes_from_midnight + target_p_course.duration_minutes) > target_p_course.timeslot.absolute_end_of_day
 
 
+def test_solver_forbid_break_overlap_stays_unplaced_when_only_slot_overlaps(db_session: Session):
+    """
+    Régression symétrique à test_solver_unsuited_only_timeslot_stays_unplaced : quand l'UNIQUE
+    créneau disponible chevauche une récréation configurée, un cours forbid_break_overlap=True
+    doit rester non placé plutôt que d'être forcé dessus — d'où course_break_overlap en
+    of_hard(1000) (comme resource_preference_hard) plutôt qu'ONE_HARD, pour dominer strictement
+    penalize_unassigned_course et lever l'ambiguïté de tie-break du hill-climbing.
+    """
+    from backend.app.models.grid_day_settings import GridDaySettings
+    from backend.app.models.system_setting import SystemSetting
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_BREAKSOLVE", "first_name": "Prof", "last_name": "Breaksolve", "school_id": school.id})
+    division = Division.create(db_session, {"code": "DIV_BREAKSOLVE", "name": "Div Breaksolve", "student_count": 25, "color": "#CCCCCC", "school_id": school.id})
+
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480  # 8h00
+    day_settings.hour_day_end_minutes_after_midnight = 1080  # 18h00
+    db_session.commit()
+
+    # Récréation du matin à 9h30 (570 min).
+    SystemSetting.create(db_session, {"key": "HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT", "value": "570"})
+
+    # Unique créneau disponible : 9h00, 60 minutes (540 -> 600) -> chevauche la récréation.
+    Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "teacher_ids": [teacher.id], "division_ids": [division.id],
+        "school_id": school.id, "duration_minutes": 60, "forbid_break_overlap": True,
+    })
+    db_session.commit()
+
+    _solve_course_placement(db_session)
+    db_session.refresh(course)
+
+    assert course.timeslot_id is None, "Le cours a été placé sur le créneau chevauchant la récréation alors qu'il était le seul disponible"
+
+
+def test_course_overlaps_break_boundary_predicate(db_session: Session):
+    """
+    Bornes strictes du prédicat de la contrainte solveur : un cours qui contient strictement la
+    minute de récréation est en chevauchement, mais un cours qui se termine pile dessus (sans la
+    dépasser) ne l'est pas.
+    """
+    from backend.app.models.grid_day_settings import GridDaySettings
+    from backend.app.models.system_setting import SystemSetting
+    from backend.app.solver.solver import _build_course_placement_problem
+    from backend.app.solver.constraints import _course_overlaps_break_boundary
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+    teacher = Teacher.create(db_session, {"code": "T_BREAKBOUND", "first_name": "Prof", "last_name": "Breakbound", "school_id": school.id})
+
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480
+    day_settings.hour_day_end_minutes_after_midnight = 1080
+    db_session.commit()
+
+    SystemSetting.create(db_session, {"key": "HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT", "value": "570"})
+
+    ts = Timeslot.create(db_session, {"day_of_week": 1, "minutes_from_midnight": 540})
+    course = Course.create(db_session, {
+        "subject_id": subject.id, "teacher_ids": [teacher.id], "school_id": school.id,
+        "duration_minutes": 60, "forbid_break_overlap": True,
+    })
+    db_session.commit()
+
+    problem = _build_course_placement_problem(db_session, school.id)
+    target_p_course = next(c for c in problem.courses if c.id == course.id)
+    target_p_ts = next(t for t in problem.timeslots if t.id == ts.id)
+    target_p_course.timeslot = target_p_ts
+
+    # 60 minutes -> 540..600 : contient strictement 570, chevauchement.
+    assert _course_overlaps_break_boundary(target_p_course) is True
+
+    # Le cours se termine pile sur la récréation (30 minutes -> 540..570) : plus de chevauchement.
+    target_p_course.duration_minutes = 30
+    assert _course_overlaps_break_boundary(target_p_course) is False
+
 
 def test_course_preference_deleted_on_course_cascade(db_session: Session):
     """

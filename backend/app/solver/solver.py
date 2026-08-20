@@ -336,7 +336,14 @@ def _build_course_placement_problem(db: Session, school_id: Optional[int] = None
     from backend.app.models.system_setting import SystemSetting
     val = SystemSetting.get_system_setting_value(db, "STANDARD_TIMESLOT_DURATION")
     std_duration_min = int(val)
-    
+
+    # Récréations (matin/après-midi) : valeur globale à la grille, pas par jour/créneau — repli
+    # sur None si le réglage n'a volontairement aucune valeur (voir Course.forbid_break_overlap).
+    morning_break_raw = SystemSetting.get_system_setting_value(db, "HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT")
+    morning_break_minutes = int(morning_break_raw) if morning_break_raw and morning_break_raw.isdigit() else None
+    afternoon_break_raw = SystemSetting.get_system_setting_value(db, "HOUR_AFTERNOON_BREAK_START_MINUTES_AFTER_MIDNIGHT")
+    afternoon_break_minutes = int(afternoon_break_raw) if afternoon_break_raw and afternoon_break_raw.isdigit() else None
+
     # Fin de journée par jour : lue sur GridDaySettings (source d'autorité de l'heure de
     # fermeture, voir Course.validate_placement_conflicts) — repli sur le dernier créneau posé
     # + durée standard uniquement si la grille n'a pas encore été configurée pour ce jour.
@@ -358,7 +365,7 @@ def _build_course_placement_problem(db: Session, school_id: Optional[int] = None
     # Timeslot.get_noon_boundary_minutes) plutôt qu'un appel par créneau dans la compréhension
     # ci-dessous : évite N requêtes SQL identiques.
     noon_boundary_minutes = Timeslot.get_noon_boundary_minutes(db)
-    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, end_of_day_by_day[ts.day_of_week], noon_boundary_minutes) for ts in db_timeslots}
+    timeslots_map = {ts.id: PlanningTimeslot(ts.id, ts.day_of_week, ts.minutes_from_midnight, end_of_day_by_day[ts.day_of_week], noon_boundary_minutes, morning_break_minutes, afternoon_break_minutes) for ts in db_timeslots}
 
     teachers_list = list(teachers_map.values())
     non_teaching_staffs_list = list(non_teaching_staffs_map.values())
@@ -583,6 +590,7 @@ def _build_course_placement_problem(db: Session, school_id: Optional[int] = None
             timeslot=ts_planning,
             leaf_classroom_ids=leaf_classroom_ids,
             is_pinned=is_pinned,
+            forbid_break_overlap=c.forbid_break_overlap,
             original_timeslot_id=c.timeslot_id,
             parent_id=getattr(c, 'parent_id', None),
             pedagogic_weight_total=pedagogic_weight * (c.duration_minutes / 60.0),

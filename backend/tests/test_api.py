@@ -1446,6 +1446,90 @@ def test_course_day_overflow_conflict(db_session: Session):
     assert "déborde" in response.json()["detail"].lower()
 
 
+def test_course_forbid_break_overlap_rejects_straddling_placement(db_session: Session):
+    """
+    Option "Ne pas chevaucher les récréations" (Course.forbid_break_overlap) : un cours qui
+    contient strictement la minute de récréation (matin) configurée doit être rejeté, mais un
+    cours sans l'option activée peut se placer sur le même créneau.
+    """
+    from backend.app.models.system_setting import SystemSetting
+    from backend.app.models.grid_day_settings import GridDaySettings
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480  # 8h00
+    day_settings.hour_day_end_minutes_after_midnight = 1080  # 18h00
+    db_session.commit()
+
+    # Récréation du matin à 9h30 (570 min) : un cours de 9h00 à 10h00 (540 -> 600) la contient
+    # strictement.
+    SystemSetting.create(db_session, {"key": "HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT", "value": "570"})
+
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=540)
+    ts._via_crud_mixin_create = True
+    db_session.add(ts)
+    db_session.commit()
+
+    course = Course(subject_id=subject.id, school_id=school.id, duration_minutes=60, forbid_break_overlap=True)
+    course._via_crud_mixin_create = True
+    db_session.add(course)
+    db_session.commit()
+
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 409
+    assert "récréation" in response.json()["detail"].lower()
+
+    # Le même créneau reste accessible pour un cours qui n'a pas coché l'option.
+    course.forbid_break_overlap = False
+    course._via_crud_mixin_update = True
+    db_session.commit()
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 200
+
+
+def test_course_forbid_break_overlap_allows_boundary_touching_placement(db_session: Session):
+    """
+    Bornes strictes : un cours qui se termine pile sur la minute de récréation (sans la dépasser)
+    n'est pas considéré comme un chevauchement.
+    """
+    from backend.app.models.system_setting import SystemSetting
+    from backend.app.models.grid_day_settings import GridDaySettings
+
+    school = db_session.query(School).first()
+    subject = db_session.query(Subject).first()
+
+    day_settings = GridDaySettings(day_of_week=1)
+    day_settings._via_crud_mixin_create = True
+    db_session.add(day_settings)
+    db_session.commit()
+    day_settings._via_crud_mixin_update = True
+    day_settings.hour_day_start_minutes_after_midnight = 480
+    day_settings.hour_day_end_minutes_after_midnight = 1080
+    db_session.commit()
+
+    SystemSetting.create(db_session, {"key": "HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT", "value": "570"})
+
+    # Créneau de 9h00 à 9h30 (540 -> 570) : se termine exactement sur la récréation, ne la dépasse pas.
+    ts = Timeslot(day_of_week=1, minutes_from_midnight=540)
+    ts._via_crud_mixin_create = True
+    db_session.add(ts)
+    db_session.commit()
+
+    course = Course(subject_id=subject.id, school_id=school.id, duration_minutes=30, forbid_break_overlap=True)
+    course._via_crud_mixin_create = True
+    db_session.add(course)
+    db_session.commit()
+
+    response = client.put(f"/api/timetable/courses/{course.id}", json={"timeslot_id": ts.id})
+    assert response.status_code == 200
+
+
 def test_course_periods_and_type_validation(db_session: Session):
     from backend.app.models.period_type import PeriodType
     from backend.app.models.period import Period
