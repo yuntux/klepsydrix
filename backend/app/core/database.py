@@ -72,7 +72,15 @@ def check_write_token(request: Request, response: Response, db: Session = Depend
         response.headers["X-Write-Token"] = current_token
 
 
+# Routes exemptées du blocage `PASSWORD_CHANGE_REQUIRED` ci-dessous (must_change_password) : la
+# route qui permet à l'utilisateur de sortir de cet état, et `whoami`, seule route lue par le
+# frontend pour DÉTECTER l'état et déclencher la redirection (NotebooksTree.vue) — sans cette
+# exemption, whoami elle-même serait bloquée et le frontend n'aurait aucun moyen de savoir pourquoi.
+_PASSWORD_CHANGE_GATE_EXEMPT_PATHS = {"/api/ui/whoami", "/api/auth/password/change"}
+
+
 def current_db_user(
+    request: Request,
     session: InstanceSession = Depends(require_instance_session),
     db: Session = Depends(get_db),
 ):
@@ -92,6 +100,11 @@ def current_db_user(
     voir `resolve_database`) — reconnu par `apiFetch()` (frontend) pour renvoyer vers `/login` : le
     mot de passe maître ne correspondra jamais à un vrai compte dans aucune base (ce n'est pas un
     compte, juste un mot de passe partagé), rester sur l'appli dans cet état serait une impasse.
+
+    Deux autres rejets structurés, résolus une fois `idp`/`idp.user` connus (voir fin de fonction) :
+    `USER_INACTIVE` (`User.active == False`, local OU OIDC — ce point est le SEUL traversé par les
+    deux, voir `models/user.py`) et `PASSWORD_CHANGE_REQUIRED` (`UserIdentityProvider.
+    must_change_password`, local uniquement, sauf sur les routes exemptées ci-dessus).
     """
     from backend.app.core.master_auth import MASTER_PROVIDER_KEY
     if session.provider_key == MASTER_PROVIDER_KEY:
@@ -147,6 +160,16 @@ def current_db_user(
             current = current.replace(tzinfo=timezone.utc)
         if current is None or current < session.logged_in_at:
             idp.update(db, {"last_login_at": session.logged_in_at})
+
+    if not idp.user.active:
+        raise HTTPException(status_code=403, detail={"code": "USER_INACTIVE"})
+
+    if (
+        idp.provider_key == "local"
+        and idp.must_change_password
+        and request.url.path not in _PASSWORD_CHANGE_GATE_EXEMPT_PATHS
+    ):
+        raise HTTPException(status_code=403, detail={"code": "PASSWORD_CHANGE_REQUIRED"})
 
     db.klepsydrix_user_id = idp.user_id
     return idp.user

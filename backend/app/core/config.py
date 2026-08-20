@@ -77,6 +77,10 @@ class AuthConfig(BaseModel):
     """Section `auth:` — règles métier d'authentification transverses, pas propres à un fournisseur
     précis (voir identity_providers pour ça)."""
     password_reset_ttl_minutes: int = 60
+    # Robustesse minimale d'un mot de passe local (UserIdentityProvider._validate_password_strength,
+    # models/user.py) : longueur ET diversité de caractères, jamais la longueur seule — voir ce
+    # validateur pour le détail de la règle de diversité.
+    password_min_length: int = 8
     # Durée maximale d'INACTIVITÉ avant qu'une session instance (core/instance_session.py) expire —
     # pas une durée fixe depuis la connexion : chaque requête authentifiée valide fait glisser la
     # fenêtre (voir instance_session.py::require_instance_session). Défaut conservé identique au

@@ -39,13 +39,24 @@ function redirectToDatabaseSelection() {
 
 // Session instance absente/expirée (voir core/instance_session.py) : redirige vers /login, en
 // portant la base déjà sélectionnée (?db=, pré-remplit le formulaire du provider local — voir
-// pages/Login.vue) et la page de provenance (?next=) pour y revenir une fois connecté.
-function redirectToLogin() {
+// pages/Login.vue) et la page de provenance (?next=) pour y revenir une fois connecté. `reason`
+// optionnel (ex: "inactive") : affiché comme message explicite sur la page de connexion.
+function redirectToLogin(reason?: string) {
   const next = window.location.pathname + window.location.search;
   const db = getSelectedDatabase();
   const params = new URLSearchParams({ next });
   if (db) params.set('db', db);
+  if (reason) params.set('reason', reason);
   window.location.href = `/login?${params.toString()}`;
+}
+
+// PASSWORD_CHANGE_REQUIRED (voir database.py::current_db_user, UserIdentityProvider.
+// must_change_password) : la session reste valide, seule une action est requise avant de continuer
+// — contrairement à redirectToLogin(), on ne repart pas de zéro, `next` permet de revenir
+// exactement là où l'utilisateur en était une fois le mot de passe changé (voir PasswordChange.vue).
+function redirectToPasswordChange() {
+  const next = window.location.pathname + window.location.search;
+  window.location.href = `/password-change?forced=1&next=${encodeURIComponent(next)}`;
 }
 
 async function errorCode(response: Response): Promise<string | undefined> {
@@ -78,6 +89,22 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
   // silencieuse, retour à /login pour s'authentifier avec une vraie identité.
   if (response.status === 403 && (await errorCode(response)) === 'MASTER_IDENTITY_FORBIDDEN') {
     redirectToLogin();
+    return response;
+  }
+
+  // Compte désactivé (voir database.py::current_db_user, User.active) — local ou OIDC, ce point
+  // est le seul traversé par les deux. Retour à /login avec un motif explicite (voir Login.vue).
+  if (response.status === 403 && (await errorCode(response)) === 'USER_INACTIVE') {
+    redirectToLogin('inactive');
+    return response;
+  }
+
+  // Changement de mot de passe forcé (voir database.py::current_db_user,
+  // UserIdentityProvider.must_change_password) — défense en profondeur : NotebooksTree.vue
+  // redirige déjà au chargement de whoami, ceci couvre le cas où le flag est posé PENDANT une
+  // session déjà ouverte (le prochain appel API, quel qu'il soit, se charge de rediriger).
+  if (response.status === 403 && (await errorCode(response)) === 'PASSWORD_CHANGE_REQUIRED') {
+    redirectToPasswordChange();
     return response;
   }
 
@@ -124,7 +151,7 @@ export async function fetchMenus(): Promise<any> {
 
 // Identité de l'utilisateur connecté sur la base courante + statut admin (super-admin d'instance OU
 // membre du groupe "Admin" DANS cette base) — voir architecture.md §19, ui_endpoints.py::whoami.
-export async function fetchWhoAmI(): Promise<{ display_name: string; email: string | null; is_admin: boolean }> {
+export async function fetchWhoAmI(): Promise<{ display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean }> {
   const response = await apiFetch('/api/ui/whoami');
   if (!response.ok) {
     throw new Error("Erreur lors de la récupération de l'identité connectée");

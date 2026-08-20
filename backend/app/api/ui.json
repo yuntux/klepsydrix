@@ -1436,7 +1436,10 @@
             "resourceKey": "mefs",
             "width": "60%",
             "listConfig": {
-              "groupBy": ["school_id", "ref_grade_id"],
+              "groupBy": [
+                "school_id",
+                "ref_grade_id"
+              ],
               "autoExpandLevel": 2
             }
           },
@@ -2099,7 +2102,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_administrative_groups",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2114,7 +2119,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_affectation_modes",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2129,7 +2136,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_aras",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2144,7 +2153,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_ares",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2159,7 +2170,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_cities",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2174,7 +2187,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_countries",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2189,7 +2204,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_degrees",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2204,7 +2221,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_election_methods",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2219,7 +2238,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_external_schools",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2234,7 +2255,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_functions",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2249,7 +2272,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_grades",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2264,7 +2289,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_inspectors",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2279,7 +2306,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_levels",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2294,7 +2323,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_pacte_missions",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2309,7 +2340,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_particular_missions",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2324,7 +2357,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_service_modes",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2339,7 +2374,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_supports",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2354,7 +2391,9 @@
                 "component": "GenericList",
                 "resourceKey": "ref_support_types",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
               }
             ]
           },
@@ -2369,7 +2408,77 @@
                 "component": "GenericList",
                 "resourceKey": "ref_titles",
                 "width": "100%",
-                "listConfig": { "editableInline": true }
+                "listConfig": {
+                  "editableInline": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "accounts_setting",
+        "icon": "users",
+        "title": "Comptes & droits",
+        "borderColor": "#EF4444",
+        "children": [
+          {
+            "id": "accounts_users_tab",
+            "title": "Utilisateurs",
+            "borderColor": "#EF4444",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "accounts_users_list",
+                "component": "GenericList",
+                "resourceKey": "users",
+                "width": "60%"
+              },
+              {
+                "id": "accounts_users_form",
+                "component": "GenericForm",
+                "resourceKey": "users",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "accounts_groups_tab",
+            "title": "Groupes de droits",
+            "borderColor": "#EF4444",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "accounts_groups_list",
+                "component": "GenericList",
+                "resourceKey": "res_groups",
+                "width": "60%"
+              },
+              {
+                "id": "accounts_groups_form",
+                "component": "GenericForm",
+                "resourceKey": "res_groups",
+                "width": "40%"
+              }
+            ]
+          },
+          {
+            "id": "accounts_identities_tab",
+            "title": "Connexions",
+            "borderColor": "#EF4444",
+            "layout": "VERTICAL",
+            "panels": [
+              {
+                "id": "accounts_identities_list",
+                "component": "GenericList",
+                "resourceKey": "user_identity_providers",
+                "width": "60%"
+              },
+              {
+                "id": "accounts_identities_form",
+                "component": "GenericForm",
+                "resourceKey": "user_identity_providers",
+                "width": "40%"
               }
             ]
           }

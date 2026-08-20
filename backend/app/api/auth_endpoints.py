@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from backend.app.core.config import settings
-from backend.app.core.database import get_db
+from backend.app.core.database import get_db, current_db_user
 from backend.app.core import db_registry
 from backend.app.core.client_ip import client_ip
 from backend.app.core.instance_session import set_session_cookie, clear_session_cookie
@@ -64,6 +64,14 @@ def login_local(payload: LocalLoginPayload, request: Request, response: Response
     if idp is None:
         logger.warning("Échec de connexion locale depuis %s (base : %s, identifiant : %s)", ip, slug, payload.identifier)
         raise HTTPException(status_code=401, detail="Identifiant ou mot de passe incorrect.")
+
+    # Rejet immédiat, avant même de poser la session — meilleure UX qu'attendre le premier appel
+    # applicatif (bloqué de toute façon par database.py::current_db_user, protection faisant
+    # autorité pour les sessions déjà ouvertes et pour OIDC, que ce contrôle précoce ne couvre pas).
+    # Pas de log WARNING ici (contrairement à l'échec de mot de passe ci-dessus) : le mot de passe
+    # était CORRECT, ce n'est pas un signal de brute-force à faire remonter à fail2ban.
+    if not idp.user.active:
+        raise HTTPException(status_code=403, detail="Ce compte est désactivé.")
 
     # last_login_at n'est PAS mise à jour ici — mécanisme générique désormais commun à local ET
     # OIDC (voir database.py::current_db_user, architecture.md §9.I) : dès la prochaine requête sur
@@ -120,6 +128,48 @@ def password_reset_confirm(payload: PasswordResetConfirmPayload, db: Session = D
     if idp is None:
         raise HTTPException(status_code=400, detail="Lien invalide ou expiré.")
     idp.set_local_password(db, payload.new_password)
+    db.commit()
+    return {"status": "success"}
+
+
+class PasswordChangePayload(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/password/change")
+def password_change(payload: PasswordChangePayload, user=Depends(current_db_user), db: Session = Depends(get_db)):
+    """
+    Changement de mot de passe par un utilisateur DÉJÀ connecté — contrairement à
+    /password-reset/*, qui ne suppose aucune session (identifiant + jeton à usage unique en tenant
+    lieu). Exempté du blocage `PASSWORD_CHANGE_REQUIRED` posé par `current_db_user` (voir
+    database.py) : c'est justement la route qui permet d'en sortir, elle doit rester atteignable
+    tant que le flag est posé.
+
+    Bypass DÉLIBÉRÉ et ÉTROIT du moteur de droits (db.klepsydrix_user_id, voir models/base.py) : la
+    plupart des utilisateurs (un enseignant, par ex.) n'ont aucun droit d'écriture sur
+    user_identity_providers — ce n'est pas censé être le cas, changer SON PROPRE mot de passe doit
+    rester possible quel que soit le profil de droits. La légitimité de cette écriture précise est
+    déjà entièrement vérifiée par le code ci-dessous (idp.user_id == user.id, mot de passe actuel
+    contrôlé) AVANT le bypass — même idiome que HasUserAccount._sync_user_account
+    (db._syncing_user_account), un drapeau ambiant restauré dans un `finally`.
+    """
+    idp = db.query(UserIdentityProvider).filter(
+        UserIdentityProvider.provider_key == "local",
+        UserIdentityProvider.user_id == user.id,
+    ).first()
+    if idp is None:
+        raise HTTPException(status_code=400, detail="Aucun compte local associé à cet utilisateur.")
+
+    previous_user_id = getattr(db, "klepsydrix_user_id", None)
+    db.klepsydrix_user_id = None
+    try:
+        if not idp.verify_password(db, payload.current_password):
+            raise HTTPException(status_code=401, detail="Mot de passe actuel incorrect.")
+        idp.set_local_password(db, payload.new_password)
+    finally:
+        db.klepsydrix_user_id = previous_user_id
+
     db.commit()
     return {"status": "success"}
 

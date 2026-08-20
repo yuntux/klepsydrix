@@ -9,6 +9,7 @@ import MasterLogin from './pages/MasterLogin.vue'
 import AdminConsole from './pages/AdminConsole.vue'
 import PasswordResetRequest from './pages/PasswordResetRequest.vue'
 import PasswordResetConfirm from './pages/PasswordResetConfirm.vue'
+import PasswordChange from './pages/PasswordChange.vue'
 import './assets/main.css'
 
 // Routeur limité aux pages "hors application" (sélection de base, authentification, console
@@ -23,6 +24,7 @@ const router = createRouter({
     { path: '/login/master', component: MasterLogin },
     { path: '/password-reset/request', component: PasswordResetRequest },
     { path: '/password-reset/confirm', component: PasswordResetConfirm },
+    { path: '/password-change', component: PasswordChange },
     { path: '/admin', component: AdminConsole },
     { path: '/:pathMatch(.*)*', component: App },
   ],

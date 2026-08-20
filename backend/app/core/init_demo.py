@@ -682,11 +682,16 @@ def seed_demo_data():
         # — identifiants en clair UNIQUEMENT ici, dans un jeu de démo : le hash Argon2id est
         # calculé au moment du seed (comme tout champ calculé-et-stocké inséré en SQL brut, voir
         # architecture.md section F), jamais stocké en clair en base.
-        print("[SEED DEMO] Ajout du compte de connexion locale de démonstration (demo@klepsydrix.fr / demo1234)...")
-        db.execute(text("INSERT INTO users (first_name, last_name, email) VALUES ('Démo', 'Klepsydrix', 'demo@klepsydrix.fr')"))
+        # Mot de passe conforme à la politique de robustesse (UserIdentityProvider.
+        # _validate_password_strength, models/user.py — 8 car. min + 3 des 4 catégories) : ce seed
+        # contourne le validateur (hash calculé directement, comme tout champ calculé-et-stocké
+        # inséré en SQL brut), mais un mot de passe de démo qu'aucun vrai formulaire ne laisserait
+        # poser serait un exemple trompeur.
+        print("[SEED DEMO] Ajout du compte de connexion locale de démonstration (demo@klepsydrix.fr / Demo1234!)...")
+        db.execute(text("INSERT INTO users (first_name, last_name, email, active) VALUES ('Démo', 'Klepsydrix', 'demo@klepsydrix.fr', true)"))
         db.commit()
         demo_user_id = db.execute(text("SELECT id FROM users WHERE email = 'demo@klepsydrix.fr'")).scalar()
-        password_hash = PasswordHasher().hash("demo1234")
+        password_hash = PasswordHasher().hash("Demo1234!")
         db.execute(text(
             "INSERT INTO user_identity_providers (user_id, provider_key, external_subject, password_hash) "
             "VALUES (:user_id, 'local', 'demo@klepsydrix.fr', :password_hash)"

@@ -5,6 +5,7 @@
 
       <h1>Connexion</h1>
 
+      <div v-if="inactiveReason" class="state-message error">Ce compte a été désactivé.</div>
       <div v-if="loading" class="state-message">Chargement des fournisseurs d'identité…</div>
       <div v-else-if="loadError" class="state-message error">{{ loadError }}</div>
       <div v-else-if="providers.length === 0" class="state-message error">
@@ -79,6 +80,7 @@ const identifier = ref('');
 const password = ref('');
 const localError = ref('');
 const submitting = ref(false);
+const inactiveReason = ref(false);
 
 function nextUrl(): string {
   return new URLSearchParams(window.location.search).get('next') || '/';
@@ -114,8 +116,10 @@ async function loginLocal() {
 }
 
 onMounted(async () => {
-  const dbParam = new URLSearchParams(window.location.search).get('db');
+  const params = new URLSearchParams(window.location.search);
+  const dbParam = params.get('db');
   if (dbParam) dbSlug.value = dbParam;
+  inactiveReason.value = params.get('reason') === 'inactive';
 
   try {
     const response = await fetch('/api/auth/providers');

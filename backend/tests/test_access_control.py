@@ -422,6 +422,204 @@ class TestGroupInheritance:
         assert len(School.read(db_session)) == 1
 
 
+class TestSystemGeneratedProtection:
+    """ResGroup/IrModelAccess.is_system_generated — même patron que Partition.is_system_generated
+    (models/group.py), voir models/access.py."""
+
+    def test_cannot_create_res_group_flagged_system_without_sentinel(self, db_session):
+        with pytest.raises(ValueError, match="positionné que par le système"):
+            ResGroup.create(db_session, {"name": "Faux Admin", "is_system_generated": True})
+
+    def test_cannot_create_ir_model_access_flagged_system_without_sentinel(self, db_session):
+        group = ResGroup.create(db_session, {"name": "G"})
+        with pytest.raises(ValueError, match="positionné que par le système"):
+            IrModelAccess.create(db_session, {
+                "model": "schools", "group_id": group.id, "perm_read": True, "is_system_generated": True,
+            })
+
+    def test_cannot_rename_a_system_generated_group(self, db_session):
+        group = ResGroup.create(db_session, {"name": "Admin", "is_system_generated": True, "_system_write": True})
+        with pytest.raises(ValueError, match="seule son appartenance"):
+            group.update(db_session, {"name": "Renommé"})
+
+    def test_can_still_update_membership_of_a_system_generated_group(self, db_session):
+        group = ResGroup.create(db_session, {"name": "Admin", "is_system_generated": True, "_system_write": True})
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        group.update(db_session, {"user_ids": [user.id]})  # ne lève pas
+        assert [u.id for u in group.users] == [user.id]
+
+    def test_cannot_delete_a_system_generated_group(self, db_session):
+        group = ResGroup.create(db_session, {"name": "Admin", "is_system_generated": True, "_system_write": True})
+        with pytest.raises(ValueError, match="ne peut pas être supprimé"):
+            group.delete(db_session)
+
+    def test_cannot_flip_is_system_generated_on_a_group_via_update(self, db_session):
+        group = ResGroup.create(db_session, {"name": "G"})
+        with pytest.raises(ValueError, match="ne peut être modifié que par le système"):
+            group.update(db_session, {"is_system_generated": True})
+
+    def test_cannot_modify_a_system_generated_access_row(self, db_session):
+        group = ResGroup.create(db_session, {"name": "Admin", "is_system_generated": True, "_system_write": True})
+        access = IrModelAccess.create(db_session, {
+            "model": "schools", "group_id": group.id, "perm_read": True, "is_system_generated": True, "_system_write": True,
+        })
+        with pytest.raises(ValueError, match="ne peut pas être modifié"):
+            access.update(db_session, {"perm_write": True})
+
+    def test_cannot_delete_a_system_generated_access_row(self, db_session):
+        group = ResGroup.create(db_session, {"name": "Admin", "is_system_generated": True, "_system_write": True})
+        access = IrModelAccess.create(db_session, {
+            "model": "schools", "group_id": group.id, "perm_read": True, "is_system_generated": True, "_system_write": True,
+        })
+        with pytest.raises(ValueError, match="ne peut pas être supprimé"):
+            access.delete(db_session)
+
+    def test_ordinary_group_and_access_remain_fully_editable(self, db_session):
+        """Contrepartie : rien de tout ceci ne s'applique à un groupe/droit ordinaire (is_system_generated=False, comportement historique inchangé)."""
+        group = ResGroup.create(db_session, {"name": "G"})
+        group.update(db_session, {"name": "G renommé"})
+        access = IrModelAccess.create(db_session, {"model": "schools", "group_id": group.id, "perm_read": True})
+        access.update(db_session, {"perm_write": True})
+        access.delete(db_session)
+        group.delete(db_session)
+
+
+class TestLastAdminGuard:
+    """Refus de vider le groupe "Admin" de son dernier membre — par les 3 voies possibles (voir
+    models/access.py::ResGroup.update, models/user.py::User.update/delete)."""
+
+    def _admin_group(self, db):
+        return ResGroup.create(db, {"name": "Admin", "is_system_generated": True, "_system_write": True})
+
+    def test_cannot_empty_admin_group_via_group_update(self, db_session):
+        admin_group = self._admin_group(db_session)
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        admin_group.update(db_session, {"user_ids": [user.id]})
+
+        with pytest.raises(ValueError, match="dernier utilisateur du groupe Admin"):
+            admin_group.update(db_session, {"user_ids": []})
+
+    def test_can_remove_a_member_via_group_update_when_not_the_last(self, db_session):
+        admin_group = self._admin_group(db_session)
+        user1 = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        user2 = User.create(db_session, {"first_name": "B", "last_name": "B", "email": None})
+        admin_group.update(db_session, {"user_ids": [user1.id, user2.id]})
+
+        admin_group.update(db_session, {"user_ids": [user1.id]})  # ne lève pas
+        assert [u.id for u in admin_group.users] == [user1.id]
+
+    def test_cannot_remove_last_admin_via_user_update(self, db_session):
+        admin_group = self._admin_group(db_session)
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        admin_group.update(db_session, {"user_ids": [user.id]})
+
+        with pytest.raises(ValueError, match="dernier utilisateur du groupe Admin"):
+            user.update(db_session, {"group_ids": []})
+
+    def test_can_remove_a_group_from_user_when_not_the_last_admin(self, db_session):
+        admin_group = self._admin_group(db_session)
+        user1 = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        user2 = User.create(db_session, {"first_name": "B", "last_name": "B", "email": None})
+        admin_group.update(db_session, {"user_ids": [user1.id, user2.id]})
+
+        user1.update(db_session, {"group_ids": []})  # ne lève pas : user2 reste
+        db_session.refresh(admin_group)
+        assert [u.id for u in admin_group.users] == [user2.id]
+
+    def test_cannot_delete_the_last_admin_user(self, db_session):
+        admin_group = self._admin_group(db_session)
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        admin_group.update(db_session, {"user_ids": [user.id]})
+
+        with pytest.raises(ValueError, match="dernier utilisateur du groupe Admin"):
+            user.delete(db_session)
+
+    def test_can_delete_a_non_last_admin_user(self, db_session):
+        admin_group = self._admin_group(db_session)
+        user1 = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        user2 = User.create(db_session, {"first_name": "B", "last_name": "B", "email": None})
+        admin_group.update(db_session, {"user_ids": [user1.id, user2.id]})
+
+        user1.delete(db_session)  # ne lève pas : user2 reste
+        db_session.refresh(admin_group)
+        assert [u.id for u in admin_group.users] == [user2.id]
+
+    def test_deleting_a_person_record_linked_to_the_last_admin_is_blocked(self, db_session):
+        """HasUserAccount.delete() (Teacher/Student/...) route par User.delete() — même garde-fou."""
+        from backend.app.models import Teacher
+
+        admin_group = self._admin_group(db_session)
+        school = School.create(db_session, {"uai": "1234567A", "name": "Collège Test"})
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        admin_group.update(db_session, {"user_ids": [user.id]})
+        teacher = Teacher.create(db_session, {"code": "T1", "first_name": "A", "last_name": "A", "school_id": school.id, "user_id": user.id})
+
+        with pytest.raises(ValueError, match="dernier utilisateur du groupe Admin"):
+            teacher.delete(db_session)
+
+    def test_unrelated_group_named_differently_is_not_protected(self, db_session):
+        """Le garde-fou cible spécifiquement le groupe nommé "Admin" — un groupe ordinaire, même
+        réduit à un seul membre, reste librement modifiable."""
+        group = ResGroup.create(db_session, {"name": "Pas Admin"})
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        group.update(db_session, {"user_ids": [user.id]})
+        group.update(db_session, {"user_ids": []})  # ne lève pas
+
+
+class TestReadonlySeedCoverage:
+    """seed_readonly_access (init_db.py) — miroir de TestAdminSeedCoverage, avec l'exclusion des
+    tables sensibles (SECURITY_SENSITIVE_TABLENAMES)."""
+
+    def test_consultation_group_is_read_only_on_all_non_sensitive_models(self, db_session):
+        from backend.app.core.init_db import seed_readonly_access, SECURITY_SENSITIVE_TABLENAMES, _all_tablenames
+
+        seed_readonly_access(db_session)
+
+        expected_tablenames = set(_all_tablenames()) - SECURITY_SENSITIVE_TABLENAMES
+        seeded_tablenames = {row[0] for row in db_session.query(IrModelAccess.model).distinct().all()}
+        assert expected_tablenames.issubset(seeded_tablenames)
+
+        for access in db_session.query(IrModelAccess).all():
+            assert access.perm_read is True
+            assert access.perm_write is False
+            assert access.perm_create is False
+            assert access.perm_unlink is False
+            assert access.is_system_generated is True
+
+    def test_consultation_group_has_no_access_row_at_all_for_sensitive_models(self, db_session):
+        from backend.app.core.init_db import seed_readonly_access, SECURITY_SENSITIVE_TABLENAMES
+
+        seed_readonly_access(db_session)
+        seeded_tablenames = {row[0] for row in db_session.query(IrModelAccess.model).distinct().all()}
+        assert not (SECURITY_SENSITIVE_TABLENAMES & seeded_tablenames)
+
+    def test_consultation_member_can_read_but_not_write(self, db_session):
+        from backend.app.core.init_db import seed_readonly_access
+
+        seed_readonly_access(db_session)
+        school = School.create(db_session, {"uai": "1234567A", "name": "Collège Test"})  # mode système
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        consultation_group = db_session.query(ResGroup).filter(ResGroup.name == "Consultation").first()
+        consultation_group.update(db_session, {"user_ids": [user.id]})
+
+        _make_user_as(db_session, user.id)
+        assert len(School.read(db_session)) == 1
+        with pytest.raises(AccessDeniedError):
+            school.update(db_session, {"name": "Renommé"})
+
+    def test_consultation_member_cannot_read_users_or_groups(self, db_session):
+        from backend.app.core.init_db import seed_readonly_access
+
+        seed_readonly_access(db_session)
+        user = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
+        consultation_group = db_session.query(ResGroup).filter(ResGroup.name == "Consultation").first()
+        consultation_group.update(db_session, {"user_ids": [user.id]})
+
+        _make_user_as(db_session, user.id)
+        assert User.read(db_session) == []
+        assert ResGroup.read(db_session) == []
+
+
 class TestDomainRestriction:
     def test_student_sees_only_own_courses_via_domain(self, db_session):
         """Cas d'usage cible du plan : groupe "Élève - Voir mon EDT seulement"."""

@@ -185,7 +185,7 @@ class TestMasterAuthFilterContract:
 class TestLocalLoginFilterContract:
     """deploy/fail2ban/klepsydrix-local-login.conf"""
 
-    def _make_local_account(self, db, identifier="a@example.fr", password="correct-horse-battery"):
+    def _make_local_account(self, db, identifier="a@example.fr", password="CorrectHorse8!"):
         user = User.create(db, {"first_name": "A", "last_name": "Local", "email": identifier})
         UserIdentityProvider.register_local_password(db, user.id, identifier, password)
         db.commit()
@@ -212,7 +212,7 @@ class TestLocalLoginFilterContract:
 
         with _capture("backend.app.api.auth_endpoints") as capture:
             login_local(
-                LocalLoginPayload(identifier="a@example.fr", password="correct-horse-battery"),
+                LocalLoginPayload(identifier="a@example.fr", password="CorrectHorse8!"),
                 _FakeRequest("203.0.113.42"), Response(), db_session,
             )
 

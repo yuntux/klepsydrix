@@ -81,6 +81,13 @@
             >⚙️</a>
             <div class="tooltip-tip">Changer de base de données ({{ currentDatabase }})</div>
           </div>
+          <a href="/password-change" class="nav-item" title="Changer mon mot de passe">
+            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
+              🔑
+            </div>
+            <span class="label">Changer mon mot de passe</span>
+            <div class="tooltip-tip">Changer mon mot de passe</div>
+          </a>
           <div class="nav-item" role="button" tabindex="0" @click="logout" @keydown.enter="logout">
             <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
               🚪
@@ -205,7 +212,7 @@ const currentDatabase = ref(getSelectedDatabase());
 // cosmétique (lien vers la console, identité sur le bouton de déconnexion) : un échec ici ne doit
 // jamais bloquer le reste de l'IHM, `whoAmI` reste simplement `null` (les éléments qui en dépendent
 // ne s'affichent pas, comportement identique à avant l'ajout de cet appel).
-const whoAmI = ref<{ display_name: string; email: string | null; is_admin: boolean } | null>(null);
+const whoAmI = ref<{ display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean } | null>(null);
 
 function goToDatabaseSelection() {
   clearSelectedDatabase();
@@ -365,7 +372,17 @@ function onDocClick(e: Event) {
 
 onMounted(async () => {
   document.addEventListener('click', onDocClick);
-  fetchWhoAmI().then(r => { whoAmI.value = r; }).catch(() => {});
+  fetchWhoAmI().then(r => {
+    whoAmI.value = r;
+    // Défense en profondeur côté client (le serveur bloque déjà toute autre route, voir
+    // database.py::current_db_user) : redirige avant même que l'utilisateur ait l'occasion
+    // d'interagir avec le reste de l'appli, plutôt que d'attendre l'échec 403 du premier appel API
+    // qu'il déclencherait lui-même.
+    if (r.must_change_password) {
+      const next = window.location.pathname + window.location.search;
+      window.location.href = `/password-change?forced=1&next=${encodeURIComponent(next)}`;
+    }
+  }).catch(() => {});
   try {
     const data = await fetchMenus();
     config.value = data as NotebookNode[];

@@ -4,7 +4,11 @@ import { Page } from '@playwright/test';
 // architecture.md, provider "local") — le seul provider testable sans dépendance externe en local.
 export const DEMO_DB = 'timetable';
 export const DEMO_IDENTIFIER = 'demo@klepsydrix.fr';
-export const DEMO_PASSWORD = 'demo1234';
+// Conforme à la politique de robustesse (UserIdentityProvider._validate_password_strength,
+// backend/app/models/user.py — 8 car. min + 3 des 4 catégories) : nécessaire pour que
+// account-management.spec.ts puisse reposer ce même mot de passe via le flux légitime de
+// changement de mot de passe (qui applique cette politique), pas seulement en SQL brut au seed.
+export const DEMO_PASSWORD = 'Demo1234!';
 
 // Authentifie directement via l'API (pas le formulaire /login) — plus rapide pour les tests qui ne
 // portent pas spécifiquement sur le flux de connexion lui-même. `page.request` partage le même

@@ -41,7 +41,7 @@ class _FakeRequest:
         self.headers = headers or {}
 
 
-def _make_local_account(db, identifier="a@example.fr", password="correct-horse-battery"):
+def _make_local_account(db, identifier="a@example.fr", password="CorrectHorse8!"):
     user = User.create(db, {"first_name": "A", "last_name": "Local", "email": identifier})
     UserIdentityProvider.register_local_password(db, user.id, identifier, password)
     db.commit()
@@ -60,7 +60,7 @@ class TestLocalLoginLogging:
         _make_local_account(db_session)
         request = _FakeRequest("198.51.100.9")
 
-        result = login_local(LocalLoginPayload(identifier="a@example.fr", password="correct-horse-battery"), request, Response(), db_session)
+        result = login_local(LocalLoginPayload(identifier="a@example.fr", password="CorrectHorse8!"), request, Response(), db_session)
 
         assert result == {"status": "success"}
 
@@ -96,6 +96,6 @@ class TestLocalLoginLogging:
         request = _FakeRequest("198.51.100.9")
 
         with caplog.at_level(logging.WARNING, logger="backend.app.api.auth_endpoints"):
-            login_local(LocalLoginPayload(identifier="a@example.fr", password="correct-horse-battery"), request, Response(), db_session)
+            login_local(LocalLoginPayload(identifier="a@example.fr", password="CorrectHorse8!"), request, Response(), db_session)
 
         assert len(caplog.records) == 0

@@ -28,6 +28,16 @@ test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
+class _FakeRequestForCurrentDbUser:
+    """current_db_user lit request.url.path pour l'exemption PASSWORD_CHANGE_REQUIRED (voir
+    database.py) — sans intérêt pour ces tests (aucun n'active must_change_password), juste de quoi
+    satisfaire la signature sans monter un vrai objet Request ASGI. Nommée différemment du
+    _FakeRequest plus bas (TestMasterAuth/TestClientIpTrustedProxy, forme .client/.headers) — les
+    deux servent un objet Request minimal, mais pour des attributs disjoints."""
+    class url:
+        path = "/irrelevant"
+
+
 @pytest.fixture
 def db_session():
     Base.metadata.create_all(bind=test_engine)
@@ -252,7 +262,7 @@ class TestPendingPairingPromotion:
         db_session.commit()
 
         session = InstanceSession(provider_key="educonnect", subject="real-oidc-sub-42", first_name="Future", last_name="Admin", email="future.admin@example.fr")
-        resolved_user = current_db_user(session=session, db=db_session)
+        resolved_user = current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
 
         assert resolved_user.id == user.id  # même User, pas un doublon
         # current_db_user pose db.klepsydrix_user_id (drapeau ambiant, voir base.py) : ce User
@@ -265,7 +275,7 @@ class TestPendingPairingPromotion:
 
     def test_login_with_no_matching_pending_row_creates_new_user(self, db_session):
         session = InstanceSession(provider_key="educonnect", subject="brand-new-sub", first_name="Brand", last_name="New", email="brand.new@example.fr")
-        resolved_user = current_db_user(session=session, db=db_session)
+        resolved_user = current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
         assert resolved_user.email == "brand.new@example.fr"
         assert db_session.query(User).count() == 1
 
@@ -274,7 +284,7 @@ class TestPendingPairingPromotion:
         l'utilisateur vers /login plutôt que de le laisser dans une impasse silencieuse."""
         session = InstanceSession(provider_key=MASTER_PROVIDER_KEY, subject=MASTER_SUBJECT)
         with pytest.raises(HTTPException) as exc_info:
-            current_db_user(session=session, db=db_session)
+            current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
         assert exc_info.value.status_code == 403
         assert exc_info.value.detail == {"code": "MASTER_IDENTITY_FORBIDDEN"}
 
@@ -291,7 +301,7 @@ class TestWhoAmI:
 
         result = whoami(session=session, db=db_session, user=user)
 
-        assert result == {"display_name": "A Dmin", "email": "a@example.fr", "is_admin": True}
+        assert result == {"display_name": "A Dmin", "email": "a@example.fr", "is_admin": True, "must_change_password": False}
 
     def test_non_admin_user_is_not_flagged_admin(self, db_session):
         user = User.create(db_session, {"first_name": "B", "last_name": "Asic", "email": "b@example.fr"})

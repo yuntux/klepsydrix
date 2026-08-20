@@ -147,10 +147,13 @@ class TestUserIdentityProviderPrivateField:
         assert "password_hash" not in create_schema.model_fields
 
     def test_local_password_register_and_verify(self, db_session):
+        # "CorrectHorse8!" plutôt que le "correct horse battery staple" classique : conforme à la
+        # politique de robustesse désormais appliquée (TestPasswordStrength ci-dessous) — longueur
+        # ET diversité de caractères, pas la longueur seule.
         user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": "jean@example.com"})
-        UserIdentityProvider.register_local_password(db_session, user.id, "jean@example.com", "correct horse battery staple")
+        UserIdentityProvider.register_local_password(db_session, user.id, "jean@example.com", "CorrectHorse8!")
 
-        ok = UserIdentityProvider.verify_local_password(db_session, "jean@example.com", "correct horse battery staple")
+        ok = UserIdentityProvider.verify_local_password(db_session, "jean@example.com", "CorrectHorse8!")
         assert ok is not None
         assert ok.user_id == user.id
 
@@ -162,17 +165,17 @@ class TestUserIdentityProviderPrivateField:
 
     def test_local_password_hash_is_argon2id_never_plaintext(self, db_session):
         user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
-        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "s3cret!")
-        assert idp.password_hash != "s3cret!"
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "S3cret!!")
+        assert idp.password_hash != "S3cret!!"
         assert idp.password_hash.startswith("$argon2id$")
 
     def test_set_local_password_changes_hash(self, db_session):
         user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
-        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "old-password")
-        idp.set_local_password(db_session, "new-password")
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "OldPass8!")
+        idp.set_local_password(db_session, "NewPass9?")
 
-        assert UserIdentityProvider.verify_local_password(db_session, "jean", "old-password") is None
-        assert UserIdentityProvider.verify_local_password(db_session, "jean", "new-password") is not None
+        assert UserIdentityProvider.verify_local_password(db_session, "jean", "OldPass8!") is None
+        assert UserIdentityProvider.verify_local_password(db_session, "jean", "NewPass9?") is not None
 
     def test_unique_provider_subject_pair(self, db_session):
         user1 = User.create(db_session, {"first_name": "A", "last_name": "A", "email": None})
@@ -180,6 +183,99 @@ class TestUserIdentityProviderPrivateField:
         UserIdentityProvider.create(db_session, {"user_id": user1.id, "provider_key": "educonnect", "external_subject": "sub-1"})
         with pytest.raises(Exception):
             UserIdentityProvider.create(db_session, {"user_id": user2.id, "provider_key": "educonnect", "external_subject": "sub-1"})
+
+
+class TestUserActive:
+    def test_active_defaults_true(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        assert user.active is True
+
+    def test_active_can_be_toggled(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        user.update(db_session, {"active": False})
+        db_session.refresh(user)
+        assert user.active is False
+
+
+class TestEmailNotClearable:
+    def test_cannot_clear_an_existing_email(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": "jean@example.com"})
+        with pytest.raises(ValueError, match="Impossible de supprimer l'adresse email"):
+            user.update(db_session, {"email": None})
+
+    def test_cannot_clear_an_existing_email_with_empty_string(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": "jean@example.com"})
+        with pytest.raises(ValueError, match="Impossible de supprimer l'adresse email"):
+            user.update(db_session, {"email": ""})
+
+    def test_can_replace_an_existing_email_with_another(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": "jean@example.com"})
+        user.update(db_session, {"email": "jean.petit@example.com"})
+        db_session.refresh(user)
+        assert user.email == "jean.petit@example.com"
+
+    def test_can_set_an_email_when_none_was_set(self, db_session):
+        # HasUserAccount._sync_user_account (ex: synchro Teacher/Student -> User) ne propage jamais
+        # None, mais un email jamais renseigné à la création doit tout de même pouvoir être posé
+        # plus tard sans que ce garde-fou (pensé pour un RETRAIT) ne s'y oppose.
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        user.update(db_session, {"email": "jean@example.com"})
+        db_session.refresh(user)
+        assert user.email == "jean@example.com"
+
+
+class TestPasswordStrength:
+    def test_rejects_password_shorter_than_minimum(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        with pytest.raises(ValueError, match="au moins 8 caractères"):
+            UserIdentityProvider.register_local_password(db_session, user.id, "jean", "Ab1!")
+
+    def test_rejects_password_without_enough_character_diversity(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        # 8+ caractères, une seule classe (minuscules) : longueur suffisante, diversité insuffisante.
+        with pytest.raises(ValueError, match="3 des 4 catégories"):
+            UserIdentityProvider.register_local_password(db_session, user.id, "jean", "abcdefghijk")
+
+    def test_accepts_password_meeting_both_requirements(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "Correct8!")
+        assert idp.password_hash is not None
+
+    def test_set_local_password_also_enforces_strength(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "Correct8!")
+        with pytest.raises(ValueError, match="au moins 8 caractères"):
+            idp.set_local_password(db_session, "weak")
+
+
+class TestMustChangePassword:
+    def test_defaults_false(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "Correct8!")
+        assert idp.must_change_password is False
+
+    def test_set_local_password_clears_the_flag(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "Correct8!")
+        idp.update(db_session, {"must_change_password": True})
+        idp.set_local_password(db_session, "AnotherGood9?")
+        db_session.refresh(idp)
+        assert idp.must_change_password is False
+
+
+class TestVerifyPassword:
+    def test_verify_password_matches_verify_local_password(self, db_session):
+        """verify_password (instance) et verify_local_password (classmethod) partagent désormais la
+        même logique — voir models/user.py::UserIdentityProvider.verify_password."""
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        idp = UserIdentityProvider.register_local_password(db_session, user.id, "jean", "Correct8!")
+        assert idp.verify_password(db_session, "Correct8!") is True
+        assert idp.verify_password(db_session, "wrong") is False
+
+    def test_verify_password_false_when_no_hash_set(self, db_session):
+        user = User.create(db_session, {"first_name": "Jean", "last_name": "Petit", "email": None})
+        idp = UserIdentityProvider.create(db_session, {"user_id": user.id, "provider_key": "educonnect", "external_subject": "sub-1"})
+        assert idp.verify_password(db_session, "anything") is False
 
 
 class TestCourseStudentIds:

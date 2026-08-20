@@ -12,24 +12,17 @@ def _all_transient_model_subclasses(cls):
     return subclasses.union(s for c in subclasses for s in _all_transient_model_subclasses(c))
 
 
-def seed_admin_access(db: Session):
+def _all_tablenames() -> list:
     """
-    Groupe "Admin" et droits complets sur TOUS les modèles — tables ORM réelles (Base.registry.
-    mappers, comme MODEL_MAP dans generic.py) ET ressources virtuelles (TransientModel — jamais
-    dans Base.registry.mappers, qui ne connaît que les classes mappées sur une vraie table),
-    généré par parcours, pas une liste écrite à la main : tout futur modèle est couvert
-    automatiquement, sans action à faire à chaque nouvelle classe (voir aussi le test dédié,
-    test_access_control.py, qui échoue si un modèle est absent).
+    Toutes les tables connues — ORM réelles (Base.registry.mappers, comme MODEL_MAP dans
+    generic.py) ET ressources virtuelles (TransientModel, jamais dans Base.registry.mappers, qui ne
+    connaît que les classes mappées sur une vraie table) — factorisé entre seed_admin_access et
+    seed_readonly_access ci-dessous, qui n'en diffèrent que par les droits accordés.
 
     ⚠️ Trouvé en vérifiant le menu réel (pas seulement via pytest) : oublier les TransientModel ici
     aurait rendu invisibles, même pour Admin, deux entrées de menu existantes (génération des cours,
     synthèse TRMD) dès que le filtrage par droits du menu est devenu actif — les deux reposent sur
     un TransientModel (WizardCourseGeneration/TrmdLine), jamais une vraie table.
-
-    ir_model_access/res_groups eux-mêmes sont mappés, donc inclus par la première boucle — l'admin
-    peut gérer les droits via l'API générique comme n'importe quel autre modèle. Fonction séparée de
-    init_prod_data() (qui, elle, dépend du moteur/de la session globale de la base par défaut) pour
-    rester appelable directement sur n'importe quelle session, y compris une session de test isolée.
     """
     import importlib
     import pkgutil
@@ -46,20 +39,75 @@ def seed_admin_access(db: Session):
     for _, module_name, _ in pkgutil.iter_modules(models_package.__path__):
         importlib.import_module(f"backend.app.models.{module_name}")
 
-    db.execute(text("INSERT INTO res_groups (name) VALUES ('Admin')"))
-    db.commit()
-    admin_group_id = db.execute(text("SELECT id FROM res_groups WHERE name = 'Admin'")).scalar()
-
     tablenames = [mapper.class_.__tablename__ for mapper in Base.registry.mappers if getattr(mapper.class_, "__tablename__", None)]
     tablenames += [
         sub.__tablename__ for sub in _all_transient_model_subclasses(TransientModel)
         if getattr(sub, "__tablename__", None)
     ]
+    return tablenames
+
+
+def seed_admin_access(db: Session):
+    """
+    Groupe "Admin" et droits complets sur TOUS les modèles (voir _all_tablenames ci-dessus), généré
+    par parcours, pas une liste écrite à la main : tout futur modèle est couvert automatiquement,
+    sans action à faire à chaque nouvelle classe (voir aussi le test dédié, test_access_control.py,
+    qui échoue si un modèle est absent).
+
+    ir_model_access/res_groups eux-mêmes sont mappés, donc inclus par la première boucle — l'admin
+    peut gérer les droits via l'API générique comme n'importe quel autre modèle. Fonction séparée de
+    init_prod_data() (qui, elle, dépend du moteur/de la session globale de la base par défaut) pour
+    rester appelable directement sur n'importe quelle session, y compris une session de test isolée.
+
+    `is_system_generated=true` sur le groupe ET chaque ligne de droit (voir models/access.py) : ces
+    `INSERT` bruts contournent déjà CRUDMixin, donc pas besoin du sentinel `_system_write` prévu
+    pour la voie ORM — seule la colonne compte ici.
+    """
+    tablenames = _all_tablenames()
+
+    db.execute(text("INSERT INTO res_groups (name, is_system_generated) VALUES ('Admin', true)"))
+    db.commit()
+    admin_group_id = db.execute(text("SELECT id FROM res_groups WHERE name = 'Admin'")).scalar()
+
     for tablename in tablenames:
         db.execute(text(
-            "INSERT INTO ir_model_access (model, group_id, perm_read, perm_write, perm_create, perm_unlink) "
-            "VALUES (:model, :group_id, true, true, true, true)"
+            "INSERT INTO ir_model_access (model, group_id, perm_read, perm_write, perm_create, perm_unlink, is_system_generated) "
+            "VALUES (:model, :group_id, true, true, true, true, true)"
         ), {"model": tablename, "group_id": admin_group_id})
+    db.commit()
+
+
+# Tables de gestion des comptes/groupes/droits/connexions SSO — exclues du groupe "Consultation"
+# (seed_readonly_access ci-dessous) : un simple consultant en lecture seule sur tout le reste de la
+# base ne doit PAS pouvoir lister les comptes, leurs emails, ni la configuration des droits. Aucune
+# ligne ir_model_access n'est créée pour ces tables → aucun accès du tout pour Consultation (même
+# principe "aucune ligne = aucun accès" que pour tout autre modèle, voir access_control.py), pas
+# seulement une restriction en écriture.
+SECURITY_SENSITIVE_TABLENAMES = {
+    "users", "user_identity_providers", "res_groups", "ir_model_access", "password_reset_tokens",
+}
+
+
+def seed_readonly_access(db: Session):
+    """
+    Groupe "Consultation" et droits de LECTURE SEULE sur tous les modèles, à l'exception de
+    SECURITY_SENSITIVE_TABLENAMES ci-dessus — miroir de seed_admin_access (même parcours de
+    découverte des modèles via _all_tablenames, mêmes conventions de seed en SQL brut), permissions
+    et exclusion différentes.
+    """
+    tablenames = _all_tablenames()
+
+    db.execute(text("INSERT INTO res_groups (name, is_system_generated) VALUES ('Consultation', true)"))
+    db.commit()
+    readonly_group_id = db.execute(text("SELECT id FROM res_groups WHERE name = 'Consultation'")).scalar()
+
+    for tablename in tablenames:
+        if tablename in SECURITY_SENSITIVE_TABLENAMES:
+            continue
+        db.execute(text(
+            "INSERT INTO ir_model_access (model, group_id, perm_read, perm_write, perm_create, perm_unlink, is_system_generated) "
+            "VALUES (:model, :group_id, true, false, false, false, true)"
+        ), {"model": tablename, "group_id": readonly_group_id})
     db.commit()
 
 
@@ -248,7 +296,10 @@ def init_prod_data(slug: str = None):
         print("[INIT DB] Génération du groupe Admin et des droits complets sur tous les modèles...")
         seed_admin_access(db)
 
-        print("[INIT DB] Succès ! Schéma créé, réglages système, tables de référence RH et droits Admin initialisés.")
+        print("[INIT DB] Génération du groupe Consultation et des droits en lecture seule...")
+        seed_readonly_access(db)
+
+        print("[INIT DB] Succès ! Schéma créé, réglages système, tables de référence RH et droits Admin/Consultation initialisés.")
 
     except Exception as e:
         db.rollback()

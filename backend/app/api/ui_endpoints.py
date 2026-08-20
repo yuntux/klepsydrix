@@ -128,12 +128,24 @@ def whoami(
     databases. `is_admin` : super-admin d'instance (indépendant de toute base, voir
     instance_admin.py::is_super_admin) OU membre du groupe "Admin" DANS CETTE base précise — les
     deux donnent accès à au moins une action de la console pour la base courante.
+
+    `must_change_password` : reflète l'identité locale de l'utilisateur (voir models/user.py::
+    UserIdentityProvider), `False` si aucune (compte purement OIDC). Cette route est explicitement
+    EXEMPTÉE du blocage `PASSWORD_CHANGE_REQUIRED` (voir database.py::current_db_user) — c'est le
+    seul moyen pour le frontend de détecter l'état et de rediriger (NotebooksTree.vue), toute autre
+    route étant bloquée tant que le flag est posé.
     """
     from backend.app.core.access_control import resolve_effective_group_objects
     from backend.app.core.instance_admin import is_super_admin
+    from backend.app.models.user import UserIdentityProvider
     group_names = {g.name for g in resolve_effective_group_objects(user)}
+    local_idp = db.query(UserIdentityProvider).filter(
+        UserIdentityProvider.provider_key == "local",
+        UserIdentityProvider.user_id == user.id,
+    ).first()
     return {
         "display_name": user.display_name,
         "email": user.email,
         "is_admin": is_super_admin(session) or "Admin" in group_names,
+        "must_change_password": bool(local_idp and local_idp.must_change_password),
     }
