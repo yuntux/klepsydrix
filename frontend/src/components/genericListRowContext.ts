@@ -24,6 +24,11 @@ export interface GenericListRowContext {
   frozenLeftStyle: (index: number) => { position: 'sticky'; left: string } | undefined;
   isLastFrozenColumn: (index: number) => boolean;
   frozenColumnCount: () => number;
+  // Vue arbre parent/enfant (voir ListConfig.treeBy, GenericList.vue) — isTreeMode gate le rendu
+  // de la colonne dépli/repli ; treeMetaFor(id) est null pour toute ligne hors mode arbre.
+  isTreeMode: () => boolean;
+  treeMetaFor: (id: number | string) => { level: number; hasChildren: boolean; expanded: boolean } | null;
+  toggleTreeNode: (id: number | string) => void;
 }
 
 export const GENERIC_LIST_ROW_CONTEXT: InjectionKey<GenericListRowContext> = Symbol('GenericListRowContext');

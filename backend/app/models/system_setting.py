@@ -22,6 +22,7 @@ class SystemSettingKey(str, enum.Enum):
     GROUP_NAME_SEPARATOR = "GROUP_NAME_SEPARATOR"
     GROUP_NAME_NUMBER_FORMAT = "GROUP_NAME_NUMBER_FORMAT"
     MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT = "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT"
+    SCHOOL_YEAR = "SCHOOL_YEAR"
 
 SETTING_LABELS = {
     SystemSettingKey.STANDARD_TIMESLOT_DURATION: "[Grille horaire] : durée minimale d'un créneau (en minutes)",
@@ -38,6 +39,7 @@ SETTING_LABELS = {
     SystemSettingKey.GROUP_NAME_SEPARATOR: "[Nommage groupe] : séparateur",
     SystemSettingKey.GROUP_NAME_NUMBER_FORMAT: "[Nommage groupe] : type numérotation",
     SystemSettingKey.MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT: "Mutualiser les groupes à effectif réduit même sans alignement formel",
+    SystemSettingKey.SCHOOL_YEAR: "Année scolaire (millésime de septembre)",
 }
 
 # Options de la liste déroulante FIRST_DAY_OF_THE_WEEK — 1=lundi ... 7=dimanche, même convention
@@ -66,7 +68,7 @@ class SystemSetting(Base):
         # Requis uniquement pour les paramètres qui doivent toujours porter une valeur exploitable
         # (voir architecture.md §15.F.bis) — un seul champ `value` partagé par toutes les clés, donc
         # une expression PAR LIGNE plutôt qu'un `required` statique qui s'appliquerait à toutes.
-        "requiredExpr": "['STANDARD_TIMESLOT_DURATION', 'FIRST_DAY_OF_THE_WEEK'].includes(model.key)",
+        "requiredExpr": "['STANDARD_TIMESLOT_DURATION', 'FIRST_DAY_OF_THE_WEEK', 'SCHOOL_YEAR'].includes(model.key)",
         # PUBLIC_DISPLAY_HOURS_BY_SEQUENCE est un JSON généré par wizard_grid_settings.rpc_apply
         # (voir _render_display_rows) : jamais éditable à la main depuis la vue générique
         # "Paramètres système", uniquement via le wizard « Grille horaire ». Restriction UI
@@ -83,9 +85,28 @@ class SystemSetting(Base):
                 raise ValueError("Le paramètre système STANDARD_TIMESLOT_DURATION est manquant ou invalide.")
         return setting.value if setting else None
 
+    @classmethod
+    def get_school_year(cls, db) -> int:
+        """
+        Millésime de l'année scolaire de la base, sur 4 chiffres (2026 = année 2026-2027).
+        Seule source de vérité de l'année : une base Klepsydrix vaut pour une année et une
+        seule, comme une base EDT. Confrontée à ANNEE_SCOLAIRE/@ANNEE à chaque import de flux
+        STS (voir wizard_sts_import.py).
+        """
+        value = cls.get_system_setting_value(db, SystemSettingKey.SCHOOL_YEAR.value)
+        if not value or not str(value).isdigit():
+            raise ValueError("Le paramètre système SCHOOL_YEAR est manquant ou invalide.")
+        return int(value)
+
+    # Paramètres sans lesquels l'application ne sait plus fonctionner : suppression interdite.
+    _UNDELETABLE_KEYS = (
+        SystemSettingKey.STANDARD_TIMESLOT_DURATION,
+        SystemSettingKey.SCHOOL_YEAR,
+    )
+
     def delete(self, db):
-        if self.key == SystemSettingKey.STANDARD_TIMESLOT_DURATION:
-            raise ValueError("Il est impossible de supprimer le paramètre système 'STANDARD_TIMESLOT_DURATION'.")
+        if self.key in self._UNDELETABLE_KEYS:
+            raise ValueError(f"Il est impossible de supprimer le paramètre système '{self.key.value}'.")
         return super().delete(db)
 
     @classmethod
@@ -101,6 +122,12 @@ class SystemSetting(Base):
         if key == SystemSettingKey.FIRST_DAY_OF_THE_WEEK.value:
             if not str(value).isdigit() or not (1 <= int(value) <= 7):
                 raise ValueError("Le premier jour de la semaine doit être un entier compris entre 1 (lundi) et 7 (dimanche).")
+        elif key == SystemSettingKey.SCHOOL_YEAR.value:
+            # Millésime de septembre, sur 4 chiffres : l'année scolaire 2026-2027 vaut "2026".
+            # Même convention que ANNEE_SCOLAIRE/@ANNEE du fichier STS, avec lequel l'année est
+            # confrontée à chaque import (voir wizard_sts_import.py).
+            if not str(value).isdigit() or len(str(value)) != 4:
+                raise ValueError("L'année scolaire doit être un millésime à 4 chiffres (ex: 2026 pour l'année scolaire 2026-2027).")
         elif key in (
             SystemSettingKey.HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT.value,
             SystemSettingKey.HOUR_AFTERNOON_BREAK_START_MINUTES_AFTER_MIDNIGHT.value,

@@ -23,6 +23,19 @@ class CourseWeekType(str, enum.Enum):
     W = "W"
     Q = "Q"
 
+
+class CourseStatus(str, enum.Enum):
+    """Statut de placement d'un Course sur la grille — recalculé par recompute_status(), jamais saisi à la main (voir status.info["readOnly"])."""
+    UNPLACED = "UNPLACED"
+    PLACED = "PLACED"
+
+
+class CourseDecompositionStatus(str, enum.Enum):
+    """Statut de ventilation des ressources d'un Course composé vers ses enfants — recalculé par recompute_status(), jamais saisi à la main."""
+    UNVENTILATED = "UNVENTILATED"
+    PARTIALLY_VENTILATED = "PARTIALLY_VENTILATED"
+    FULLY_VENTILATED = "FULLY_VENTILATED"
+
 course_teachers = Table(
     "course_teachers",
     Base.metadata,
@@ -241,8 +254,10 @@ class Course(Base):
     timeslot_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("timeslots.id", ondelete="SET NULL"), nullable=True, info={"label": "Créneau de placement"})
     is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Épinglé"})
     
-    # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au parent)
-    parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Décalage par rapport au parent"})
+    # Offset pour les enfants de cours complexes (nombre de créneaux de décalage par rapport au
+    # parent) — hidden : détail interne du wizard de décomposition (rpc_save_composition), jamais
+    # pertinent à afficher ou éditer directement en liste/formulaire.
+    parent_timeslot_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Décalage par rapport au parent", "hidden": True})
     
     week_type: Mapped[Any] = mapped_column(Enum(CourseWeekType, name="course_week_type_enum"), nullable=False, default=CourseWeekType.W, info={
         "label": "Semaine", "placeholder": "ex: A, B, W, Q", "type": "select",
@@ -268,19 +283,35 @@ class Course(Base):
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})
     lock_structure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Structure verrouillée"})
     forbid_break_overlap: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Ne pas chevaucher les récréations"})
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNPLACED", server_default="UNPLACED", info={"label": "Statut de placement"})
-    decomposition_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="UNVENTILATED", server_default="UNVENTILATED", info={"label": "Statut de décomposition"})
+    status: Mapped[Any] = mapped_column(Enum(CourseStatus, name="course_status_enum"), nullable=False, default=CourseStatus.UNPLACED, server_default="UNPLACED", info={
+        "label": "Statut de placement", "type": "select", "readOnly": True,
+        "options": [
+            {"value": "UNPLACED", "label": "Non placé"},
+            {"value": "PLACED", "label": "Placé"},
+        ],
+    })
+    decomposition_status: Mapped[Optional[Any]] = mapped_column(Enum(CourseDecompositionStatus, name="course_decomposition_status_enum"), nullable=True, default=CourseDecompositionStatus.UNVENTILATED, server_default="UNVENTILATED", info={
+        "label": "Statut de décomposition", "type": "select", "readOnly": True,
+        "options": [
+            {"value": "UNVENTILATED", "label": "Non ventilé"},
+            {"value": "PARTIALLY_VENTILATED", "label": "Partiellement ventilé"},
+            {"value": "FULLY_VENTILATED", "label": "Totalement ventilé"},
+        ],
+    })
     # Recalculé dans recompute_status() en même temps que decomposition_status (voir
     # _missing_resource_ids_by_type) : {champ_ressource: [ids présents sur ce cours composé mais
     # absents de TOUS ses enfants]}, uniquement les types en défaut. None si non composé, sans
-    # enfant, ou FULLY_VENTILATED.
-    underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées", "type": "json", "readOnly": True})
+    # enfant, ou FULLY_VENTILATED. hidden: purement un détail d'implémentation du wizard de
+    # décomposition (surlignage des ressources sous-ventilées côté CoursePopin/GenericWizard),
+    # jamais un champ à afficher tel quel (JSON brut illisible en cellule/formulaire).
+    underventilated_resource_ids: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Ressources insuffisamment ventilées", "type": "json", "readOnly": True, "hidden": True})
     # {"mapping": [...], "mode": int} — dernière configuration du wizard "Décomposer le cours"
     # effectivement validée (voir rpc_save_composition, composition_mapping/composition_mode
     # ci-dessous). None tant que le cours n'a jamais été décomposé via ce wizard. Même patron que
     # underventilated_resource_ids (JSON brut, aucune validation de schéma au niveau colonne — la
-    # forme est garantie par le seul point d'écriture, rpc_save_composition).
-    composition_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Configuration de décomposition", "type": "json", "readOnly": True})
+    # forme est garantie par le seul point d'écriture, rpc_save_composition). hidden : même raison
+    # que underventilated_resource_ids ci-dessus.
+    composition_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Configuration de décomposition", "type": "json", "readOnly": True, "hidden": True})
 
     mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
@@ -336,15 +367,15 @@ class Course(Base):
     def weighted_duration_minutes(self) -> int:
         return round(self.duration_minutes * self.weighting_coefficient)
 
-    @exposed
-    @property
-    def student_ids(self) -> list[int]:
+    def _resolve_students(self) -> list:
         """
         Élèves du cours — calculé à la demande, jamais stocké : union des élèves des parties de
         classe et des divisions entières associées au cours (deux façons distinctes de rattacher
         un cours à des élèves, voir Course.divisions/Course.class_parts). Confort d'affichage
         (roster du cours) uniquement — le moteur de droits (voir architecture.md) traverse
-        class_parts/divisions directement, il ne dépend pas de ce champ.
+        class_parts/divisions directement, il ne dépend pas de ce champ. Factorisé entre
+        student_ids (juste les ids) et student_previews (nom/prénom/division, onglet "Élèves" du
+        formulaire) : même requête, deux formes de sortie.
         """
         from sqlalchemy import or_
         from sqlalchemy.orm import object_session
@@ -363,7 +394,33 @@ class Course(Base):
             conditions.append(Student.class_parts.any(ClassPart.id.in_(class_part_ids)))
         if division_ids:
             conditions.append(Student.division_id.in_(division_ids))
-        return list(db.execute(select(Student.id).where(or_(*conditions)).distinct()).scalars().all())
+        return list(db.execute(select(Student).where(or_(*conditions)).distinct()).scalars().all())
+
+    @exposed
+    @property
+    def student_ids(self) -> list[int]:
+        """Voir _resolve_students — ne garde que les ids (roster léger, utilisé par les tests)."""
+        return [s.id for s in self._resolve_students()]
+
+    @exposed(info={
+        "label": "Élèves", "readOnly": True, "fullWidth": True,
+        "widget": "list_preview",
+        "widgetParams": {
+            "columns": [
+                {"key": "last_name", "label": "Nom", "width": "34%"},
+                {"key": "first_name", "label": "Prénom", "width": "33%"},
+                {"key": "division_name", "label": "Division", "width": "33%"},
+            ],
+            "listConfig": {"editableInline": False, "disableAdd": True, "disableEditModal": True, "allowMultiSelect": False},
+        },
+    })
+    @property
+    def student_previews(self) -> list[dict]:
+        """Aperçu en lecture seule des élèves du cours (nom, prénom, division) — onglet "Élèves" du formulaire, voir _resolve_students."""
+        return [
+            {"id": s.id, "last_name": s.last_name, "first_name": s.first_name, "division_name": s.division.name if s.division else None}
+            for s in self._resolve_students()
+        ]
 
     @exposed(info={"label": "Répartition initiale", "readOnly": True})
     @property
@@ -457,9 +514,9 @@ class Course(Base):
         
         # 1. Statut de planification de base (status) : basé uniquement sur timeslot_id
         if not self.timeslot_id:
-            self.status = "UNPLACED"
+            self.status = CourseStatus.UNPLACED
         else:
-            self.status = "PLACED"
+            self.status = CourseStatus.PLACED
 
         # 2. Statut de décomposition (decomposition_status) : uniquement pour les cours composés
         if not self.is_composed:
@@ -490,7 +547,7 @@ class Course(Base):
                 children = {c for c in children if c.id != exclude_child_id}
                 
             if not children:
-                self.decomposition_status = "UNVENTILATED"
+                self.decomposition_status = CourseDecompositionStatus.UNVENTILATED
                 self.underventilated_resource_ids = None
             else:
                 # 4. Calcul de la ventilation — uniquement l'affectation des ressources du
@@ -499,7 +556,7 @@ class Course(Base):
                 # encore UNPLACED : ce sont deux diagnostics distincts (répartition structurelle
                 # vs. planification), volontairement découplés.
                 missing = self._missing_resource_ids_by_type(children)
-                self.decomposition_status = "PARTIALLY_VENTILATED" if missing else "FULLY_VENTILATED"
+                self.decomposition_status = CourseDecompositionStatus.PARTIALLY_VENTILATED if missing else CourseDecompositionStatus.FULLY_VENTILATED
                 self.underventilated_resource_ids = missing or None
 
         # Si c'est un enfant, recalculer le statut de son parent

@@ -1,5 +1,6 @@
 import argparse
 import json
+from datetime import date
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from backend.app.core.database import engine, SessionLocal
@@ -145,6 +146,13 @@ def init_prod_data(slug: str = None):
     try:
         # Réglages système globaux
         db.execute(text("INSERT INTO system_settings (key, value) VALUES ('STANDARD_TIMESLOT_DURATION', '30')"))
+        # Année scolaire de la base : millésime de septembre, l'année scolaire EN COURS au moment
+        # de l'initialisation (2026 = année 2026-2027). Une base vaut pour une année et une seule,
+        # comme une base EDT. Toujours modifiable ensuite depuis « Paramètres système ».
+        db.execute(
+            text("INSERT INTO system_settings (key, value) VALUES ('SCHOOL_YEAR', :value)"),
+            {"value": str(date.today().year if date.today().month >= 9 else date.today().year - 1)},
+        )
         # Nommage automatique des parties de classe et des groupes générés lors de la composition
         # de cours (voir CompositionModes._compute_class_part_name / _compute_group_name)
         for setting_key, setting_value in [

@@ -17,6 +17,22 @@
         style="pointer-events: none;"
       />
     </td>
+    <!-- Dépli/repli de la vue arbre (voir listConfig.treeBy, GenericList.vue) — une seule cellule
+         narrow avant les colonnes de données, indentée par niveau, flèche seulement si la ligne a
+         des enfants (une feuille n'a pas de flèche, juste l'indentation de son niveau). -->
+    <td
+      v-if="ctx.isTreeMode()"
+      class="body-td tree-toggle-td"
+      :style="{ width: '28px', textAlign: 'center', padding: 0 }"
+      @click.stop="treeMeta?.hasChildren && ctx.toggleTreeNode(item.id)"
+    >
+      <span
+        v-if="treeMeta"
+        class="tree-toggle-arrow"
+        :class="{ 'tree-toggle-arrow-clickable': treeMeta.hasChildren }"
+        :style="{ marginLeft: (treeMeta.level * 16) + 'px' }"
+      >{{ treeMeta.hasChildren ? (treeMeta.expanded ? '▼' : '▶') : '' }}</span>
+    </td>
     <td
       v-for="(col, index) in ctx.visibleColumns()"
       :key="col.key"
@@ -195,7 +211,7 @@
 // GenericList.vue (voir genericListRowContext.ts) — jamais dupliqués ici, pour garantir un
 // comportement pixel-identique entre ligne groupée et ligne plate (y compris les brouillons
 // d'édition en ligne, centralisés dans le parent).
-import { inject } from 'vue';
+import { computed, inject } from 'vue';
 import ColorSwatchPicker from './ColorSwatchPicker.vue';
 import DurationInput from './DurationInput.vue';
 import SearchableSelect from './SearchableSelect.vue';
@@ -204,9 +220,13 @@ import BaseToggle from './BaseToggle.vue';
 import OwnedRelationField from './widgets/OwnedRelationField.vue';
 import { GENERIC_LIST_ROW_CONTEXT } from './genericListRowContext';
 
-defineProps<{ item: any }>();
+const props = defineProps<{ item: any }>();
 
 const ctx = inject(GENERIC_LIST_ROW_CONTEXT)!;
+
+// Vue arbre (voir ListConfig.treeBy) : null tant que ctx.isTreeMode() est faux, ou pour une ligne
+// hors arbre (ne devrait pas arriver tant que le panneau est cohérent, garde défensive).
+const treeMeta = computed(() => (ctx.isTreeMode() ? ctx.treeMetaFor(props.item.id) : null));
 </script>
 
 <style scoped>
@@ -250,6 +270,21 @@ const ctx = inject(GENERIC_LIST_ROW_CONTEXT)!;
 
 .body-td.has-select {
   overflow: visible !important;
+}
+
+.tree-toggle-td {
+  overflow: visible;
+}
+
+.tree-toggle-arrow {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-secondary);
+  width: 12px;
+}
+
+.tree-toggle-arrow-clickable {
+  cursor: pointer;
 }
 
 /* .actions-td dupliquée depuis GenericList.vue (qui la garde pour ses propres combos

@@ -28,6 +28,7 @@
              soit la structure de l'en-tête — la solution normale pour ce cas, pas un contournement. -->
         <colgroup>
           <col v-if="isMultiSelectAllowed" style="width: 40px;" />
+          <col v-if="isTreeMode" style="width: 28px;" />
           <col v-for="col in visibleColumns" :key="'colgroup-' + col.key" :style="{ width: (col.width || 150) + 'px' }" />
           <col style="width: 40px;" />
         </colgroup>
@@ -55,6 +56,15 @@
                   @change="toggleSelectAll(($event.target as HTMLInputElement).checked)"
                 />
               </th>
+
+              <!-- Colonne dépli/repli de la vue arbre (voir listConfig.treeBy) — purement visuelle,
+                   pas d'interaction en en-tête, symétrique de la colonne case-à-cocher. -->
+              <th
+                v-else-if="cell.kind === 'tree-toggle'"
+                class="header-th"
+                :rowspan="cell.rowspan"
+                :style="{ width: '28px' }"
+              ></th>
 
               <!-- Cellule de sur-en-tête (regroupement thématique, non interactive) -->
               <th v-else-if="cell.kind === 'group'" class="header-th header-group-th" :colspan="cell.colspan">
@@ -177,12 +187,12 @@
         <tbody>
           <!-- Espace virtuel haut -->
           <tr v-if="isVirtualMode && virtualPaddingTop > 0">
-            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }"></td>
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1) + (isTreeMode ? 1 : 0)" :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }"></td>
           </tr>
 
           <!-- Ligne virtuelle interactive "+ Ajouter une ligne" -->
           <tr v-if="!listConfig?.disableAdd && (!isVirtualMode || virtualStartIndex === 0)" class="add-row-tr" @click="$emit('add')">
-            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="add-row-td">
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1) + (isTreeMode ? 1 : 0)" class="add-row-td">
               <div class="add-row-wrapper">
                 <svg xmlns="http://www.w3.org/2000/svg" class="icon-add" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
@@ -193,7 +203,7 @@
           </tr>
 
           <tr v-if="!isGrouped && displayedItems.length === 0" class="empty-tr">
-            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="empty-td">
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1) + (isTreeMode ? 1 : 0)" class="empty-td">
               Aucune donnée à afficher.
             </td>
           </tr>
@@ -217,7 +227,7 @@
               </template>
             </GenericListGroupHeaderRow>
             <tr v-if="pagedGroupTree.length === 0" class="empty-tr">
-              <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" class="empty-td">
+              <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1) + (isTreeMode ? 1 : 0)" class="empty-td">
                 Aucune donnée à afficher.
               </td>
             </tr>
@@ -225,7 +235,7 @@
 
           <!-- Espace virtuel bas -->
           <tr v-if="isVirtualMode && virtualPaddingBottom > 0">
-            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1)" :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }"></td>
+            <td :colspan="visibleColumns.length + (isMultiSelectAllowed ? 2 : 1) + (isTreeMode ? 1 : 0)" :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }"></td>
           </tr>
         </tbody>
 
@@ -234,7 +244,7 @@
              lecture seule, aucun binding d'édition contrairement au corps du tableau. Masqué en
              mode groupé (isGrouped) : les sous-totaux par groupe (voir GenericListGroupHeaderRow)
              le rendent redondant et son calcul (displayedItems) devient sans objet. -->
-        <tfoot v-if="listConfig?.showColumnTotals && !isGrouped">
+        <tfoot v-if="listConfig?.showColumnTotals && !isGrouped && !isTreeMode">
           <tr class="footer-total-tr">
             <td
               v-if="isMultiSelectAllowed"
@@ -264,8 +274,20 @@
         <span v-if="isMultiSelectAllowed && selectedIds.size > 0" class="toolbar-badge selection-badge">
           {{ selectedIds.size }} sélectionné(s)
         </span>
+        <!-- Bascule Vue arbre / Vue liste (voir listConfig.treeBy) — seulement si le panneau
+             déclare treeBy ; masque le picker de regroupement pendant que l'arbre est actif
+             (les deux ne peuvent jamais être affichés en même temps, voir isTreeMode). -->
+        <button
+          v-if="listConfig?.treeBy"
+          type="button"
+          class="tree-mode-toggle-btn"
+          :class="{ active: isTreeMode }"
+          @click="treeModeEnabled = !treeModeEnabled"
+        >
+          {{ isTreeMode ? '🌳 Vue arbre' : '☰ Vue liste' }}
+        </button>
         <GenericListGroupByPicker
-          v-if="listConfig?.showGroupByWidget !== false"
+          v-if="listConfig?.showGroupByWidget !== false && !isTreeMode"
           :modelValue="internalGroupBy"
           :candidateFields="groupableFields"
           @update:modelValue="internalGroupBy = $event"
@@ -456,6 +478,21 @@ interface ListConfig {
   // pas au moment même du choix (bug constaté sur le picker de sous-mode par tag, voir
   // SearchableMultiSelect.vue::itemModeOptions).
   immediateInlineUpdate?: boolean;
+  // Vue arbre parent/enfant (voir treeOrderedItems ci-dessous) : nom d'un champ many2one
+  // AUTO-RÉFÉRENT de la ressource (ex: "parent_id" pour courses) — chaque ligne dont ce champ
+  // pointe vers une autre ligne DU MÊME jeu filtré devient son enfant, dépliable/repliable.
+  // Incompatible avec groupBy (voir isTreeMode) : une valeur de champ à regrouper par bucket et une
+  // hiérarchie de lignes réelles sont deux idées différentes, jamais actives en même temps —
+  // groupBy prévaut si l'utilisateur en choisit un explicitement via le picker pendant que treeBy
+  // est configuré. Réutilise GenericListRow.vue tel quel (une ligne = un vrai enregistrement
+  // éditable, contrairement au regroupement dont les lignes de tête sont synthétiques) : seule la
+  // CONSTRUCTION de l'ordre d'affichage diffère (parent/enfant plutôt que bucket de valeur), le
+  // rendu de chaque ligne reste identique au mode plat.
+  treeBy?: string;
+  // Profondeur dépliée par défaut au chargement — false (tout replié) par défaut, symétrique de
+  // autoExpandLevel: 0 pour groupBy. Un nœud déjà basculé manuellement (voir treeExpandedIds)
+  // prévaut ensuite sur cette valeur par défaut.
+  treeDefaultExpanded?: boolean;
 }
 
 // Granularités de troncature disponibles pour regrouper par un champ "date" (suffixe
@@ -957,6 +994,84 @@ watch([() => props.listConfig?.groupBy, () => props.fields], () => {
 
 const isGrouped = computed(() => internalGroupBy.value.length > 0);
 
+// --- Vue arbre parent/enfant (voir ListConfig.treeBy) ---
+
+// Bascule utilisateur "Vue arbre" / "Vue liste" (bouton toolbar, voir template) — treeBy configure
+// la CAPACITÉ, ce booléen l'ACTIVATION effective ; true par défaut (l'intérêt de déclarer treeBy
+// est de voir l'arbre au chargement), réversible sans perdre la config du panneau.
+const treeModeEnabled = ref(true);
+
+// isGrouped prévaut : si l'utilisateur choisit explicitement un regroupement par valeur via le
+// picker (GenericListGroupByPicker.vue) pendant que treeBy est configuré, le regroupement gagne —
+// jamais les deux rendus en même temps (voir ListConfig.treeBy).
+const isTreeMode = computed(() => !!props.listConfig?.treeBy && treeModeEnabled.value && !isGrouped.value);
+
+const TREE_ROOT_KEY = '__tree_root__';
+
+// Regroupe filteredItems par valeur du champ treeBy — une ligne dont la valeur ne pointe vers
+// AUCUNE autre ligne du jeu filtré (parent hors filtre/recherche, ou valeur nulle) est promue
+// racine plutôt qu'orpheline invisible : le filtrage/tri texte existant (filteredItems) reste donc
+// utilisable tel quel en amont, sans jamais faire disparaître silencieusement une ligne enfant.
+const treeChildrenMap = computed(() => {
+  const map = new Map<any, any[]>();
+  if (!isTreeMode.value) return map;
+  const field = props.listConfig!.treeBy!;
+  const idsInSet = new Set(filteredItems.value.map(r => r.id));
+  for (const row of filteredItems.value) {
+    const parentId = row[field];
+    const key = (parentId === null || parentId === undefined || !idsInSet.has(parentId)) ? TREE_ROOT_KEY : parentId;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(row);
+  }
+  return map;
+});
+
+const treeRootRows = computed(() => treeChildrenMap.value.get(TREE_ROOT_KEY) || []);
+
+// État de dépli/repli par id de ligne (pas par path comme manuallyToggledPaths : un id de ligne
+// réelle est déjà une clé stable à travers les reconstructions, contrairement à un bucket de
+// regroupement). Un clic utilisateur inverse treeDefaultExpanded pour CE nœud.
+const treeExpandedIds = ref<Set<any>>(new Set());
+
+function isTreeNodeExpanded(id: any): boolean {
+  const manuallyToggled = treeExpandedIds.value.has(id);
+  const defaultExpanded = !!props.listConfig?.treeDefaultExpanded;
+  return manuallyToggled ? !defaultExpanded : defaultExpanded;
+}
+
+function toggleTreeNode(id: any) {
+  const next = new Set(treeExpandedIds.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  treeExpandedIds.value = next;
+}
+
+interface TreeMeta { level: number; hasChildren: boolean; expanded: boolean; }
+
+// Métadonnées (profondeur, présence d'enfants, état déplié) par id de ligne — calculées sur
+// L'INTÉGRALITÉ de l'arbre (pas seulement la page courante, voir pagedTreeRootRows) : une ligne
+// doit connaître son niveau même repliée, pour l'indentation au moment où son parent est déplié.
+const treeMetaById = computed(() => {
+  const metaMap = new Map<any, TreeMeta>();
+  if (!isTreeMode.value) return metaMap;
+  const childrenMap = treeChildrenMap.value;
+  function walk(parentKey: any, level: number) {
+    for (const row of (childrenMap.get(parentKey) || [])) {
+      metaMap.set(row.id, { level, hasChildren: childrenMap.has(row.id), expanded: isTreeNodeExpanded(row.id) });
+      walk(row.id, level + 1);
+    }
+  }
+  walk(TREE_ROOT_KEY, 0);
+  return metaMap;
+});
+
+function treeMetaFor(id: any): TreeMeta | null {
+  return treeMetaById.value.get(id) || null;
+}
+
 // Dropdown colonnes
 const showDropdown = ref(false);
 const dropdownRef = ref<HTMLElement | null>(null);
@@ -1344,7 +1459,7 @@ const tableWrapperRef = ref<HTMLElement | null>(null);
 // plus petit que le nombre de lignes brutes) — le fenêtrage virtuel, conçu pour une liste PLATE de
 // nombreuses lignes, ne s'applique donc jamais en mode groupé (voir pagedGroupTree). Limitation v1
 // assumée : aucune virtualisation À L'INTÉRIEUR d'un groupe déplié, même très grand.
-const isVirtualMode = computed(() => perPage.value === 10000 && !isGrouped.value);
+const isVirtualMode = computed(() => perPage.value === 10000 && !isGrouped.value && !isTreeMode.value);
 const rowHeight = 44; // Hauteur estimée d'une ligne
 const overscan = 10; // Nombre de lignes pré-rendues hors écran
 
@@ -1386,6 +1501,10 @@ const totalPages = computed(() => {
     if (perPage.value === 10000) return 1;
     return Math.ceil(groupTree.value.length / perPage.value) || 1;
   }
+  if (isTreeMode.value) {
+    if (perPage.value === 10000) return 1;
+    return Math.ceil(treeRootRows.value.length / perPage.value) || 1;
+  }
   if (isVirtualMode.value) return 1;
   return Math.ceil(filteredItems.value.length / perPage.value);
 });
@@ -1398,7 +1517,30 @@ const paginatedItems = computed(() => {
   return filteredItems.value.slice(start, start + perPage.value);
 });
 
-const displayedItems = computed(() => paginatedItems.value);
+// Pagination en mode arbre : porte sur le NOMBRE DE RACINES, pas sur le nombre de lignes affichées
+// (même principe que pagedGroupTree pour le regroupement) — un enfant déplié d'une racine de la
+// page courante ne se retrouve donc jamais coupé sur la page suivante.
+const pagedTreeRootRows = computed(() => {
+  if (perPage.value === 10000) return treeRootRows.value;
+  const start = (currentPage.value - 1) * perPage.value;
+  return treeRootRows.value.slice(start, start + perPage.value);
+});
+
+const treeOrderedItems = computed(() => {
+  if (!isTreeMode.value) return [];
+  const childrenMap = treeChildrenMap.value;
+  const result: any[] = [];
+  function walk(row: any) {
+    result.push(row);
+    if (childrenMap.has(row.id) && isTreeNodeExpanded(row.id)) {
+      for (const child of childrenMap.get(row.id)!) walk(child);
+    }
+  }
+  for (const root of pagedTreeRootRows.value) walk(root);
+  return result;
+});
+
+const displayedItems = computed(() => (isTreeMode.value ? treeOrderedItems.value : paginatedItems.value));
 
 // Pagination en mode groupé : porte sur le NOMBRE DE GROUPES DE PREMIER NIVEAU, pas sur le nombre
 // de lignes (demandé explicitement) — même calcul de tranche que le mode plat (paginatedItems),
@@ -1434,9 +1576,13 @@ const visibleLeafRowsFlat = computed<any[]>(() => {
 });
 
 // Ensemble sur lequel calculer une plage de shift-clic (voir onRowClick) — les lignes feuilles
-// visibles aplaties en mode groupé, filteredItems sinon (comportement inchangé).
+// visibles aplaties en mode groupé, l'ordre arbre affiché (page de racines courante, nœuds
+// dépliés uniquement, même raisonnement que visibleLeafRowsFlat) en mode arbre, filteredItems
+// sinon (comportement inchangé).
 function rangeSelectableItems(): any[] {
-  return isGrouped.value ? visibleLeafRowsFlat.value : filteredItems.value;
+  if (isGrouped.value) return visibleLeafRowsFlat.value;
+  if (isTreeMode.value) return treeOrderedItems.value;
+  return filteredItems.value;
 }
 
 // Prédicat partagé : une colonne est "à totaliser" si son type déclaré est 'number', OU par repli
@@ -1507,8 +1653,9 @@ const maxGroupDepth = computed(() => {
 interface HeaderGroupCell { kind: 'group'; key: string; label: string; colspan: number; }
 interface HeaderColumnCell { kind: 'column'; column: ColumnDef; index: number; rowspan: number; }
 interface HeaderCheckboxCell { kind: 'checkbox'; rowspan: number; }
+interface HeaderTreeToggleCell { kind: 'tree-toggle'; rowspan: number; }
 interface HeaderActionsCell { kind: 'actions'; rowspan: number; }
-type HeaderCell = HeaderGroupCell | HeaderColumnCell | HeaderCheckboxCell | HeaderActionsCell;
+type HeaderCell = HeaderGroupCell | HeaderColumnCell | HeaderCheckboxCell | HeaderTreeToggleCell | HeaderActionsCell;
 
 // Matrice des lignes d'en-tête (une ligne par profondeur 0..maxGroupDepth). Un cellule HTML avec
 // rowspan doit démarrer sur la PREMIÈRE ligne qu'elle occupe (un rowspan ne s'étend que vers le
@@ -1551,6 +1698,9 @@ const headerRows = computed<HeaderCell[][]>(() => {
 
   processSegment(visibleColumns.value.map((col, index) => ({ col, index })), 0);
 
+  if (isTreeMode.value) {
+    rows[0].unshift({ kind: 'tree-toggle', rowspan: depth + 1 });
+  }
   if (isMultiSelectAllowed.value) {
     rows[0].unshift({ kind: 'checkbox', rowspan: depth + 1 });
   }
@@ -1775,6 +1925,9 @@ provide(GENERIC_LIST_ROW_CONTEXT, {
   frozenLeftStyle,
   isLastFrozenColumn,
   frozenColumnCount: () => frozenColumnCount.value,
+  isTreeMode: () => isTreeMode.value,
+  treeMetaFor,
+  toggleTreeNode,
 });
 
 function formatSubtotal(key: string, value: number): string | number {
@@ -1850,6 +2003,24 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
   color: var(--accent-primary) !important;
   border: 1px solid var(--accent-primary) !important;
   font-weight: bold;
+}
+
+.tree-mode-toggle-btn {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tree-mode-toggle-btn.active {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+  border-color: rgba(99, 102, 241, 0.25);
 }
 
 .toolbar-right {

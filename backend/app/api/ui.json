@@ -1241,13 +1241,138 @@
                 "id": "courses_list",
                 "component": "GenericList",
                 "resourceKey": "courses",
-                "width": "60%"
+                "width": "60%",
+                "listConfig": {
+                  "treeBy": "parent_id",
+                  "columns": {
+                    "subject_id": { "visibleByDefault": true },
+                    "division_ids": { "visibleByDefault": true },
+                    "teacher_ids": { "visibleByDefault": true },
+                    "timeslot_id": { "visibleByDefault": true },
+                    "duration_minutes": { "visibleByDefault": true },
+                    "classroom_requirement_ids": { "visibleByDefault": true },
+                    "group_ids": { "visibleByDefault": true },
+                    "is_pinned": { "visibleByDefault": false },
+                    "is_co_teaching": { "visibleByDefault": false },
+                    "weighting_coefficient": { "visibleByDefault": false },
+                    "memo": { "visibleByDefault": false },
+                    "lock_structure": { "visibleByDefault": false },
+                    "forbid_break_overlap": { "visibleByDefault": false },
+                    "mission_id": { "visibleByDefault": false },
+                    "election_method_id": { "visibleByDefault": false },
+                    "family_id": { "visibleByDefault": false },
+                    "non_teaching_staff_ids": { "visibleByDefault": false },
+                    "material_ids": { "visibleByDefault": false },
+                    "class_part_ids": { "visibleByDefault": false },
+                    "weighted_duration_minutes": { "visibleByDefault": false },
+                    "status": { "visibleByDefault": false },
+                    "decomposition_status": { "visibleByDefault": false },
+                    "is_composed": { "visibleByDefault": false },
+                    "school_id": { "visibleByDefault": false },
+                    "period_ids": { "visibleByDefault": false },
+                    "period_type_id": { "visibleByDefault": false },
+                    "parent_id": { "visibleByDefault": false },
+                    "week_type": { "visibleByDefault": false }
+                  }
+                }
               },
               {
                 "id": "courses_form",
                 "component": "GenericForm",
                 "resourceKey": "courses",
-                "width": "40%"
+                "width": "40%",
+                "formConfig": {
+                  "fields": [
+                    {
+                      "type": "notebook",
+                      "children": [
+                        {
+                          "type": "page",
+                          "string": "Ressources",
+                          "children": [
+                            {
+                              "type": "group",
+                              "col": 1,
+                              "children": [
+                                "subject_id",
+                                "teacher_ids",
+                                "division_ids",
+                                "group_ids",
+                                "class_part_ids",
+                                "non_teaching_staff_ids",
+                                "material_ids",
+                                "classroom_requirement_ids"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "page",
+                          "string": "Placement",
+                          "children": [
+                            {
+                              "type": "group",
+                              "col": 2,
+                              "children": [
+                                "timeslot_id",
+                                "week_type",
+                                "period_type_id",
+                                "period_ids",
+                                "duration_minutes",
+                                "is_pinned",
+                                "is_co_teaching",
+                                "forbid_break_overlap",
+                                "status"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "page",
+                          "string": "Décomposition",
+                          "children": [
+                            {
+                              "type": "group",
+                              "col": 2,
+                              "children": [
+                                "parent_id",
+                                "is_composed",
+                                "decomposition_status",
+                                "lock_structure"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "page",
+                          "string": "Administratif",
+                          "children": [
+                            {
+                              "type": "group",
+                              "col": 2,
+                              "children": [
+                                "weighting_coefficient",
+                                "weighted_duration_minutes",
+                                "family_id",
+                                "mission_id",
+                                "election_method_id",
+                                "school_id",
+                                "memo"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "page",
+                          "string": "Élèves",
+                          "children": [
+                            "student_previews"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             ]
           },
