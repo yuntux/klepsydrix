@@ -1608,7 +1608,7 @@ def test_course_group_added_cascades_its_class_parts(db_session: Session):
     subject = db_session.query(Subject).first()
     school = db_session.query(School).first()
     cp1, cp2 = _make_division_class_parts(db_session)
-    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
+    group = Group.create(db_session, {"name": "GRP1", "class_part_ids": [cp1.id, cp2.id]})
 
     course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group.id]})
 
@@ -1621,7 +1621,7 @@ def test_course_class_part_added_does_not_cascade_to_groups(db_session: Session)
     subject = db_session.query(Subject).first()
     school = db_session.query(School).first()
     cp1, cp2 = _make_division_class_parts(db_session)
-    Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id]})
+    Group.create(db_session, {"name": "GRP1", "class_part_ids": [cp1.id]})
 
     course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "class_part_ids": [cp1.id]})
 
@@ -1638,7 +1638,7 @@ def test_course_group_removed_cascades_removal_of_its_class_parts(db_session: Se
     # uniquement la cascade Group -> ClassPart.
     teacher = Teacher.create(db_session, {"code": "T_GRP_RM", "first_name": "Prof", "last_name": "GrpRm", "school_id": school.id})
     cp1, cp2 = _make_division_class_parts(db_session)
-    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
+    group = Group.create(db_session, {"name": "GRP1", "class_part_ids": [cp1.id, cp2.id]})
     course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "teacher_ids": [teacher.id], "group_ids": [group.id]})
     assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
 
@@ -1656,8 +1656,8 @@ def test_course_group_removal_does_not_strip_class_part_still_required_by_remain
     subject = db_session.query(Subject).first()
     school = db_session.query(School).first()
     cp1, cp2 = _make_division_class_parts(db_session)
-    group_a = Group.create(db_session, {"name": "Groupe A", "class_part_ids": [cp1.id]})
-    group_b = Group.create(db_session, {"name": "Groupe B", "class_part_ids": [cp1.id, cp2.id]})
+    group_a = Group.create(db_session, {"name": "GRPA", "class_part_ids": [cp1.id]})
+    group_b = Group.create(db_session, {"name": "GRPB", "class_part_ids": [cp1.id, cp2.id]})
     course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group_a.id, group_b.id]})
     assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
 
@@ -1676,7 +1676,7 @@ def test_course_class_part_removed_cascades_removal_of_composed_group_without_fu
     subject = db_session.query(Subject).first()
     school = db_session.query(School).first()
     cp1, cp2 = _make_division_class_parts(db_session)
-    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id, cp2.id]})
+    group = Group.create(db_session, {"name": "GRP1", "class_part_ids": [cp1.id, cp2.id]})
     course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30, "group_ids": [group.id]})
     assert {cp.id for cp in course.class_parts} == {cp1.id, cp2.id}
 
@@ -1693,7 +1693,7 @@ def test_course_group_and_extra_class_part_added_together_on_update(db_session: 
     subject = db_session.query(Subject).first()
     school = db_session.query(School).first()
     cp1, cp2 = _make_division_class_parts(db_session)
-    group = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id]})
+    group = Group.create(db_session, {"name": "GRP1", "class_part_ids": [cp1.id]})
     course = Course.create(db_session, {"school_id": school.id, "subject_id": subject.id, "duration_minutes": 30})
     assert course.class_parts == []
     assert course.groups == []

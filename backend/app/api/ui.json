@@ -449,7 +449,15 @@
                               "col": 2,
                               "children": [
                                 {
-                                  "key": "numen",
+                                  "key": "epp_id",
+                                  "readOnly": false
+                                },
+                                {
+                                  "key": "gender",
+                                  "readOnly": false
+                                },
+                                {
+                                  "key": "is_epp",
                                   "readOnly": false
                                 },
                                 {
@@ -987,7 +995,11 @@
                 "id": "classrooms_list",
                 "component": "GenericList",
                 "resourceKey": "classrooms",
-                "width": "60%"
+                "width": "60%",
+                "listConfig": {
+                  "treeBy": "parent_classroom_id",
+                  "autoExpandLevel": 10
+                }
               },
               {
                 "id": "classrooms_form",
@@ -1244,6 +1256,7 @@
                 "width": "60%",
                 "listConfig": {
                   "treeBy": "parent_id",
+                  "autoExpandLevel": 2,
                   "columns": {
                     "subject_id": { "visibleByDefault": true },
                     "division_ids": { "visibleByDefault": true },
@@ -1353,6 +1366,7 @@
                               "children": [
                                 "weighting_coefficient",
                                 "weighted_duration_minutes",
+                                "modality_id",
                                 "family_id",
                                 "mission_id",
                                 "election_method_id",
@@ -2107,6 +2121,15 @@
           "resourceKey": "wizard_specialty_group_generations",
           "actionId": "generate_specialty_groups"
         }
+      },
+      {
+        "id": "sts_import_action",
+        "icon": "wrench",
+        "title": "Importer un flux STS-web",
+        "action": {
+          "resourceKey": "wizard_sts_imports",
+          "actionId": "import_sts_flux"
+        }
       }
     ]
   },
@@ -2382,6 +2405,50 @@
                 "width": "100%",
                 "listConfig": {
                   "editableInline": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "ref_academies_setting",
+            "icon": "box",
+            "title": "Académies",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_academies_list",
+                "component": "GenericList",
+                "resourceKey": "ref_academies",
+                "width": "100%",
+                "listConfig": {
+                  "editableInline": true,
+                  "columns": {
+                    "school_ids": {
+                      "hidden": true
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "modalities_setting",
+            "icon": "box",
+            "title": "Modalités de cours",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "modalities_list",
+                "component": "GenericList",
+                "resourceKey": "modalities",
+                "width": "100%",
+                "listConfig": {
+                  "editableInline": true,
+                  "columns": {
+                    "course_ids": {
+                      "hidden": true
+                    }
+                  }
                 }
               }
             ]

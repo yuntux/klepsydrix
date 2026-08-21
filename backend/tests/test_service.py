@@ -186,7 +186,7 @@ class TestServiceStructure:
 
     def test_service_rejects_both_structures(self, db_session):
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        group = Group.create(db_session, {"name": "Groupe 1"})
+        group = Group.create(db_session, {"name": "GRP1"})
 
         with pytest.raises(ValueError, match="ne peut pas être rattaché"):
             Service.create(db_session, {

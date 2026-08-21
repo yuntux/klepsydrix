@@ -41,7 +41,17 @@ class Classroom(Base):
     site: Mapped[Optional["Site"]] = relationship("Site", back_populates="classrooms")
     ref_classroom_type: Mapped[Optional["RefClassroomType"]] = relationship("RefClassroomType")
     parent_classroom: Mapped[Optional["Classroom"]] = relationship("Classroom", remote_side=[id], foreign_keys=[parent_classroom_id], back_populates="children_classrooms")
-    children_classrooms: Mapped[list["Classroom"]] = relationship("Classroom", back_populates="parent_classroom", foreign_keys=[parent_classroom_id])
+    # hidden : relation AUTO-RÉFÉRENTE (Classroom -> Classroom) — exposer children_classroom_ids
+    # comme colonne de liste/formulaire instancie un OwnedRelationField par salle dont
+    # field.resource === "classrooms", identique à la ressource de la liste elle-même. Toute
+    # mutation d'UNE salle (n'importe quel champ) dispatche resource:mutated('classrooms'), que
+    # CHAQUE widget de colonne children_classroom_ids de CHAQUE AUTRE salle réagit à tort à ce
+    # signal (voir OwnedRelationField.vue::onResourceMutated, qui ne filtre que par nom de
+    # ressource, pas par ligne concernée) — sur une liste de N salles, ça déclenche N requêtes de
+    # rechargement en cascade à chaque édition, se ré-alimentant en boucle. Déjà redondant de
+    # toute façon avec parent_classroom_id (même relation vue de l'autre sens) et avec la vue
+    # arbre de la liste (listConfig.treeBy) qui affiche déjà cette hiérarchie visuellement.
+    children_classrooms: Mapped[list["Classroom"]] = relationship("Classroom", back_populates="parent_classroom", foreign_keys=[parent_classroom_id], info={"label": "Salles du groupe", "hidden": True})
     # viewonly : Course est le seul propriétaire de CourseClassroomRequirement au sens CRUDMixin
     # (voir course_classroom_requirement.py).
     classroom_requirements: Mapped[list["CourseClassroomRequirement"]] = relationship("CourseClassroomRequirement", back_populates="classroom", viewonly=True, info={"label": "Cours utilisant cette salle", "readOnly": True})

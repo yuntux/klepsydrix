@@ -3,7 +3,7 @@ from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, Session
-from backend.app.models.base import Base, related_field, exposed
+from backend.app.models.base import Base, related_field, exposed, constrains
 
 class Division(Base):
     __tablename__ = "divisions"
@@ -91,6 +91,19 @@ class Division(Base):
     max_worked_pm_per_week = related_field("constraint_record", "max_worked_pm_per_week", info={"label": "Max Après-midis travaillées par Semaine", "min": 0, "max": 6})
     only_one_half_day_per_day = related_field("constraint_record", "only_one_half_day_per_day", default=False, info={"label": "Ne travailler qu'une demi-journée par jour"})
     max_gap_hours_per_week = related_field("constraint_record", "max_gap_hours_per_week", default=2, info={"label": "Max heures creuses (trous) par Semaine", "min": 0, "max": 20})
+
+    @constrains("code")
+    def _check_sts_code_uniqueness(self, db: Session):
+        """
+        Le code de la classe part dans DIVISION/@CODE, et STS-web exige que classes, groupes et
+        regroupements portent des identifiants tous distincts. Pendant exact de
+        Group._check_sts_name : la règle est partagée, sa mise en œuvre est dans
+        backend/app/core/sts_naming.py plutôt que dupliquée des deux côtés.
+        Contrairement au groupe, ni la longueur ni le jeu de caractères ne sont contraints ici :
+        aucune source ne les documente pour une division.
+        """
+        from backend.app.core.sts_naming import check_structure_name_is_unique
+        check_structure_name_is_unique(db, self.code, exclude_division_id=self.id)
 
     @property
     def constraint_record(self):

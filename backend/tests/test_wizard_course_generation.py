@@ -174,7 +174,7 @@ class TestAlignment:
         school, division, mef, mef_division = _make_school_division(db_session)
         t_de = Teacher.create(db_session, {"code": "T_DE2", "first_name": "A", "last_name": "B", "school_id": school.id})
         t_es = Teacher.create(db_session, {"code": "T_ES2", "first_name": "C", "last_name": "D", "school_id": school.id})
-        group = Group.create(db_session, {"name": "Groupe LV2 spécial"})
+        group = Group.create(db_session, {"name": "GRPLV2"})
 
         s_de = _make_service(db_session, mef, mef_division, subject_de, [t_de])
         s_es = _make_service(db_session, mef, None, subject_es, [t_es], group_id=group.id)

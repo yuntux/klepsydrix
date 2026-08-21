@@ -7,6 +7,6 @@ class RefClassroomType(Base):
     __tablename__ = "ref_classroom_types"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    code: Mapped[str] = mapped_column(String(10), nullable=False, info={"label": "Code"})
+    code: Mapped[str] = mapped_column(String(10), unique=True, index=True, nullable=False, info={"label": "Code"})
     name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom"})
     long_name: Mapped[str] = mapped_column(String(255), nullable=False, info={"label": "Libellé long"})

@@ -1,7 +1,8 @@
 from typing import Optional
-from sqlalchemy import Table, Column, Integer, String, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, ForeignKey, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm import Session
+from backend.app.models.gender import Gender, gender_field_info
 from backend.app.models.base import Base, constrains
 from backend.app.models.user import HasUserAccount
 
@@ -19,6 +20,7 @@ class Student(HasUserAccount, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     first_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Prénom"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom"})
+    gender: Mapped[Optional[str]] = mapped_column(Enum(Gender, name="gender_enum"), nullable=True, info=gender_field_info())
     division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"label": "Division"})
     mef_id: Mapped[int] = mapped_column(Integer, ForeignKey("mefs.id", ondelete="CASCADE"), nullable=False, info={"label": "MEF"})
     tutor_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True, info={"label": "Tuteur"})

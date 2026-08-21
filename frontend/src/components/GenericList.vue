@@ -1,5 +1,5 @@
 <template>
-  <div class="generic-list-container">
+  <div class="generic-list-container" ref="rootRef">
     <!-- Barre d'actions de LISTE (voir architecture.md §22.D) — n'existe que pour les ressources
          déclarant au moins une action "report" dans __actions__ : aucune ressource qui n'en
          déclare pas ne voit ce bandeau apparaître, donc aucun changement d'aspect ailleurs. Un
@@ -488,11 +488,12 @@ interface ListConfig {
   // éditable, contrairement au regroupement dont les lignes de tête sont synthétiques) : seule la
   // CONSTRUCTION de l'ordre d'affichage diffère (parent/enfant plutôt que bucket de valeur), le
   // rendu de chaque ligne reste identique au mode plat.
+  // Profondeur dépliée par défaut au chargement de CE panneau, partagée avec le regroupement
+  // (voir autoExpandLevel/isNodeExpanded plus haut) : 0 = tout replié, valeur par défaut. Les deux
+  // modes ont une notion de niveau 0-based comparable (GroupNode.level / TreeMeta.level), pas de
+  // raison d'avoir un réglage séparé pour l'arbre. Un nœud déjà basculé manuellement (voir
+  // treeExpandedIds) prévaut ensuite sur cette valeur par défaut.
   treeBy?: string;
-  // Profondeur dépliée par défaut au chargement — false (tout replié) par défaut, symétrique de
-  // autoExpandLevel: 0 pour groupBy. Un nœud déjà basculé manuellement (voir treeExpandedIds)
-  // prévaut ensuite sur cette valeur par défaut.
-  treeDefaultExpanded?: boolean;
 }
 
 // Granularités de troncature disponibles pour regrouper par un champ "date" (suffixe
@@ -873,6 +874,18 @@ function flushPendingUpdate(itemId: any) {
   }
 }
 
+// Filet de sécurité générique : flush de TOUT brouillon d'édition en attente, pas seulement celui
+// d'une ligne précise — voir onUnmounted plus bas pour le premier appelant (démontage du
+// composant) et toggleTreeNode (vue arbre) pour le second. Nécessaire partout où focusout n'est
+// pas un signal fiable à 100% (l'ordre exact mousedown -> blur -> réorganisation du DOM peut
+// varier), jamais un simple copier-coller de la boucle entre ces deux appelants.
+function flushAllPendingUpdates() {
+  for (const [, draft] of pendingUpdates) {
+    emit('update-item', draft);
+  }
+  pendingUpdates.clear();
+}
+
 function updateInline(item: any, key: string, value: any) {
   const current = rowSource(item);
   if (current[key] === value) return;
@@ -1030,16 +1043,28 @@ const treeRootRows = computed(() => treeChildrenMap.value.get(TREE_ROOT_KEY) || 
 
 // État de dépli/repli par id de ligne (pas par path comme manuallyToggledPaths : un id de ligne
 // réelle est déjà une clé stable à travers les reconstructions, contrairement à un bucket de
-// regroupement). Un clic utilisateur inverse treeDefaultExpanded pour CE nœud.
+// regroupement). Un clic utilisateur inverse le défaut (autoExpandLevel) pour CE nœud.
 const treeExpandedIds = ref<Set<any>>(new Set());
 
-function isTreeNodeExpanded(id: any): boolean {
+// Même seuil que le regroupement (autoExpandLevel, voir isNodeExpanded/ListConfig ci-dessus) —
+// un seul paramètre "profondeur dépliée par défaut" pour les deux modes plutôt qu'un booléen
+// séparé pour l'arbre : les deux ont une notion de niveau 0-based comparable (GroupNode.level /
+// TreeMeta.level, racine = 0), pas de raison de dupliquer ce réglage.
+function isTreeNodeExpanded(id: any, level: number): boolean {
   const manuallyToggled = treeExpandedIds.value.has(id);
-  const defaultExpanded = !!props.listConfig?.treeDefaultExpanded;
+  const defaultExpanded = level < autoExpandLevel.value;
   return manuallyToggled ? !defaultExpanded : defaultExpanded;
 }
 
 function toggleTreeNode(id: any) {
+  // Flush AVANT de réorganiser l'arbre, jamais après : déplier/replier change la liste de lignes
+  // affichées autour de CETTE ligne (ses enfants apparaissent/disparaissent juste en dessous
+  // d'elle dans displayedItems), un remaniement de structure de la même famille que le démontage
+  // du composant (voir onUnmounted/flushAllPendingUpdates) — sur lequel focusout seul n'est déjà
+  // pas fiable à 100% (voir son commentaire). Un brouillon d'édition en attente sur N'IMPORTE
+  // QUELLE ligne actuellement affichée ne doit jamais dépendre de l'ordre exact entre ce clic et
+  // un éventuel focusout, donc flush total plutôt que scopé à la seule ligne togglée.
+  flushAllPendingUpdates();
   const next = new Set(treeExpandedIds.value);
   if (next.has(id)) {
     next.delete(id);
@@ -1060,7 +1085,7 @@ const treeMetaById = computed(() => {
   const childrenMap = treeChildrenMap.value;
   function walk(parentKey: any, level: number) {
     for (const row of (childrenMap.get(parentKey) || [])) {
-      metaMap.set(row.id, { level, hasChildren: childrenMap.has(row.id), expanded: isTreeNodeExpanded(row.id) });
+      metaMap.set(row.id, { level, hasChildren: childrenMap.has(row.id), expanded: isTreeNodeExpanded(row.id, level) });
       walk(row.id, level + 1);
     }
   }
@@ -1454,6 +1479,7 @@ watch(internalGroupBy, () => {
 
 // Pagination et Virtualisation
 const tableWrapperRef = ref<HTMLElement | null>(null);
+const rootRef = ref<HTMLElement | null>(null);
 
 // En mode groupé, la pagination porte sur le nombre de groupes de premier niveau (typiquement bien
 // plus petit que le nombre de lignes brutes) — le fenêtrage virtuel, conçu pour une liste PLATE de
@@ -1530,13 +1556,13 @@ const treeOrderedItems = computed(() => {
   if (!isTreeMode.value) return [];
   const childrenMap = treeChildrenMap.value;
   const result: any[] = [];
-  function walk(row: any) {
+  function walk(row: any, level: number) {
     result.push(row);
-    if (childrenMap.has(row.id) && isTreeNodeExpanded(row.id)) {
-      for (const child of childrenMap.get(row.id)!) walk(child);
+    if (childrenMap.has(row.id) && isTreeNodeExpanded(row.id, level)) {
+      for (const child of childrenMap.get(row.id)!) walk(child, level + 1);
     }
   }
-  for (const root of pagedTreeRootRows.value) walk(root);
+  for (const root of pagedTreeRootRows.value) walk(root, 0);
   return result;
 });
 
@@ -1791,25 +1817,48 @@ watch(() => props.items, (newItems) => {
   }
 }, { deep: true });
 
+// Filet de sécurité supplémentaire (voir onUnmounted/flushAllPendingUpdates ci-dessous, même
+// raison d'être) : un clic qui commence EN DEHORS de ce panneau entier signale sans ambiguïté que
+// l'utilisateur en a fini avec l'édition en cours, indépendamment de la fiabilité du focusout natif
+// de la ligne éditée elle-même (dont l'ordre exact d'évènements peut varier selon le widget cliqué
+// — voir SearchableSelect.vue/SearchableMultiSelect.vue, qui posent déjà un garde document-level
+// similaire pour leurs propres dropdowns téléportés). Mousedown plutôt que click : au plus tôt,
+// avant qu'un widget voisin ne consomme/stoppe la propagation de son propre clic.
+//
+// Exclusion .options-dropdown/.swatch-overlay : les popups de SearchableSelect/
+// SearchableMultiSelect (options-dropdown) et ColorSwatchPicker (swatch-overlay) sont
+// <Teleport to="body">, donc physiquement hors de rootRef même quand ils appartiennent à UNE
+// ligne de CE panneau — sans cette exclusion, choisir une 2e option d'un multiselect ou une
+// couleur serait vu comme "quitter la liste" et flusherait prématurément le brouillon en cours
+// AVANT que le nouveau choix ne soit pris en compte, cassant le fusionnement de plusieurs
+// modifications de la même ligne en un seul PATCH (voir updateInline/rowSource).
+function handleMousedownOutsideList(event: MouseEvent) {
+  if (pendingUpdates.size === 0) return;
+  const target = event.target as HTMLElement;
+  if (target.closest('.options-dropdown') || target.closest('.swatch-overlay')) return;
+  if (rootRef.value && !rootRef.value.contains(target)) {
+    flushAllPendingUpdates();
+  }
+}
+
 onMounted(() => {
   document.addEventListener('mousedown', handleClickOutside);
+  document.addEventListener('mousedown', handleMousedownOutsideList, true);
   window.addEventListener('keydown', handleGlobalKeyDown);
 });
 
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleClickOutside);
+  document.removeEventListener('mousedown', handleMousedownOutsideList, true);
   window.removeEventListener('keydown', handleGlobalKeyDown);
   // Filet de sécurité : flush de tout brouillon d'édition en attente (voir pendingUpdates/
-  // onRowFocusOut plus haut) qui n'aurait pas été envoyé via le focusout natif — celui-ci dépend
-  // de l'ordre exact des évènements du navigateur (mousedown -> blur -> démontage), qui peut
-  // varier selon le navigateur ou la façon dont l'utilisateur ferme le conteneur (bouton dédié,
-  // clic en dehors d'une popin, touche Échap...). Ne PAS dépendre uniquement de focusout pour un
-  // mécanisme aussi central : le démontage du composant est le dernier moment garanti où ce
-  // brouillon existe encore, quelle que soit la cause de la fermeture.
-  for (const [, draft] of pendingUpdates) {
-    emit('update-item', draft);
-  }
-  pendingUpdates.clear();
+  // onRowFocusOut/flushAllPendingUpdates plus haut) qui n'aurait pas été envoyé via le focusout
+  // natif — celui-ci dépend de l'ordre exact des évènements du navigateur (mousedown -> blur ->
+  // démontage), qui peut varier selon le navigateur ou la façon dont l'utilisateur ferme le
+  // conteneur (bouton dédié, clic en dehors d'une popin, touche Échap...). Ne PAS dépendre
+  // uniquement de focusout pour un mécanisme aussi central : le démontage du composant est le
+  // dernier moment garanti où ce brouillon existe encore, quelle que soit la cause de la fermeture.
+  flushAllPendingUpdates();
 });
 
 // Reset page on filter/limit/grouping changes — activer/désactiver/modifier le regroupement change

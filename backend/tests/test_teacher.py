@@ -42,7 +42,7 @@ def _make_teacher(db, code="T1", **overrides):
 class TestRefDeleteRestrict:
     def test_cannot_delete_ref_ara_referenced_by_a_teacher(self, db_session):
         teacher = _make_teacher(db_session)
-        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
+        ref_ara = RefAra.create(db_session, {"code": "ARA1", "name": "ARA Test"})
         TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 60})
 
         with pytest.raises(ValueError, match="Impossible de supprimer"):
@@ -50,7 +50,7 @@ class TestRefDeleteRestrict:
 
     def test_ref_ara_deletable_once_unreferenced(self, db_session):
         teacher = _make_teacher(db_session)
-        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
+        ref_ara = RefAra.create(db_session, {"code": "ARA1", "name": "ARA Test"})
         line = TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 60})
         line.delete(db_session)
 
@@ -69,7 +69,7 @@ class TestRefDeleteRestrict:
 class TestTeacherCascadeDelete:
     def test_deleting_teacher_cascades_to_its_lines(self, db_session):
         teacher = _make_teacher(db_session)
-        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
+        ref_ara = RefAra.create(db_session, {"code": "ARA1", "name": "ARA Test"})
         line = TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 60})
 
         teacher.delete(db_session)
@@ -167,7 +167,7 @@ class TestTeacherComputedFieldsForTrmd:
         teacher = _make_teacher(db_session)
         TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d1.id, "duration_minutes": 300})
         TeacherDiscipline.create(db_session, {"teacher_id": teacher.id, "discipline_id": d2.id, "duration_minutes": 600})
-        ref_are = RefAre.create(db_session, {"name": "ARE Test"})
+        ref_are = RefAre.create(db_session, {"code": "ARE1", "name": "ARE Test"})
         TeacherAre.create(db_session, {"teacher_id": teacher.id, "ref_are_id": ref_are.id, "duration_minutes": 60})
 
         assert teacher.are_duration_minutes == 60  # pas de contexte -> somme totale
@@ -265,7 +265,7 @@ class TestOwnedCollectionCommands:
         # d'un Teacher (un enseignant doit toujours garder au moins une discipline, voir Volet C) —
         # TeacherAra n'a pas cette contrainte métier, donc reste un témoin neutre du mécanisme
         # générique testé ici (qui n'a rien de spécifique à discipline_lines).
-        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
+        ref_ara = RefAra.create(db_session, {"code": "ARA1", "name": "ARA Test"})
         teacher = _make_teacher(db_session)
         line = TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 30})
 
@@ -280,7 +280,7 @@ class TestOwnedCollectionCommands:
         # None) — sans quoi ce cas retombait sur l'ancien mécanisme, qui tentait de mettre
         # teacher_id à NULL (colonne NOT NULL) au lieu de supprimer la ligne. ara_line_ids plutôt
         # que discipline_line_ids : voir commentaire du test précédent.
-        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
+        ref_ara = RefAra.create(db_session, {"code": "ARA1", "name": "ARA Test"})
         teacher = _make_teacher(db_session)
         TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 30})
 

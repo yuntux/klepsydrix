@@ -8,6 +8,6 @@ class RefAra(Base):
     __tablename__ = "ref_aras"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, info={"label": "Code"})
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False, info={"label": "Code"})
     name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, info={"label": "ARA"})
     long_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, info={"label": "Intitulé long"})

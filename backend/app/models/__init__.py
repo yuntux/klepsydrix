@@ -22,6 +22,7 @@ from backend.app.models.specialty_group_config import SpecialtyGroupConfig
 from backend.app.models.period import Period
 from backend.app.models.period_type import PeriodType
 from backend.app.models.alternation import Alternation
+from backend.app.models.modality import Modality
 from backend.app.models.site import Site, SiteTravelTime
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.grid_day_settings import GridDaySettings
@@ -50,6 +51,7 @@ from backend.app.models.ref_function import RefFunction
 from backend.app.models.ref_support import RefSupport
 from backend.app.models.ref_support_type import RefSupportType
 from backend.app.models.ref_city import RefCity
+from backend.app.models.ref_academie import RefAcademie
 
 # Table de verrou "mode exclusif" (voir core/exclusive_mode.py) : PAS un modèle ORM (donc jamais
 # exposé via /api/generic), mais son import doit tout de même se produire tôt et systématiquement

@@ -412,7 +412,7 @@ class TestTeacherComputedDurations:
             "school_id": school.id, "subject_id": subject.id, "teacher_ids": [teacher.id],
             "duration_minutes": 90, "weighting_coefficient": 1.0,
         })
-        ref_are = RefAre.create(db_session, {"name": "ARE Test"})
+        ref_are = RefAre.create(db_session, {"code": "ARE1", "name": "ARE Test"})
         TeacherAre.create(db_session, {"teacher_id": teacher.id, "ref_are_id": ref_are.id, "duration_minutes": 30})
 
         db_session.refresh(teacher)

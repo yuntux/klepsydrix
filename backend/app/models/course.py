@@ -314,6 +314,12 @@ class Course(Base):
     composition_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, info={"label": "Configuration de décomposition", "type": "json", "readOnly": True, "hidden": True})
 
     mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
+    # Modalité de cours (CODE_MOD_COURS du flux STS). Défaut 1 = « CG », cours général : la
+    # modalité est seedée en PREMIER dans init_db.py précisément pour que cet identifiant soit
+    # stable. Même défaut que chez EDT, dont la documentation précise qu'un cours de modalité
+    # inconnue est exporté en CG. ondelete=RESTRICT : une modalité utilisée par un cours ne doit
+    # pas pouvoir disparaître, la remontée STS en dépend.
+    modality_id: Mapped[int] = mapped_column(Integer, ForeignKey("modalities.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Modalité"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
@@ -330,6 +336,7 @@ class Course(Base):
     timeslot: Mapped[Optional["Timeslot"]] = relationship("Timeslot")
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["RefPacteMission"]] = relationship("RefPacteMission", back_populates="courses")
+    modality: Mapped[Optional["Modality"]] = relationship("Modality", back_populates="courses")
     election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")

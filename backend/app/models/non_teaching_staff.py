@@ -1,8 +1,9 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Enum
 from sqlalchemy.orm import relationship
+from backend.app.models.gender import Gender, gender_field_info
 from backend.app.models.base import Base
 from backend.app.models.user import HasUserAccount
 
@@ -24,6 +25,7 @@ class NonTeachingStaff(HasUserAccount, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     first_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Prénom", "placeholder": "ex: Jean"})
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de famille", "placeholder": "ex: Dupont"})
+    gender: Mapped[Optional[str]] = mapped_column(Enum(Gender, name="gender_enum"), nullable=True, info=gender_field_info())
     role: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Rôle / Fonction", "placeholder": "ex: AESH"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
     user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, unique=True, info={"label": "Compte utilisateur"})

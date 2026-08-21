@@ -162,8 +162,8 @@ def test_solver_group_link_and_week_alternation(db_session: Session):
     link = db_session.query(ClassPartLink).filter_by(class_part_a_id=min(cp1.id, cp2.id), class_part_b_id=max(cp1.id, cp2.id)).first()
     assert link is not None
 
-    g1 = Group.create(db_session, {"name": "Groupe 1", "class_part_ids": [cp1.id]})
-    g2 = Group.create(db_session, {"name": "Groupe 2", "class_part_ids": [cp2.id]})
+    g1 = Group.create(db_session, {"name": "GRP1", "class_part_ids": [cp1.id]})
+    g2 = Group.create(db_session, {"name": "GRP2", "class_part_ids": [cp2.id]})
 
     course1 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t1.id], "division_ids": [d1.id], "group_ids": [g1.id], "school_id": school.id, "week_type": "W", "duration_minutes": 30})
     course2 = Course.create(db_session, {"subject_id": subject.id, "teacher_ids": [t2.id], "division_ids": [d1.id], "group_ids": [g2.id], "school_id": school.id, "week_type": "W", "duration_minutes": 30})
@@ -891,9 +891,9 @@ def test_get_linked_groups(db_session: Session):
     # cp_c est cree dans partition 2, ce qui declenche automatiquement la creation de liens ClassPartLink avec cp_a et cp_b
     cp_c = ClassPart.create(db_session, {"division_id": d.id, "partition_id": p2.id, "name": "Part GGrp C"})
 
-    g_a = Group.create(db_session, {"name": "Groupe A", "class_part_ids": [cp_a.id]})
-    g_b = Group.create(db_session, {"name": "Groupe B", "class_part_ids": [cp_b.id]})
-    g_c = Group.create(db_session, {"name": "Groupe C", "class_part_ids": [cp_c.id]})
+    g_a = Group.create(db_session, {"name": "GRPA", "class_part_ids": [cp_a.id]})
+    g_b = Group.create(db_session, {"name": "GRPB", "class_part_ids": [cp_b.id]})
+    g_c = Group.create(db_session, {"name": "GRPC", "class_part_ids": [cp_c.id]})
 
     db_session.commit()
 

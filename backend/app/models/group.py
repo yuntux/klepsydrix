@@ -26,7 +26,10 @@ class Partition(Base):
     __tablename__ = "partitions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    code: Mapped[str] = mapped_column(String(20), nullable=False, info={"label": "Code de la partition", "placeholder": "ex: PART1"})
+    # Unique dans toute la base, comme toute colonne `code` du projet : une partition appartient
+    # à une division, mais son code reste un identifiant global, pas un libellé local. D'où le
+    # préfixe par code de division sur les partitions auto-générées (voir _partition_code).
+    code: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False, info={"label": "Code de la partition", "placeholder": "ex: 6A-SCI"})
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom de la partition", "placeholder": "ex: Groupes de Langue"})
     division_id: Mapped[int] = mapped_column(Integer, ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False, info={"readOnly": True})
     is_system_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Générée par le système"})
@@ -265,7 +268,14 @@ class Group(Base):
     ]
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: Groupe 1"})
+    # Le nom du groupe EST son identifiant STS : c'est lui qui part dans GROUPE/@CODE, le modèle
+    # n'a pas de champ `code` distinct. D'où les contraintes de STS-web appliquées ici — 8
+    # caractères, jeu de caractères restreint, et unicité partagée avec Division.code (voir
+    # _check_sts_name et backend/app/core/sts_naming.py).
+    name: Mapped[str] = mapped_column(String(8), unique=True, index=True, nullable=False, info={"label": "Nom du groupe", "placeholder": "ex: 6GMATHS1", "maxlength": 8})
+    # GROUPE/LIBELLE_LONG du flux STS : le `name` est contraint à 8 caractères parce qu'il EST
+    # le code STS, ce libellé porte donc la version lisible (« 6EME ALLEMAND LV1 »).
+    long_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Libellé long", "placeholder": "ex: 6ème Allemand LV1"})
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 0, "max": 100})
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #F59E0B"})
     is_variable_size: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Taille variable"})
@@ -274,6 +284,18 @@ class Group(Base):
     # Relations de navigation
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=group_class_parts, back_populates="groups", info={"label": "Parties de classe"})
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_groups", back_populates="groups", info={"label": "Cours"})
+
+    @constrains("name")
+    def _check_sts_name(self, db: Session):
+        """
+        Conformité du nom à ce que STS-web accepte pour un GROUPE : longueur, jeu de caractères,
+        et unicité dans l'espace de noms partagé avec les codes de division. Contrainte dure et
+        non simple avertissement d'audit : un nom non conforme rend toute la remontée impossible,
+        mieux vaut le refuser à la saisie que le découvrir au moment de l'export.
+        """
+        from backend.app.core.sts_naming import validate_sts_group_name, check_structure_name_is_unique
+        validate_sts_group_name(self.name)
+        check_structure_name_is_unique(db, self.name, exclude_group_id=self.id)
 
     def get_linked_groups(self, db: Session) -> list["Group"]:
         from sqlalchemy import select, or_
@@ -357,8 +379,31 @@ def compute_group_name(db: Session, division_id, subject_id, class_part_ids: lis
         if subject:
             prefix += subject.code
 
+    # Le nom généré EST l'identifiant STS du groupe (GROUPE/@CODE) : il doit sortir d'ici déjà
+    # conforme — caractères autorisés seulement, et 8 caractères au plus, suffixe compris. On
+    # assainit puis on réserve la place du suffixe avant de tronquer le préfixe, faute de quoi
+    # la troncature mangerait le numéro et ferait collisionner tous les groupes d'une même
+    # matière. Voir backend/app/core/sts_naming.py.
+    from backend.app.core.sts_naming import sanitize_sts_code, STS_GROUP_NAME_MAX_LENGTH
+
+    prefix = sanitize_sts_code(prefix, STS_GROUP_NAME_MAX_LENGTH)
     existing_count = db.query(Group).filter(Group.name.like(f"{prefix}%")).count()
-    return prefix + next_number_suffix(db, existing_count, "GROUP_NAME_NUMBER_FORMAT")
+    suffix = next_number_suffix(db, existing_count, "GROUP_NAME_NUMBER_FORMAT")
+    name = prefix[: STS_GROUP_NAME_MAX_LENGTH - len(suffix)] + suffix
+
+    # Le préfixe tronqué peut entrer en collision avec un nom déjà pris (deux matières dont les
+    # codes ne diffèrent qu'au-delà de la troncature, ou un code de division homonyme) : on
+    # incrémente jusqu'à trouver un identifiant libre dans l'espace de noms partagé.
+    from backend.app.models.division import Division
+    attempt = existing_count
+    while (
+        db.query(Group).filter(Group.name == name).first()
+        or db.query(Division).filter(Division.code == name).first()
+    ):
+        attempt += 1
+        suffix = next_number_suffix(db, attempt, "GROUP_NAME_NUMBER_FORMAT")
+        name = prefix[: STS_GROUP_NAME_MAX_LENGTH - len(suffix)] + suffix
+    return name
 
 
 def compute_class_part_name(db: Session, division_id, subject_id) -> str:
@@ -421,6 +466,38 @@ def find_partition(
     return None
 
 
+def _partition_code(db: Session, division_id, label: str, discriminant: str = None) -> str:
+    """
+    Code d'une partition auto-générée : le code de la division, le libellé, et ce qui distingue
+    la partition de ses sœurs de la même division.
+
+    Toute colonne `code` du projet est unique dans TOUTE la base. Or une partition est locale à
+    une division — deux divisions veulent légitimement une partition « Dédoublement » — et son
+    libellé ne l'identifie même pas au sein de sa propre division : deux partitions d'une même
+    division peuvent porter le nom de la matière chapeau d'un même cours composé tout en couvrant
+    des matières différentes.
+
+    Le code reprend donc exactement ce sur quoi `find_or_create_partition` fait sa recherche : le
+    code de division (unique), le libellé, puis le `discriminant` propre à la stratégie employée
+    — l'ensemble des matières couvertes, ou le nombre de parties. Aucun suffixe artificiel : le
+    résultat est **déterministe**, recalculer le code d'une partition la retrouve (voir
+    _find_or_create_specialty_partition, qui s'en sert comme clé de recherche).
+    """
+    from backend.app.models.division import Division
+    division = db.get(Division, division_id)
+    segments = [str(division.code if division else division_id), label]
+    if discriminant:
+        segments.append(discriminant)
+    return "-".join(segments)[:100]
+
+
+def _subjects_discriminant(db: Session, subject_ids: list) -> str:
+    """Codes matière triés — ce sur quoi la stratégie `subject_ids` fait sa recherche."""
+    from backend.app.models.subject import Subject
+    codes = sorted(s.code for s in (db.get(Subject, sid) for sid in subject_ids or []) if s)
+    return "+".join(codes)
+
+
 def find_or_create_partition(
     db: Session,
     division_id: int,
@@ -454,7 +531,8 @@ def find_or_create_partition(
         return existing
 
     if subject_ids is not None:
-        partition = Partition.create(db, {"code": name, "name": name, "division_id": division_id, "is_system_generated": True})
+        code = _partition_code(db, division_id, name, _subjects_discriminant(db, subject_ids))
+        partition = Partition.create(db, {"code": code, "name": name, "division_id": division_id, "is_system_generated": True})
         for subject_id in subject_ids:
             ClassPart.create(db, {
                 "partition_id": partition.id,
@@ -472,7 +550,7 @@ def find_or_create_partition(
             label, part_names = "Dédoublement", ["P1", "P2"]
 
         partition = Partition.create(db, {
-            "code": label, "name": label, "division_id": division_id,
+            "code": _partition_code(db, division_id, label), "name": label, "division_id": division_id,
             "is_system_generated": True, "special_type": special_type, "_system_write": True,
         })
         for part_name in part_names:
@@ -482,7 +560,8 @@ def find_or_create_partition(
             })
         return partition
 
-    partition = Partition.create(db, {"code": name, "name": name, "division_id": division_id, "is_system_generated": True})
+    code = _partition_code(db, division_id, name, str(part_count))
+    partition = Partition.create(db, {"code": code, "name": name, "division_id": division_id, "is_system_generated": True})
     for _ in range(part_count):
         ClassPart.create(db, {
             "partition_id": partition.id,
@@ -502,7 +581,8 @@ def _find_or_create_specialty_partition(db: Session, division_id: int, subject) 
     `part_count` (qui réutiliserait n'importe quelle Partition de la division au même nombre de
     parties, sans lien avec la matière) ne conviennent ici.
     """
-    code = f"SPEC_{subject.code}"
+    # Ce code EST la clé de recherche ci-dessous : _partition_code est déterministe.
+    code = _partition_code(db, division_id, f"SPEC_{subject.code}")
     existing = db.query(Partition).filter(Partition.division_id == division_id, Partition.code == code).first()
     if existing:
         return existing

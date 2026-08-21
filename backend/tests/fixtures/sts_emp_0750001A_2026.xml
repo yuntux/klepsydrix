@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FICHIER XML EXEMPLE CONSTRUIT - NE PAS UTILISER COMME RÉFÉRENCE OFFICIELLE
+
+  Ce fichier XML a été construit à partir d'une analyse des scripts d'importation de données GEPI
+  (Gestion Écoles de Proximité Informatisée) trouvés sur Internet. Le Ministère de l'Éducation Nationale
+  ne publie pas publiquement les spécifications officielles des formats d'échange XML (SCONET/SIECLE, STS-web, EDT).
+
+  Merci à l'équipe de développement de GEPI pour leurs scripts d'importation détaillés.
+
+  IMPORTANT : Ce fichier est un EXEMPLE CONSTRUIT basé sur:
+  - L'analyse du code source GEPI (scripts d'importation PHP)
+  - Des exemples de fichiers XML réels
+  - La documentation implicite du code
+
+  Ces fichiers seront amenés à être COMPLÉTÉS ou CORRIGÉS en cas de:
+  - Découverte de champs manquants
+  - Évolutions des formats officiels
+  - Corrections d'erreurs d'interprétation
+
+  Statut: DRAFT - À titre informatif uniquement
+-->
+<STS_EDT>
+  <PARAMETRES>
+    <UAJ CODE="0750001A">
+      <ACADEMIE>
+        <CODE>01</CODE>
+        <LIBELLE>PARIS</LIBELLE>
+      </ACADEMIE>
+      <DENOM_PRINC>COLLEGE CLAUDE BERNARD</DENOM_PRINC>
+      <ADRESSE>1 AVENUE CLAUDE BERNARD</ADRESSE>
+      <COMMUNE>PARIS</COMMUNE>
+      <CODE_POSTAL>75016</CODE_POSTAL>
+      <TELEPHONE>0102030405</TELEPHONE>
+    </UAJ>
+    <ANNEE_SCOLAIRE ANNEE="2026">
+      <DATE_DEBUT>2026-09-02</DATE_DEBUT>
+      <DATE_FIN>2027-07-04</DATE_FIN>
+    </ANNEE_SCOLAIRE>
+  </PARAMETRES>
+  <NOMENCLATURES>
+    <MATIERES>
+      <MATIERE CODE="030101">
+        <CODE_GESTION>ALLEMAND</CODE_GESTION>
+        <LIBELLE_COURT>ALLEMAND LV1</LIBELLE_COURT>
+        <LIBELLE_LONG>ALLEMAND PREMIERE LANGUE</LIBELLE_LONG>
+        <LIBELLE_EDITION>ALLEMAND LV1</LIBELLE_EDITION>
+      </MATIERE>
+      <MATIERE CODE="030201">
+        <CODE_GESTION>ANGLAIS</CODE_GESTION>
+        <LIBELLE_COURT>ANGLAIS LV1</LIBELLE_COURT>
+        <LIBELLE_LONG>ANGLAIS PREMIERE LANGUE</LIBELLE_LONG>
+        <LIBELLE_EDITION>ANGLAIS LV1</LIBELLE_EDITION>
+      </MATIERE>
+    </MATIERES>
+    <MEFS>
+      <MEF CODE="10010012110">
+        <LIBELLE_COURT>6EME</LIBELLE_COURT>
+        <LIBELLE_LONG>SIXIEME</LIBELLE_LONG>
+        <LIBELLE_EDITION>6EME</LIBELLE_EDITION>
+      </MEF>
+    </MEFS>
+    <PROGRAMMES>
+      <PROGRAMME>
+        <CODE_MEF>10010012110</CODE_MEF>
+        <CODE_MATIERE>030101</CODE_MATIERE>
+        <CODE_MODALITE_ELECT>O</CODE_MODALITE_ELECT>
+        <HORAIRE>4.00</HORAIRE>
+      </PROGRAMME>
+      <PROGRAMME>
+        <CODE_MEF>10010012110</CODE_MEF>
+        <CODE_MATIERE>030201</CODE_MATIERE>
+        <CODE_MODALITE_ELECT>O</CODE_MODALITE_ELECT>
+        <HORAIRE>4.00</HORAIRE>
+      </PROGRAMME>
+    </PROGRAMMES>
+  </NOMENCLATURES>
+  <DONNEES>
+    <INDIVIDUS>
+      <INDIVIDU ID="8949" TYPE="epp">
+        <SEXE>1</SEXE>
+        <CIVILITE>1</CIVILITE>
+        <NOM_USAGE>DURAND</NOM_USAGE>
+        <NOM_PATRONYMIQUE>DURAND</NOM_PATRONYMIQUE>
+        <PRENOM>Michel</PRENOM>
+        <DATE_NAISSANCE>1975-03-12</DATE_NAISSANCE>
+        <GRADE>CERTIFIE</GRADE>
+        <FONCTION>ENS</FONCTION>
+        <PROFS_PRINC>
+          <PROF_PRINC>
+            <CODE_STRUCTURE>6E1</CODE_STRUCTURE>
+          </PROF_PRINC>
+        </PROFS_PRINC>
+        <DISCIPLINES>
+          <DISCIPLINE CODE="030101">
+            <LIBELLE_COURT>ALL1</LIBELLE_COURT>
+            <LIBELLE_LONG>ALLEMAND</LIBELLE_LONG>
+          </DISCIPLINE>
+        </DISCIPLINES>
+      </INDIVIDU>
+      <INDIVIDU ID="8950" TYPE="epp">
+        <SEXE>2</SEXE>
+        <CIVILITE>2</CIVILITE>
+        <NOM_USAGE>PETIT</NOM_USAGE>
+        <NOM_PATRONYMIQUE>PETIT</NOM_PATRONYMIQUE>
+        <PRENOM>Helene</PRENOM>
+        <DATE_NAISSANCE>1980-07-25</DATE_NAISSANCE>
+        <GRADE>AGREGE</GRADE>
+        <FONCTION>ENS</FONCTION>
+        <DISCIPLINES>
+          <DISCIPLINE CODE="030201">
+            <LIBELLE_COURT>ANG1</LIBELLE_COURT>
+            <LIBELLE_LONG>ANGLAIS</LIBELLE_LONG>
+          </DISCIPLINE>
+        </DISCIPLINES>
+      </INDIVIDU>
+    </INDIVIDUS>
+    <STRUCTURE>
+      <DIVISIONS>
+        <DIVISION CODE="6E1">
+          <SERVICES>
+            <SERVICE CODE_MATIERE="030101" CODE_MOD_COURS="CG">
+              <ENSEIGNANTS>
+                <ENSEIGNANT ID="8949" TYPE="epp"/>
+              </ENSEIGNANTS>
+            </SERVICE>
+          </SERVICES>
+          <MEFS_APPARTENANCE>
+            <MEF CODE="10010012110"/>
+          </MEFS_APPARTENANCE>
+        </DIVISION>
+      </DIVISIONS>
+      <GROUPES>
+        <GROUPE CODE="6LV1.ALL">
+          <LIBELLE_LONG>6EME ALLEMAND LV1</LIBELLE_LONG>
+          <DIVISIONS_APPARTENANCE>
+            <DIVISION_APPARTENANCE CODE="6E1"/>
+          </DIVISIONS_APPARTENANCE>
+          <SERVICES>
+            <SERVICE CODE_MATIERE="030101" CODE_MOD_COURS="CG">
+              <ENSEIGNANTS>
+                <ENSEIGNANT ID="8949" TYPE="epp"/>
+              </ENSEIGNANTS>
+            </SERVICE>
+          </SERVICES>
+        </GROUPE>
+        <GROUPE CODE="6LV1.ANG">
+          <LIBELLE_LONG>6EME ANGLAIS LV1</LIBELLE_LONG>
+          <DIVISIONS_APPARTENANCE>
+            <DIVISION_APPARTENANCE CODE="6E1"/>
+          </DIVISIONS_APPARTENANCE>
+          <SERVICES>
+            <SERVICE CODE_MATIERE="030201" CODE_MOD_COURS="CG">
+              <ENSEIGNANTS>
+                <ENSEIGNANT ID="8950" TYPE="epp"/>
+              </ENSEIGNANTS>
+            </SERVICE>
+          </SERVICES>
+        </GROUPE>
+      </GROUPES>
+    </STRUCTURE>
+  </DONNEES>
+</STS_EDT>

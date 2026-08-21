@@ -104,7 +104,7 @@ class TestTrmdLineResources:
     def test_ara_is_subtracted_from_teached_duration(self, db_session):
         school, discipline, subject, mef, division, mef_division, mef_service, service = _base_setup(db_session)
         teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=1080)
-        ref_ara = RefAra.create(db_session, {"name": "ARA Test"})
+        ref_ara = RefAra.create(db_session, {"code": "ARA1", "name": "ARA Test"})
         TeacherAra.create(db_session, {"teacher_id": teacher.id, "ref_ara_id": ref_ara.id, "duration_minutes": 120})
 
         lines = TrmdLine.read(db_session)

@@ -328,6 +328,23 @@ Ce module ne vérifie pas la faisabilité agrégée multi-professeurs d'une mêm
 
 Voici la définition formelle de chaque objet et de sa structure de données :
 
+> [!IMPORTANT]
+> **Convention transverse : toute colonne nommée `code` est déclarée `unique=True` et
+> `nullable=False`**, dans tous les modèles qui en portent une — sans exception, quel que soit le
+> périmètre auquel l'objet appartient. Un `code` n'est jamais un libellé local : c'est un
+> identifiant, et il doit pouvoir désigner l'objet partout — impressions, imports, exports
+> STS-web, URL profondes.
+>
+> **Un code n'est jamais suffixé ni réécrit pour contourner une collision.** Aucun mécanisme de
+> génération « code libre le plus proche » n'existe dans le projet : ce serait détruire la
+> propriété même qui fait d'un code une clé. Une collision est une donnée en conflit, pas un
+> incident à absorber — elle est refusée par la contrainte, ou signalée à l'utilisateur.
+>
+> Un code **auto-généré** est donc construit pour être unique **par construction**, en reprenant
+> ce sur quoi porte la recherche de l'objet. La partition de la classe `6A` couvrant les matières
+> MATHS et SVT se code `6A-SCI-MATHS+SVT` : code de division (déjà unique), libellé, puis ce qui
+> distingue la partition de ses sœurs de la même division (voir `_partition_code`).
+
 ### 0. School (Établissement)
 Représente une entité administrative scolaire autonome (un collège, un lycée général, un lycée professionnel) coexistant au sein de la même base de données (concept de **Cité Scolaire**). Cela permet aux établissements de partager les ressources communes (professeurs partagés, salles communes, même campus) tout en conservant une gestion budgétaire, des imports/exports STSWEB et des structures de classes strictement séparés.
 *   `id` : Clé primaire (Entier)
@@ -542,7 +559,19 @@ Un professeur est défini globalement au niveau de la cité scolaire (permettant
 
 > **Coordonnées** : `phone` (Chaîne optionnelle), `phone_diffusion_authorized` (Booléen, défaut `False`), `email` (Chaîne optionnelle), `email_diffusion_authorized` (Booléen, défaut `False`), `address_line1` à `address_line4` (Chaîne optionnelle), `address_zipcode` (Chaîne optionnelle — sert uniquement à filtrer dynamiquement les options de `address_city_id`, voir `architecture.md` §15.R), `address_city_id` (Clé étrangère optionnelle vers **RefCity**), `address_country_id` (Clé étrangère optionnelle vers **RefCountry**, pré-rempli automatiquement à la sélection de `address_city_id` via `@onchange`, librement modifiable ensuite).
 
-> **Données administratives** : `numen` (Chaîne optionnelle, **unique** dans la base), `is_board_member` (Membre du conseil d'administration, Booléen, défaut `False`).
+> **Données administratives** : `epp_id` (Chaîne optionnelle, **unique** dans la base), `is_epp` (Booléen, défaut `True`), `is_board_member` (Membre du conseil d'administration, Booléen, défaut `False`).
+>
+> `epp_id` est l'**identifiant STS de l'individu** — `INDIVIDU/@ID` du flux `sts_emp`, dit
+> « identifiant EPP ». C'est la clé d'appariement de l'enseignant avec la base académique, et
+> donc la clé de la remontée : Charlemagne classe « enseignant sans identifiant Sts » parmi ses
+> quatre anomalies bloquantes. Anciennement nommé `numen`, renommé parce que le NUMEN est un
+> autre identifiant, qui ne circule pas dans ce flux.
+>
+> `is_epp` porte `INDIVIDU/@TYPE` : `True` pour un personnel géré dans la base académique
+> (`epp`), `False` pour un personnel saisi directement dans STS par l'établissement (`local`).
+> Non reconstructible depuis nos données, donc conservé tel que reçu pour être rendu à
+> l'identique à la remontée. Volontairement **pas** dérivé de `epp_id is None` : rien n'établit
+> qu'un individu `local` soit dépourvu d'identifiant.
 
 > **Données propres à l'enseignement** : `function_id` (Clé étrangère optionnelle vers **RefFunction**), `support_id` (Clé étrangère optionnelle vers **RefSupport**), `support_type_id` (Clé étrangère optionnelle vers **RefSupportType**), `is_temporary_support` (Support temporaire/suppléant, Booléen, défaut `False`), `support_comment` (Chaîne optionnelle).
 
@@ -820,11 +849,29 @@ Découpage logique disjoint des élèves d'une Division (ex : la partition "Lang
 ### 6. Group (Groupe)
 Regroupement d'élèves (éventuellement à effectif variable) constitué par l'assemblage d'une ou plusieurs **ClassParts** (parties de classe) issues d'une ou plusieurs Divisions (ex : le groupe "Allemand LV2" associe la partie "All" de la 3ème A et la partie "All" de la 3ème B).
 *   `id` : Clé primaire (Entier)
-*   `code` : Code unique du groupe (Chaîne, e.g. "GERMAN_LV2")
-*   `name` : Libellé (Chaîne, e.g. "Allemand LV2")
+*   `name` : Identifiant du groupe (Chaîne, **unique**, 8 caractères maximum, e.g. "6GALL1")
 *   `student_count` : Nombre total d'élèves participant au groupe (Entier)
 *   `is_variable_size` : Indicateur si le groupe est à effectif variable en cours d'année (Booléen, par défaut `False`)
 *   *Relations (N-à-N)* : `class_parts` (Les parties de classe composant ce groupe)
+
+> [!IMPORTANT]
+> **Le `name` du groupe EST son identifiant STS** : c'est lui qui part dans `GROUPE/@CODE` du
+> flux. Le modèle n'a délibérément pas de champ `code` distinct, qui ferait doublon. Il porte
+> donc les trois contraintes de STS-web, toutes **dures** et vérifiées à la saisie
+> (`Group._check_sts_name`, `backend/app/core/sts_naming.py`) :
+> 1. **8 caractères au maximum.** EDT tronque silencieusement au-delà, à l'export ; on préfère
+>    refuser à la création plutôt que découvrir la troncature au moment de la remontée.
+> 2. **Jeu de caractères restreint** : lettres, chiffres, point, tiret, souligné. UnDeuxTEMPS
+>    classe « nom de groupe non conforme (caractères spéciaux) » parmi ses points bloquants.
+> 3. **Unicité dans l'espace de noms partagé avec `Division.code`.** Une classe et un groupe ne
+>    peuvent pas porter le même identifiant, bien qu'ils vivent dans deux tables distinctes —
+>    d'où une règle partagée (`check_structure_name_is_unique`) appelée depuis les deux modèles
+>    plutôt que dupliquée. UnDeuxTEMPS : « Toutes les classes, groupes et regroupements n'ont pas
+>    un nom unique » est un point bloquant à l'export.
+>
+> `compute_group_name` produit par construction un nom conforme : assainissement, puis
+> troncature du préfixe en réservant la place du suffixe, puis incrémentation jusqu'à trouver un
+> identifiant libre dans l'espace de noms partagé.
 
 > Voir section **1. Course**, « Cascade de membership `groups` ↔ `class_parts` » pour la propagation de cette composition lors de l'ajout/retrait d'un `Group` sur un `Course`.
 
@@ -833,6 +880,13 @@ Regroupement d'élèves (éventuellement à effectif variable) constitué par l'
 >   * *Définition du lien* : Un groupe $G'$ est lié à $G$ s'il contient au moins une partie de classe $CP'$ qui est liée (via `ClassPartLink`) à l'une des parties de classe $CP$ de $G$.
 >   * Un groupe n'est jamais lié à lui-même (le groupe actuel est exclu du résultat).
 > - **Résolution dynamique (`find_or_create_group`, `backend/app/models/group.py`) :** point d'entrée réutilisable (composition de cours, mais pas seulement) qui, à partir d'une liste de `ClassPart` et d'une matière, cherche le `Group` composé EXACTEMENT de ces `ClassPart` (même ensemble, ordre indifférent — jamais un `Group` qui en contiendrait un sous-ensemble ou un sur-ensemble) ; s'il n'existe pas, en crée un nouveau (`is_system_generated=True`).
+
+> **Partition** : son `code` est unique dans toute la base comme n'importe quel autre `code`
+> (voir la convention en tête de section), et unique **par construction** : `_partition_code` le
+> compose du code de division, du libellé, puis de ce qui distingue la partition de ses sœurs de
+> la même division — l'ensemble des matières couvertes (`6A-SCI-MATHS+SVT`) ou le nombre de
+> parties. Le libellé seul n'y suffit pas : deux partitions d'une même division peuvent porter le
+> nom de la matière chapeau d'un même cours composé tout en couvrant des matières différentes.
 
 ### 6bis. ClassPartLink (Lien entre parties de classe)
 Lien d'incompatibilité logique. L'existence d'un lien entre deux parties de classe indique qu'elles ont (ou peuvent avoir) des élèves en commun. Par conséquent, le solveur de conflits s'assure que deux séances affectées à ces deux parties respectives ne peuvent pas être planifiées en même temps.
@@ -1000,6 +1054,28 @@ Représente une catégorie ou un modèle de découpage de l'année scolaire de l
 > * L'utilisateur édite uniquement les **dates de transition** (les dates de basculement entre deux périodes successives).
 > * La modification d'une date de fin d'une période $N$ met à jour automatiquement la date de début de la période suivante $N+1$ au jour suivant.
 > * Les bornes extérieures (début de la première période et fin de la dernière période) sont verrouillées sur les dates de rentrée (`student_start_date`) et de sortie (`student_end_date`) de l'établissement sélectionné.
+
+### 14ter. Modality (Modalité de cours)
+Type d'enseignement dispensé, issu de la Base Académique des Nomenclatures. C'est le
+`CODE_MOD_COURS` porté par chaque service du flux STS-web. Donnée de référence **nationale** :
+seedée par `init_db.py`, présente dans toute base de production, au même titre que `RefGrade`.
+*   `id` : Clé primaire (Entier)
+*   `code` : Code officiel sur 2 caractères (Chaîne, unique, e.g. "CG", "TD", "TP")
+*   `name` : Libellé court (Chaîne, e.g. "COURS", "TD")
+*   `long_name` : Libellé long (Chaîne, e.g. "COURS GENERAL", "TRAVAUX DIRIGES")
+
+Les neuf valeurs seedées sont, dans l'ordre : `CG` (cours général), `EC` (enseignement
+complémentaire), `AT` (atelier), `TD` (travaux dirigés), `AP` (atelier de pratique), `TP`
+(travaux pratiques), `AI` (aide individualisée — soutien), `PL` (pluridisciplinaire), `MO`
+(module mono-disciplinaire).
+
+> [!IMPORTANT]
+> `CG` est inséré **en premier**, et `Course.modality_id` vaut `1` par défaut : c'est la
+> modalité par défaut d'un cours, comme chez EDT dont la documentation précise qu'un cours de
+> modalité inconnue est exporté en `CG`. Réordonner la liste du seed casserait ce défaut.
+>
+> À ne pas confondre avec `RefServiceMode` (« modalité de service »), qui qualifie le service de
+> l'enseignant et non le type d'enseignement.
 
 ### 15. ResourceConstraint (Contrainte de Ressource)
 L'objet générique portant les contraintes spécifiques à une ressource, définies de manière globale pour toute l'année d'enseignement (sans liaison temporelle avec les périodes).
@@ -1305,6 +1381,212 @@ L'interaction de sélection sur les cartes de cours (`CourseCard`) obéit aux st
 *   **Sélection simple (Clic standard)** : Un clic sur une carte de cours remplace la sélection active par ce seul cours (s'il était déjà l'unique élément sélectionné, l'action le désélectionne, agissant comme un toggle).
 *   **Multisélection (Clic avec modificateur)** : Un clic combiné à la touche `Ctrl` (ou `Cmd` sur macOS) ajoute le cours à la sélection existante ou l'en retire s'il y figurait déjà, permettant d'accumuler plusieurs cours pour une consultation groupée dans la Fiche T.
 *   **Réinitialisation au changement d'écran** : La sélection est vidée dès que le planificateur navigue vers un autre point du menu (même en dehors du Visualiseur) — la Fiche T ne doit jamais rester affichée, avec une sélection obsolète, derrière un autre écran de l'application.
+
+---
+
+## Échanges avec STS-web
+
+STS-web est l'application du ministère qui porte la structure pédagogique et les services des
+enseignants. L'échange se fait par **deux fichiers XML dont les noms sont anagrammes l'un de
+l'autre**, à ne jamais confondre :
+
+| Fichier | Racine | Sens | Contenu |
+|---|---|---|---|
+| `sts_emp_<RNE>_<ANNÉE>.xml` | `STS_EDT` | descendant, STS-web → Klepsydrix | établissement, année, matières, MEF, enseignants, classes, groupes |
+| `emp_sts_<RNE>_<ANNÉE>.xml` | `EDT_STS` | montant, Klepsydrix → STS-web | services, ARE, indemnités, cours et alternances |
+
+Le format n'est pas publié par le ministère. La reconstitution utilisée est déduite du code de GEPI et CDT.
+
+### Import du flux descendant — implémenté
+
+Menu **Pré-rentrée > Importer un flux STS-web**, assistant en quatre étapes
+(`wizard_sts_import.py`) : *Fichier et contenu à importer* → *Correspondances* → *Aperçu* →
+*Résultat*. La lecture du XML est isolée dans un module pur sans accès base
+(`backend/app/core/sts_flux.py`), donc testable sur fichier seul et remplaçable sans risque.
+
+> [!IMPORTANT]
+> **Un encart bleu, en tête de la première étape, annonce que la fonction est expérimentale** :
+> le ministère ne publie pas les normes d'échange STS sur son site public et l'auteur ne dispose
+> d'aucun fichier réel ; la structure a été déduite du code de GEPI et de CDT, et elle est
+> probablement incomplète. L'encart invite à transmettre les spécifications officielles ou des
+> fichiers pseudonymisés.
+
+**Le contenu à importer se coche dès la première étape**, un type par case : données communes
+de l'établissement, disciplines, matières, MEF, enseignants, classes, groupes, services. **Tout
+est coché sauf les services.**
+
+Les **données communes de l'établissement** viennent de `PARAMETRES/UAJ` et `ANNEE_SCOLAIRE` :
+dénominations, sigle, codes nature/catégorie, statut, établissement sensible, adresse complète,
+téléphone, et les dates de rentrée et de sortie des élèves. Deux référentiels sont alimentés **à
+la demande** plutôt que seedés — `RefAcademie` (apparié sur son code) et `RefCity` (apparié sur
+le couple nom + code postal). L'import ne crée jamais d'établissement : il complète celui que le
+RNE a désigné. Une balise absente du fichier laisse le champ de la base intact, elle ne l'efface
+pas.
+
+Trois référentiels supplémentaires sont appariés **sur leur code** et complétés à la demande :
+`RefLevel` (`INDIVIDU/GRADE`), `RefFunction` (`INDIVIDU/FONCTION`) et `RefAcademie`. Perdre
+l'information parce qu'un code n'est pas seedé serait pire que d'ajouter une ligne, dont
+l'utilisateur peut toujours corriger le libellé.
+
+> [!IMPORTANT]
+> **Deux garde-fous bloquants, avant toute écriture :**
+> 1. **L'année du fichier doit être celle de la base** (`SystemSettingKey.SCHOOL_YEAR`). Une base
+>    Klepsydrix vaut pour une année et une seule, comme une base EDT.
+> 2. **Le RNE du fichier doit être celui d'un établissement de la base**, et c'est cet
+>    établissement qui reçoit tous les objets créés. Un fichier par RNE : une cité scolaire
+>    s'importe en autant de passes qu'elle compte d'établissements. Le message d'erreur liste les
+>    RNE connus de la base.
+>
+> Charger le fichier montant par erreur est détecté par sa racine (`EDT_STS`) et signalé avec le
+> nom du fichier réellement attendu — c'est la confusion la plus fréquente.
+
+**Politique d'écriture : créer ce qui manque, mettre à jour ce qui existe, ne jamais supprimer.**
+Annoncée à l'utilisateur dès la première étape de l'assistant. L'appariement se fait sur le code
+national de chaque objet — `Subject.code_nomenclature`, `Mef.code_national`, `Teacher.epp_id`,
+`Division.code`, `Group.name` — ce qui rend une table d'appariement inutile tant que la base est
+alimentée par le flux lui-même. Les champs saisis localement et absents du flux (l'effectif d'une
+classe, par exemple) ne sont jamais écrasés.
+
+**L'écart avec la base est affiché**, à l'aperçu comme au bilan : une colonne « Absents du
+fichier » et le détail des objets déjà en base que le flux ne mentionne pas. Rien ne leur arrive,
+mais c'est cet écart qui révèle un départ, une fermeture de classe, ou un fichier qui n'est pas
+celui qu'on croyait. Les enseignants **sans identifiant EPP y figurent aussi** : faute de clé
+d'appariement ils ne peuvent pas être dans le fichier, et ne remonteront jamais vers STS-web.
+L'écart est calculé **avant** l'écriture, sinon il ne dirait plus rien.
+
+#### Étape « Correspondances » — deux informations que le flux ne porte pas
+
+`Subject.discipline_id` et `Mef.ref_grade_id` sont obligatoires ; le flux ne les contient pas.
+Ils sont **pré-remplis par déduction quand c'est possible, puis soumis à l'utilisateur** dans une
+liste éditable — jamais devinés en silence. Une ligne laissée vide n'est pas importée et figure
+dans le rapport avec sa raison.
+
+* **Discipline d'une matière** : remontée par la chaîne matière → services qui la référencent →
+  enseignants de ces services → disciplines de ces enseignants ; retenue seulement si elle est
+  unique. Cette déduction **échoue souvent** — une part significative des établissements ne
+  saisit pas ses services dans STS-web, et sans service la chaîne est vide. Repli : dans les flux
+  où les deux nomenclatures coïncident, la discipline porte le même code que la matière.
+* **Niveau d'un MEF** : déduit par inclusion du libellé de `RefGrade` dans celui du MEF
+  (« 6EME SECTION SPORTIVE » porte le niveau « 6EME »), du plus long au plus court pour que
+  « TERMINALE » l'emporte sur un préfixe plus court. Échoue sur les libellés abrégés (« 6ESPOR »).
+
+Seuls les objets **à créer** sont soumis : ceux déjà en base ont leur rattachement, l'import ne
+le remet pas en cause.
+
+#### Import des services — possible, décoché par défaut
+
+Le flux porte les services, mais un `Service` Klepsydrix descend obligatoirement d'un
+`MefService`, que le flux ne contient pas : ni volume horaire par MEF, ni répartition classe
+entière / effectif réduit / dédoublé.
+
+L'import **crée donc le gabarit manquant à volumes nuls**, laisse la cascade native du modèle
+engendrer les `Service` (`MefService.create()` → `Service.generate_from_mef_service`), et n'y
+ajoute que les enseignants du flux. Il ne crée jamais un `Service` directement.
+
+> [!IMPORTANT]
+> Trois conséquences, toutes annoncées dans le rapport :
+> 1. **Les volumes horaires restent à saisir en pré-rentrée** — sauf si le fichier porte une
+>    section `NOMENCLATURES/PROGRAMMES`, voir ci-dessous.
+> 2. **Créer un gabarit engendre un service pour toutes les classes du MEF**, y compris celles
+>    dont le fichier ne mentionne pas cette matière. C'est la cascade du modèle, pas une décision
+>    de l'import. Sur le jeu d'exemple à 20 classes : 311 lignes de service au fichier → 75
+>    gabarits créés → 425 `Service` engendrés.
+> 3. **Les services portés par un groupe ne sont pas importés** : quand le groupe couvre
+>    plusieurs classes, le MEF de rattachement du gabarit n'est pas déterminable. Ils sont listés.
+>
+> Quand une classe appartient à plusieurs MEF, le **premier déclaré dans le fichier** porte le
+> gabarit — règle déterministe faute de mieux, le flux n'indiquant pas lequel est principal.
+
+EDT fait le même choix de défaut : il sait importer les services et les transformer en cours
+(*Éditer > Transformer la sélection*), mais « dans la plupart des cas, vous importez uniquement
+les MEF, les enseignants et les classes », les services n'étant à reprendre que « s'ils sont à
+jour et que vous souhaitez les transformer en cours ».
+
+#### `PROGRAMMES` — la source des volumes, mais pas dans ce fichier
+
+`PROGRAMME` associe un `CODE_MEF` à un `CODE_MATIERE`, avec `CODE_MODALITE_ELECT` et surtout
+`HORAIRE` — heures hebdomadaires décimales de 0.00 à 8.00. C'est **exactement la définition d'un
+`MefService`**, volume compris.
+
+> [!WARNING]
+> Cette section est **PROUVÉE dans `Nomenclature.xml`** — fichier **SIECLE**, racine
+> `BEE_NOMENCLATURES` — attestée par le référentiel ministériel authentique `DONNEES_REF.xml` et
+> ses 1267 programmes. Elle n'a **jamais été observée dans un `sts_emp`** : ni le schéma
+> reconstitué, ni les deux fichiers d'exemple ne la portent. La seule trace côté STS est un bloc
+> **entièrement commenté** du lecteur de GEPI (`lecture_xml_sts_emp.php:1024-1073`), vraisem-
+> blablement recopié du lecteur SIECLE puis désactivé faute de trouver quoi que ce soit.
+
+L'import la lit donc **de façon défensive** : si un `sts_emp` en porte une, l'horaire alimente
+`weekly_duration_full_class_minutes` du gabarit et la modalité d'élection le complète ; sinon le
+gabarit est créé à volumes nuls comme avant. Aucune dépendance, aucun coût.
+
+Les deux jeux d'exemple du dossier d'analyse en portent désormais une, reprise de leur propre
+`Nomenclature.xml`. Sur le jeu à 20 classes, cela donne **116 gabarits sur 174 avec un volume
+horaire** et une modalité d'élection, au lieu de 174 à zéro. C'est une illustration, pas une
+attestation : le niveau de preuve de cette section dans un `sts_emp` réel reste SUPPOSÉ.
+
+L'horaire va **entièrement en classe entière** : le programme donne un volume total, jamais sa
+répartition entre classe entière, effectif réduit et dédoublé — c'est au planificateur de la
+ventiler. Il est arrondi au pas horaire de la grille, faute de quoi la contrainte de multiple du
+modèle le refuserait.
+
+Obtenir les volumes de façon fiable suppose donc d'aller les chercher dans `Nomenclature.xml`,
+c'est-à-dire **un import SIECLE distinct**, avec son propre fichier et son propre geste — pas un
+second fichier réclamé par l'import STS.
+
+#### Les codes du flux sont des clés
+
+Un code reçu du flux est repris **tel quel**, jamais réécrit ni suffixé : le `CODE_GESTION` d'une
+matière devient son `Subject.code`, l'identifiant EPP devient le `Teacher.code`. Les suffixer
+leur ferait perdre leur qualité de clé, et le prochain import ne retrouverait plus
+l'enregistrement.
+
+Si le code est déjà porté par un **autre** enregistrement de la base, c'est un conflit de données
+et non un doublon à contourner : l'objet est laissé de côté et le rapport nomme l'occupant du
+code, à l'utilisateur de trancher.
+
+### Alternances — conception retenue, non implémentée
+
+L'alternance attendue par STS n'est pas une fraction (le « 36/36 » qu'affiche EDT est une
+présentation dérivée) mais un **calendrier nommé** : la liste explicite des semaines pendant
+lesquelles ses cours ont lieu. Côté Klepsydrix elle correspond à la **combinatoire du `week_type`
+d'un cours et de la liste de ses périodes**.
+
+Trois objets, dont deux à créer :
+
+*   **`Holidays`** (nouveau) : `name`, `begin_date`, `end_date`, avec contrôle `begin_date < end_date`.
+*   **`WeekCalendar`** (nouveau) : `begin_date` (**unique**) et `week_type` (`A` ou `B`).
+    `end_date` vaut `begin_date + 6` intersecté avec les vacances et la fin d'année.
+    `begin_date` ne peut être ni antérieur au début d'année, ni situé pendant des vacances.
+*   **`Alternation`** (aujourd'hui une coquille vide : `code`, `name`, `color`, référencée nulle
+    part) devient `code`, `name`, `long_name`, `week_type` et `period_ids`.
+    `Alternation.week_calendar_ids` est un **many-to-many calculé non stocké** vers `WeekCalendar`
+    qui retourne toutes les `WeekCalendar` de même `week_type` que l'alternance **et** intersectant
+    au moins l'une des périodes de `period_ids`.
+
+Sur le cours, `alternation_id` devient un champ **calculé et stocké** (§15.F), alimenté par
+`Alternation.search_or_create(week_type, period_list)` qui retourne l'alternance existante ou la
+crée — **l'ordre des périodes dans `period_list` n'est pas discriminant**.
+
+> [!IMPORTANT]
+> **Le solveur ne doit rien savoir de tout cela.** C'est un solveur **annuel** : il raisonne sur
+> une semaine type et sur `CourseWeekType` (`A`/`B`/`W`/`Q`), et il n'a pas à connaître la
+> déclinaison en semaines calendaires précises. `WeekCalendar` et `Alternation` servent
+> exclusivement à produire ce que STS-web attend et à l'affichage ; ils n'entrent jamais dans les
+> faits passés à Timefold.
+>
+> `Course.week_type` reste donc l'entrée du solveur, inchangée, et la résolution automatique de
+> `Q` en `A`/`B` reste son affaire. `alternation_id` est un champ dérivé, calculé après coup.
+> Ce lot est délibérément séparé de l'import, qui n'en dépend pas.
+
+### Export du flux montant — non implémenté
+
+Trois des quatre familles de données que STS-web attend (services avec volumes, ARE, indemnités)
+ont des balises **inconnues** : aucune source disponible ne les documente. Seuls les cours et
+leurs alternances le sont. L'export attend donc un `emp_sts` réel produit par un établissement.
+
+L'audit d'anomalies préalable à la remontée, lui, a de la valeur indépendamment du fichier —
+tous les logiciels comparés en ont un — et reste à construire.
 
 ---
 

@@ -1844,6 +1844,54 @@ compris ceux dont la colonne n'est pas affichée (candidats = `props.fields` en 
 `visibleColumns`). Émet vers `internalGroupBy`, jamais vers `props.listConfig`. Positionné dans la
 barre de pagination, à droite du badge "X sélectionné(s)" (`showGroupByWidget`).
 
+### AA. Contrainte Métier Partagée par Deux Modèles (`backend/app/core/sts_naming.py`)
+
+**Le besoin** : STS-web exige que classes, groupes et regroupements portent des identifiants tous distincts. Côté Klepsydrix cet identifiant vit dans deux tables — `Division.code` et `Group.name` — donc dans deux modèles qui ne se connaissent pas. Poser la contrainte des deux côtés à coups de copier-coller la ferait diverger à la première évolution.
+
+**Le pattern retenu** : un module `core/` **pur** porte la règle, et les deux `@constrains()` l'appellent, chacun en s'excluant lui-même de la recherche de doublon.
+
+```python
+# backend/app/core/sts_naming.py — un seul endroit où la règle est écrite
+def check_structure_name_is_unique(db, value, *, exclude_group_id=None, exclude_division_id=None):
+    ...
+
+# group.py
+@constrains("name")
+def _check_sts_name(self, db):
+    validate_sts_group_name(self.name)
+    check_structure_name_is_unique(db, self.name, exclude_group_id=self.id)
+
+# division.py
+@constrains("code")
+def _check_sts_code_uniqueness(self, db):
+    check_structure_name_is_unique(db, self.code, exclude_division_id=self.id)
+```
+
+**Points clés** :
+- **Le module `core/` n'importe pas les modèles au niveau du fichier**, seulement à l'intérieur de la fonction : `division.py` et `group.py` l'importent tous les deux, un import de niveau module créerait un cycle.
+- **Les deux `@constrains()` restent nécessaires** : une contrainte posée d'un seul côté ne verrait pas l'écriture faite de l'autre. C'est le pendant de la leçon de la section H — une garantie ne doit pas dépendre de la porte par laquelle on entre.
+- **La règle refuse, elle ne corrige pas.** La normalisation (`sanitize_sts_code`) est un utilitaire distinct, appelé par les seuls **générateurs** de noms (`compute_group_name`) pour qu'un nom auto-généré soit conforme par construction. Un nom saisi à la main, lui, est rejeté et non réécrit silencieusement — c'est justement le reproche fait à EDT, qui tronque à l'export sans prévenir.
+
+**Quand l'employer** : dès qu'une règle métier porte sur un **espace de valeurs partagé par plusieurs tables** (identifiants de structures ici, mais aussi bien des codes de ressources qui devraient rester distincts entre eux). Pour une règle qui ne concerne qu'un seul modèle, un `@constrains()` local suffit — ce module n'a pas vocation à devenir un dépotoir à validations.
+
+### AB. Lecture de Fichier Externe : Parseur Pur + Wizard (`sts_flux.py` / `wizard_sts_import.py`)
+
+**Le pattern** : quand l'application ingère un fichier d'un format qu'elle ne maîtrise pas, la lecture et l'écriture sont **deux modules séparés**.
+
+- **`core/<format>.py` — le parseur, pur** : fichier → dataclass/dicts. Aucun import de modèle, aucune session, aucun `db`. Il ne connaît ni les correspondances ni les règles métier. Il lève une exception dédiée (`StsFluxError`) dont le message est directement affichable à l'utilisateur final.
+- **`models/wizard_<action>.py` — l'écriture** : résolution des correspondances, contrôles bloquants, création/mise à jour.
+
+**Ce que la séparation achète** :
+- Le parseur se teste **sans base** — `test_sts_flux.py` ne monte aucune session, 17 tests en 0,03 s.
+- Le format est reconstitué par rétro-ingénierie, donc **faux par endroits** : le jour où un vrai fichier le corrigera, un seul module change, et ses tests disent immédiatement ce qui casse.
+- Les fichiers d'exemple servent de fixtures partagées (`backend/tests/fixtures/`), reprises du dossier d'analyse où elles sont validées contre les schémas XSD.
+
+**Contrôles bloquants avant toute écriture**, dans le wizard et non dans le parseur : un import qui se trompe d'année ou d'établissement mélange deux structures pédagogiques sans qu'aucune contrainte du modèle ne s'en aperçoive. Ces contrôles appartiennent au métier, pas à la lecture du fichier.
+
+**Aperçu et exécution partagent le même calcul** (`_build_plan`, appelé par `rpc_analyze` et par `rpc_import`) : deux fonctions distinctes finiraient par diverger, et l'utilisateur validerait un aperçu qui ne correspond plus à ce qui sera écrit. Même principe que `_compute_specialty_plan` (section M).
+
+**Le fichier transite par le formulaire, pas par la base.** Un `TransientModel` ne persiste rien : le champ `type: "binary"` (section Q) est déclaré dans `_fields`, et `rpcParams` le repasse d'une étape à l'autre depuis l'état du formulaire côté navigateur. Aucune table temporaire, aucun nettoyage à prévoir.
+
 ## 16. Architecture Multi-Base et Routage HTTP
 
 Une même instance Klepsydrix peut héberger plusieurs bases indépendantes (une par établissement/

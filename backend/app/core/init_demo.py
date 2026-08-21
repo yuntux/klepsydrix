@@ -142,6 +142,11 @@ def seed_demo_data():
         # établissement réel). Matin à 10h00 (600 min après minuit), après-midi à 15h30 (930 min).
         db.execute(text("INSERT INTO system_settings (key, value) VALUES ('HOUR_MORNING_BREAK_START_MINUTES_AFTER_MIDNIGHT', '600')"))
         db.execute(text("INSERT INTO system_settings (key, value) VALUES ('HOUR_AFTERNOON_BREAK_START_MINUTES_AFTER_MIDNIGHT', '930')"))
+        # init_db.py seede SCHOOL_YEAR au millésime de l'année scolaire réellement en cours ; le
+        # jeu de démonstration, lui, est bâti sur 2026-2027 (voir les dates de rentrée/sortie des
+        # établissements ci-dessus). On l'aligne, sans quoi tout import de flux STS sur la base de
+        # démonstration serait refusé par le contrôle d'année du wizard.
+        db.execute(text("UPDATE system_settings SET value = '2026' WHERE key = 'SCHOOL_YEAR'"))
         db.commit()
 
         # 7. Saisie des period_types, périodes temporelles (Semestres) et Alternances (Semaines A/B)
@@ -469,9 +474,9 @@ def seed_demo_data():
             ("20", "SALLE D'ETUDE", "Salle d'étude"),
             ("21", "SALLE POLYVALENTE", "Salle polyvalente"),
             ("22", "SALLE SCIENTIFIQUE", "Salle scientifique et technologique"),
-            ("22", "SALLE ENS. TECHNO", "Salle d'enseignement technologique"),
-            ("22", "SALLE DE TP", "Salle de travaux pratiques"),
-            ("22", "SALLE INFORMATIQUE", "Salle informatique"),
+            ("27", "SALLE ENS. TECHNO", "Salle d'enseignement technologique"),
+            ("28", "SALLE DE TP", "Salle de travaux pratiques"),
+            ("29", "SALLE INFORMATIQUE", "Salle informatique"),
             ("23", "SANITAIRES ADULTES", "Sanitaire adulte"),
             ("24", "VESTIAIRES", "Vestiaire et local d'entretien"),
             ("25", "SALLE VIRTUELLE", "Salle virtuelle"),
@@ -598,7 +603,11 @@ def seed_demo_data():
 
             # --- Création des Groupes pour le Pôle Sciences ---
             # 1. Partition
-            db.execute(text("INSERT INTO partitions (code, name, division_id, is_system_generated) VALUES ('SCI', 'Groupes Sciences', :division_id, 0)"), {"division_id": d_id})
+            # Toute colonne `code` est unique dans TOUTE la base : le code de division sert de
+            # préfixe, sans quoi les huit divisions se disputeraient le code 'SCI'. Même
+            # convention que _partition_code côté ORM (group.py).
+            div_code = db.execute(text("SELECT code FROM divisions WHERE id = :d_id"), {"d_id": d_id}).scalar()
+            db.execute(text("INSERT INTO partitions (code, name, division_id, is_system_generated) VALUES (:code, 'Groupes Sciences', :division_id, 0)"), {"code": f"{div_code}-SCI", "division_id": d_id})
             part_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
 
             # 2. ClassParts & Groups (3 groupes)
@@ -610,9 +619,15 @@ def seed_demo_data():
                 ), {"part_id": part_id, "name": f"Groupe {g_idx}"})
                 cp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
 
+                # Le nom du groupe EST son identifiant STS (GROUPE/@CODE) : 8 caractères au plus,
+                # ni espace ni accent, et unique dans l'espace de noms partagé avec les codes de
+                # classe (voir Group._check_sts_name et backend/app/core/sts_naming.py). D'où le
+                # préfixe par code de division, qui garantit l'unicité entre divisions — l'ancien
+                # « Groupe Sciences 1 » violait les trois règles à la fois.
+                div_code = db.execute(text("SELECT code FROM divisions WHERE id = :d_id"), {"d_id": d_id}).scalar()
                 db.execute(text(
                     "INSERT INTO groups (name, student_count, color, is_variable_size, is_system_generated) VALUES (:name, 10, '#CCCCCC', 0, 0)"
-                ), {"name": f"Groupe Sciences {g_idx}"})
+                ), {"name": f"{div_code[:6]}G{g_idx}"})
                 grp_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
 
                 db.execute(text("INSERT INTO group_class_parts (group_id, class_part_id) VALUES (:g_id, :cp_id)"), {"g_id": grp_id, "cp_id": cp_id})

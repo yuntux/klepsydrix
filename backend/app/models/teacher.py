@@ -1,8 +1,9 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Boolean, Date, JSON, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Boolean, Date, JSON, ForeignKey, Table, true as sa_true, Enum
 from sqlalchemy.orm import relationship, Session
+from backend.app.models.gender import Gender, gender_field_info
 from backend.app.models.base import Base, related_field, constrains, onchange, exposed
 from backend.app.models.user import HasUserAccount
 
@@ -61,6 +62,7 @@ class Teacher(HasUserAccount, Base):
 
     # --- État civil ---
     title_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_titles.id", ondelete="SET NULL"), nullable=True, info={"label": "Civilité"})
+    gender: Mapped[Optional[str]] = mapped_column(Enum(Gender, name="gender_enum"), nullable=True, info=gender_field_info())
     birth_last_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, info={"label": "Nom de naissance"})
     birth_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de naissance"})
     birth_city_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_cities.id", ondelete="SET NULL"), nullable=True, info={"label": "Ville de naissance"})
@@ -86,7 +88,18 @@ class Teacher(HasUserAccount, Base):
     address_country_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_countries.id", ondelete="SET NULL"), nullable=True, info={"label": "Pays"})
 
     # --- Données administratives ---
-    numen: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True, info={"label": "NUMEN"})
+    # Identifiant STS de l'individu — INDIVIDU/@ID du flux sts_emp, dit « identifiant EPP ».
+    # C'est la clé d'appariement de l'enseignant avec la base académique, et donc la clé de la
+    # remontée : Charlemagne classe « enseignant sans identifiant Sts » parmi ses quatre anomalies
+    # bloquantes. Anciennement nommé `numen` : le NUMEN est un autre identifiant, qui ne circule
+    # pas dans ce flux.
+    epp_id: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True, info={"label": "Identifiant EPP (STS)"})
+    # INDIVIDU/@TYPE : `epp` pour un personnel géré dans la base académique, `local` pour un
+    # personnel saisi directement dans STS par l'établissement. Non reconstructible depuis nos
+    # données — il faut donc le conserver tel qu'il a été reçu pour le rendre à l'identique lors de
+    # la remontée. Volontairement PAS dérivé de `epp_id is None` : rien n'établit qu'un individu
+    # `local` soit dépourvu d'identifiant, STS lui en attribuant probablement un localement.
+    is_epp: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=sa_true(), info={"label": "Géré dans la base académique (EPP)"})
     is_board_member: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Membre du conseil d'administration"})
 
     # --- Données propres à l'enseignement ---

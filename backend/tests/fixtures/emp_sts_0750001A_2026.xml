@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FICHIER XML EXEMPLE CONSTRUIT - NE PAS UTILISER COMME RÉFÉRENCE OFFICIELLE
+
+  emp_sts_<RNE>_<ANNEE>.xml — SENS MONTANT, du logiciel d'emploi du temps vers
+  STS-web. Pendant de sts_emp_<RNE>_<ANNEE>.xml, qui va dans l'autre sens.
+
+  Construit d'après ../xsd_et_norme/emp_sts_RNE_ANNEE.xsd, lui-même reconstitué
+  à partir du code source de CDT_6000 (import_sconet.php) et de GEPI. Le
+  Ministère de l'Éducation Nationale ne publie pas publiquement les
+  spécifications officielles des formats d'échange XML.
+
+  Merci aux équipes de développement de CDT_6000 et de GEPI.
+
+  IMPORTANT : ce fichier n'exerce que ce que le schéma sait décrire, soit une
+  seule des quatre familles de données que STS-web attend d'un fichier montant
+  (services, ARE, indemnités, cours et alternances). Les volumes horaires de
+  service, les pondérations, les ARE et les indemnités sont absents : leurs
+  balises sont inconnues. Seule la modalité de cours est portée, par l'attribut
+  SERVICE/@CODE_MOD_COURS. Voir les blocs « MANQUE À PRIORI » du schéma et
+  ../xsd_et_norme/FORMATS_JUSTIFICATION.md §9.
+
+  Ces fichiers seront amenés à être COMPLÉTÉS ou CORRIGÉS en cas de:
+  - Découverte de champs manquants
+  - Évolutions des formats officiels
+  - Corrections d'erreurs d'interprétation
+
+  Statut: DRAFT - À titre informatif uniquement
+
+  Lecture retenue pour ce jeu minimal : la division 6E1 est partagée en deux
+  groupes de LV1, l'allemand (6LV1.ALL) et l'anglais (6LV1.ANG). Les heures sont
+  donc portées par les groupes, jamais par la division — c'est pourquoi ce
+  fichier n'a pas de section DIVISIONS. Le sts_emp du même dossier déclare aussi
+  l'allemand au niveau de la division 6E1 : c'est la déclaration administrative
+  du service, pas un second enseignement. Le jeu exemple2/ illustre, lui, la
+  section DIVISIONS.
+
+  Les deux groupes forment une barrette : mêmes créneaux, enseignants distincts.
+  La cinquième heure est une heure de soutien en quinzaine, les deux groupes se
+  relayant sur un même créneau — l'allemand en semaine A, l'anglais en semaine B.
+-->
+<EDT_STS>
+  <ALTERNANCES>
+    <ALTERNANCE CODE="H">
+      <LIBELLE_COURT>H</LIBELLE_COURT>
+      <LIBELLE_LONG>Toutes les semaines</LIBELLE_LONG>
+      <LIBELLE_EDITION>Année complète</LIBELLE_EDITION>
+      <SEMAINES>
+        <DATE_DEBUT_SEMAINE>2026-08-31</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-07</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-14</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-21</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-28</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-10-05</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-10-12</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-02</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-09</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-16</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-23</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-30</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-12-07</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-12-14</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-04</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-11</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-18</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-25</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-02-01</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-02-08</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-01</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-08</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-15</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-22</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-29</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-04-05</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-04-26</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-03</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-10</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-17</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-24</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-31</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-07</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-14</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-21</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-28</DATE_DEBUT_SEMAINE>
+      </SEMAINES>
+    </ALTERNANCE>
+    <ALTERNANCE CODE="A">
+      <LIBELLE_COURT>Q1</LIBELLE_COURT>
+      <LIBELLE_LONG>Semaines A</LIBELLE_LONG>
+      <LIBELLE_EDITION>Quinzaine A</LIBELLE_EDITION>
+      <SEMAINES>
+        <DATE_DEBUT_SEMAINE>2026-08-31</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-14</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-28</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-10-12</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-09</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-23</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-12-07</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-04</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-18</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-02-01</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-01</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-15</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-29</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-04-26</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-10</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-24</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-07</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-21</DATE_DEBUT_SEMAINE>
+      </SEMAINES>
+    </ALTERNANCE>
+    <ALTERNANCE CODE="B">
+      <LIBELLE_COURT>Q2</LIBELLE_COURT>
+      <LIBELLE_LONG>Semaines B</LIBELLE_LONG>
+      <LIBELLE_EDITION>Quinzaine B</LIBELLE_EDITION>
+      <SEMAINES>
+        <DATE_DEBUT_SEMAINE>2026-09-07</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-09-21</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-10-05</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-02</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-16</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-11-30</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2026-12-14</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-11</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-01-25</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-02-08</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-08</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-03-22</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-04-05</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-03</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-17</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-05-31</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-14</DATE_DEBUT_SEMAINE>
+        <DATE_DEBUT_SEMAINE>2027-06-28</DATE_DEBUT_SEMAINE>
+      </SEMAINES>
+    </ALTERNANCE>
+  </ALTERNANCES>
+  <DONNEES>
+    <STRUCTURE>
+      <GROUPES>
+        <GROUPE CODE="6LV1.ALL">
+          <DIVISIONS_APPARTENANCE>
+            <DIVISION_APPARTENANCE CODE="6E1"/>
+          </DIVISIONS_APPARTENANCE>
+          <SERVICES>
+            <SERVICE CODE_MATIERE="030101" CODE_MOD_COURS="CG">
+              <ENSEIGNANTS>
+                <ENSEIGNANT ID="8949" TYPE="epp">
+                  <COURS_RATTACHES>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>1</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>2</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>4</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>5</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>A</CODE_ALTERNANCE>
+                      <JOUR>3</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                  </COURS_RATTACHES>
+                </ENSEIGNANT>
+              </ENSEIGNANTS>
+            </SERVICE>
+          </SERVICES>
+        </GROUPE>
+        <GROUPE CODE="6LV1.ANG">
+          <DIVISIONS_APPARTENANCE>
+            <DIVISION_APPARTENANCE CODE="6E1"/>
+          </DIVISIONS_APPARTENANCE>
+          <SERVICES>
+            <SERVICE CODE_MATIERE="030201" CODE_MOD_COURS="CG">
+              <ENSEIGNANTS>
+                <ENSEIGNANT ID="8950" TYPE="epp">
+                  <COURS_RATTACHES>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>1</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>2</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>4</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>H</CODE_ALTERNANCE>
+                      <JOUR>5</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                    <COURS>
+                      <CODE_ALTERNANCE>B</CODE_ALTERNANCE>
+                      <JOUR>3</JOUR>
+                      <HEURE_DEBUT>0800</HEURE_DEBUT>
+                      <DUREE>0100</DUREE>
+                    </COURS>
+                  </COURS_RATTACHES>
+                </ENSEIGNANT>
+              </ENSEIGNANTS>
+            </SERVICE>
+          </SERVICES>
+        </GROUPE>
+      </GROUPES>
+    </STRUCTURE>
+  </DONNEES>
+</EDT_STS>

@@ -151,7 +151,7 @@ def init_prod_data(slug: str = None):
         # comme une base EDT. Toujours modifiable ensuite depuis « Paramètres système ».
         db.execute(
             text("INSERT INTO system_settings (key, value) VALUES ('SCHOOL_YEAR', :value)"),
-            {"value": str(date.today().year if date.today().month >= 9 else date.today().year - 1)},
+            {"value": str(date.today().year if date.today().month >= 6 else date.today().year - 1)},
         )
         # Nommage automatique des parties de classe et des groupes générés lors de la composition
         # de cours (voir CompositionModes._compute_class_part_name / _compute_group_name)
@@ -250,9 +250,12 @@ def init_prod_data(slug: str = None):
         for name in ref_administrative_groups_data:
             db.execute(text("INSERT INTO ref_administrative_groups (name) VALUES (:name)"), {"name": name})
 
-        ref_levels_data = ["Classe Normale", "Hors Classe", "Classe exceptionnelle"]
-        for name in ref_levels_data:
-            db.execute(text("INSERT INTO ref_levels (name) VALUES (:name)"), {"name": name})
+        # code : clé d'appariement du flux STS (INDIVIDU/GRADE). Les valeurs ci-dessous sont des
+        # grades de carrière, sans équivalent connu dans le flux — d'où des codes locaux. L'import
+        # crée la ligne manquante quand il rencontre un code inconnu.
+        ref_levels_data = [("CN", "Classe Normale"), ("HC", "Hors Classe"), ("CE", "Classe exceptionnelle")]
+        for code, name in ref_levels_data:
+            db.execute(text("INSERT INTO ref_levels (code, name) VALUES (:code, :name)"), {"code": code, "name": name})
 
         ref_affectation_modes_data = ["Poste définitif", "Réaffectation carte", "Remplacement"]
         for name in ref_affectation_modes_data:
@@ -262,9 +265,11 @@ def init_prod_data(slug: str = None):
         for name in ref_service_modes_data:
             db.execute(text("INSERT INTO ref_service_modes (name) VALUES (:name)"), {"name": name})
 
-        ref_functions_data = ["Enseignant", "Direction", "Documentaliste", "Surveillant"]
-        for name in ref_functions_data:
-            db.execute(text("INSERT INTO ref_functions (name) VALUES (:name)"), {"name": name})
+        # code : clé d'appariement du flux STS (INDIVIDU/FONCTION). « ENS » est la seule valeur
+        # attestée du flux (voir FORMATS_JUSTIFICATION.md §2.8) ; les autres sont des codes locaux.
+        ref_functions_data = [("ENS", "Enseignant"), ("DIR", "Direction"), ("DOC", "Documentaliste"), ("SURV", "Surveillant")]
+        for code, name in ref_functions_data:
+            db.execute(text("INSERT INTO ref_functions (code, name) VALUES (:code, :name)"), {"code": code, "name": name})
 
         ref_support_types_data = ["Principal", "Secondaire", "Gelé"]
         for name in ref_support_types_data:
@@ -297,6 +302,28 @@ def init_prod_data(slug: str = None):
             db.execute(
                 text("INSERT INTO ref_grades (name, specialty_choice_limit) VALUES (:name, :specialty_choice_limit)"),
                 {"name": name, "specialty_choice_limit": specialty_choice_limit},
+            )
+
+        # Modalités de cours (CODE_MOD_COURS du flux STS), issues de la Base Académique des
+        # Nomenclatures : donnée de référence nationale, présente dans toute base de production
+        # au même titre que ref_grades.
+        # « CG » est inséré EN PREMIER à dessein : Course.modality_id vaut 1 par défaut, et c'est
+        # la modalité par défaut d'un cours. Ne pas réordonner cette liste sans changer ce défaut.
+        modalities_data = [
+            ("CG", "COURS", "COURS GENERAL"),
+            ("EC", "ENS. COMP.", "ENSEIGNEMENT COMPLEMENTAIRE"),
+            ("AT", "ATELIER", "ATELIER"),
+            ("TD", "TD", "TRAVAUX DIRIGES"),
+            ("AP", "ATP", "ATELIER DE PRATIQUE"),
+            ("TP", "TP", "TRAVAUX PRATIQUES"),
+            ("AI", "AIDE IND", "AIDE INDIVIDUALISEE - SOUTIEN"),
+            ("PL", "PLURIDISC", "PLURIDISCIPLINAIRE"),
+            ("MO", "MODULE", "MODULE MONO-DISCIPLINAIRE"),
+        ]
+        for code, name, long_name in modalities_data:
+            db.execute(
+                text("INSERT INTO modalities (code, name, long_name) VALUES (:code, :name, :long_name)"),
+                {"code": code, "name": name, "long_name": long_name},
             )
 
         db.commit()
