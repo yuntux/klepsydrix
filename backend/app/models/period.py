@@ -18,5 +18,5 @@ class Period(Base):
 
     # Relations de navigation
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType", back_populates="periods")
-    school: Mapped[Optional["School"]] = relationship("School", back_populates="periods")
+    school: Mapped[Optional["School"]] = relationship("School")
 

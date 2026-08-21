@@ -35,7 +35,7 @@ class Division(Base):
     preferred_classroom_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="SET NULL"), nullable=True, info={"label": "Salle préférée"})
 
     # Relations de navigation
-    school: Mapped[Optional["School"]] = relationship("School", back_populates="divisions")
+    school: Mapped[Optional["School"]] = relationship("School")
     main_teacher: Mapped[Optional["Teacher"]] = relationship("Teacher", foreign_keys=[main_teacher_id])
     preferred_classroom: Mapped[Optional["Classroom"]] = relationship("Classroom", foreign_keys=[preferred_classroom_id])
     mef_links: Mapped[list["MefDivision"]] = relationship(

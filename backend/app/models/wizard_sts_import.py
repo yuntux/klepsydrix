@@ -84,7 +84,7 @@ MISSING_DISPLAY_LIMIT = 20
 EXPERIMENTAL_NOTICE = (
     '<div style="border-left:4px solid #3B82F6;background:#EFF6FF;padding:12px 16px;'
     'border-radius:4px;margin-bottom:16px;">'
-    "<p><strong>Fonction expérimentale.</strong> Le ministère ne publie pas sur son site public "
+    "<p><strong>Fonction expérimentale.</strong> Le ministère de l'éducation nationale ne publie pas sur son site public "
     "les normes d'échange STS, et l'auteur ne dispose d'aucun fichier d'exemple réel. La "
     "structure des fichiers a été déduite du code de deux logiciels libres, "
     "<strong>GEPI</strong> et <strong>CDT</strong> ; elle est probablement incomplète.</p>"
@@ -976,19 +976,20 @@ class WizardStsImport(TransientModel):
     _fields = [
         "id", "sts_file", "info_html", "header_html", "resolution_html", "mef_rows",
         "subject_rows", "summary_rows", "skipped_html", "missing_html",
-        "import_disciplines", "import_subjects", "import_mefs", "import_teachers",
-        "import_divisions", "import_groups", "import_services", "result_html",
+        "import_school", "import_disciplines", "import_subjects", "import_mefs",
+        "import_teachers", "import_divisions", "import_groups", "import_services",
+        "result_html",
     ]
     _field_info = {
         "sts_file": {"label": "Fichier STS-web", "type": "binary"},
-        "info_html": {"type": "html", "label": " ", "readOnly": True},
-        "header_html": {"type": "html", "label": " ", "readOnly": True},
-        "resolution_html": {"type": "html", "label": " ", "readOnly": True},
+        "info_html": {"type": "html", "label": None, "readOnly": True},
+        "header_html": {"type": "html", "label": None, "readOnly": True},
+        "resolution_html": {"type": "html", "label": None, "readOnly": True},
         "mef_rows": {"label": "MEF à rattacher à un niveau", "type": "text", "widget": "list_preview"},
         "subject_rows": {"label": "Matières à rattacher à une discipline", "type": "text", "widget": "list_preview"},
         "summary_rows": {"label": "Contenu du fichier", "type": "text", "widget": "list_preview", "readOnly": True},
-        "skipped_html": {"type": "html", "label": " ", "readOnly": True},
-        "missing_html": {"type": "html", "label": " ", "readOnly": True},
+        "skipped_html": {"type": "html", "label": None, "readOnly": True},
+        "missing_html": {"type": "html", "label": None, "readOnly": True},
         "import_school": {"label": "Données communes de l'établissement", "type": "boolean"},
         "import_disciplines": {"label": "Disciplines", "type": "boolean"},
         "import_subjects": {"label": "Matières", "type": "boolean"},
@@ -997,7 +998,7 @@ class WizardStsImport(TransientModel):
         "import_divisions": {"label": "Classes", "type": "boolean"},
         "import_groups": {"label": "Groupes", "type": "boolean"},
         "import_services": {"label": "Services", "type": "boolean"},
-        "result_html": {"type": "html", "label": " ", "readOnly": True},
+        "result_html": {"type": "html", "label": None, "readOnly": True},
     }
 
     # Paramètres repassés d'une étape à l'autre : le TransientModel ne persiste rien, c'est
@@ -1022,16 +1023,22 @@ class WizardStsImport(TransientModel):
                 "id": "upload",
                 "title": "1. Fichier et contenu à importer",
                 "fields": [
-                    {"key": "info_html", "type": "html", "label": " "},
+                    {"key": "info_html", "type": "html", "label": None},
                     {"key": "sts_file", "label": "Fichier STS-web", "type": "binary"},
-                    {"key": "import_school", "label": "Importer les données communes de l'établissement (nom, académie, adresse, coordonnées…)", "type": "boolean"},
-                    {"key": "import_disciplines", "label": "Importer les disciplines", "type": "boolean"},
-                    {"key": "import_subjects", "label": "Importer les matières", "type": "boolean"},
-                    {"key": "import_mefs", "label": "Importer les MEF", "type": "boolean"},
-                    {"key": "import_teachers", "label": "Importer les enseignants", "type": "boolean"},
-                    {"key": "import_divisions", "label": "Importer les classes", "type": "boolean"},
-                    {"key": "import_groups", "label": "Importer les groupes", "type": "boolean"},
-                    {"key": "import_services", "label": "Importer les services (volumes horaires à compléter ensuite)", "type": "boolean"},
+                    {
+                    "type": "group",
+                    "string": "Périmètre de l'import",
+                    "children": [
+                        {"key": "import_school", "label": "Importer les données communes de l'établissement (nom, académie, adresse, coordonnées…)", "type": "boolean"},
+                        {"key": "import_disciplines", "label": "Importer les disciplines", "type": "boolean"},
+                        {"key": "import_subjects", "label": "Importer les matières", "type": "boolean"},
+                        {"key": "import_mefs", "label": "Importer les MEF", "type": "boolean"},
+                        {"key": "import_teachers", "label": "Importer les enseignants", "type": "boolean"},
+                        {"key": "import_divisions", "label": "Importer les classes", "type": "boolean"},
+                        {"key": "import_groups", "label": "Importer les groupes", "type": "boolean"},
+                        {"key": "import_services", "label": "Importer les services (volumes horaires à compléter ensuite)", "type": "boolean"}
+                        ]
+                    }
                 ],
                 "submitLabel": "Analyser",
                 "rpc": "rpc_analyze",
@@ -1041,8 +1048,8 @@ class WizardStsImport(TransientModel):
                 "id": "resolve",
                 "title": "2. Correspondances",
                 "fields": [
-                    {"key": "header_html", "type": "html", "label": " "},
-                    {"key": "resolution_html", "type": "html", "label": " "},
+                    {"key": "header_html", "type": "html", "label": None},
+                    {"key": "resolution_html", "type": "html", "label": None},
                     {
                         "key": "mef_rows", "label": "MEF à rattacher à un niveau", "type": "text",
                         "widget": "list_preview", "fullWidth": True,

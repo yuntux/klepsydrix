@@ -860,8 +860,11 @@ async function loadFkOptionsForModel(model: string) {
 // activeLeaf ajouté aux sources : activeAdminModel vaut 'schools' par défaut avant toute
 // résolution de feuille (voir plus bas), donc sans ce garde-fou ce watch peut se déclencher sur
 // cette valeur par défaut erronée dès que openApiSpec charge, avant que NotebooksTree n'ait
-// restauré la vraie feuille depuis l'URL (onLeafChange) — provoquant des GET FK parasites
-// (ex: teachers/divisions/classrooms/courses/periods, référencés par schools_CreatePayload).
+// restauré la vraie feuille depuis l'URL (onLeafChange) — provoquant des GET FK parasites, pour
+// des ressources que la feuille réellement affichée n'utilise pas.
+// (Le cas historique — schools_CreatePayload tirant teachers/divisions/classrooms/courses/periods
+// — a disparu depuis que School ne porte plus ces collections inverses, mais le garde reste
+// nécessaire : il vaut pour n'importe quelle ressource par défaut, pas pour celle-là seule.)
 //
 // activeTab !== 'admin' ajouté séparément : onLeafChange ne remet jamais activeAdminModel à zéro
 // pour une feuille sans panneau GenericForm (ex: la grille EDT elle-même) — sans ce garde,
@@ -1633,6 +1636,13 @@ function getFormFieldsConfig(resourceKey?: string) {
         dynamicFields.push({
           key: key,
           label: prop.title || key,
+          // info={"label": None} côté modèle (voir generic.py::_apply_label) : libellé
+          // explicitement supprimé, à distinguer d'un libellé simplement non déclaré. Porté par un
+          // drapeau séparé plutôt qu'en mettant `label` à null, pour que ce choix ne concerne QUE
+          // la fiche (GenericForm) : les colonnes de liste, construites par buildColumnsConfig,
+          // continuent de retomber sur le nom du champ, une colonne sans en-tête n'ayant pas de
+          // sens.
+          labelHidden: prop.label === null,
           type: fieldType,
           // required_field (voir teacher.py::discipline_lines) fusionné directement ici : clé
           // backend dédiée (info={}) distincte du `required` JSON-Schema réservé (présence de la

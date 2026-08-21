@@ -354,7 +354,7 @@ class Course(Base):
     )
     election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
-    school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
+    school: Mapped[Optional["School"]] = relationship("School")
     
     # Ressources N..N pures
     teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=course_teachers, back_populates="courses", info={"label": "Enseignants"})

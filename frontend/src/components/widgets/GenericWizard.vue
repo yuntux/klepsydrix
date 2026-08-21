@@ -22,7 +22,7 @@
       :modelValue="draft"
       inline
       :submitLabel="currentStep.submitLabel"
-      :formConfig="{ deletable: false }"
+      :formConfig="{ deletable: false, fields: stepLayout }"
       @submit="onStepSubmit"
       @cancel="onCancel"
     >
@@ -48,7 +48,9 @@
 //     rpcParams?: Record<paramName, cheminPointDansLeBrouillon>, isLast?: boolean }
 // - fields : mêmes objets FormField que GenericForm (type, widget, widgetParams...) — les champs
 //   complexes passent par le registre de widgets partagé (voir widgets/registry.ts), exactement
-//   comme dans un formulaire classique.
+//   comme dans un formulaire classique. Une étape accepte aussi les NŒUDS DE LAYOUT de GenericForm
+//   ({type: "group", string, children}, "separator", "newline", "notebook"/"page") mêlés à ses
+//   champs : voir stepLayout ci-dessous.
 // - rpc : nom de la méthode d'instance à appeler à la soumission de cette étape (facultatif : une
 //   étape sans rpc avance simplement au brouillon accumulé, sans aller-retour serveur).
 // - rpcParams : associe chaque paramètre attendu par la méthode RPC à un chemin (à points) dans le
@@ -123,8 +125,41 @@ const currentStep = computed<WizardStep | undefined>(() => props.steps[currentSt
 // Injecte dans widgetParams le contexte que seul le wizard connaît (l'enregistrement concret sur
 // lequel il opère) — les steps sont déclarées génériquement sur le modèle, sans connaître à
 // l'avance quel enregistrement sera composé.
+// Nœuds de STRUCTURE, par opposition aux champs. Même vocabulaire que GenericForm.vue — à ne pas
+// confondre avec le `type` d'un champ, qui désigne son widget (`boolean`, `html`…).
+const LAYOUT_NODE_TYPES = new Set(['group', 'separator', 'newline', 'notebook', 'page']);
+
+const isLayoutNode = (item: any) => !!item && LAYOUT_NODE_TYPES.has(item.type);
+
+/**
+ * Champs feuilles d'une étape, groupes traversés.
+ *
+ * GenericForm attend DEUX choses distinctes, et c'est tout l'objet de ce dédoublement : `fields`,
+ * la liste plate des champs (c'est là qu'il résout chaque `key`), et `formConfig.fields`, l'arbre
+ * de disposition. Une étape de wizard, elle, n'en déclare qu'une seule — son arbre. Sans cet
+ * aplatissement, les champs d'un groupe restaient introuvables et le groupe s'affichait vide.
+ */
+function flattenStepFields(items: any[]): any[] {
+  return (items || []).flatMap((item: any) => {
+    if (isLayoutNode(item)) return flattenStepFields(item.children || []);
+    return item ? [item] : [];
+  });
+}
+
+/**
+ * Arbre de disposition de l'étape, ou `undefined` si elle ne déclare que des champs.
+ *
+ * Rendu conditionnel exprès : sans nœud de structure, ne rien passer laisse GenericForm sur son
+ * repli habituel (tous les champs à plat, dans l'ordre déclaré) — le comportement de toutes les
+ * étapes existantes reste donc strictement identique.
+ */
+const stepLayout = computed(() => {
+  const items = currentStep.value?.fields || [];
+  return items.some(isLayoutNode) ? items : undefined;
+});
+
 const currentStepFields = computed(() => {
-  return (currentStep.value?.fields || []).map((f: any) => ({
+  return flattenStepFields(currentStep.value?.fields || []).map((f: any) => ({
     ...f,
     // f.options prime si déjà fourni explicitement par l'étape (cas rare, non observé à ce jour) —
     // sinon résolu depuis fkOptionsCache pour tout champ resource (voir import ci-dessus).

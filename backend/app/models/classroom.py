@@ -37,7 +37,7 @@ class Classroom(Base):
     site_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("sites.id", ondelete="SET NULL"), nullable=True, info={"label": "Site / Bâtiment"})
 
     # Relations de navigation
-    school: Mapped[Optional["School"]] = relationship("School", back_populates="classrooms")
+    school: Mapped[Optional["School"]] = relationship("School")
     site: Mapped[Optional["Site"]] = relationship("Site", back_populates="classrooms")
     ref_classroom_type: Mapped[Optional["RefClassroomType"]] = relationship("RefClassroomType")
     parent_classroom: Mapped[Optional["Classroom"]] = relationship("Classroom", remote_side=[id], foreign_keys=[parent_classroom_id], back_populates="children_classrooms")

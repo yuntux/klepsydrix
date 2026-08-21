@@ -1258,34 +1258,90 @@
                   "treeBy": "parent_id",
                   "autoExpandLevel": 2,
                   "columns": {
-                    "subject_id": { "visibleByDefault": true },
-                    "division_ids": { "visibleByDefault": true },
-                    "teacher_ids": { "visibleByDefault": true },
-                    "timeslot_id": { "visibleByDefault": true },
-                    "duration_minutes": { "visibleByDefault": true },
-                    "classroom_requirement_ids": { "visibleByDefault": true },
-                    "group_ids": { "visibleByDefault": true },
-                    "is_pinned": { "visibleByDefault": false },
-                    "is_co_teaching": { "visibleByDefault": false },
-                    "weighting_coefficient": { "visibleByDefault": false },
-                    "memo": { "visibleByDefault": false },
-                    "lock_structure": { "visibleByDefault": false },
-                    "forbid_break_overlap": { "visibleByDefault": false },
-                    "mission_id": { "visibleByDefault": false },
-                    "election_method_id": { "visibleByDefault": false },
-                    "family_id": { "visibleByDefault": false },
-                    "non_teaching_staff_ids": { "visibleByDefault": false },
-                    "material_ids": { "visibleByDefault": false },
-                    "class_part_ids": { "visibleByDefault": false },
-                    "weighted_duration_minutes": { "visibleByDefault": false },
-                    "status": { "visibleByDefault": false },
-                    "decomposition_status": { "visibleByDefault": false },
-                    "is_composed": { "visibleByDefault": false },
-                    "school_id": { "visibleByDefault": false },
-                    "period_ids": { "visibleByDefault": false },
-                    "period_type_id": { "visibleByDefault": false },
-                    "parent_id": { "visibleByDefault": false },
-                    "week_type": { "visibleByDefault": false }
+                    "subject_id": {
+                      "visibleByDefault": true
+                    },
+                    "division_ids": {
+                      "visibleByDefault": true
+                    },
+                    "teacher_ids": {
+                      "visibleByDefault": true
+                    },
+                    "timeslot_id": {
+                      "visibleByDefault": true
+                    },
+                    "duration_minutes": {
+                      "visibleByDefault": true
+                    },
+                    "classroom_requirement_ids": {
+                      "visibleByDefault": true
+                    },
+                    "group_ids": {
+                      "visibleByDefault": true
+                    },
+                    "is_pinned": {
+                      "visibleByDefault": false
+                    },
+                    "is_co_teaching": {
+                      "visibleByDefault": false
+                    },
+                    "weighting_coefficient": {
+                      "visibleByDefault": false
+                    },
+                    "memo": {
+                      "visibleByDefault": false
+                    },
+                    "lock_structure": {
+                      "visibleByDefault": false
+                    },
+                    "forbid_break_overlap": {
+                      "visibleByDefault": false
+                    },
+                    "mission_id": {
+                      "visibleByDefault": false
+                    },
+                    "election_method_id": {
+                      "visibleByDefault": false
+                    },
+                    "family_id": {
+                      "visibleByDefault": false
+                    },
+                    "non_teaching_staff_ids": {
+                      "visibleByDefault": false
+                    },
+                    "material_ids": {
+                      "visibleByDefault": false
+                    },
+                    "class_part_ids": {
+                      "visibleByDefault": false
+                    },
+                    "weighted_duration_minutes": {
+                      "visibleByDefault": false
+                    },
+                    "status": {
+                      "visibleByDefault": false
+                    },
+                    "decomposition_status": {
+                      "visibleByDefault": false
+                    },
+                    "is_composed": {
+                      "visibleByDefault": false
+                    },
+                    "school_id": {
+                      "visibleByDefault": false
+                    },
+                    "period_ids": {
+                      "visibleByDefault": false
+                    },
+                    "period_type_id": {
+                      "visibleByDefault": false
+                    },
+                    "parent_id": {
+                      "visibleByDefault": false
+                    },
+                    "week_type": {
+                      "visibleByDefault": false
+                    }
                   }
                 }
               },
@@ -1512,7 +1568,7 @@
                               },
                               {
                                 "key": "teacher_ids",
-                                "label": "Prof"
+                                "label": "Professeur"
                               }
                             ]
                           }

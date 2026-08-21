@@ -267,3 +267,101 @@ def test_generic_display_name(db_session: Session):
     assert response.json()["display_name"] == "Subject Test Long Label"
 
 
+
+
+class TestLabelExplicitementNul:
+    """
+    `info={"label": None}` : le champ ne porte AUCUN libellé dans la fiche générique, et son widget
+    de saisie récupère la place du label (voir GenericForm.vue).
+
+    Trois états à ne pas confondre — et c'est bien ce que ces tests verrouillent : clé absente
+    (aucun libellé déclaré, repli sur le nom du champ), chaîne même vide (libellé affiché tel quel,
+    la colonne reste réservée), et `None` (aucun libellé). Le `title` de Pydantic ne sait pas porter
+    le troisième cas : un `title=None` est omis du schéma, donc indiscernable d'un libellé non
+    déclaré. D'où le passage par le schéma étendu, testé ici.
+    """
+
+    def _proprietes(self, model):
+        from backend.app.api.generic import make_pydantic_model
+        return make_pydantic_model(model, include_id=True).model_json_schema()["properties"]
+
+    def test_un_label_normal_reste_un_title(self, db_session):
+        props = self._proprietes(School)
+        assert props["name"]["title"] == "Nom de l'établissement"
+        assert "label" not in props["name"]
+
+    def test_un_label_none_est_porte_par_le_schema(self, db_session):
+        colonne = School.__table__.columns["sigle"]
+        origine = colonne.info.get("label")
+        colonne.info["label"] = None
+        try:
+            props = self._proprietes(School)
+            # La clé est PRÉSENTE et vaut null : c'est ce qui distingue « libellé supprimé » de
+            # « libellé non déclaré », où la clé est absente.
+            assert "label" in props["sigle"]
+            assert props["sigle"]["label"] is None
+        finally:
+            colonne.info["label"] = origine
+
+    def test_une_chaine_vide_n_est_pas_un_label_nul(self, db_session):
+        colonne = School.__table__.columns["sigle"]
+        origine = colonne.info.get("label")
+        colonne.info["label"] = ""
+        try:
+            props = self._proprietes(School)
+            assert "label" not in props["sigle"]
+        finally:
+            colonne.info["label"] = origine
+
+
+class TestChampsDesWizards:
+    """
+    Toute clé de champ déclarée dans une étape de wizard doit exister dans le schéma du modèle.
+
+    Le défaut que ce test attrape est silencieux et coûteux à diagnostiquer : une clé absente de
+    `_fields` n'est ni sérialisée par l'API ni déclarée au schéma, donc le champ s'affiche vide,
+    ne renvoie jamais rien, et rien ne le signale — ni au démarrage, ni à l'exécution.
+
+    Les étapes acceptant des NŒUDS DE LAYOUT (`group`, `notebook`, `page`…) mêlés aux champs, la
+    descente est récursive : un champ enfermé dans un groupe est exactement aussi exposé qu'un
+    champ posé à plat, et exactement aussi facile à oublier.
+
+    Le contrôle ne porte que sur les champs de SAISIE. Un champ d'affichage (`html`, ou un tableau
+    d'aperçu `text`/`list_preview`) est légitimement absent du schéma quand sa valeur ne vient que
+    du résultat d'un RPC, fusionné dans le brouillon côté navigateur — c'est un mode de
+    fonctionnement documenté du wizard, pas un oubli.
+    """
+
+    LAYOUT_TYPES = {"group", "separator", "newline", "notebook", "page"}
+    # Types dont la valeur INITIALE vient forcément du modèle : sans la clé au schéma, la case
+    # part décochée et le nombre à vide, quel que soit le défaut déclaré côté Python.
+    TYPES_DE_SAISIE = {"boolean", "number", "date", "select", "binary", "color", "duration"}
+
+    def _cles_de_saisie(self, elements):
+        cles = []
+        for elem in elements or []:
+            if isinstance(elem, dict):
+                if elem.get("type") in self.LAYOUT_TYPES:
+                    cles.extend(self._cles_de_saisie(elem.get("children")))
+                elif elem.get("key") and elem.get("type") in self.TYPES_DE_SAISIE:
+                    cles.append(elem["key"])
+        return cles
+
+    def test_toutes_les_cles_de_wizard_existent_dans_le_schema(self, db_session):
+        from backend.app.api.generic import MODEL_MAP, make_pydantic_model
+
+        manquants = []
+        for resource, model in sorted(MODEL_MAP.items()):
+            for action in getattr(model, "__actions__", []) or []:
+                if action.get("type") != "wizard":
+                    continue
+                connus = set(make_pydantic_model(model, include_id=True).model_json_schema()["properties"])
+                for step in action.get("steps", []):
+                    for cle in self._cles_de_saisie(step.get("fields")):
+                        if cle not in connus:
+                            manquants.append(f"{resource}.{action['id']}.{step.get('id')} -> {cle}")
+
+        assert not manquants, (
+            "Champs de wizard absents du schéma du modèle (ajoutez-les à _fields) : "
+            + ", ".join(manquants)
+        )

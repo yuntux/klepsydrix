@@ -129,7 +129,7 @@ class Teacher(HasUserAccount, Base):
 
     # Relations de navigation
     user: Mapped[Optional["User"]] = relationship("User", back_populates="teacher")
-    school: Mapped[Optional["School"]] = relationship("School", back_populates="teachers")
+    school: Mapped[Optional["School"]] = relationship("School")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all", info={"label": "Cours"})
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)
     subjects: Mapped[list["Subject"]] = relationship("Subject", secondary=teacher_subjects, info={"label": "Matières enseignées"})

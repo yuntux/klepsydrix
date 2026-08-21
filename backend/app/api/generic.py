@@ -92,6 +92,30 @@ def sqla_to_dict(obj) -> Dict[str, Any]:
 
     return d
 
+def _apply_label(info, field_kwargs: dict, json_schema_extra: dict):
+    """
+    Porte le libellé d'un champ dans le schéma, en distinguant **trois** états — et « clé absente »
+    n'est pas « None » :
+
+    - clé absente         : aucun libellé déclaré, le frontend retombe sur le nom du champ ;
+    - ``None``            : libellé explicitement supprimé. La fiche n'affiche alors AUCUN label et
+                            le widget de saisie occupe la place laissée libre (voir
+                            GenericForm.vue) ;
+    - chaîne, même vide   : libellé affiché tel quel — `""` réserve la place sans rien écrire, ce
+                            qui n'est PAS la même chose que `None`.
+
+    Le `title` de Pydantic ne sait pas porter le deuxième cas : un `title=None` est purement et
+    simplement omis du schéma, ce qui rendrait « libellé supprimé » indiscernable de « libellé non
+    déclaré ». D'où le passage par `json_schema_extra`, qui sérialise bien `"label": null`.
+    """
+    if "label" not in info:
+        return
+    if info["label"] is None:
+        json_schema_extra["label"] = None
+    else:
+        field_kwargs["title"] = info["label"]
+
+
 def make_pydantic_model(model, all_optional=False, include_id=False):
     fields = {}
     if issubclass(model, TransientModel):
@@ -102,9 +126,8 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
             info = field_info.get(field, {})
             field_kwargs = {}
             if info:
-                if "label" in info:
-                    field_kwargs["title"] = info["label"]
                 json_schema_extra = {k: v for k, v in info.items() if k not in ("label", "type")}
+                _apply_label(info, field_kwargs, json_schema_extra)
                 if "type" in info:
                     json_schema_extra["ui_type"] = info["type"]
                 if json_schema_extra:
@@ -132,9 +155,8 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
         field_kwargs = {}
         json_schema_extra = {}
         if hasattr(column, "info") and column.info:
-            if "label" in column.info:
-                field_kwargs["title"] = column.info["label"]
             json_schema_extra = {k: (v() if callable(v) else v) for k, v in column.info.items() if k not in ("label", "type")}
+            _apply_label(column.info, field_kwargs, json_schema_extra)
             if "type" in column.info:
                 json_schema_extra["ui_type"] = column.info["type"]
 
@@ -173,9 +195,8 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
         descriptor = getattr(model, field, None)
         info = getattr(descriptor, "info", None)
         if info:
-            if "label" in info:
-                field_kwargs["title"] = info["label"]
             json_schema_extra = {k: (v() if callable(v) else v) for k, v in info.items() if k not in ("label", "type")}
+            _apply_label(info, field_kwargs, json_schema_extra)
             if "type" in info:
                 json_schema_extra["ui_type"] = info["type"]
             if json_schema_extra:
@@ -194,8 +215,15 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
                     field_name = f"{rel.key[:-3]}y_ids"
                 
                 target_table = rel.mapper.class_.__tablename__
-                title = rel.info.get("label", field_name.replace("_", " ").title())
                 rel_schema_extra = {"resource": target_table, "ui_type": "multiselect"}
+                # Repli sur le nom du champ quand aucun libellé n'est déclaré, mais un libellé
+                # déclaré à None reste None : _apply_label le porte alors dans le schéma extra,
+                # et le `title` est laissé vide (voir sa docstring).
+                rel_kwargs = {"title": field_name.replace("_", " ").title()}
+                _apply_label(rel.info, rel_kwargs, rel_schema_extra)
+                if "label" in rel_schema_extra:
+                    rel_kwargs.pop("title", None)
+                title = rel_kwargs.get("title")
                 if rel.secondary is None:
                     # Relation 1-à-N "possédée" (pas un many-to-many via table d'association) :
                     # expose le nom de la FK de retour côté enfant, pour permettre au frontend

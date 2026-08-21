@@ -178,6 +178,12 @@ function handleActionClick(action: any) {
 interface FormField {
   key: string;
   label: string;
+  // info={"label": None} côté modèle (voir generic.py::_apply_label), ou `label: null` sur un
+  // champ d'étape de wizard : le champ ne porte AUCUN libellé dans la fiche, et son widget occupe
+  // la colonne du label en plus de la sienne. À distinguer d'un libellé vide (`""` ou `" "`), qui
+  // réserve la place sans rien écrire — un formulaire garde ainsi le moyen d'aligner un champ sous
+  // les autres sans le nommer.
+  labelHidden?: boolean;
   type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'color' | 'duration' | 'multiselect' | 'html' | 'json' | 'binary';
   required?: boolean;
   requiredExpr?: string;
@@ -230,8 +236,13 @@ interface LayoutElement {
   invisibleExpr?: string;
   widget?: string;
   widgetParams?: any;
-  overrideLabel?: string;
-  label?: string;
+  // Surcharge du libellé déclaré sur le modèle. Trois états, et `undefined` n'est PAS `null` :
+  // clé absente = pas de surcharge (on hérite du modèle) ; chaîne = libellé affiché tel quel,
+  // y compris vide ; `null` = surcharge explicite « aucun libellé », qui masque le label et élargit
+  // le widget de saisie d'autant. D'où les comparaisons à `undefined` plutôt qu'un `||` dans
+  // parseLayoutElement, un `||` traitant `null` et `""` comme « absent ».
+  overrideLabel?: string | null;
+  label?: string | null;
   disabled?: boolean;
   originalField?: FormField;
   help?: string;
@@ -393,16 +404,46 @@ const notebookActiveIndex = reactive<Record<string, number>>({});
 // stables pour la durée d'un calcul, seul repère dont notebookActiveIndex a besoin.
 let notebookIdCounter = 0;
 
+/**
+ * Libellé effectif d'un champ : la surcharge du layout si elle est déclarée, sinon celui du modèle.
+ *
+ * `undefined` (clé absente) et `null` (surcharge explicite) sont deux choses différentes, d'où le
+ * test sur `undefined` plutôt qu'un `||` : `overrideLabel: null` doit GAGNER contre le libellé du
+ * modèle, là où `||` retomberait dessus. `null` en sortie signifie « aucun libellé » et fait
+ * disparaître la colonne du label au profit du widget (voir FormLayoutGrid).
+ */
+function resolveLabel(override: any, inherited: string | null | undefined): string | null | undefined {
+  return override !== undefined ? override : inherited;
+}
+
+/** Libellé du modèle, `null` si le backend l'a explicitement supprimé (info={"label": None}). */
+function fieldLabel(field: FormField | undefined): string | null | undefined {
+  if (!field) return undefined;
+  return field.labelHidden ? null : field.label;
+}
+
+/**
+ * Types de `type` qui désignent une STRUCTURE de layout, et non un widget de saisie.
+ *
+ * Le piège que cet ensemble ferme : `type` porte deux vocabulaires distincts selon l'endroit où on
+ * l'écrit. Sur un élément de layout c'est la nature du nœud (`group`, `separator`…), sur un champ
+ * d'étape de wizard c'est le type du widget (`boolean`, `text`, `html`…). Un
+ * `{key, label, type: "boolean"}` posé dans les enfants d'un groupe est donc bien une référence de
+ * champ — le tester par `!elem.type` le rejetait en silence, et le champ disparaissait du
+ * formulaire sans le moindre message.
+ */
+const LAYOUT_NODE_TYPES = new Set(['field', 'group', 'separator', 'newline', 'notebook', 'page']);
+
 function parseLayoutElement(elem: any): LayoutElement | null {
   if (!elem) return null;
-  
+
   if (typeof elem === 'string') {
     const original = props.fields.find(f => f.key === elem);
     if (original && !original.hidden) {
       return {
         type: 'field',
         key: elem,
-        label: original.label,
+        label: fieldLabel(original),
         required: original.required === true,
         requiredExpr: original.requiredExpr,
         disabled: false,
@@ -417,14 +458,15 @@ function parseLayoutElement(elem: any): LayoutElement | null {
     return null;
   }
 
-  // Si c'est un objet simple sans type mais avec une key, c'est un champ
-  if (elem.key && !elem.type) {
+  // Objet portant une `key` sans désigner une structure de layout : c'est une référence de champ.
+  // Son `type` éventuel est alors un type de widget (voir LAYOUT_NODE_TYPES), pas un nœud.
+  if (elem.key && !LAYOUT_NODE_TYPES.has(elem.type)) {
     const original = props.fields.find(f => f.key === elem.key);
     if (original && !original.hidden) {
       return {
         type: 'field',
         key: elem.key,
-        label: elem.overrideLabel || original.label,
+        label: resolveLabel(elem.overrideLabel !== undefined ? elem.overrideLabel : elem.label, fieldLabel(original)),
         required: elem.required === true || original.required === true,
         requiredExpr: typeof elem.required === 'string' ? elem.required : (typeof elem.requiredExpr === 'string' ? elem.requiredExpr : original.requiredExpr),
         disabled: elem.readOnly === true,
@@ -445,7 +487,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
       return {
         type: 'field',
         key: elem.key,
-        label: elem.overrideLabel || original.label,
+        label: resolveLabel(elem.overrideLabel !== undefined ? elem.overrideLabel : elem.label, fieldLabel(original)),
         required: elem.required === true || original.required === true,
         requiredExpr: typeof elem.required === 'string' ? elem.required : (typeof elem.requiredExpr === 'string' ? elem.requiredExpr : original.requiredExpr),
         disabled: elem.readOnly === true,
@@ -548,7 +590,7 @@ const layoutTree = computed<LayoutElement[]>(() => {
   return props.fields.filter(f => !f.hidden).map(f => ({
     type: 'field',
     key: f.key,
-    label: f.label,
+    label: fieldLabel(f),
     required: f.required === true,
     requiredExpr: f.requiredExpr,
     disabled: false,
@@ -766,11 +808,21 @@ const FormLayoutGrid: any = defineComponent({
               }
             }
             const disabled = gridProps.isEditableForm === false || elem.disabled === true || evaluatedDisabled;
-            const label = elem.label || field.label;
+            // `elem.label` est déjà résolu par parseLayoutElement (surcharge du layout, sinon
+            // libellé du modèle) ; le repli ne sert qu'aux éléments construits en dehors.
+            const label = resolveLabel(elem.label, fieldLabel(field));
+            // Libellé explicitement nul : le champ n'en affiche aucun. Une chaîne vide, elle,
+            // reste un libellé — elle réserve sa colonne sans rien y écrire.
+            const hideLabel = label === null;
 
             const isFull = field.fullWidth === true;
+            // Sans libellé, le widget prend AUSSI la colonne du label : c'est un cumul de largeur
+            // et non un simple masquage, rien ne doit rester en blanc à sa gauche. La grille
+            // compte quatre colonnes hors mode inline (deux paires label/widget), deux en inline.
             const inputStyle = {
-              gridColumn: (isFull && !gridProps.inline) ? 'span 3' : 'auto'
+              gridColumn: (isFull && !gridProps.inline)
+                ? (hideLabel ? 'span 4' : 'span 3')
+                : (hideLabel ? 'span 2' : 'auto')
             };
 
             let inputElement: any = null;
@@ -1047,6 +1099,15 @@ const FormLayoutGrid: any = defineComponent({
                   gridProps.localModel[key] = val;
                 }
               });
+            }
+
+            // Aucun libellé : on n'émet pas la cellule du tout plutôt qu'un label vide, sans quoi
+            // la colonne resterait réservée et le widget ne pourrait pas s'y étendre.
+            // Contrepartie assumée : l'astérisque de champ requis, l'infobulle d'aide et le badge
+            // « Modifié » du multi-édition vivent dans ce label et disparaissent avec lui — ce
+            // choix ne convient donc qu'aux champs qui se passent des trois.
+            if (hideLabel) {
+              return [ inputElement ];
             }
 
             const labelElement = h('label', {

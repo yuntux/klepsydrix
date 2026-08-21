@@ -41,12 +41,15 @@ class School(Base):
     # Relations de navigation
     academie: Mapped[Optional["RefAcademie"]] = relationship("RefAcademie", back_populates="schools")
     city: Mapped[Optional["RefCity"]] = relationship("RefCity")
-    teachers: Mapped[list["Teacher"]] = relationship("Teacher", back_populates="school", passive_deletes="all", info={"label": "Enseignants"})
-    divisions: Mapped[list["Division"]] = relationship("Division", back_populates="school", passive_deletes="all", info={"label": "Classes"})
-    classrooms: Mapped[list["Classroom"]] = relationship("Classroom", back_populates="school", passive_deletes="all", info={"label": "Salles de classe"})
-    courses: Mapped[list["Course"]] = relationship("Course", back_populates="school", passive_deletes="all", info={"label": "Cours"})
-
-    periods: Mapped[list["Period"]] = relationship("Period", back_populates="school", passive_deletes="all", info={"label": "Périodes"})
+    # PAS de collections inverses vers teachers, divisions, classrooms, courses ni periods : elles
+    # existaient, elles ont été retirées. Le moteur générique expose toute relation `uselist` comme
+    # un champ `<relation>_ids` du modèle — la fiche Établissement se retrouvait donc à déclarer
+    # cinq collections entières, dont les cours de tout l'établissement, et le frontend chargeait
+    # leurs options FK à chaque affichage du panneau (voir App.vue, watch sur activeAdminModel).
+    # Le sens qui porte le métier est l'autre : c'est `Teacher.school_id` qui rattache, et les
+    # écrans listent les enseignants d'un établissement en filtrant sur ce champ.
+    # La suppression en cascade ne dépend pas de ces relations non plus : elle parcourt les clés
+    # étrangères et leur `ondelete=` (voir CRUDMixin._cascade_delete_dependents, §15.H).
 
     @classmethod
     def test_class_method(cls, db, multiplier: int):

@@ -1,11 +1,14 @@
 <template>
   <div class="binary-field">
+    <!-- L'action d'ouverture vient EN PREMIER, et porte son nom en toutes lettres : c'est la seule
+         action toujours disponible, et la seule qui ait un sens quand le champ est encore vide.
+         Une icône seule, rejetée tout à droite par le nom de fichier extensible, se lisait mal. -->
+    <button v-if="!disabled" type="button" class="btn-binary-browse" @click.stop="browse">Parcourir…</button>
     <span class="binary-field-name" :title="modelValue?.filename || ''">
       {{ modelValue?.filename || 'Aucun fichier' }}
     </span>
     <button v-if="hasValue" type="button" class="btn-binary-action" title="Télécharger" @click.stop="download">📥</button>
     <button v-if="hasValue && !disabled" type="button" class="btn-binary-action" title="Effacer" @click.stop="clear">🗑</button>
-    <button v-if="!disabled" type="button" class="btn-binary-action" title="Parcourir" @click.stop="browse">📁</button>
     <input ref="fileInput" type="file" class="binary-field-input" @change="onFileChange" />
   </div>
 </template>
@@ -84,6 +87,28 @@ function onFileChange(e: Event) {
   white-space: nowrap;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* Un vrai bouton, pas une icône : bordé et nommé, comme .btn-secondary du design system, mais
+   compact — ce widget vit dans une cellule de formulaire, où la hauteur d'un .btn standard
+   (padding 10px) déformerait la ligne. */
+.btn-binary-browse {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  line-height: 1.4;
+  transition: background-color var(--transition-fast);
+}
+
+.btn-binary-browse:hover {
+  background-color: color-mix(in srgb, var(--accent-primary) 8%, transparent);
 }
 
 .btn-binary-action {
