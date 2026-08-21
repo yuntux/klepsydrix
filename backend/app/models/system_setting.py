@@ -90,7 +90,7 @@ class SystemSetting(Base):
         """
         Millésime de l'année scolaire de la base, sur 4 chiffres (2026 = année 2026-2027).
         Seule source de vérité de l'année : une base Klepsydrix vaut pour une année et une
-        seule, comme une base EDT. Confrontée à ANNEE_SCOLAIRE/@ANNEE à chaque import de flux
+        seule, comme toute base d'emploi du temps. Confrontée à ANNEE_SCOLAIRE/@ANNEE à chaque import de flux
         STS (voir wizard_sts_import.py).
         """
         value = cls.get_system_setting_value(db, SystemSettingKey.SCHOOL_YEAR.value)

@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, false as sa_false
 from sqlalchemy.orm import relationship
 from backend.app.models.base import Base
 
@@ -17,6 +17,10 @@ class Subject(Base):
     is_etp: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, info={"label": "Matière ETP"})
     is_specialty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Matière de Spécialité"})
     pedagogic_weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Poids Pédagogique", "min": 0.1, "max": 10.0, "step": "0.1"})
+    # Exclusion de la remontée STS, niveau 1 sur 3 (voir Course.is_exported_to_sts). C'est la
+    # matière dite « filtrable » : une matière de service intérieur (repas, réunion, permanence)
+    # est ignorée dans les emplois du temps communiqués à l'académie.
+    is_excluded_from_sts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Exclure de la remontée STS"})
     
     discipline_id: Mapped[int] = mapped_column(Integer, ForeignKey("disciplines.id", ondelete="RESTRICT"), nullable=False, info={"label": "Discipline"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})

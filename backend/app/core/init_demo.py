@@ -160,13 +160,31 @@ def seed_demo_data():
         db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S2_CLG', 'Semestre 2 Collège', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id, "school_id": clg_id})
         db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S1_LYC', 'Semestre 1 Lycée', '2026-09-01', '2027-01-31')"), {"type_id": sem_type_id, "school_id": lyc_id})
         db.execute(text("INSERT INTO periods (period_type_id, school_id, code, name, start_date, end_date) VALUES (:type_id, :school_id, 'S2_LYC', 'Semestre 2 Lycée', '2027-02-01', '2027-06-30')"), {"type_id": sem_type_id, "school_id": lyc_id})
-        db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('WEEK_A', 'Semaine A', '#3498DB')"))
-        db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('WEEK_B', 'Semaine B', '#E74C3C')"))
-        db.execute(text("INSERT INTO alternations (code, name, color) VALUES ('HEBDO', 'Hebdomadaire', '#2ECC71')"))
+        # Alternances : leur code est deterministe, compose du type de semaine puis des codes de
+        # periode (voir Alternation.search_or_create). Les trois seedees ici sont les alternances
+        # annuelles, sans restriction de periode — les alternances par periode naissent d'elles-memes
+        # a la premiere generation de cours qui en a besoin.
+        db.execute(text("INSERT INTO alternations (code, name, long_name, week_type, color) VALUES ('W', 'Toutes semaines - Annee', 'Toutes les semaines de l annee', 'W', '#2ECC71')"))
+        db.execute(text("INSERT INTO alternations (code, name, long_name, week_type, color) VALUES ('A', 'Semaine A - Annee', 'Semaines A de l annee', 'A', '#3498DB')"))
+        db.execute(text("INSERT INTO alternations (code, name, long_name, week_type, color) VALUES ('B', 'Semaine B - Annee', 'Semaines B de l annee', 'B', '#E74C3C')"))
+
+        # Vacances scolaires, necessaires au calendrier des semaines (voir WeekCalendar) : une
+        # semaine ne peut ni commencer pendant des vacances, ni s y prolonger.
+        holidays_data = [
+            ("Vacances de la Toussaint", "2026-10-17", "2026-11-01"),
+            ("Vacances de Noel", "2026-12-19", "2027-01-03"),
+            ("Vacances d hiver", "2027-02-13", "2027-03-01"),
+            ("Vacances de printemps", "2027-04-17", "2027-05-02"),
+        ]
+        for name, begin, end in holidays_data:
+            db.execute(
+                text("INSERT INTO holidays (name, begin_date, end_date) VALUES (:name, :begin, :end)"),
+                {"name": name, "begin": begin, "end": end},
+            )
         db.commit()
 
         s1_id = db.execute(text("SELECT id FROM periods WHERE code = 'S1_CLG'")).scalar()
-        week_a_id = db.execute(text("SELECT id FROM alternations WHERE code = 'WEEK_A'")).scalar()
+        week_a_id = db.execute(text("SELECT id FROM alternations WHERE code = 'A'")).scalar()
 
         # 8. Création des Enseignants (40 profs : 20 collège, 20 lycée)
         teachers = []
@@ -703,6 +721,26 @@ def seed_demo_data():
                 course_count += 1
 
         # 13. Création de contraintes métier entre les matières
+        # Calendrier des semaines : engendre un lundi par semaine ouvree, etiquete A et B en
+        # alternance, vacances sautees sans consommer de tour. Passe par l ORM et non par du SQL
+        # brut, contrairement au reste de ce seed : la generation est un algorithme, pas une liste
+        # de lignes, et ses controles (hors annee, en vacances) doivent s appliquer.
+        from backend.app.models.week_calendar import generate_week_calendar
+        creees = generate_week_calendar(db)
+        db.commit()
+        print(f"[SEED DEMO] Calendrier des semaines : {creees} semaines engendrees.")
+
+        # Alternance des cours seedes : ce seed inserant les cours en SQL brut, la contrainte
+        # calculee Course._sync_alternation ne s est pas declenchee. On rattache donc chaque cours
+        # a l alternance annuelle correspondant a son week_type, ce que la contrainte aurait fait.
+        # Les cours en quinzaine indeterminee (Q) restent sans alternance, comme le veut la regle.
+        db.execute(text(
+            "UPDATE courses SET alternation_id = ("
+            "  SELECT a.id FROM alternations a WHERE a.week_type = courses.week_type"
+            ") WHERE week_type IN ('W', 'A', 'B')"
+        ))
+        db.commit()
+
         print("[SEED DEMO] Ajout des contraintes matière (SubjectToSubjectConstraint)...")
         # Contrainte 1 : Interdire les cours de maths après les cours d'EPS
         db.execute(text(

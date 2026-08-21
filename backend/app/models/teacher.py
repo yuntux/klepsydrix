@@ -90,8 +90,8 @@ class Teacher(HasUserAccount, Base):
     # --- Données administratives ---
     # Identifiant STS de l'individu — INDIVIDU/@ID du flux sts_emp, dit « identifiant EPP ».
     # C'est la clé d'appariement de l'enseignant avec la base académique, et donc la clé de la
-    # remontée : Charlemagne classe « enseignant sans identifiant Sts » parmi ses quatre anomalies
-    # bloquantes. Anciennement nommé `numen` : le NUMEN est un autre identifiant, qui ne circule
+    # remontée : un enseignant sans identifiant STS est une anomalie bloquante à l'export.
+    # Anciennement nommé `numen` : le NUMEN est un autre identifiant, qui ne circule
     # pas dans ce flux.
     epp_id: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True, info={"label": "Identifiant EPP (STS)"})
     # INDIVIDU/@TYPE : `epp` pour un personnel géré dans la base académique, `local` pour un

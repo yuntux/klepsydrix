@@ -47,10 +47,10 @@ Deux familles de couplage existent et cassent la décomposition en affectations 
 
 Aucun de ces couplages ne nécessite de recherche itérative (Timefold) : le premier est traité par
 un filtrage/une réparation gloutonne classique après résolution, le second est nativement résolu
-par un algorithme de flot exact. Aucun des trois logiciels concurrents étudiés (UnDeuxTEMPS, EDT,
-Charlemagne — voir échange préalable) n'utilise de recherche itérative sur ce sous-problème
-précis : UDT documente un glouton déterministe (« ordre de service décroissant »), EDT une
-simulation rejouable à la demande, Charlemagne reste 100% manuel.
+par un algorithme de flot exact. Aucun des logiciels du marché étudiés (voir échange préalable)
+n'utilise de recherche itérative sur ce sous-problème précis : l'un documente un glouton
+déterministe par ordre de service décroissant, un autre une simulation rejouable à la demande, le
+troisième reste entièrement manuel.
 
 ### Différence structurelle avec le cas des salles (continuité)
 
@@ -72,10 +72,10 @@ horaire pairwise (§5.2) sert d'avertissement, pas de garantie de faisabilité.
 
 ---
 
-## 1. Cinématique cible (calquée sur EDT, simplifiée)
+## 1. Cinématique cible (calquée sur les logiciels du marché, simplifiée)
 
-Klepsydrix a déjà, via la cascade `MefService → Service → ServiceRepartition`, l'équivalent du
-module Prérentrée d'EDT (MEF → classes prévisionnelles → services hérités) — pas besoin de le
+Klepsydrix a déjà, via la cascade `MefService → Service → ServiceRepartition`, l'équivalent d'un
+module de prérentrée (MEF → classes prévisionnelles → services hérités) — pas besoin de le
 réimplémenter, seulement l'étape « Affecter les professeurs aux services » :
 
 1. Vérifier que chaque `Service` a une discipline qualifiée disponible côté `TeacherDiscipline`
@@ -161,7 +161,8 @@ le type de vérification agrégée renvoyé à `COURSE_PLACEMENT` (voir §0, hor
 ### 4.2 Nouveau `backend/app/models/teacher_grade_preference.py`
 
 `TeacherGradePreference(teacher_id, ref_grade_id, priority: int 1-5, max_class_count: Optional[int])`
-— équivalent EDT (niveaux souhaités + priorité + nombre max de classes par niveau). Contrainte
+— l'équivalent des niveaux souhaités, de leur priorité et du nombre maximal de classes par niveau
+tels qu'on les rencontre ailleurs. Contrainte
 d'unicité `(teacher_id, ref_grade_id)`.
 
 ### 4.3 Cascade de création automatique Teacher ↔ RefGrade

@@ -3,7 +3,7 @@ import math
 import random
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
-from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey, Table, Enum
+from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey, Table, Enum, false as sa_false
 from backend.app.models.base import Base, constrains, exposed, related_field
 
 service_teachers = Table(
@@ -99,6 +99,9 @@ class Service(Base):
     weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "duration", "durationIncludeZero": True})
     weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "duration", "durationIncludeZero": True})
     weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "duration", "durationIncludeZero": True})
+    # Exclusion de la remontée STS, recopiée du gabarit et réécrasée à chaque modification de
+    # celui-ci (voir _MEF_SERVICE_MIRROR_FIELDS ci-dessous).
+    is_excluded_from_sts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Exclure de la remontée STS"})
 
     # Champs mirroir du MefService d'origine : copiés à la génération, comparés par
     # is_synced_with_mef_service. student_count est volontairement exclu (voir MefService.student_count).
@@ -107,7 +110,7 @@ class Service(Base):
     _MEF_SERVICE_MIRROR_FIELDS = (
         "subject_id", "discipline_id", "election_method_id", "weighting_coefficient",
         "weekly_duration_full_class_minutes", "weekly_duration_reduced_minutes",
-        "weekly_duration_split_minutes",
+        "weekly_duration_split_minutes", "is_excluded_from_sts",
     )
 
     # Relations de navigation

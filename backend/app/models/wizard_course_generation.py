@@ -67,6 +67,7 @@ def _courses_from_alignment(db: Session, alignment: Alignment) -> list[dict]:
                 "duration_minutes": repartition.duration_minutes,
                 "week_type": _week_type_for(repartition.periodicity),
                 "weighting_coefficient": template_service.weighting_coefficient,
+                "is_excluded_from_sts": template_service.is_excluded_from_sts,
             })
     return vals_list
 
@@ -116,6 +117,7 @@ def _courses_from_group_service(db: Session, service: Service) -> list[dict]:
             "duration_minutes": repartition.duration_minutes,
             "week_type": _week_type_for(repartition.periodicity),
             "weighting_coefficient": service.weighting_coefficient,
+            "is_excluded_from_sts": service.is_excluded_from_sts,
             "group_ids": [service.group_id],
         }
         for _ in range(repartition.occurrence_count):
@@ -148,6 +150,7 @@ def _courses_from_service(db: Session, service: Service) -> list[dict]:
             "duration_minutes": repartition.duration_minutes,
             "week_type": _week_type_for(repartition.periodicity),
             "weighting_coefficient": service.weighting_coefficient,
+            "is_excluded_from_sts": service.is_excluded_from_sts,
         }
 
         if repartition.group_type == RepartitionGroupType.FULL_CLASS:

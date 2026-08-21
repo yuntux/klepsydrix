@@ -255,7 +255,7 @@ Cette section documente les lois fondamentales que le solveur (Timefold) et les 
 
 ### Domaines de résolution du solveur : Placement des cours et Attribution des salles
 
-Contrairement à une hypothèse initiale de conception, la salle n'est **pas** une variable résolue dans la même passe Timefold que le créneau horaire et la semaine d'alternance. Une étude comparative de logiciels concurrents plus matures (UnDeuxTEMPS, EDT/Index Éducation, Charlemagne/Aplim) a montré qu'ils séparent structurellement le placement horaire de l'attribution précise des salles — et que ce découplage répond à un problème réel : les préférences de salle (fines, volatiles) ne doivent influencer qu'un choix secondaire, une fois la grille horaire posée, plutôt que de polluer le score qui pilote l'acceptation des mouvements du solveur principal. La salle est donc, pendant le placement horaire, une **ressource contrainte** (une exigence de quantité sur un groupe de salles, garantissant qu'« au moins une salle du groupe sera libre », voir **CourseClassroomRequirement**, section 10bis) plutôt qu'une variable résolue directement — le choix de la salle précise est déporté vers une résolution dédiée, ultérieure, pilotée par les préférences (professeur, division, ordre, capacité).
+Contrairement à une hypothèse initiale de conception, la salle n'est **pas** une variable résolue dans la même passe Timefold que le créneau horaire et la semaine d'alternance. Une étude comparative des logiciels du marché les plus matures a montré qu'ils séparent structurellement le placement horaire de l'attribution précise des salles — et que ce découplage répond à un problème réel : les préférences de salle (fines, volatiles) ne doivent influencer qu'un choix secondaire, une fois la grille horaire posée, plutôt que de polluer le score qui pilote l'acceptation des mouvements du solveur principal. La salle est donc, pendant le placement horaire, une **ressource contrainte** (une exigence de quantité sur un groupe de salles, garantissant qu'« au moins une salle du groupe sera libre », voir **CourseClassroomRequirement**, section 10bis) plutôt qu'une variable résolue directement — le choix de la salle précise est déporté vers une résolution dédiée, ultérieure, pilotée par les préférences (professeur, division, ordre, capacité).
 
 Deux domaines Timefold distincts en résultent, désignés `COURSE_PLACEMENT` (créneau + semaine) et `CLASSROOM_ASSIGNMENT` (salle précise) dans tout ce document, plus un troisième point d'entrée (Optimisation) qui rejoue ces deux domaines à la suite — ce n'est pas un troisième domaine indépendant :
 
@@ -563,9 +563,9 @@ Un professeur est défini globalement au niveau de la cité scolaire (permettant
 >
 > `epp_id` est l'**identifiant STS de l'individu** — `INDIVIDU/@ID` du flux `sts_emp`, dit
 > « identifiant EPP ». C'est la clé d'appariement de l'enseignant avec la base académique, et
-> donc la clé de la remontée : Charlemagne classe « enseignant sans identifiant Sts » parmi ses
-> quatre anomalies bloquantes. Anciennement nommé `numen`, renommé parce que le NUMEN est un
-> autre identifiant, qui ne circule pas dans ce flux.
+> donc la clé de la remontée : un « enseignant sans identifiant STS » est une anomalie bloquante.
+> Anciennement nommé `numen`, renommé parce que le NUMEN est un autre identifiant, qui ne circule
+> pas dans ce flux.
 >
 > `is_epp` porte `INDIVIDU/@TYPE` : `True` pour un personnel géré dans la base académique
 > (`epp`), `False` pour un personnel saisi directement dans STS par l'établissement (`local`).
@@ -859,15 +859,16 @@ Regroupement d'élèves (éventuellement à effectif variable) constitué par l'
 > flux. Le modèle n'a délibérément pas de champ `code` distinct, qui ferait doublon. Il porte
 > donc les trois contraintes de STS-web, toutes **dures** et vérifiées à la saisie
 > (`Group._check_sts_name`, `backend/app/core/sts_naming.py`) :
-> 1. **8 caractères au maximum.** EDT tronque silencieusement au-delà, à l'export ; on préfère
->    refuser à la création plutôt que découvrir la troncature au moment de la remontée.
-> 2. **Jeu de caractères restreint** : lettres, chiffres, point, tiret, souligné. UnDeuxTEMPS
->    classe « nom de groupe non conforme (caractères spéciaux) » parmi ses points bloquants.
+> 1. **8 caractères au maximum.** L'usage courant est de tronquer silencieusement au-delà, à
+>    l'export ; on préfère refuser à la création plutôt que découvrir la troncature au moment de
+>    la remontée.
+> 2. **Jeu de caractères restreint** : lettres, chiffres, point, tiret, souligné. Un nom de groupe
+>    contenant des caractères spéciaux est refusé à l'export.
 > 3. **Unicité dans l'espace de noms partagé avec `Division.code`.** Une classe et un groupe ne
 >    peuvent pas porter le même identifiant, bien qu'ils vivent dans deux tables distinctes —
 >    d'où une règle partagée (`check_structure_name_is_unique`) appelée depuis les deux modèles
->    plutôt que dupliquée. UnDeuxTEMPS : « Toutes les classes, groupes et regroupements n'ont pas
->    un nom unique » est un point bloquant à l'export.
+>    plutôt que dupliquée. Classes, groupes et regroupements partageant un nom sont un point
+>    bloquant à l'export.
 >
 > `compute_group_name` produit par construction un nom conforme : assainissement, puis
 > troncature du préfixe en réservant la place du suffixe, puis incrémentation jusqu'à trouver un
@@ -1071,8 +1072,8 @@ complémentaire), `AT` (atelier), `TD` (travaux dirigés), `AP` (atelier de prat
 
 > [!IMPORTANT]
 > `CG` est inséré **en premier**, et `Course.modality_id` vaut `1` par défaut : c'est la
-> modalité par défaut d'un cours, comme chez EDT dont la documentation précise qu'un cours de
-> modalité inconnue est exporté en `CG`. Réordonner la liste du seed casserait ce défaut.
+> modalité par défaut d'un cours : c'est aussi la valeur de repli d'usage, un cours de modalité
+> inconnue se remontant en `CG`. Réordonner la liste du seed casserait ce défaut.
 >
 > À ne pas confondre avec `RefServiceMode` (« modalité de service »), qui qualifie le service de
 > l'enseignant et non le type d'enseignement.
@@ -1431,7 +1432,7 @@ l'utilisateur peut toujours corriger le libellé.
 > [!IMPORTANT]
 > **Deux garde-fous bloquants, avant toute écriture :**
 > 1. **L'année du fichier doit être celle de la base** (`SystemSettingKey.SCHOOL_YEAR`). Une base
->    Klepsydrix vaut pour une année et une seule, comme une base EDT.
+>    Klepsydrix vaut pour une année et une seule, comme toute base d'emploi du temps.
 > 2. **Le RNE du fichier doit être celui d'un établissement de la base**, et c'est cet
 >    établissement qui reçoit tous les objets créés. Un fichier par RNE : une cité scolaire
 >    s'importe en autant de passes qu'elle compte d'établissements. Le message d'erreur liste les
@@ -1497,10 +1498,9 @@ ajoute que les enseignants du flux. Il ne crée jamais un `Service` directement.
 > Quand une classe appartient à plusieurs MEF, le **premier déclaré dans le fichier** porte le
 > gabarit — règle déterministe faute de mieux, le flux n'indiquant pas lequel est principal.
 
-EDT fait le même choix de défaut : il sait importer les services et les transformer en cours
-(*Éditer > Transformer la sélection*), mais « dans la plupart des cas, vous importez uniquement
-les MEF, les enseignants et les classes », les services n'étant à reprendre que « s'ils sont à
-jour et que vous souhaitez les transformer en cours ».
+C'est le choix de défaut le plus courant : on importe la structure — MEF, enseignants, classes —
+et l'on saisit les services ensuite. Les reprendre du flux n'a d'intérêt que s'ils y sont à jour
+et qu'on veut les transformer en cours.
 
 #### `PROGRAMMES` — la source des volumes, mais pas dans ce fichier
 
@@ -1545,28 +1545,43 @@ Si le code est déjà porté par un **autre** enregistrement de la base, c'est u
 et non un doublon à contourner : l'objet est laissé de côté et le rapport nomme l'occupant du
 code, à l'utilisateur de trancher.
 
-### Alternances — conception retenue, non implémentée
+### Alternances (lot C) — implémenté
 
-L'alternance attendue par STS n'est pas une fraction (le « 36/36 » qu'affiche EDT est une
-présentation dérivée) mais un **calendrier nommé** : la liste explicite des semaines pendant
-lesquelles ses cours ont lieu. Côté Klepsydrix elle correspond à la **combinatoire du `week_type`
+L'alternance attendue par STS n'est pas une fraction (un « 36/36 » n'est qu'une présentation
+dérivée) mais un **calendrier nommé** : la liste explicite des semaines pendant lesquelles ses
+cours ont lieu. Côté Klepsydrix elle correspond à la **combinatoire du `week_type`
 d'un cours et de la liste de ses périodes**.
 
-Trois objets, dont deux à créer :
+Trois objets, dont deux créés :
 
-*   **`Holidays`** (nouveau) : `name`, `begin_date`, `end_date`, avec contrôle `begin_date < end_date`.
-*   **`WeekCalendar`** (nouveau) : `begin_date` (**unique**) et `week_type` (`A` ou `B`).
-    `end_date` vaut `begin_date + 6` intersecté avec les vacances et la fin d'année.
-    `begin_date` ne peut être ni antérieur au début d'année, ni situé pendant des vacances.
-*   **`Alternation`** (aujourd'hui une coquille vide : `code`, `name`, `color`, référencée nulle
-    part) devient `code`, `name`, `long_name`, `week_type` et `period_ids`.
+*   **`Holidays`** : `name`, `begin_date`, `end_date`, avec contrôle `begin_date < end_date` et
+    `contains(jour)`.
+*   **`WeekCalendar`** : `begin_date` (**unique**) et `week_type` (`A` ou `B` — `W` refusé, une
+    semaine calendaire est d'un côté ou de l'autre). `end_date` vaut `begin_date + 6` **raboté**
+    par les vacances et la fin d'année. `begin_date` ne peut être ni antérieur au début d'année,
+    ni situé pendant des vacances.
+    `generate_week_calendar(db, first_week_type="A")` engendre l'année entière, est **idempotent**,
+    et **saute les semaines de vacances sans consommer un tour d'alternance** : la semaine qui suit
+    des vacances reprend là où la précédente s'était arrêtée. La borne basse est normalisée au
+    lundi de la semaine de rentrée, sans quoi cette semaine-là serait refusée par sa propre
+    contrainte.
+*   **`Alternation`** (auparavant une coquille vide : `code`, `name`, `color`, référencée nulle
+    part) porte désormais `code`, `name`, `long_name`, `week_type` et `period_ids`.
     `Alternation.week_calendar_ids` est un **many-to-many calculé non stocké** vers `WeekCalendar`
     qui retourne toutes les `WeekCalendar` de même `week_type` que l'alternance **et** intersectant
     au moins l'une des périodes de `period_ids`.
 
-Sur le cours, `alternation_id` devient un champ **calculé et stocké** (§15.F), alimenté par
+Sur le cours, `alternation_id` est un champ **calculé et stocké** (§15.F), alimenté par
 `Alternation.search_or_create(week_type, period_list)` qui retourne l'alternance existante ou la
-crée — **l'ordre des périodes dans `period_list` n'est pas discriminant**.
+crée — **l'ordre des périodes dans `period_list` n'est pas discriminant** (comparaison sur
+ensembles).
+
+**Un cours en `Q` n'a pas d'alternance, et ne peut pas s'en voir attribuer une.** Il n'existe pas
+de calendrier « une semaine sur deux, on ne sait pas laquelle ». `alternation_id` figure parmi les
+champs déclencheurs de son propre calcul : écrire ce champ ne le fixe pas, cela relance le calcul
+qui l'écrase — c'est ce qui rend le rattachement impossible, y compris par l'API générique, sans
+avoir à lever une erreur sur un champ que personne n'est censé saisir. L'alternance apparaît
+d'elle-même quand la résolution automatique a fixé `A` ou `B`.
 
 > [!IMPORTANT]
 > **Le solveur ne doit rien savoir de tout cela.** C'est un solveur **annuel** : il raisonne sur
@@ -1579,14 +1594,78 @@ crée — **l'ordre des périodes dans `period_list` n'est pas discriminant**.
 > `Q` en `A`/`B` reste son affaire. `alternation_id` est un champ dérivé, calculé après coup.
 > Ce lot est délibérément séparé de l'import, qui n'en dépend pas.
 
-### Export du flux montant — non implémenté
+### Export du flux montant (lot D) — implémenté, partiel par construction
 
 Trois des quatre familles de données que STS-web attend (services avec volumes, ARE, indemnités)
-ont des balises **inconnues** : aucune source disponible ne les documente. Seuls les cours et
-leurs alternances le sont. L'export attend donc un `emp_sts` réel produit par un établissement.
+ont des balises **inconnues** : aucune source disponible ne les documente. Seuls les cours, leurs
+alternances et la coquille des services le sont. Le fichier produit est donc **partiel par
+construction**, et le wizard le dit en toutes lettres dans son encart bleu — comme pour l'import,
+la fonction est annoncée expérimentale et un `emp_sts` réel pseudonymisé est sollicité.
 
-L'audit d'anomalies préalable à la remontée, lui, a de la valeur indépendamment du fichier —
-tous les logiciels comparés en ont un — et reste à construire.
+#### Trois niveaux d'exclusion
+
+`is_excluded_from_sts` existe sur **`Subject`**, **`Division`** et **`Course`**. Aucun n'est
+redondant : ils répondent à trois gestes différents — exclure un enseignement, exclure une classe,
+exclure un cours.
+
+`Course.is_in_sts_scope` combine les trois, plus la **pondération nulle** — STS-web ignore de toute
+façon les cours pondérés à zéro, autant le dire avant plutôt que de laisser le cours disparaître en
+silence à l'arrivée. `Course.is_exported_to_sts` y ajoute le verdict sur la quinzaine : un cours en
+`Q` ne part pas, faute d'alternance à déclarer.
+
+Les deux propriétés sont distinctes pour une seule raison : l'audit doit pouvoir désigner les cours
+qui *devraient* partir mais qu'un `week_type` en `Q` retient. Sans cette distinction, ils
+sortiraient à la fois de l'export **et** de l'audit — donc sans que personne ne l'apprenne.
+
+#### Pondération par intervenant
+
+`Course.weighting_coefficient` reste scalaire ; les exceptions vivent dans une table dédiée,
+**`CourseTeacherWeighting`** (`course_id`, `teacher_id`, `weighting_coefficient`, unicité du
+couple), et non dans une colonne sur `course_teachers` qui est une simple `Table()` écrite par le
+mécanisme générique des `_ids`. `Course.weighting_for(teacher_id)` est le **seul** point de
+lecture : la sienne si une exception est saisie, sinon celle du cours.
+
+STS-web n'accepte qu'une pondération par service. Plutôt qu'un arbitrage silencieux,
+`has_heterogeneous_weighting` le signale en **avertissement** et l'export retient celle du cours.
+
+#### Audit préalable (`backend/app/core/sts_audit.py`)
+
+Module pur, deux sévérités : **bloquant** sur les anomalies structurelles (le fichier serait rejeté
+ou faux), **avertissement** sur les écarts de volume. Douze contrôles repris des trois logiciels
+comparés, dont : cours non placés, cours sans public, cours composés non décomposés,
+co-enseignement non déclaré, enseignants sans identifiant EPP **ou dont l'identifiant n'est pas
+numérique**, matières dont le code nomenclature est absent ou mal formé (six caractères, chiffres
+et majuscules), groupes à effectif nul, groupes sans division d'appartenance, classes sans MEF,
+alternance ne couvrant **aucune** semaine, quinzaines non tranchées. Les deux avertissements sont
+les pondérations hétérogènes et les services non consommés.
+
+Les contrôles de **format** (identifiant EPP numérique, code matière sur six caractères) sont dans
+l'audit et non à la sérialisation, pour une raison d'usage : l'audit sait dire *quel* enseignant ou
+*quelle* matière est en cause, là où un échec de validation ne parle que du document.
+
+#### Génération du fichier (`backend/app/core/sts_export.py`)
+
+Le document est construit avec **`xml.etree.ElementTree`**, jamais par concaténation de chaînes :
+c'est l'arbre qui garantit l'échappement, la fermeture des balises et l'encodage. Il est ensuite
+**soumis au schéma reconstitué** (`backend/app/core/schemas/emp_sts.xsd`, via `xmlschema`) avant
+d'être rendu — dernier filet de sécurité. Un document non conforme signale un défaut du module et
+non une donnée mal saisie : il lève `StsExportError` plutôt que de partir vers l'académie.
+
+Ce que le fichier porte : `ALTERNANCES` limitées à celles réellement employées, puis
+`DONNEES/STRUCTURE` avec `DIVISION` (`SERVICES` puis `MEFS_APPARTENANCE`) et `GROUPE`
+(`LIBELLE_LONG`, `DIVISIONS_APPARTENANCE`, `SERVICES`). **L'ordre des enfants n'est pas un choix** :
+il est repris du fichier descendant, où il est prouvé, et le schéma l'impose.
+
+`MEFS_APPARTENANCE` et `GROUPE/LIBELLE_LONG` sont d'un niveau de preuve intermédiaire qu'il faut
+distinguer du reste : leur **nom** est prouvé par le fichier descendant, seule leur **présence**
+dans le montant est supposée. Rien n'y est inventé, ils sont donc écrits, et le schéma les déclare
+facultatifs (`FORMATS_JUSTIFICATION.md` §9.11). Ce qui reste en dehors du fichier, ce sont les
+balises dont le **nom** lui-même est inconnu — libellés de division, effectif de groupe, volumes de
+service, ARE, indemnités : celles-là, les écrire supposerait de leur inventer un nom.
+
+Le wizard **rejoue l'audit** au moment de générer, plutôt que de se fier au résultat de l'étape
+précédente : entre les deux, l'utilisateur a pu corriger les anomalies dans un autre onglet — ou
+les aggraver. Le fichier descend par un champ binaire (§15.Q), sans écriture disque côté serveur.
 
 ---
 

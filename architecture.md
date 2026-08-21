@@ -1870,7 +1870,7 @@ def _check_sts_code_uniqueness(self, db):
 **Points clés** :
 - **Le module `core/` n'importe pas les modèles au niveau du fichier**, seulement à l'intérieur de la fonction : `division.py` et `group.py` l'importent tous les deux, un import de niveau module créerait un cycle.
 - **Les deux `@constrains()` restent nécessaires** : une contrainte posée d'un seul côté ne verrait pas l'écriture faite de l'autre. C'est le pendant de la leçon de la section H — une garantie ne doit pas dépendre de la porte par laquelle on entre.
-- **La règle refuse, elle ne corrige pas.** La normalisation (`sanitize_sts_code`) est un utilitaire distinct, appelé par les seuls **générateurs** de noms (`compute_group_name`) pour qu'un nom auto-généré soit conforme par construction. Un nom saisi à la main, lui, est rejeté et non réécrit silencieusement — c'est justement le reproche fait à EDT, qui tronque à l'export sans prévenir.
+- **La règle refuse, elle ne corrige pas.** La normalisation (`sanitize_sts_code`) est un utilitaire distinct, appelé par les seuls **générateurs** de noms (`compute_group_name`) pour qu'un nom auto-généré soit conforme par construction. Un nom saisi à la main, lui, est rejeté et non réécrit silencieusement — c'est justement le reproche que l'on peut faire à une troncature opérée à l'export, sans prévenir.
 
 **Quand l'employer** : dès qu'une règle métier porte sur un **espace de valeurs partagé par plusieurs tables** (identifiants de structures ici, mais aussi bien des codes de ressources qui devraient rester distincts entre eux). Pour une règle qui ne concerne qu'un seul modèle, un `@constrains()` local suffit — ce module n'a pas vocation à devenir un dépotoir à validations.
 
@@ -1891,6 +1891,30 @@ def _check_sts_code_uniqueness(self, db):
 **Aperçu et exécution partagent le même calcul** (`_build_plan`, appelé par `rpc_analyze` et par `rpc_import`) : deux fonctions distinctes finiraient par diverger, et l'utilisateur validerait un aperçu qui ne correspond plus à ce qui sera écrit. Même principe que `_compute_specialty_plan` (section M).
 
 **Le fichier transite par le formulaire, pas par la base.** Un `TransientModel` ne persiste rien : le champ `type: "binary"` (section Q) est déclaré dans `_fields`, et `rpcParams` le repasse d'une étape à l'autre depuis l'état du formulaire côté navigateur. Aucune table temporaire, aucun nettoyage à prévoir.
+
+### AC. Écriture de Fichier Externe : Audit, Arbre, Schéma (`sts_audit.py` / `sts_export.py`)
+
+**Le pattern**, symétrique de la section AB : produire un fichier destiné à un système tiers se fait en **trois modules purs**, dans cet ordre — l'audit, la sérialisation, la validation.
+
+- **`core/<format>_audit.py` — l'audit, pur** : il lit la base et renvoie des dictionnaires d'anomalies à deux sévérités (bloquant / avertissement). Il n'écrit rien et ne construit aucun XML. Le wizard l'appelle seul pour son écran d'audit, puis **le rejoue** au moment de générer — entre les deux, l'utilisateur a pu corriger dans un autre onglet, ou aggraver.
+- **`core/<format>_export.py` — la sérialisation, pure** : elle lit la base et renvoie une chaîne. Elle n'écrit sur aucun disque et **n'appelle pas l'audit** ; c'est le wizard qui enchaîne les deux.
+- **`core/schemas/<format>.xsd` — le schéma**, copié depuis le dossier d'analyse, appliqué au document fini.
+
+**Jamais de concaténation de chaînes pour produire du XML.** Le document se construit avec `xml.etree.ElementTree` : c'est l'arbre qui garantit l'échappement des `&` et des `<`, la fermeture des balises et l'encodage. Un `f"<TAG>{valeur}</TAG>"` marche jusqu'au jour où un libellé contient une esperluette.
+
+```python
+racine = ET.Element("EDT_STS")
+...
+ET.indent(racine, space="  ")
+contenu = f'<?xml version="1.0" encoding="UTF-8"?>\n{ET.tostring(racine, encoding="unicode")}\n'
+validate_against_schema(contenu)   # filet de sécurité, pas contrôle de saisie
+```
+
+**La validation par schéma est un filet, pas un contrôle de saisie.** Elle vient en dernier et lève une exception dédiée (`StsExportError`). Un document non conforme signale un défaut **du module**, pas une donnée mal saisie : les erreurs de données, elles, ont été attrapées bien avant par l'audit, qui sait dire *quel* enseignant ou *quelle* matière est en cause. D'où une règle de partage : **tout contrôle de format exigé par le schéma appartient à l'audit** (identifiant numérique, code sur six caractères), sinon l'utilisateur reçoit un échec de validation qui ne parle que du document.
+
+**Une section vide est une section à retirer.** Un schéma qui exige au moins un enfant transforme une coquille vide en document invalide : les fonctions d'écriture renvoient un booléen et l'appelant retire le nœud qu'il vient d'ajouter (`parent.remove(noeud)`) plutôt que de laisser passer une structure creuse.
+
+**Un nom inconnu ne s'écrit pas ; une présence incertaine se déclare facultative.** Le format est reconstitué par rétro-ingénierie, et les deux incertitudes ne se traitent pas pareil. Quand le **nom** de la balise est inconnu, elle reste en commentaire « MANQUE À PRIORI » dans le schéma et n'est ni déclarée ni écrite : lui inventer un nom serait pire que de se taire. Quand le nom est établi ailleurs et que seule sa **présence** est supposée, elle est déclarée `minOccurs="0"` et écrite — un élément facultatif jamais rencontré ne coûte rien, alors qu'un schéma fermé qui l'ignore ferait rejeter un fichier authentique qui le porterait.
 
 ## 16. Architecture Multi-Base et Routage HTTP
 
@@ -3130,12 +3154,11 @@ décocher une ligne la retire de `modelValue`, donc de ce que `rpc_apply` recevr
 
 ## 21. Génération des Groupes de Spécialité (Réforme du Lycée)
 
-### A. Comparatif éditeurs et positionnement retenu
+### A. Comparatif des logiciels du marché et positionnement retenu
 
-Trois éditeurs concurrents (UnDeuxTEMPS/Axess, EDT/IndexEducation, Charlemagne/Aplim) suivent le
-même pipeline en 6 temps (offre → recueil des vœux → parcours → constitution des groupes →
-barrettes → cours), mais divergent sur qui décide des barrettes. EDT propose 3 modes de
-génération :
+Les logiciels du marché suivent tous le même pipeline en 6 temps (offre → recueil des vœux →
+parcours → constitution des groupes → barrettes → cours), mais divergent sur qui décide des
+barrettes. Trois modes de génération se rencontrent :
 1. **« En répartissant les groupes sur X alignements »** : barrette précalculée, algorithme de
    bin-packing/coloration de graphe.
 2. **« En réservant un créneau supplémentaire pour du tronc commun »** : réaffecte les élèves aux
@@ -3153,12 +3176,11 @@ partitions d'une même division, `group_link_conflict` côté solveur, voir §8)
 nouveau n'ait été nécessaire pour cette garantie. Le mode 1 (barrette précalculée, glouton) reste
 un chantier ultérieur distinct, greffé sur le même modèle de données.
 
-Point notable découvert en comparant les éditeurs : EDT ne relie **pas** automatiquement la
-génération des cours de spécialité à son TRMD prévisionnel — sa propre documentation officielle
-décrit une étape « Reporter dans les besoins prévisionnels » **manuelle** (recopier à la main le
-nombre de groupes calculé). UnDeuxTEMPS et Charlemagne, eux, font transiter la génération de
-spécialités par leur propre concept de Service, connecté nativement à leur TRMD. Klepsydrix suit
-cette seconde voie — voir C, génération automatique du gabarit `MefService`.
+Point notable relevé lors de ce comparatif : la génération des cours de spécialité n'est pas
+toujours reliée au TRMD prévisionnel. Certains logiciels imposent un report **manuel** du nombre de
+groupes calculé vers les besoins prévisionnels ; d'autres font transiter la génération par leur
+concept de service, connecté nativement au TRMD. Klepsydrix suit cette seconde voie — voir C,
+génération automatique du gabarit `MefService`.
 
 ### B. Modèle de données
 
@@ -3220,8 +3242,8 @@ résultat), `rpc_preview` en dry-run suivi de `rpc_generate`, deux fois le **mê
   les réaffecter à leur nouveau bin) — évite qu'un élève ayant changé de groupe se retrouve
   transitoirement dans deux `ClassPart` de la même `Partition` (interdit par
   `Student._check_student_class_parts`, §6ter). Contrairement à `MEFService`/`MefDivision → Service`
-  (§4bis), aucun état `Fait`/`Partiel`/`Reconstruire` façon UnDeuxTEMPS n'est construit ici — limite
-  connue de cette première itération.
+  (§4bis), aucun état `Fait`/`Partiel`/`Reconstruire` n'est construit ici — limite connue de cette
+  première itération.
 
 ### D. Extension de `wizard_course_generation.py`
 

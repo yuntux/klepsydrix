@@ -148,7 +148,7 @@ def init_prod_data(slug: str = None):
         db.execute(text("INSERT INTO system_settings (key, value) VALUES ('STANDARD_TIMESLOT_DURATION', '30')"))
         # Année scolaire de la base : millésime de septembre, l'année scolaire EN COURS au moment
         # de l'initialisation (2026 = année 2026-2027). Une base vaut pour une année et une seule,
-        # comme une base EDT. Toujours modifiable ensuite depuis « Paramètres système ».
+        # comme toute base d'emploi du temps. Toujours modifiable ensuite depuis « Paramètres système ».
         db.execute(
             text("INSERT INTO system_settings (key, value) VALUES ('SCHOOL_YEAR', :value)"),
             {"value": str(date.today().year if date.today().month >= 6 else date.today().year - 1)},

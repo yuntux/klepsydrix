@@ -1,0 +1,491 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SCHÉMA XSD RECONSTITUÉ - NE PAS UTILISER COMME RÉFÉRENCE OFFICIELLE
+
+  Fichier décrit : emp_sts_<RNE>_<ANNEE>.xml — SENS MONTANT
+  (logiciel d'emploi du temps → STS-web), à ne pas confondre avec
+  sts_emp_<RNE>_<ANNEE>.xml qui est le SENS DESCENDANT (STS-web → logiciel).
+  Les deux noms sont anagrammes l'un de l'autre ; les deux racines aussi
+  (STS_EDT en descendant, EDT_STS en montant).
+
+  Ce schéma a été reconstitué à partir d'une analyse du code source de
+  CDT_6000 (import_sconet.php), un cahier de textes libre qui lit ce fichier,
+  complétée par le code de GEPI pour le nom de la racine. Le Ministère de
+  l'Éducation Nationale ne publie pas publiquement les spécifications
+  officielles de ses formats d'échange XML (SCONET/SIECLE, STS-web, emploi du
+  temps).
+
+  Merci aux équipes de développement de CDT_6000 et de GEPI.
+
+  IMPORTANT : ce schéma est une reconstruction. Sa couverture est BEAUCOUP
+  plus faible que celle des cinq autres schémas de ce dossier :
+
+    - CDT_6000 ne lit que les cours et leurs alternances. Sur les quatre
+      familles de données que STS-web annonce lui-même au chargement
+      (services, ARE, indemnités, cours et alternances — voir
+      FORMATS_JUSTIFICATION.md §9.2), ce schéma n'en documente qu'une.
+    - CDT_6000 n'attaque le document que par des XPath absolus « // »,
+      jamais par un chemin depuis la racine. La HIÉRARCHIE DE CONTENANCE
+      au-dessus de ALTERNANCE, DIVISION et GROUPE n'est donc pas prouvée :
+      elle est ici calquée sur celle de sts_emp_RNE_ANNEE.xsd.
+    - Les balises absentes mais probables sont signalées ci-dessous par des
+      blocs de commentaire « MANQUE À PRIORI ». Elles ne sont pas déclarées :
+      les déclarer supposerait d'inventer leur nom.
+    - EXCEPTION, depuis le 2026-08-21 : celles dont le NOM est prouvé par le
+      fichier descendant sont déclarées FACULTATIVES, avec leur niveau de
+      preuve annoté — DIVISION/MEFS_APPARTENANCE et GROUPE/LIBELLE_LONG. Rien
+      n'est inventé : le nom est repris tel quel, seule la présence dans le
+      montant reste SUPPOSÉE. Ce schéma étant fermé, ne pas les déclarer ferait
+      rejeter un fichier réel qui les porterait. Voir
+      FORMATS_JUSTIFICATION.md §9.11.
+
+  Ces fichiers seront amenés à être COMPLÉTÉS ou CORRIGÉS en cas de:
+  - Découverte de champs manquants
+  - Évolutions des formats officiels
+  - Corrections d'erreurs d'interprétation
+
+  Statut: DRAFT - À titre informatif uniquement
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+
+  <!-- ============================================================= -->
+  <!-- Types simples                                                 -->
+  <!-- ============================================================= -->
+
+  <xs:simpleType name="DateSemaineType">
+    <xs:annotation>
+      <xs:documentation>
+        Date de début d'une semaine, normalement un lundi (ex: 2026-09-07).
+        Le motif est volontairement plus permissif que xs:date : CDT_6000
+        valide par /^([0-9]{4}).{1}([0-9]{2}).{1}([0-9]{2})$/, donc n'importe
+        quel caractère unique fait séparateur.
+        CDT_6000 corrige en outre les fichiers dont la date ne tombe pas un
+        lundi — « seuls des dimanches ont été constatés » : la date réellement
+        produite n'est donc pas toujours un lundi.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{4}.[0-9]{2}.[0-9]{2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CodeMatiereType">
+    <xs:annotation>
+      <xs:documentation>Code matière national : 6 caractères, chiffres et lettres (ex: 030101, 020E00)</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9A-Z]{6}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="IndividuIDType">
+    <xs:annotation>
+      <xs:documentation>Identifiant unique de l'individu (enseignant) : numérique. Même domaine que INDIVIDU/@ID du fichier descendant.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{1,}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TypeIndividuType">
+    <xs:annotation>
+      <xs:documentation>epp=Personnel géré dans la base académique, local=Personnel ajouté localement dans STS</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="epp"/>
+      <xs:enumeration value="local"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="JourSemaineType">
+    <xs:annotation>
+      <xs:documentation>
+        Jour de la semaine, entier : 1=Lundi, 2=Mardi, 3=Mercredi, 4=Jeudi,
+        5=Vendredi, 6=Samedi, 7=Dimanche.
+        Encodage différent de celui de EXP_COURS.xsd, où JOUR est le nom du
+        jour en toutes lettres et en minuscules.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="7"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="HeureHHMMType">
+    <xs:annotation>
+      <xs:documentation>
+        Heure sans séparateur, sur 4 chiffres : HHMM (ex: 0830 pour 8h30).
+        Format différent de celui de EXP_COURS.xsd, qui écrit 08h30.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{4}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DureeHHMMType">
+    <xs:annotation>
+      <xs:documentation>Durée sans séparateur, sur 4 chiffres : HHMM (ex: 0100 pour 1h, 0130 pour 1h30).</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{4}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CodeAlternanceType">
+    <xs:annotation>
+      <xs:documentation>
+        Référence à ALTERNANCE/@CODE. Le domaine est libre : c'est le logiciel
+        d'emploi du temps qui nomme ses alternances. CDT_6000 ne présuppose
+        aucune valeur et demande à l'utilisateur de désigner celles qui valent
+        « année complète », « semaines A » et « semaines B ».
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CodeStructureType">
+    <xs:annotation>
+      <xs:documentation>Code d'une division ou d'un groupe (ex: 6E1, 6LV1.ALL). Doit correspondre au code employé dans le fichier descendant.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ============================================================= -->
+  <!-- Cours et services                                             -->
+  <!-- ============================================================= -->
+
+  <xs:complexType name="CoursType">
+    <xs:annotation>
+      <xs:documentation>
+        Une séance placée. C'est l'apport propre du fichier montant : le
+        fichier descendant ne contient aucune séance.
+        Les quatre enfants sont ceux que CDT_6000 lit, et il les exige tous
+        les quatre : une séance à laquelle il en manque un est ignorée.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="CODE_ALTERNANCE" type="CodeAlternanceType"/>
+      <xs:element name="JOUR" type="JourSemaineType"/>
+      <xs:element name="HEURE_DEBUT" type="HeureHHMMType"/>
+      <xs:element name="DUREE" type="DureeHHMMType"/>
+      <!--
+        MANQUE À PRIORI dans COURS — noms inconnus, donc non déclarés :
+          - la salle (EXP_COURS.xsd a SALLE)
+          - l'effectif de la séance (EXP_COURS.xsd a EFFECTIF)
+          - la modalité de cours : CG, TD, TP… (EXP_COURS.xsd a MODALITE ; les
+            modalités ne servent qu'au transfert vers STS-web)
+          - le drapeau de co-enseignement (EXP_COURS.xsd a CO-ENS.)
+          - la pondération (EXP_COURS.xsd a POND.) — la pondération est parfois
+            portée par l'intervenant à l'intérieur du cours, elle pourrait donc
+            se trouver ici plutôt que sur SERVICE
+          - un identifiant de cours (EXP_COURS.xsd a NUMERO et @numero), qui
+            permettrait de rattacher entre elles les séances d'un même cours
+            complexe / aligné
+        Aucune de ces balises n'est lue par CDT_6000 : leur absence ici ne
+        prouve pas leur absence du fichier réel.
+      -->
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CoursRattachesType">
+    <xs:sequence>
+      <xs:element name="COURS" type="CoursType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="EnseignantEmpType">
+    <xs:annotation>
+      <xs:documentation>
+        Enseignant assurant le service, et les séances qui lui sont rattachées.
+        COURS_RATTACHES est obligatoire du point de vue de CDT_6000 : un
+        enseignant sans séance est compté comme une erreur de lecture.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="COURS_RATTACHES" type="CoursRattachesType"/>
+    </xs:sequence>
+    <xs:attribute name="ID" type="IndividuIDType" use="required"/>
+    <xs:attribute name="TYPE" type="TypeIndividuType"/>
+  </xs:complexType>
+
+  <xs:complexType name="EnseignantsEmpType">
+    <xs:sequence>
+      <xs:element name="ENSEIGNANT" type="EnseignantEmpType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ServiceEmpType">
+    <xs:annotation>
+      <xs:documentation>
+        Service : couple (structure, matière) et les enseignants qui l'assurent.
+        Structurellement identique au SERVICE du fichier descendant, augmenté
+        de COURS_RATTACHES sous chaque enseignant.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="ENSEIGNANTS" type="EnseignantsEmpType"/>
+      <!--
+        MANQUE À PRIORI dans SERVICE — c'est la lacune la plus lourde de ce
+        schéma. STS-web demande à l'utilisateur, au chargement du fichier :
+        « Souhaitez-vous conserver les services, ARE, indemnités saisies dans
+        STSWEB et n'importer que les données spécifiques aux emplois du temps
+        (cours et alternances) ? » — la réponse attendue étant NON, faute de
+        quoi les cours dont le service n'existe pas déjà dans STS-web sont
+        rejetés. Le fichier transporte donc bien les services eux-mêmes, avec
+        au minimum :
+          - le volume horaire du service
+          - la pondération (une seule par service, la valeur 0 signifiant
+            « ne pas prendre en compte »)
+          - le drapeau de co-enseignement
+          - l'effectif
+        La modalité, elle, n'est plus une inconnue : c'est l'attribut
+        CODE_MOD_COURS déclaré ci-dessous.
+        CDT_6000 ne lit aucun de ces champs : il ne se sert de SERVICE que
+        comme d'un conteneur pour retrouver la matière et les enseignants.
+      -->
+    </xs:sequence>
+    <xs:attribute name="CODE_MATIERE" type="CodeMatiereType" use="required"/>
+    <!--
+      CODE_MOD_COURS : modalité de cours, issue de la Base Académique des
+      Nomenclatures — CG cours général, TD, TP, atelier… Attesté sur le fichier
+      DESCENDANT par un fragment de fichier réel laissé en commentaire dans
+      GEPI (init_dbf_sts/lecture_xml_sts_emp.php:954) :
+        <SERVICE CODE_MATIERE="020100" CODE_MOD_COURS="CG">
+      Sa présence sur le fichier MONTANT est SUPPOSÉE, par identité de
+      l'élément SERVICE entre les deux sens — mais elle est probable : la
+      modalité ne sert qu'au transfert vers STS-web, et un cours de modalité
+      inconnue s'y remonte en CG par défaut.
+    -->
+    <xs:attribute name="CODE_MOD_COURS" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="ServicesEmpType">
+    <xs:sequence>
+      <xs:element name="SERVICE" type="ServiceEmpType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ============================================================= -->
+  <!-- Structure : divisions et groupes                              -->
+  <!-- ============================================================= -->
+
+  <xs:complexType name="MEFsAppartenanceEmpType">
+    <xs:annotation>
+      <xs:documentation>
+        MEF auxquels la division est rattachée. Élément et attribut REPRIS TELS
+        QUELS de sts_emp_RNE_ANNEE.xsd (MEFsAppartenanceType), où ils sont
+        prouvés : le nom n'est donc pas inventé, seule sa PRÉSENCE dans le
+        fichier montant est SUPPOSÉE. Voir FORMATS_JUSTIFICATION.md §9.11.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="MEF" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="CODE" type="xs:string" use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DivisionEmpType">
+    <xs:annotation>
+      <xs:documentation>
+        L'ORDRE des enfants est celui du fichier descendant : SERVICES, puis
+        MEFS_APPARTENANCE.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="SERVICES" type="ServicesEmpType"/>
+      <!--
+        MEFS_APPARTENANCE : niveau SUPPOSÉ, déclaré FACULTATIF. Le nom vient du
+        fichier descendant, où il est prouvé ; rien n'établit sa présence dans
+        le montant, et aucun importeur ne l'y lit. Déclaré tout de même parce
+        que ce schéma est FERMÉ (§6.1) : une section absente du schéma mais
+        présente dans un fichier réel provoquerait un rejet sur un fichier
+        pourtant authentique. Un élément facultatif jamais rencontré ne coûte
+        rien ; un rejet à tort coûte un diagnostic. Même raisonnement qu'en
+        §9.10 pour PROGRAMMES. Voir §9.11.
+      -->
+      <xs:element name="MEFS_APPARTENANCE" type="MEFsAppartenanceEmpType" minOccurs="0"/>
+      <!--
+        MANQUE À PRIORI dans DIVISION : les libellés. CDT_6000 les lit dans
+        sts_emp et jamais dans emp_sts, et le schéma du descendant ne les
+        déclare pas non plus sous DIVISION — leur nom à cet emplacement n'est
+        donc pas établi, contrairement à celui de MEFS_APPARTENANCE.
+      -->
+    </xs:sequence>
+    <xs:attribute name="CODE" type="CodeStructureType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="DivisionsEmpType">
+    <xs:sequence>
+      <xs:element name="DIVISION" type="DivisionEmpType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DivisionAppartenanceType">
+    <xs:attribute name="CODE" type="CodeStructureType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="DivisionsAppartenanceEmpType">
+    <xs:annotation>
+      <xs:documentation>
+        Divisions auxquelles le groupe emprunte ses élèves.
+        Le nombre de DIVISION_APPARTENANCE porte à lui seul la nature du
+        groupe, il n'existe pas de balise qui la déclare :
+          - exactement 1  → groupe, c'est-à-dire une portion d'une division
+          - 2 ou plus     → regroupement, c'est-à-dire un groupe inter-classes
+        L'élément répété se nomme DIVISION_APPARTENANCE, et non DIVISION.
+        sts_emp_RNE_ANNEE.xsd écrivait DIVISION au même endroit ; l'erreur y a
+        été corrigée le 2026-08-20 (voir FORMATS_JUSTIFICATION.md §9.4).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="DIVISION_APPARTENANCE" type="DivisionAppartenanceType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="GroupeEmpType">
+    <xs:annotation>
+      <xs:documentation>
+        L'ORDRE des trois enfants est celui du fichier descendant :
+        LIBELLE_LONG, puis DIVISIONS_APPARTENANCE, puis SERVICES.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <!--
+        LIBELLE_LONG : niveau SUPPOSÉ, déclaré FACULTATIF, pour la même raison
+        que MEFS_APPARTENANCE ci-dessus — nom prouvé dans le descendant,
+        présence non établie dans le montant, schéma fermé. CDT_6000 ne lit
+        aucun libellé de groupe : il fabrique le sien à partir des matières du
+        groupe et du code de la division. Voir §9.11.
+      -->
+      <xs:element name="LIBELLE_LONG" type="xs:string" minOccurs="0"/>
+      <xs:element name="DIVISIONS_APPARTENANCE" type="DivisionsAppartenanceEmpType"/>
+      <xs:element name="SERVICES" type="ServicesEmpType"/>
+      <!--
+        MANQUE À PRIORI dans GROUPE : l'effectif du groupe. STS-web refuse la
+        remontée d'un groupe dont l'effectif déclaré est nul, ce qui suppose que
+        l'effectif circule — soit ici, soit sur SERVICE, soit sur COURS. Aucune
+        source ne donne son nom.
+      -->
+    </xs:sequence>
+    <xs:attribute name="CODE" type="CodeStructureType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="GroupesEmpType">
+    <xs:sequence>
+      <xs:element name="GROUPE" type="GroupeEmpType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="StructureEmpType">
+    <xs:sequence>
+      <xs:element name="DIVISIONS" type="DivisionsEmpType" minOccurs="0"/>
+      <xs:element name="GROUPES" type="GroupesEmpType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DonneesEmpType">
+    <xs:sequence>
+      <xs:element name="STRUCTURE" type="StructureEmpType"/>
+      <!--
+        MANQUE À PRIORI dans DONNEES : la section INDIVIDUS. Le fichier
+        descendant la porte ; CDT_6000 lit systématiquement les enseignants
+        dans sts_emp et jamais dans emp_sts, ce qui n'établit pas qu'elle soit
+        absente du montant.
+      -->
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ============================================================= -->
+  <!-- Alternances                                                   -->
+  <!-- ============================================================= -->
+
+  <xs:complexType name="SemainesType">
+    <xs:sequence>
+      <xs:element name="DATE_DEBUT_SEMAINE" type="DateSemaineType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="AlternanceType">
+    <xs:annotation>
+      <xs:documentation>
+        Une alternance est un CALENDRIER NOMMÉ : la liste explicite des
+        semaines pendant lesquelles les cours qui s'y réfèrent ont lieu.
+        Ce n'est pas une fraction : un « 36/36 », « 18/36 » ou « 12/36 » n'est
+        qu'une présentation dérivée du nombre de semaines.
+
+        Les trois libellés sont mutuellement facultatifs mais au moins un est
+        nécessaire en pratique : CDT_6000 les essaie dans l'ordre
+        LIBELLE_EDITION, puis LIBELLE_LONG, puis LIBELLE_COURT, et retombe
+        sinon sur une variable non initialisée.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="LIBELLE_COURT" type="xs:string" minOccurs="0"/>
+      <xs:element name="LIBELLE_LONG" type="xs:string" minOccurs="0"/>
+      <xs:element name="LIBELLE_EDITION" type="xs:string" minOccurs="0"/>
+      <xs:element name="SEMAINES" type="SemainesType"/>
+    </xs:sequence>
+    <xs:attribute name="CODE" type="CodeAlternanceType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="AlternancesType">
+    <xs:sequence>
+      <xs:element name="ALTERNANCE" type="AlternanceType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ============================================================= -->
+  <!-- Élément racine                                                -->
+  <!-- ============================================================= -->
+
+  <xs:element name="EDT_STS">
+    <xs:annotation>
+      <xs:documentation>
+        Racine du fichier montant. PROUVÉE par GEPI (matieres.php:305-307),
+        qui la reconnaît uniquement pour la rejeter : le message y explique que
+        l'utilisateur s'est trompé d'export et a fourni un export de son
+        logiciel d'emploi du temps au lieu de l'export XML provenant de STS.
+
+        L'ORDRE et la CONTENANCE des deux sections ci-dessous sont SUPPOSÉS.
+        CDT_6000 n'atteint ALTERNANCE, DIVISION et GROUPE que par des XPath
+        « // » : leurs ancêtres ne sont jamais parcourus, donc jamais prouvés.
+        La disposition retenue est celle de STS_EDT, par symétrie.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <!--
+          MANQUE À PRIORI en tête de document : la section PARAMETRES, avec
+          UAJ/@CODE (le RNE) et ANNEE_SCOLAIRE/@ANNEE. Elle est PROUVÉE sur le
+          fichier descendant — lue par CDT_6000 (import_sconet.php:3679
+          et :3684) et par GEPI (init_dbf_sts/lecture_xml_sts_emp.php:167
+          à :311) — et depuis le 2026-08-20 elle est déclarée dans
+          sts_emp_RNE_ANNEE.xsd. Aucun des deux importeurs ne la lit dans
+          emp_sts, mais le nom du fichier montant porte lui aussi le RNE et
+          l'année, et STS-web ne peut pas charger un fichier sans savoir à quel
+          établissement et à quelle année il se rapporte.
+          Voir FORMATS_JUSTIFICATION.md §9.5.
+        -->
+        <xs:element name="ALTERNANCES" type="AlternancesType" minOccurs="0"/>
+        <xs:element name="DONNEES" type="DonneesEmpType"/>
+        <!--
+          MANQUE À PRIORI au niveau du document : les sections ARE
+          (activités à responsabilité établissement) et INDEMNITÉS, que
+          STS-web énumère explicitement au chargement au même titre que les
+          services et les cours. Aucune trace de leur nom nulle part dans les
+          sources disponibles.
+        -->
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

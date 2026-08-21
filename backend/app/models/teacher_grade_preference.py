@@ -1,6 +1,7 @@
 """
 Préférences d'affectation d'un enseignant par niveau de formation (RefGrade) : priorité (1 = à
-affecter en priorité sur ce niveau, 5 = en dernier, équivalent du couple niveaux/priorité d'EDT) et
+affecter en priorité sur ce niveau, 5 = en dernier — l'équivalent du couple niveaux/priorité que
+l'on retrouve dans les logiciels du marché) et
 plafond optionnel du nombre de classes distinctes de ce niveau que le professeur souhaite porter.
 Une ligne par couple (teacher, ref_grade), générée automatiquement à la création de l'un ou l'autre
 (voir Teacher.create()/RefGrade.create(), même patron que MefService/MefDivision -> Service,

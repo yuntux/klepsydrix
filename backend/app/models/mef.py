@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, false as sa_false
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, constrains, exposed, related_field
 
@@ -71,6 +71,11 @@ class MefService(Base):
     weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "duration", "durationIncludeZero": True})
     weekly_duration_split_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif dédoublé (min)", "type": "duration", "durationIncludeZero": True})
     reduced_group_student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Élèves en effectif réduit", "min": 0})
+    # Exclusion de la remontée STS, niveau 3 sur 3 (voir Course.is_exported_to_sts). Pendant de la
+    # coche « ne remonte pas sur STS-Web » portée par la ligne de TRM. Champ MIROIR :
+    # toute modification du gabarit la réécrase sur les Service générés (voir
+    # Service._MEF_SERVICE_MIRROR_FIELDS), donc sur les cours qui en descendent.
+    is_excluded_from_sts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Exclure de la remontée STS"})
 
     # Relations de navigation
     mef: Mapped[Optional["Mef"]] = relationship("Mef", back_populates="mef_services")

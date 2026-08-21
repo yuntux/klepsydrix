@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, false as sa_false
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, related_field, exposed, constrains
 
@@ -25,6 +25,10 @@ class Division(Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False, info={"label": "Nom de la classe", "placeholder": "ex: 6ème A"})
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Nombre d'élèves", "min": 1, "max": 50})
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#CCCCCC", info={"label": "Couleur", "type": "color", "placeholder": "ex: #3498DB"})
+    # Exclusion de la remontée STS, niveau 2 sur 3 (voir Course.is_exported_to_sts). C'est la
+    # classe dite « hors DHG » : une classe qui ne doit pas être prise en compte lors de la
+    # remontée des services.
+    is_excluded_from_sts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Exclure de la remontée STS"})
 
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
     main_teacher_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True, info={"label": "Professeur principal"})

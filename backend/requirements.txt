@@ -19,3 +19,4 @@ timefold>=0.1.0
 pytest>=7.0.0
 httpx>=0.24.0
 networkx>=3.0
+xmlschema>=4.0.0

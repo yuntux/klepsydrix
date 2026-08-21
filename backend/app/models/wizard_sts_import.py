@@ -36,8 +36,8 @@ obligatoirement d'un `MefService`, que le flux ne contient pas — ni volume hor
 répartition classe entière / effectif réduit / dédoublé. L'import crée donc le `MefService`
 manquant **à volumes nuls**, laisse sa cascade native engendrer les `Service` (voir
 Service.generate_from_mef_service), et n'y ajoute que les enseignants du flux. Les volumes
-restent à saisir en pré-rentrée. EDT fait le même choix de défaut : « dans la plupart des cas,
-vous importez uniquement les MEF, les enseignants et les classes ».
+restent à saisir en pré-rentrée. C'est le choix de défaut le plus courant : on importe la
+structure — MEF, enseignants, classes — et l'on saisit les services ensuite.
 """
 import base64
 import unicodedata

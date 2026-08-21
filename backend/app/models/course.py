@@ -316,10 +316,20 @@ class Course(Base):
     mission_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_pacte_missions.id", ondelete="SET NULL"), nullable=True, info={"label": "Mission"})
     # Modalité de cours (CODE_MOD_COURS du flux STS). Défaut 1 = « CG », cours général : la
     # modalité est seedée en PREMIER dans init_db.py précisément pour que cet identifiant soit
-    # stable. Même défaut que chez EDT, dont la documentation précise qu'un cours de modalité
-    # inconnue est exporté en CG. ondelete=RESTRICT : une modalité utilisée par un cours ne doit
+    # stable. « CG » est aussi la valeur de repli d'usage : un cours de modalité inconnue se
+    # remonte en cours général. ondelete=RESTRICT : une modalité utilisée par un cours ne doit
     # pas pouvoir disparaître, la remontée STS en dépend.
     modality_id: Mapped[int] = mapped_column(Integer, ForeignKey("modalities.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Modalité"})
+    # Alternance STS (calendrier nommé de semaines) — champ CALCULÉ ET STOCKÉ (§15.F), jamais
+    # saisi : il découle du couple (week_type, périodes) du cours, voir _sync_alternation.
+    # Le solveur l'ignore totalement : il raisonne sur week_type, jamais sur des semaines
+    # calendaires. ondelete=SET NULL : perdre l'alternance ne doit jamais emporter le cours.
+    alternation_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alternations.id", ondelete="SET NULL"), nullable=True, info={"label": "Alternance", "readOnly": True})
+    # Exclusion de la remontée STS portée par le cours lui-même — le niveau le plus fin des trois.
+    # Par défaut tout cours est remonté : c'est à l'utilisateur de désigner ceux qui ne doivent pas
+    # l'être (réunions, faux cours créés pour l'affichage...). Recopié du Service d'origine à la
+    # génération, puis modifiable cours par cours.
+    is_excluded_from_sts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Exclure de la remontée STS"})
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Mode d'élection"})
     family_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("families.id", ondelete="SET NULL"), nullable=True, info={"label": "Famille"})
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
@@ -337,6 +347,11 @@ class Course(Base):
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["RefPacteMission"]] = relationship("RefPacteMission", back_populates="courses")
     modality: Mapped[Optional["Modality"]] = relationship("Modality", back_populates="courses")
+    alternation: Mapped[Optional["Alternation"]] = relationship("Alternation", back_populates="courses")
+    teacher_weightings: Mapped[list["CourseTeacherWeighting"]] = relationship(
+        "CourseTeacherWeighting", back_populates="course", passive_deletes="all",
+        info={"label": "Pondérations par intervenant", "help": "À ne renseigner que pour les intervenants dont la pondération diffère de celle du cours."},
+    )
     election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
     family: Mapped[Optional["Family"]] = relationship("Family", back_populates="courses")
     school: Mapped[Optional["School"]] = relationship("School", back_populates="courses")
@@ -587,6 +602,102 @@ class Course(Base):
                         f"La période '{period.name}' (type {period.period_type_id}) ne correspond pas "
                         f"au type de période '{self.period_type_id}' du cours."
                     )
+
+    def weighting_for(self, teacher_id: int) -> float:
+        """
+        Pondération applicable à un intervenant : la sienne si une exception est saisie, sinon
+        celle du cours. C'est le seul point de lecture — personne ne doit interroger
+        `teacher_weightings` directement, sous peine d'oublier le repli.
+        """
+        for ligne in self.teacher_weightings:
+            if ligne.teacher_id == teacher_id:
+                return ligne.weighting_coefficient
+        return self.weighting_coefficient
+
+    @exposed(info={"label": "Pondérations hétérogènes", "readOnly": True})
+    @property
+    def has_heterogeneous_weighting(self) -> bool:
+        """
+        Vrai si les intervenants de ce cours n'ont pas tous la même pondération. STS-web n'en
+        accepte qu'une par service : c'est l'audit d'export qui doit le signaler, plutôt que de
+        laisser un arbitrage silencieux se produire.
+        """
+        valeurs = {self.weighting_for(t.id) for t in self.teachers}
+        return len(valeurs) > 1
+
+    @property
+    def is_in_sts_scope(self) -> bool:
+        """
+        Périmètre de la remontée : les **trois niveaux d'exclusion** — matière, classe,
+        service/cours — plus la pondération nulle. Aucun des trois n'est redondant : ils répondent
+        à trois gestes différents, exclure un enseignement, exclure une classe, exclure un cours.
+
+        La pondération à zéro compte comme une exclusion parce que STS-web l'ignore de toute façon
+        (« STSWEB ne prend pas en compte les cours dont la pondération est à zéro ») : autant que
+        l'audit et l'export le disent avant, plutôt que de laisser le cours disparaître en silence
+        à l'arrivée.
+
+        Le périmètre est séparé du verdict (`is_exported_to_sts`) pour une seule raison : l'audit a
+        besoin de désigner les cours qui *devraient* partir mais qu'un `week_type` en Q retient.
+        Sans cette distinction, ils sortiraient à la fois de l'export et de l'audit — donc sans
+        que personne ne l'apprenne.
+        """
+        if self.is_excluded_from_sts:
+            return False
+        if not self.weighting_coefficient:
+            return False
+        if self.subject_relation is not None and self.subject_relation.is_excluded_from_sts:
+            return False
+        if any(d.is_excluded_from_sts for d in self.divisions):
+            return False
+        return True
+
+    @exposed(info={"label": "Remonté vers STS", "readOnly": True})
+    @property
+    def is_exported_to_sts(self) -> bool:
+        """
+        Verdict final : ce cours part-il dans le fichier de remontée ?
+
+        C'est le périmètre ci-dessus, moins les cours en **Q**. Un cours en quinzaine non tranchée
+        est écarté pour une raison structurelle et non réglementaire : il n'a pas d'alternance
+        (voir `_sync_alternation`), et une séance sans `CODE_ALTERNANCE` est ignorée à la lecture.
+        Il n'y a pas de calendrier « une semaine sur deux, on ne sait pas laquelle » à écrire.
+        """
+        if not self.is_in_sts_scope:
+            return False
+        week_type = self.week_type.value if hasattr(self.week_type, 'value') else self.week_type
+        return week_type != CourseWeekType.Q.value
+
+    @constrains('week_type', 'period_ids', 'period_type_id', 'alternation_id')
+    def _sync_alternation(self, db):
+        """
+        Alternance du cours, CALCULÉE ET STOCKÉE (§15.F) : elle découle du couple
+        (`week_type`, périodes) et n'est jamais saisie.
+
+        `week_type` vaut ici A, B, W ou **Q** — quinzaine dont le côté n'est pas encore tranché
+        (voir CourseWeekType). Un cours en Q n'a pas d'alternance : il n'existe pas de calendrier
+        « une semaine sur deux, on ne sait pas laquelle ». L'alternance apparaîtra d'elle-même
+        quand la résolution automatique aura fixé A ou B, cette contrainte étant réévaluée à
+        chaque écriture de `week_type`.
+
+        `alternation_id` figure exprès parmi les champs déclencheurs : écrire ce champ directement
+        ne le fixe pas, cela relance le calcul qui l'écrase. C'est ce qui rend un cours en Q
+        **impossible à rattacher** à une alternance, y compris par l'API générique, sans avoir à
+        lever une erreur sur un champ que personne n'est censé saisir.
+
+        Le solveur ne lit jamais ce champ ; il travaille sur `week_type`. C'est bien l'inverse :
+        c'est la sortie du solveur qui alimente l'alternance, jamais l'alternance qui contraint
+        le solveur.
+        """
+        from backend.app.models.alternation import Alternation
+
+        week_type = self.week_type.value if hasattr(self.week_type, 'value') else self.week_type
+        if week_type == CourseWeekType.Q.value:
+            self.alternation_id = None
+            return
+        self.alternation_id = Alternation.search_or_create(
+            db, week_type, [p.id for p in self.periods]
+        ).id
 
     @onchange('children_ids')
     @constrains('children_ids')

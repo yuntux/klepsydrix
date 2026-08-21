@@ -1367,6 +1367,8 @@
                                 "weighting_coefficient",
                                 "weighted_duration_minutes",
                                 "modality_id",
+                                "alternation_id",
+                                "is_excluded_from_sts",
                                 "family_id",
                                 "mission_id",
                                 "election_method_id",
@@ -2130,6 +2132,15 @@
           "resourceKey": "wizard_sts_imports",
           "actionId": "import_sts_flux"
         }
+      },
+      {
+        "id": "sts_export_action",
+        "icon": "wrench",
+        "title": "Remonter vers STS-web",
+        "action": {
+          "resourceKey": "wizard_sts_exports",
+          "actionId": "export_sts_flux"
+        }
       }
     ]
   },
@@ -2405,6 +2416,65 @@
                 "width": "100%",
                 "listConfig": {
                   "editableInline": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "holidays_setting",
+            "icon": "calendar",
+            "title": "Vacances scolaires",
+            "borderColor": "#8B5CF6",
+            "panels": [
+              {
+                "id": "holidays_list",
+                "component": "GenericList",
+                "resourceKey": "holidays",
+                "width": "100%",
+                "listConfig": {
+                  "editableInline": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "week_calendars_setting",
+            "icon": "calendar",
+            "title": "Calendrier des semaines",
+            "borderColor": "#8B5CF6",
+            "panels": [
+              {
+                "id": "week_calendars_list",
+                "component": "GenericList",
+                "resourceKey": "week_calendars",
+                "width": "100%",
+                "listConfig": {
+                  "editableInline": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "alternations_setting",
+            "icon": "calendar",
+            "title": "Alternances",
+            "borderColor": "#8B5CF6",
+            "panels": [
+              {
+                "id": "alternations_list",
+                "component": "GenericList",
+                "resourceKey": "alternations",
+                "width": "100%",
+                "listConfig": {
+                  "editableInline": true,
+                  "columns": {
+                    "course_ids": {
+                      "hidden": true
+                    },
+                    "week_calendar_ids": {
+                      "hidden": true
+                    }
+                  }
                 }
               }
             ]

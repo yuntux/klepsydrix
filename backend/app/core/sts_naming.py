@@ -3,17 +3,15 @@ Règles de nommage des structures (divisions et groupes) imposées par STS-web.
 
 Deux règles, toutes deux relevées dans la documentation des logiciels du marché :
 
-- **Longueur et jeu de caractères des groupes.** EDT « tronque le nom du groupe s'il compte
-  plus de 8 caractères, et supprime tous les caractères non autorisés » ; UnDeuxTEMPS classe
-  « nom de groupe ou regroupement non conforme (contient des caractères spéciaux) » parmi ses
-  points bloquants à l'export. Le jeu exact n'est publié nulle part : on retient l'alphanumérique
-  plus le point, le tiret et le souligné, les codes de groupe réels observés étant de la forme
-  `6LV1.ALL` ou `3AGL1.GR.1`.
+- **Longueur et jeu de caractères des groupes.** Un nom de groupe est limité à 8 caractères, et
+  les caractères spéciaux y sont refusés à l'export. Le jeu exact n'est publié nulle part : on
+  retient l'alphanumérique plus le point, le tiret et le souligné, les codes de groupe réels
+  observés étant de la forme `6LV1.ALL` ou `3AGL1.GR.1`.
 
-- **Unicité dans un espace de noms commun.** UnDeuxTEMPS : « Toutes les classes, groupes et
-  regroupements n'ont pas un nom unique » est un point bloquant. Une division et un groupe ne
-  peuvent donc pas porter le même identifiant, alors même qu'ils vivent dans deux tables
-  distinctes — d'où ce module partagé plutôt qu'une règle dupliquée des deux côtés.
+- **Unicité dans un espace de noms commun.** Classes, groupes et regroupements se partagent un
+  seul espace de noms : une division et un groupe ne peuvent pas porter le même identifiant, alors
+  même qu'ils vivent dans deux tables distinctes — d'où ce module partagé plutôt qu'une règle
+  dupliquée des deux côtés.
 
 Côté Klepsydrix, l'identifiant de structure est `Division.code` et `Group.name` : le groupe n'a
 pas de champ `code`, c'est son nom généré (`compute_group_name`, de la forme `6GMATHS1`) qui joue
@@ -31,9 +29,9 @@ _STS_FORBIDDEN_PATTERN = re.compile(r"[^A-Za-z0-9._-]")
 
 def sanitize_sts_code(value: str, max_length: int = STS_GROUP_NAME_MAX_LENGTH) -> str:
     """
-    Rend un identifiant conforme : caractères interdits supprimés, puis troncature. C'est la
-    règle d'EDT, appliquée ici à la génération plutôt qu'à l'export — mieux vaut un nom conforme
-    dès sa création qu'une troncature silencieuse au moment de la remontée.
+    Rend un identifiant conforme : caractères interdits supprimés, puis troncature. Appliquée à la
+    génération plutôt qu'à l'export — mieux vaut un nom conforme dès sa création qu'une troncature
+    silencieuse au moment de la remontée.
     """
     return _STS_FORBIDDEN_PATTERN.sub("", value or "")[:max_length]
 

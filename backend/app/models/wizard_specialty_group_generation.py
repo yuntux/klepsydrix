@@ -2,7 +2,7 @@
 Wizard « Générer les groupes de spécialité » (réforme du lycée) — trois étapes (sélection /
 aperçu / résultat), même patron que wizard_teacher_assignment.py (TransientModel + __actions__).
 
-Portée v1 (mode « minimisant les liens », voir comparatif EDT/UnDeuxTEMPS/Charlemagne) : aucun
+Portée v1 (mode « minimisant les liens », voir architecture.md §21.A) : aucun
 Alignment n'est précalculé — chaque Service de spécialité est posé directement sur un Group
 (cross-division), et la non-collision entre spécialités choisies par un même élève repose
 entièrement sur le mécanisme générique déjà en place (ClassPartLink auto-généré entre partitions
@@ -12,8 +12,8 @@ précalculée) est un chantier ultérieur distinct.
 Limite connue de cette première itération : un ré-exécution du wizard après un changement
 d'effectif peut faire migrer un élève d'un groupe à un autre — le retrait de l'ancien ClassPart
 est fait explicitement (voir _apply_specialty_plan, passe de nettoyage avant la passe
-d'affectation) mais aucune détection de dérive fine façon UnDeuxTEMPS (états Fait/Partiel/
-Reconstruire) n'est construite ici.
+d'affectation) mais aucune détection de dérive fine (états Fait/Partiel/Reconstruire) n'est
+construite ici.
 """
 import math
 from sqlalchemy.orm import Session
