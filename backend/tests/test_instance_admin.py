@@ -18,7 +18,9 @@ from backend.tests.db_test_utils import make_test_engine
 from backend.app.core.config import settings, SuperAdminPair
 from backend.app.core import master_auth
 from backend.app.core.master_auth import verify_master_password, MASTER_PROVIDER_KEY, MASTER_SUBJECT
-from backend.app.core.instance_admin import is_super_admin, is_db_admin, administrable_databases, require_admin_of
+from backend.app.core.instance_admin import (
+    is_super_admin, is_db_admin, administrable_databases, require_admin_of, databases_for_identity,
+)
 from backend.app.core.instance_session import InstanceSession
 from backend.app.core.database import current_db_user
 from backend.app.api.ui_endpoints import whoami
@@ -93,20 +95,37 @@ class TestMasterAuth:
             verify_master_password(_FakeRequest(), "wrong-password")
         assert exc_info.value.status_code == 401
 
-    def test_no_lockout_after_many_failed_attempts(self):
-        """AUCUN verrouillage applicatif (décision explicite, voir architecture.md §19.A) : même
-        après de nombreux échecs, chaque tentative reste évaluée normalement (401 sur mot de passe
-        incorrect, jamais un 403 de verrouillage) — la protection anti-brute-force est entièrement
-        déléguée à fail2ban, qui lit le journal de ces échecs."""
+    def test_repeated_failures_are_capped_by_the_application(self):
+        """
+        Changement de doctrine assumé (voir core/rate_limit.py, architecture.md §19.A) : il n'y
+        avait AUCUN verrouillage applicatif, la protection reposant entièrement sur fail2ban. Là où
+        fail2ban n'est pas déployé, ce point d'entrée — un secret PARTAGÉ qui ouvre la console
+        d'administration de l'instance entière — était donc attaquable sans aucune limite.
+        """
         password_hash = master_auth._password_hasher.hash("correct-horse-battery-staple")
         settings.master_db_local_auth = type(settings.master_db_local_auth)(enabled=True, password_hash=password_hash)
         request = _FakeRequest("198.51.100.7")
-        for _ in range(20):
+
+        for _ in range(settings.auth.rate_limit_attempts):
             with pytest.raises(HTTPException) as exc_info:
                 verify_master_password(request, "wrong-password")
-            assert exc_info.value.status_code == 401
-        # Le bon mot de passe fonctionne toujours, même après 20 échecs consécutifs.
-        verify_master_password(request, "correct-horse-battery-staple")  # ne lève rien
+            assert exc_info.value.status_code == 401  # évalué normalement tant que le quota tient
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_master_password(request, "wrong-password")
+        assert exc_info.value.status_code == 429
+
+    def test_a_different_address_keeps_its_own_quota(self):
+        """Le quota est par adresse : un attaquant ne peut pas verrouiller l'accès d'un
+        administrateur légitime en épuisant le compteur depuis chez lui."""
+        password_hash = master_auth._password_hasher.hash("correct-horse-battery-staple")
+        settings.master_db_local_auth = type(settings.master_db_local_auth)(enabled=True, password_hash=password_hash)
+
+        for _ in range(settings.auth.rate_limit_attempts + 1):
+            with pytest.raises(HTTPException):
+                verify_master_password(_FakeRequest("198.51.100.7"), "wrong-password")
+
+        verify_master_password(_FakeRequest("10.1.2.3"), "correct-horse-battery-staple")  # ne lève rien
 
     def test_ip_allowlist_rejects_unlisted_address(self):
         password_hash = master_auth._password_hasher.hash("correct-horse-battery-staple")
@@ -273,11 +292,63 @@ class TestPendingPairingPromotion:
         assert pending_idp.provider_key == "educonnect"
         assert pending_idp.external_subject == "real-oidc-sub-42"
 
-    def test_login_with_no_matching_pending_row_creates_new_user(self, db_session):
+    def test_an_unknown_identity_is_refused_by_default(self, db_session):
+        """
+        `auth.auto_provision_users` est FAUX par défaut (voir config.py, database.py) : sur une
+        instance qui héberge plusieurs établissements fédérés par le même OIDC académique,
+        l'auto-création laissait n'importe quel enseignant de l'académie faire apparaître une ligne
+        `users` dans CHAQUE base en changeant un simple en-tête HTTP.
+        """
         session = InstanceSession(provider_key="educonnect", subject="brand-new-sub", first_name="Brand", last_name="New", email="brand.new@example.fr")
-        resolved_user = current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
+
+        with pytest.raises(HTTPException) as exc_info:
+            current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == {"code": "NOT_PROVISIONED"}
+        assert db_session.query(User).count() == 0  # rien n'a été écrit
+
+    def test_auto_provisioning_can_be_enabled_for_a_single_school_instance(self, db_session):
+        """Instance mono-établissement fédérée : tout porteur d'une identité valide du fournisseur
+        est effectivement légitime — le comportement historique reste disponible."""
+        settings.auth.auto_provision_users = True
+        try:
+            session = InstanceSession(provider_key="educonnect", subject="brand-new-sub", first_name="Brand", last_name="New", email="brand.new@example.fr")
+            resolved_user = current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
+        finally:
+            settings.auth.auto_provision_users = False
+
         assert resolved_user.email == "brand.new@example.fr"
         assert db_session.query(User).count() == 1
+        assert resolved_user.groups == []  # créé SANS aucun droit, comme avant
+
+    def test_local_identity_never_promotes_a_pending_row(self, db_session):
+        """
+        `session.email` vaut, pour le provider local, l'identifiant SAISI au formulaire (voir
+        auth_endpoints.py::login_local) — une chaîne qu'un admin de n'importe quelle base peut se
+        faire attribuer en créant chez lui un compte local du même nom. Sans cette restriction, il
+        se faisait promouvoir à la place de l'admin désigné d'une base fraîchement créée, groupe
+        "Admin" compris. Seul un provider FÉDÉRÉ, dont l'email est vérifié par un tiers, peut
+        déclencher la promotion.
+        """
+        user = User.create(db_session, {"first_name": "En attente", "last_name": "de première connexion", "email": "future.admin@example.fr"})
+        pending_idp = UserIdentityProvider.create(db_session, {
+            "user_id": user.id, "provider_key": "pending", "external_subject": "future.admin@example.fr",
+        })
+        db_session.commit()
+
+        session = InstanceSession(
+            provider_key="local", subject="future.admin@example.fr",
+            email="future.admin@example.fr", db_slug="timetable",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            current_db_user(request=_FakeRequestForCurrentDbUser(), session=session, db=db_session)
+
+        # Refusée à deux titres : l'email d'une identité locale ne promeut rien (ce test), et une
+        # identité inconnue de la base n'est plus auto-créée (voir auth.auto_provision_users).
+        assert exc_info.value.detail == {"code": "NOT_PROVISIONED"}
+        db_session.refresh(pending_idp)
+        assert pending_idp.provider_key == "pending"      # jamais promue
 
     def test_master_identity_is_rejected_for_application_data(self, db_session):
         """Code structuré (pas un texte libre) : reconnu par apiFetch() côté frontend pour renvoyer
@@ -301,7 +372,13 @@ class TestWhoAmI:
 
         result = whoami(session=session, db=db_session, user=user)
 
-        assert result == {"display_name": "A Dmin", "email": "a@example.fr", "is_admin": True, "must_change_password": False}
+        assert result == {
+            "display_name": "A Dmin", "email": "a@example.fr", "is_admin": True,
+            "must_change_password": False,
+            # Plafond d'envoi servi à l'IHM par cette même route plutôt que recopié en dur
+            # côté frontend (voir core/upload_limits.py, widgets/BinaryFileField.vue).
+            "max_upload_mb": settings.server.max_upload_mb,
+        }
 
     def test_non_admin_user_is_not_flagged_admin(self, db_session):
         user = User.create(db_session, {"first_name": "B", "last_name": "Asic", "email": "b@example.fr"})
@@ -323,3 +400,48 @@ class TestWhoAmI:
         result = whoami(session=session, db=db_session, user=user)
 
         assert result["is_admin"] is True
+
+
+class TestDatabasesForIdentity:
+    """
+    `GET /api/instance/my-databases` (voir instance_admin.py::databases_for_identity) — remplace
+    l'ancienne route publique qui énumérait tous les établissements hébergés pour n'importe quel
+    anonyme.
+    """
+
+    def test_a_local_identity_only_sees_the_database_it_was_verified_against(self, monkeypatch):
+        """Corollaire direct de la liaison identité locale/base (voir InstanceSession.db_slug) :
+        il ne peut y en avoir qu'une, et la connaître ne révèle rien de plus que ce que
+        l'utilisateur vient lui-même de saisir au formulaire de connexion."""
+        monkeypatch.setattr("backend.app.core.db_registry.is_known_slug", lambda slug: True)
+        session = InstanceSession(provider_key="local", subject="a@example.fr", db_slug="college-a")
+
+        assert databases_for_identity(session) == ["college-a"]
+
+    def test_a_federated_identity_sees_only_the_databases_where_it_has_an_account(self, db_session, monkeypatch):
+        user = User.create(db_session, {"first_name": "O", "last_name": "Idc", "email": "o@example.fr"})
+        UserIdentityProvider.create(db_session, {
+            "user_id": user.id, "provider_key": "educonnect", "external_subject": "sub-1",
+        })
+        db_session.commit()
+
+        monkeypatch.setattr("backend.app.core.db_registry.known_slugs", lambda: {"college-a", "college-b"})
+        # Seule "college-a" est branchée sur la base de test ; "college-b" reste vide.
+        empty_engine = make_test_engine()
+        EmptySessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=empty_engine)
+        Base.metadata.create_all(bind=empty_engine)
+        monkeypatch.setattr(
+            "backend.app.core.db_registry.sessionmaker_for",
+            lambda slug: TestSessionLocal if slug == "college-a" else EmptySessionLocal,
+        )
+        session = InstanceSession(provider_key="educonnect", subject="sub-1")
+
+        assert databases_for_identity(session) == ["college-a"]
+
+    def test_the_master_password_identity_sees_nothing(self, monkeypatch):
+        """Identité fantôme, refusée sur toute donnée applicative (voir current_db_user) : lui
+        proposer une base serait une impasse."""
+        monkeypatch.setattr("backend.app.core.db_registry.known_slugs", lambda: {"college-a"})
+        session = InstanceSession(provider_key=MASTER_PROVIDER_KEY, subject=MASTER_SUBJECT)
+
+        assert databases_for_identity(session) == []

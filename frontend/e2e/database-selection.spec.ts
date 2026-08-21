@@ -7,30 +7,43 @@ import { loginAsDemo } from './helpers';
 // instance.yaml) : le scénario "plusieurs bases, sélecteur visible" nécessite un second fichier
 // SQLite dans le répertoire configuré, non couvert ici pour ne pas dépendre d'un état local
 // éphémère — vérifié manuellement lors de l'implémentation (voir specs/).
+//
+// ⚠️ Ces parcours ont changé avec la suppression de la route publique qui listait toutes les bases
+// de l'instance (voir instance_endpoints.py, instance_admin.py::databases_for_identity) : SANS
+// session, aucune liste n'est servie, donc plus de sélection automatique avant connexion — c'est le
+// formulaire de connexion qui porte le champ « base », saisi par l'utilisateur (§17.F).
 
 test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
 
-test('sans cookie, redirige et sélectionne automatiquement l\'unique base disponible', async ({ page }) => {
+test('sans session, l\'arrivée sur l\'application mène au formulaire de connexion', async ({ page }) => {
   await page.goto('/');
 
-  // Base unique -> sélection automatique, l'utilisateur ne voit jamais le sélecteur. Sans session
-  // instance, l'étape suivante est /login (voir e2e/auth.spec.ts pour la suite du parcours).
-  await expect(page).not.toHaveURL(/\/select-database/);
+  // /select-database interroge /api/instance/my-databases, obtient 401, et renvoie vers /login.
   await expect(page).toHaveURL(/\/login/);
+  await expect(page).not.toHaveURL(/\/select-database/);
 
+  // Aucune base n'a pu être devinée : le cookie ne sera posé qu'à la connexion, à partir du champ
+  // « base » du formulaire (voir auth_endpoints.py::login_local).
   const cookies = await page.context().cookies();
-  const dbCookie = cookies.find(c => c.name === 'klepsydrix_db');
-  expect(dbCookie?.value).toBe('timetable');
+  expect(cookies.find(c => c.name === 'klepsydrix_db')).toBeUndefined();
 });
 
-test('la page de sélection liste les bases disponibles via l\'API publique', async ({ page }) => {
-  await page.goto('/select-database');
-  // Redirection automatique attendue (une seule base) — donc vers /login, cookie de base déjà posé.
-  await expect(page).not.toHaveURL(/\/select-database/);
-  const cookies = await page.context().cookies();
-  expect(cookies.find(c => c.name === 'klepsydrix_db')?.value).toBe('timetable');
+test('le sélecteur ne divulgue aucune base à un visiteur anonyme', async ({ page }) => {
+  const response = await page.request.get('/api/instance/my-databases');
+
+  expect(response.status()).toBe(401);
+  expect(await response.text()).not.toContain('timetable');
+});
+
+test('une fois connecté, le sélecteur ne propose que la base de l\'utilisateur', async ({ page }) => {
+  await loginAsDemo(page);
+
+  const response = await page.request.get('/api/instance/my-databases');
+
+  expect(response.ok()).toBeTruthy();
+  expect((await response.json()).databases).toEqual(['timetable']);
 });
 
 test('changer de base depuis la barre latérale ramène au sélecteur puis à l\'application', async ({ page }) => {
@@ -40,8 +53,8 @@ test('changer de base depuis la barre latérale ramène au sélecteur puis à l\
 
   await page.getByTitle('Changer de base de données').click();
 
-  // Une seule base disponible : round-trip automatique. La session instance est toujours valide
-  // (loginAsDemo a posé le cookie de session), donc retour direct dans l'application authentifiée.
+  // Une seule base disponible pour cette identité : round-trip automatique. La session instance est
+  // toujours valide (loginAsDemo a posé le cookie), donc retour direct dans l'application.
   await expect(page).not.toHaveURL(/\/select-database/);
   await expect(page).not.toHaveURL(/\/login/);
   const cookies = await page.context().cookies();

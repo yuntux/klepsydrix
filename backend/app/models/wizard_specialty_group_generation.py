@@ -28,6 +28,7 @@ from backend.app.models.group import (
     _find_or_create_specialty_partition, _ensure_specialty_class_parts,
 )
 from backend.app.models.service import Service
+from backend.app.core.html_text import esc
 
 
 def _compute_specialty_plan(db: Session, ref_grade_id: int) -> dict:
@@ -218,7 +219,7 @@ def _render_groups_rows(plan: dict, db: Session) -> list[dict]:
 def _render_warnings_html(warnings: list[str]) -> str:
     if not warnings:
         return "<p>Aucun avertissement.</p>"
-    items = "".join(f"<li>{w}</li>" for w in warnings)
+    items = "".join(f"<li>{esc(w)}</li>" for w in warnings)
     return f"<p><strong>{len(warnings)} avertissement(s) :</strong></p><ul>{items}</ul>"
 
 

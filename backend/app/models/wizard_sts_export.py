@@ -21,6 +21,7 @@ from backend.app.core.sts_export import build_emp_sts, export_filename
 from backend.app.models.base import TransientModel, requires_access
 from backend.app.models.school import School
 from backend.app.models.system_setting import SystemSetting
+from backend.app.core.html_text import esc
 
 
 def _resolve_school(db: Session, school_id) -> School:
@@ -52,10 +53,10 @@ def _audit_html(anomalies: list, school: School) -> str:
 
     if not anomalies:
         return (
-            f"<p><strong>{school.name}</strong> — aucune anomalie détectée. Le fichier peut être "
+            f"<p><strong>{esc(school.name)}</strong> — aucune anomalie détectée. Le fichier peut être "
             f"généré.</p>"
         )
-    entete = f"<p><strong>{school.name}</strong> — {len(bloquantes)} anomalie(s) bloquante(s), {len(avertissements)} avertissement(s).</p>"
+    entete = f"<p><strong>{esc(school.name)}</strong> — {len(bloquantes)} anomalie(s) bloquante(s), {len(avertissements)} avertissement(s).</p>"
     if bloquantes:
         entete += (
             "<p style=\"border-left:4px solid #DC2626;background:#FEF2F2;padding:12px 16px;"
@@ -200,8 +201,8 @@ class WizardStsExport(TransientModel):
         avertissements = [a for a in anomalies if a["severity"] == WARNING]
 
         html = (
-            f"<p>Fichier de remontée généré pour <strong>{school.name}</strong> — RNE "
-            f"{school.uai}, année {annee}-{annee + 1}.</p>"
+            f"<p>Fichier de remontée généré pour <strong>{esc(school.name)}</strong> — RNE "
+            f"{esc(school.uai)}, année {esc(annee)}-{esc(annee + 1)}.</p>"
             "<p>Chargez-le dans STS-web par <em>Imports</em> puis <em>Emploi du temps</em>. "
             "À la question « Souhaitez-vous conserver les services, ARE, indemnités saisies dans "
             "STSWEB… ? », <strong>répondez NON</strong> : répondre oui n'importerait que les cours, "

@@ -12,7 +12,10 @@ from backend.app.core.config import settings
 from backend.app.core.database import get_db, current_db_user
 from backend.app.core import db_registry
 from backend.app.core.client_ip import client_ip
-from backend.app.core.instance_session import set_session_cookie, clear_session_cookie
+from backend.app.core import rate_limit
+from backend.app.core.instance_session import (
+    set_session_cookie, clear_session_cookie, cookies_secure, require_instance_session,
+)
 from backend.app.core.oidc import oauth, claim_mapping_for
 from backend.app.core.route_guard import system_scoped
 from backend.app.core.mailer import send_password_reset_email
@@ -51,17 +54,27 @@ def login_local(payload: LocalLoginPayload, request: Request, response: Response
     deux dans le même formulaire, inutile de le refaire passer par /select-database).
 
     Journalise chaque ÉCHEC en WARNING (voir architecture.md §17.H, deploy/fail2ban/klepsydrix-
-    local-login.conf) — la protection anti-brute-force est ENTIÈREMENT déléguée à fail2ban, qui lit
-    ce journal (aucun verrouillage applicatif ici, décision explicite — voir §17.H pour le
-    raisonnement). Pas de log pour un SUCCÈS (contrairement au mot de passe maître) : une connexion
+    local-login.conf), pour fail2ban, ET oppose un plancher applicatif (core/rate_limit.py) — les
+    deux sont complémentaires : fail2ban bannit plus tôt et pour toute la machine, le limiteur
+    garantit qu'une instance où fail2ban n'est pas déployé n'est pas sans protection du tout.
+
+    Pas de log pour un SUCCÈS (contrairement au mot de passe maître) : une connexion
     locale réussie est le flux normal et quotidien de l'application, pas un évènement rare à haut
     privilège — la journaliser en WARNING noierait le signal utile.
     """
     ip = client_ip(request)
     slug = db_registry.slug_for_session(db)
 
+    # Plancher applicatif en complément de fail2ban (voir core/rate_limit.py pour le pourquoi de ce
+    # changement de doctrine). Clé = IP + base + identifiant visé : balayer mille comptes depuis une
+    # IP consomme le quota aussi sûrement que s'acharner sur un seul, puisque chaque échec compte
+    # pour cette IP quel que soit le compte. Contrôlé AVANT la vérification Argon2, qui est
+    # justement l'opération coûteuse qu'on ne veut pas offrir à un attaquant.
+    rate_limit.enforce("login_local", f"{ip}|{slug}|{payload.identifier}", ip=ip)
+
     idp = UserIdentityProvider.verify_local_password(db, payload.identifier, payload.password)
     if idp is None:
+        rate_limit.record("login_local", f"{ip}|{slug}|{payload.identifier}")
         logger.warning("Échec de connexion locale depuis %s (base : %s, identifiant : %s)", ip, slug, payload.identifier)
         raise HTTPException(status_code=401, detail="Identifiant ou mot de passe incorrect.")
 
@@ -80,8 +93,16 @@ def login_local(payload: LocalLoginPayload, request: Request, response: Response
 
     # identifier sert aussi d'email pour le pré-appariement par email (voir database.py::
     # current_db_user) : convention du provider local, ses identifiants sont par nature des emails.
-    set_session_cookie(response, provider_key="local", subject=payload.identifier, email=payload.identifier)
-    response.set_cookie("klepsydrix_db", slug, httponly=False, samesite="lax", path="/")
+    # `db_slug=slug` : la base dans laquelle le mot de passe VIENT d'être vérifié est scellée dans
+    # le cookie signé — `current_db_user` refuse ensuite cette identité sur toute autre base (voir
+    # core/instance_session.py::InstanceSession.db_slug pour l'usurpation que cela ferme).
+    set_session_cookie(
+        response, provider_key="local", subject=payload.identifier, email=payload.identifier,
+        db_slug=slug,
+    )
+    response.set_cookie(
+        "klepsydrix_db", slug, httponly=False, samesite="lax", path="/", secure=cookies_secure(),
+    )
     return {"status": "success"}
 
 
@@ -91,13 +112,28 @@ class PasswordResetRequestPayload(BaseModel):
 
 @router.post("/password-reset/request")
 @system_scoped("Réinitialisation de mot de passe : par nature accessible à qui ne peut PAS se connecter. Réponse générique, aucune donnée renvoyée.")
-async def password_reset_request(payload: PasswordResetRequestPayload, db: Session = Depends(get_db)):
+async def password_reset_request(payload: PasswordResetRequestPayload, request: Request, db: Session = Depends(get_db)):
     """
     Provider "local" uniquement (voir architecture.md §17.G) — toujours la même réponse générique,
     que l'identifiant corresponde à un compte réel ou non (énumération) : un email n'est envoyé QUE
     si un compte local correspondant existe vraiment, mais l'appelant ne peut jamais le déduire de
     la réponse HTTP elle-même.
+
+    Limitée en débit et JOURNALISÉE (elle ne l'était ni l'un ni l'autre) : sans quoi n'importe qui
+    peut déclencher en boucle des envois vers l'adresse d'un utilisateur connu. Le dégât n'est pas
+    tant le harcèlement que la mise en liste noire du domaine expéditeur par les fournisseurs de
+    messagerie — durable, et pénible à réparer. Ici TOUTE demande est comptée, pas seulement celles
+    qui aboutissent : distinguer les deux révélerait quels identifiants existent, exactement ce que
+    la réponse générique s'attache à cacher.
     """
+    ip = client_ip(request)
+    rate_limit.enforce("password_reset", f"{ip}|{payload.identifier}", ip=ip)
+    rate_limit.record("password_reset", f"{ip}|{payload.identifier}")
+    # WARNING, au format lu par fail2ban (deploy/fail2ban/klepsydrix-password-reset.conf, contrat
+    # vérifié par tests/test_fail2ban_filter_contracts.py) — même traitement que les échecs de
+    # connexion : une demande isolée est banale, une rafale ne l'est pas.
+    logger.warning("Demande de réinitialisation de mot de passe depuis %s (identifiant : %s)", ip, payload.identifier)
+
     idp = db.query(UserIdentityProvider).filter(
         UserIdentityProvider.provider_key == "local",
         UserIdentityProvider.external_subject == payload.identifier,
@@ -138,7 +174,13 @@ class PasswordChangePayload(BaseModel):
 
 
 @router.post("/password/change")
-def password_change(payload: PasswordChangePayload, user=Depends(current_db_user), db: Session = Depends(get_db)):
+def password_change(
+    payload: PasswordChangePayload,
+    response: Response,
+    user=Depends(current_db_user),
+    db: Session = Depends(get_db),
+    session=Depends(require_instance_session),
+):
     """
     Changement de mot de passe par un utilisateur DÉJÀ connecté — contrairement à
     /password-reset/*, qui ne suppose aucune session (identifiant + jeton à usage unique en tenant
@@ -171,6 +213,20 @@ def password_change(payload: PasswordChangePayload, user=Depends(current_db_user
         db.klepsydrix_user_id = previous_user_id
 
     db.commit()
+
+    # Changer son mot de passe révoque les sessions ouvertes (User.session_epoch) — y compris,
+    # mécaniquement, CELLE-CI, puisque le contrôle porte sur l'horodatage de connexion. On réémet
+    # donc le cookie de l'appelant avec un `logged_in_at` postérieur à la révocation : les autres
+    # navigateurs sont déconnectés, celui qui vient de faire le geste continue. Sans cela,
+    # l'utilisateur serait éjecté par sa propre action — et le parcours must_change_password
+    # (voir current_db_user) deviendrait une impasse : il faut justement pouvoir continuer
+    # immédiatement après. Effet de bord assumé : `last_login_at` avance (voir current_db_user),
+    # ce qui est fidèle — il vient bien de se ré-authentifier en fournissant son mot de passe.
+    set_session_cookie(
+        response, provider_key=session.provider_key, subject=session.subject,
+        first_name=session.first_name, last_name=session.last_name, email=session.email,
+        db_slug=session.db_slug,
+    )
     return {"status": "success"}
 
 

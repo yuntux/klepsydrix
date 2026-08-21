@@ -365,3 +365,16 @@ class TestChampsDesWizards:
             "Champs de wizard absents du schéma du modèle (ajoutez-les à _fields) : "
             + ", ".join(manquants)
         )
+
+
+def test_les_methodes_internes_ne_sont_jamais_appelables_a_distance(db_session):
+    """
+    Voir generic.py::_check_rpc_access. L'endpoint RPC générique résout la méthode par son NOM,
+    fourni par l'appelant : sans ce garde-fou, toute la surface interne des modèles (méthodes
+    préfixées `_`, écrites en supposant un appelant qui connaît leurs invariants) était atteignable
+    dès lors qu'un compte disposait du droit correspondant sur le modèle.
+    """
+    response = client.post("/api/generic/teachers/call/_sync_user_account", json={"args": [], "kwargs": {}})
+
+    assert response.status_code == 403
+    assert "interne" in response.json()["detail"]

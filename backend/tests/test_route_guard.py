@@ -109,7 +109,9 @@ def test_inventaire_des_derogations():
         "/api/auth/password-reset/confirm",
         "/api/auth/oidc/login/{provider_key}",
         "/api/auth/oidc/callback/{provider_key}",
-        "/api/instance/databases",
+        # `/api/instance/databases` a été SUPPRIMÉE : elle servait la liste de tous les
+        # établissements hébergés à n'importe quel anonyme. Le sélecteur passe désormais par
+        # `/api/instance/my-databases`, sous session (voir instance_admin.py).
     }
 
 

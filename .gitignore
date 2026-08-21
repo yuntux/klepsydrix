@@ -238,7 +238,10 @@ frontend/playwright/.cache/
 *.db
 *.db-journal
 *.sqlite
-!timetable.db
+# timetable.db n'est PLUS versionnée (l'exception `!timetable.db` a été retirée) : c'est une base
+# de démonstration, mais elle contient des empreintes de mots de passe et sert de modèle mental à
+# qui déploie. Elle se régénère en une commande, c'est le chemin qui fait autorité :
+#   backend/.venv/bin/python -m backend.app.core.init_demo
 
 # Agents files
 .agents/workflow_cm_diff.patch

@@ -21,3 +21,17 @@ def _clean_postgres_test_database():
     engine = make_test_engine()
     Base.metadata.drop_all(bind=engine)
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    """
+    Les compteurs de limitation de débit (core/rate_limit.py) vivent dans la mémoire du process :
+    sans remise à zéro, un test qui enchaîne des échecs de connexion ferait échouer le SUIVANT en
+    429, selon l'ordre d'exécution. Même principe que override_settings ci-dessus pour le singleton
+    `settings`.
+    """
+    from backend.app.core import rate_limit
+    rate_limit.reset_all()
+    yield
+    rate_limit.reset_all()

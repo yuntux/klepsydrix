@@ -286,6 +286,17 @@ function onRestoreFileChange(event: Event) {
   restoreFile.value = input.files?.[0] || null;
 }
 
+// Même lecture que BinaryFileField.vue (readAsDataURL puis découpe du préfixe "data:...;base64,")
+// — un seul et même format d'échange pour tous les fichiers envoyés à l'API.
+function toBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Lecture du fichier impossible.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function submitRestore() {
   if (!restoreFile.value) {
     restoreError.value = 'Sélectionnez un fichier.';
@@ -294,12 +305,19 @@ async function submitRestore() {
   submitting.value = true;
   restoreError.value = '';
   try {
-    const formData = new FormData();
-    formData.append('file', restoreFile.value);
-    const params = new URLSearchParams({ confirm: restoreConfirm.value });
-    const response = await apiFetch(`/api/instance/admin/databases/${encodeURIComponent(targetSlug.value)}/restore?${params}`, {
+    // Corps JSON avec le fichier en base64 (convention des champs binaires du produit, voir
+    // widgets/BinaryFileField.vue) plutôt qu'un FormData : un envoi multipart est un type de
+    // contenu "simple" au sens CORS, donc déclenchable par un formulaire d'un site tiers avec le
+    // cookie de session de la victime — voir instance_endpoints.py::restore_database.
+    const file = {
+      filename: restoreFile.value.name,
+      mime_type: restoreFile.value.type || 'application/octet-stream',
+      data_base64: await toBase64(restoreFile.value),
+    };
+    const response = await apiFetch(`/api/instance/admin/databases/${encodeURIComponent(targetSlug.value)}/restore`, {
       method: 'POST',
-      body: formData,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: restoreConfirm.value, file }),
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));

@@ -14,9 +14,14 @@ argon2-cffi>=23.1.0
 authlib>=1.3.0
 itsdangerous>=2.1.0
 fastapi-mail>=1.4.0
-python-multipart>=0.0.9
+# python-multipart : RETIRÉ — plus aucun endpoint n'accepte de corps multipart. La restauration de
+# base (dernier UploadFile du projet) prend désormais un corps JSON avec le fichier en base64, pour
+# forcer un préflight CORS (voir api/instance_endpoints.py::restore_database).
 timefold>=0.1.0
 pytest>=7.0.0
 httpx>=0.24.0
 networkx>=3.0
 xmlschema>=4.0.0
+# defusedxml : analyse XML durcie pour les fichiers fournis par l'utilisateur (flux STS-web) —
+# refuse les déclarations d'entités internes ("billion laughs"), voir core/sts_flux.py.
+defusedxml>=0.7.1

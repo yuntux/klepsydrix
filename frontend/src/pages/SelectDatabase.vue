@@ -7,8 +7,13 @@
 
       <div v-if="loading" class="state-message">Chargement des bases disponibles…</div>
       <div v-else-if="error" class="state-message error">{{ error }}</div>
+      <!-- Liste vide = « aucune base où VOUS ayez un compte », jamais « aucune base sur
+           l'instance » : la réponse est filtrée sur l'identité connectée (voir
+           instance_admin.py::databases_for_identity), le message ne doit pas laisser croire
+           à une instance vide. -->
       <div v-else-if="databases.length === 0" class="state-message error">
-        Aucune base de données n'est disponible sur cette instance.
+        Aucune base de données n'est associée à votre compte sur cette instance.
+        Rapprochez-vous de l'administrateur de votre établissement.
       </div>
       <ul v-else class="database-list">
         <li v-for="slug in databases" :key="slug">
@@ -43,10 +48,20 @@ function select(slug: string) {
 
 onMounted(async () => {
   try {
-    // Appel public direct (pas apiFetch()) : cette page est justement celle où aucune base n'est
-    // encore sélectionnée, /api/instance/databases est la seule ressource qui n'en a pas besoin
-    // (voir architecture.md, "Architecture de routage HTTP").
-    const response = await fetch('/api/instance/databases');
+    // Appel direct (pas apiFetch()) : cette page est justement celle où aucune base n'est encore
+    // sélectionnée, et /api/instance/my-databases est de portée instance — il n'attend donc aucun
+    // en-tête X-Klepsydrix-Database. Il exige en revanche une SESSION, et ne renvoie que les bases
+    // où l'identité connectée a réellement un compte (voir instance_admin.py::
+    // databases_for_identity) : plus aucune ressource anonyme ne divulgue la liste des
+    // établissements hébergés.
+    const response = await fetch('/api/instance/my-databases');
+    if (response.status === 401) {
+      // Pas encore connecté : c'est le formulaire de connexion qui porte le champ « base », saisi
+      // par l'utilisateur (voir architecture.md §17.F). On y renvoie en conservant la destination.
+      const next = new URLSearchParams(window.location.search).get('next') || '/';
+      window.location.href = `/login?next=${encodeURIComponent(next)}`;
+      return;
+    }
     if (!response.ok) {
       throw new Error('Erreur lors de la récupération de la liste des bases.');
     }

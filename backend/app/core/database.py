@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from backend.app.core import db_registry
+from backend.app.core.config import settings
 from backend.app.core.db_registry import DEFAULT_DB_NAME
 from backend.app.core.instance_session import require_instance_session, InstanceSession
 
@@ -110,6 +111,23 @@ def current_db_user(
     if session.provider_key == MASTER_PROVIDER_KEY:
         raise HTTPException(status_code=403, detail={"code": "MASTER_IDENTITY_FORBIDDEN"})
 
+    # Une identité LOCALE n'est valable que dans la base où son mot de passe a été vérifié (voir
+    # instance_session.py::InstanceSession.db_slug) : le couple (provider_key="local", subject) est
+    # choisi librement par l'admin de n'importe quelle base, il ne peut donc pas servir d'identité
+    # d'instance. Les providers fédérés (OIDC) et le mot de passe maître n'ont pas de `db_slug` et
+    # ne sont pas concernés : leur `subject` est émis par un tiers, hors de portée d'un admin de
+    # base. Code structuré comme les autres refus (voir docstring) : `apiFetch()` le reconnaît et
+    # renvoie vers /login, la seule issue — rester sur une base interdite serait une impasse.
+    # Base courante déduite de la SESSION SQLAlchemy déjà ouverte (`slug_for_session`), pas d'un
+    # second `Depends(resolve_database)` : c'est exactement la fonction qu'emploie `login_local`
+    # pour sceller `db_slug` dans le cookie (auth_endpoints.py), donc les deux côtés de la
+    # comparaison sont produits par le même mécanisme, et la vérification tient aussi quand
+    # `get_db` est surchargé (tests via dependency_overrides).
+    if session.provider_key == "local":
+        from backend.app.core import db_registry
+        if session.db_slug != db_registry.slug_for_session(db):
+            raise HTTPException(status_code=403, detail={"code": "WRONG_DATABASE_FOR_LOCAL_IDENTITY"})
+
     from backend.app.models.user import User, UserIdentityProvider
     from datetime import datetime, timezone
 
@@ -125,8 +143,20 @@ def current_db_user(
         # "en attente" (provider_key="pending", external_subject=email) est créé à sa place. Ici,
         # première VRAIE connexion dont l'email correspond : la ligne "en attente" est promue avec
         # le provider/sub réels, plutôt que de créer un second User en double.
+        # ⚠️ Providers FÉDÉRÉS uniquement (`provider_key != "local"`) : l'email n'est une preuve
+        # d'identité que si un tiers l'a vérifié. Pour le provider local, `session.email` vaut
+        # l'identifiant SAISI au formulaire de connexion (voir auth_endpoints.py::login_local) —
+        # une chaîne que l'admin de n'importe quelle base peut se faire attribuer en créant chez
+        # lui un compte local du même nom. Sans cette condition, il lui suffisait d'employer
+        # l'email de l'admin désigné d'une base fraîchement créée pour se faire promouvoir à sa
+        # place, groupe "Admin" compris, tant que le vrai destinataire ne s'était pas connecté.
+        # `db_slug` (voir plus haut) ferme déjà le passage d'une base à l'autre ; cette condition
+        # est indépendante et tient toute seule.
+        # Cas d'une instance 100 % locale : le chemin prévu reste la case "Envoyer un lien de
+        # réinitialisation" à la création de la base (voir instance_endpoints.py::create_database),
+        # où c'est le jeton à usage unique reçu par email qui prouve l'identité, pas une saisie.
         pending = None
-        if session.email:
+        if session.email and session.provider_key != "local":
             pending = db.query(UserIdentityProvider).filter(
                 UserIdentityProvider.provider_key == "pending",
                 UserIdentityProvider.external_subject == session.email,
@@ -138,6 +168,20 @@ def current_db_user(
                 "first_login_at": session.logged_in_at, "last_login_at": session.logged_in_at,
             })
         else:
+            # Auto-création d'un compte pour une identité que cette base ne connaît pas :
+            # DÉSACTIVÉE par défaut. Elle visait le cas « fournisseur fédéré + établissement
+            # unique », où tout porteur d'une identité valide est effectivement légitime. Sur une
+            # instance qui héberge plusieurs établissements fédérés par le même OIDC académique,
+            # elle signifiait tout autre chose : n'importe quel enseignant de l'académie pouvait
+            # faire apparaître une ligne `users` dans CHAQUE base, en changeant un simple en-tête
+            # HTTP. Aucune fuite de données (le compte créé n'a aucun droit), mais des tables qui
+            # se remplissent de comptes fantômes et une isolation locative qui ne repose plus que
+            # sur « le moteur de droits est restrictif par défaut » au lieu de « cette personne
+            # n'a rien à faire ici ».
+            # Le refus est aussi une meilleure réponse à l'utilisateur qu'une application vide :
+            # `apiFetch()` le renvoie vers le sélecteur, qui liste les bases où il a un compte.
+            if not settings.auth.auto_provision_users:
+                raise HTTPException(status_code=403, detail={"code": "NOT_PROVISIONED"})
             user = User.create(db, {
                 "first_name": session.first_name or "?",
                 "last_name": session.last_name or "?",
@@ -163,6 +207,21 @@ def current_db_user(
 
     if not idp.user.active:
         raise HTTPException(status_code=403, detail={"code": "USER_INACTIVE"})
+
+    # Sessions révoquées avant cette date (voir User.session_epoch) : posée par tout changement de
+    # mot de passe. Le cookie reste cryptographiquement valide — c'est bien pour ça qu'il faut ce
+    # contrôle : sans état serveur, rien d'autre ne peut invalider une session déjà émise.
+    # Comparaison contre `logged_in_at`, l'instant du VRAI parcours de connexion, jamais recalculé
+    # par les réémissions de fenêtre glissante (voir instance_session.py) — une session ouverte
+    # avant le changement reste donc bien du mauvais côté de la frontière, même si son cookie a été
+    # réémis depuis. DateTime naïve en base, toujours écrite en UTC : tzinfo réattaché avant
+    # comparaison (même piège que last_login_at ci-dessus).
+    epoch = idp.user.session_epoch
+    if epoch is not None:
+        if epoch.tzinfo is None:
+            epoch = epoch.replace(tzinfo=timezone.utc)
+        if session.logged_in_at < epoch:
+            raise HTTPException(status_code=401, detail={"code": "NOT_AUTHENTICATED"})
 
     if (
         idp.provider_key == "local"

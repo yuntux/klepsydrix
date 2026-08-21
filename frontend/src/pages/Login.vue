@@ -5,7 +5,7 @@
 
       <h1>Connexion</h1>
 
-      <div v-if="inactiveReason" class="state-message error">Ce compte a été désactivé.</div>
+      <div v-if="reasonMessage" class="state-message error">{{ reasonMessage }}</div>
       <div v-if="loading" class="state-message">Chargement des fournisseurs d'identité…</div>
       <div v-else-if="loadError" class="state-message error">{{ loadError }}</div>
       <div v-else-if="providers.length === 0" class="state-message error">
@@ -80,7 +80,14 @@ const identifier = ref('');
 const password = ref('');
 const localError = ref('');
 const submitting = ref(false);
-const inactiveReason = ref(false);
+// Motif du renvoi vers cette page (?reason=, posé par services/api.ts) — un message par cause,
+// jamais un message générique : chacune appelle une action différente de l'utilisateur.
+const REASON_MESSAGES: Record<string, string> = {
+  inactive: 'Ce compte a été désactivé.',
+  'wrong-database': "Votre compte local est rattaché à une autre base de données. "
+    + 'Connectez-vous à nouveau en indiquant la base souhaitée.',
+};
+const reasonMessage = ref('');
 
 function nextUrl(): string {
   return new URLSearchParams(window.location.search).get('next') || '/';
@@ -119,7 +126,11 @@ onMounted(async () => {
   const params = new URLSearchParams(window.location.search);
   const dbParam = params.get('db');
   if (dbParam) dbSlug.value = dbParam;
-  inactiveReason.value = params.get('reason') === 'inactive';
+  const reason = params.get('reason') || '';
+  reasonMessage.value = REASON_MESSAGES[reason] || '';
+  // Renvoi pour cause d'identité locale sur la mauvaise base : c'est forcément le formulaire local
+  // qu'il faut, inutile de faire redéplier le panneau à l'utilisateur.
+  if (reason === 'wrong-database') showLocalForm.value = true;
 
   try {
     const response = await fetch('/api/auth/providers');

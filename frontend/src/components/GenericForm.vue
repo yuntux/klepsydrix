@@ -1069,6 +1069,12 @@ const FormLayoutGrid: any = defineComponent({
             } else if (field.type === 'html') {
               // Contenu HTML formaté en lecture seule (ex: message d'info/de confirmation d'un
               // wizard) — jamais un input, aucune valeur remontée dans localModel.
+              //
+              // ⚠️ `innerHTML` : ce contenu s'EXÉCUTE. Le contrat est que seul le serveur produit
+              // un champ `type: 'html'`, et qu'il y échappe toute valeur interpolée (voir
+              // backend/app/core/html_text.py::esc, et tests/test_wizard_html_escaping.py qui le
+              // vérifie de bout en bout). Ne jamais alimenter un champ de ce type depuis une
+              // saisie utilisateur côté client, où cette garantie n'existe pas.
               inputElement = h('div', {
                 class: 'form-html-content',
                 style: inputStyle,

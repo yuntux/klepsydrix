@@ -15,7 +15,15 @@ Le sens montant (`emp_sts_<RNE>_<ANNEE>.xml`, racine `EDT_STS`) n'est PAS trait�
 ses quatre familles de données ont des balises inconnues.
 """
 from dataclasses import dataclass, field
-from xml.etree import ElementTree as ET
+# `defusedxml`, pas `xml.etree` : le fichier analysé ici est fourni par l'utilisateur. La
+# bibliothèque standard ne charge pas d'entité EXTERNE (pas de XXE en Python 3), mais elle développe
+# les entités INTERNES déclarées dans le prologue — de quoi faire exploser la mémoire du serveur
+# avec un fichier de quelques kilo-octets (« billion laughs »), que le plafond de taille des envois
+# (core/upload_limits.py) ne peut pas voir passer puisqu'il mesure le fichier, pas son expansion.
+# `defusedxml` refuse ces déclarations au lieu de les dérouler.
+from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
+from xml.etree.ElementTree import ParseError
 
 STS_ROOT_TAG = "STS_EDT"
 # Racine du fichier montant. On la reconnaît uniquement pour produire un message utile : c'est
@@ -84,7 +92,11 @@ def parse(content: bytes) -> StsFlux:
     """
     try:
         root = ET.fromstring(content)
-    except ET.ParseError as exc:
+    except (ParseError, DefusedXmlException) as exc:
+        # DefusedXmlException : le document est syntaxiquement valide mais contient une déclaration
+        # d'entité refusée (voir l'import de defusedxml en tête de module). Message unique, comme
+        # pour un XML malformé — la distinction n'aiderait pas l'utilisateur, qui n'a de toute
+        # façon rien d'autre à faire que fournir un vrai export STS-web.
         raise StsFluxError(f"Le fichier n'est pas un document XML valide : {exc}") from exc
 
     if root.tag.upper() == EDT_ROOT_TAG:

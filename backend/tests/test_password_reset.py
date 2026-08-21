@@ -98,6 +98,19 @@ class TestPasswordResetToken:
         assert PasswordResetToken.consume(db_session, raw_token) is not None
 
 
+class _FakeClient:
+    def __init__(self, host="203.0.113.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    """`password_reset_request` lit l'IP de l'appelant (limitation de débit + journal pour
+    fail2ban, voir core/rate_limit.py) — juste de quoi satisfaire client_ip()."""
+    def __init__(self, host="203.0.113.1"):
+        self.client = _FakeClient(host)
+        self.headers = {}
+
+
 class TestPasswordResetRequestEndpoint:
     def test_existing_local_account_gets_a_token_and_an_email(self, db_session, monkeypatch):
         from backend.app.api import auth_endpoints
@@ -112,7 +125,7 @@ class TestPasswordResetRequestEndpoint:
         monkeypatch.setattr(auth_endpoints, "send_password_reset_email", fake_send)
 
         payload = auth_endpoints.PasswordResetRequestPayload(identifier="a@example.fr")
-        result = _run(auth_endpoints.password_reset_request(payload, db=db_session))
+        result = _run(auth_endpoints.password_reset_request(payload, _FakeRequest(), db=db_session))
 
         assert result == {"status": "success"}
         assert len(sent) == 1
@@ -129,7 +142,7 @@ class TestPasswordResetRequestEndpoint:
         monkeypatch.setattr(auth_endpoints, "send_password_reset_email", fake_send)
 
         payload = auth_endpoints.PasswordResetRequestPayload(identifier="personne@example.fr")
-        result = _run(auth_endpoints.password_reset_request(payload, db=db_session))
+        result = _run(auth_endpoints.password_reset_request(payload, _FakeRequest(), db=db_session))
 
         assert result == {"status": "success"}
         assert len(sent) == 0
@@ -150,7 +163,7 @@ class TestPasswordResetRequestEndpoint:
         monkeypatch.setattr(auth_endpoints, "send_password_reset_email", failing_send)
 
         payload = auth_endpoints.PasswordResetRequestPayload(identifier="a@example.fr")
-        result = _run(auth_endpoints.password_reset_request(payload, db=db_session))
+        result = _run(auth_endpoints.password_reset_request(payload, _FakeRequest(), db=db_session))
 
         assert result == {"status": "success"}
         assert db_session.query(PasswordResetToken).count() == 1

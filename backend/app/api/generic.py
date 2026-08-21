@@ -437,6 +437,13 @@ def _check_rpc_access(model, method_name: str, func, db: Session):
     Refus par défaut pour toute méthode non décorée @requires_access. Mode système
     (db.klepsydrix_user_id absent) : toujours autorisé, comme le reste du moteur de droits.
     """
+    # Nom "privé" (préfixe _) : jamais appelable à distance, quel que soit le mode. Ces méthodes
+    # sont des rouages internes, écrits en supposant un appelant qui connaît leurs invariants — les
+    # exposer reviendrait à traiter toute la surface interne des modèles comme une API publique.
+    # Refusé AVANT le contrôle de mode système ci-dessous : ce n'est pas une question de droits.
+    if method_name.startswith("_"):
+        raise HTTPException(status_code=403, detail=f"Méthode '{method_name}' non autorisée en appel distant (méthode interne).")
+
     user_id = getattr(db, "klepsydrix_user_id", None)
     if user_id is None:
         return

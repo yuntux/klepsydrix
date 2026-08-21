@@ -92,6 +92,23 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
     return response;
   }
 
+  // Identité locale présentée sur une AUTRE base que celle où son mot de passe a été vérifié (voir
+  // core/instance_session.py::InstanceSession.db_slug). En usage normal : l'utilisateur a changé de
+  // base via le sélecteur alors qu'il était connecté en local — il faut se reconnecter sur la
+  // nouvelle base, d'où /login avec ?db= déjà rempli sur la base visée, pas le sélecteur.
+  if (response.status === 403 && (await errorCode(response)) === 'WRONG_DATABASE_FOR_LOCAL_IDENTITY') {
+    redirectToLogin('wrong-database');
+    return response;
+  }
+
+  // Identité valide, mais aucun compte dans CETTE base (voir database.py::current_db_user,
+  // auth.auto_provision_users). Retour au sélecteur plutôt qu'à /login : la session est bonne, et
+  // le sélecteur liste précisément les bases où cette identité a un compte (my-databases).
+  if (response.status === 403 && (await errorCode(response)) === 'NOT_PROVISIONED') {
+    redirectToDatabaseSelection();
+    return response;
+  }
+
   // Compte désactivé (voir database.py::current_db_user, User.active) — local ou OIDC, ce point
   // est le seul traversé par les deux. Retour à /login avec un motif explicite (voir Login.vue).
   if (response.status === 403 && (await errorCode(response)) === 'USER_INACTIVE') {
@@ -151,12 +168,31 @@ export async function fetchMenus(): Promise<any> {
 
 // Identité de l'utilisateur connecté sur la base courante + statut admin (super-admin d'instance OU
 // membre du groupe "Admin" DANS cette base) — voir architecture.md §19, ui_endpoints.py::whoami.
-export async function fetchWhoAmI(): Promise<{ display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean }> {
+export async function fetchWhoAmI(): Promise<{ display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean; max_upload_mb: number }> {
   const response = await apiFetch('/api/ui/whoami');
   if (!response.ok) {
     throw new Error("Erreur lors de la récupération de l'identité connectée");
   }
-  return response.json();
+  const data = await response.json();
+  setMaxUploadMb(data.max_upload_mb);
+  return data;
+}
+
+// ==========================================
+// PLAFOND D'ENVOI DE FICHIER (voir backend/app/core/upload_limits.py)
+// ==========================================
+// Servi par whoami plutôt que recopié en dur ici : le contrôle côté client n'est qu'un confort
+// (éviter de lire 400 Mo en mémoire pour se faire répondre 413), la limite qui fait foi est celle
+// du serveur — les deux doivent donc annoncer la même valeur, sans qu'on ait à y penser.
+// `null` tant que whoami n'a pas répondu : aucun contrôle client, le serveur tranchera.
+let maxUploadMb: number | null = null;
+
+function setMaxUploadMb(value: unknown) {
+  if (typeof value === 'number' && value > 0) maxUploadMb = value;
+}
+
+export function getMaxUploadMb(): number | null {
+  return maxUploadMb;
 }
 
 // progress/elapsed_seconds/time_limit_seconds : null tant qu'aucune résolution n'est en cours (ou

@@ -143,9 +143,16 @@ def whoami(
         UserIdentityProvider.provider_key == "local",
         UserIdentityProvider.user_id == user.id,
     ).first()
+    from backend.app.core.config import settings
     return {
         "display_name": user.display_name,
         "email": user.email,
         "is_admin": is_super_admin(session) or "Admin" in group_names,
         "must_change_password": bool(local_idp and local_idp.must_change_password),
+        # Plafond d'envoi de fichier, servi ici plutôt que recopié en dur côté frontend : le
+        # contrôle client (widgets/BinaryFileField.vue) n'est qu'un confort — il évite de charger
+        # 400 Mo en mémoire pour se faire répondre 413 — et doit annoncer la MÊME valeur que celle
+        # réellement appliquée (core/upload_limits.py). whoami est déjà appelé au démarrage de
+        # l'IHM (NotebooksTree.vue) : aucun aller-retour supplémentaire.
+        "max_upload_mb": settings.server.max_upload_mb,
     }

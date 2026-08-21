@@ -62,6 +62,8 @@ from backend.app.models.service import Service
 from backend.app.models.subject import Subject
 from backend.app.models.system_setting import SystemSetting
 from backend.app.models.teacher import Teacher, TeacherDiscipline
+from backend.app.core.html_text import esc
+from backend.app.core.upload_limits import assert_within_limit
 
 # Types d'objets proposés à l'import, dans l'ordre où ils doivent être traités : chacun peut
 # dépendre des précédents (une matière a besoin d'une discipline, un MEF d'un établissement,
@@ -112,13 +114,15 @@ def _decode_upload(sts_file) -> bytes:
     if not sts_file:
         raise ValueError("Aucun fichier n'a été fourni.")
     if isinstance(sts_file, (bytes, bytearray)):
-        return bytes(sts_file)
+        return assert_within_limit(bytes(sts_file), "Le fichier STS-web")
     if isinstance(sts_file, str):
-        return base64.b64decode(sts_file)
+        return assert_within_limit(base64.b64decode(sts_file), "Le fichier STS-web")
     data = (sts_file or {}).get("data_base64")
     if not data:
         raise ValueError("Le fichier fourni est vide ou illisible.")
-    return base64.b64decode(data)
+    # Le plafond est déjà appliqué au corps entier par ContentLengthLimitMiddleware ; ici seulement
+    # pour dire à l'utilisateur CE QUI est trop gros, avec la limite en clair (voir upload_limits).
+    return assert_within_limit(base64.b64decode(data), "Le fichier STS-web")
 
 
 def _load(db: Session, sts_file):
@@ -908,9 +912,9 @@ def _skipped_html(plan: dict) -> str:
         elements = plan[key]["skipped"]
         if not elements:
             continue
-        lignes.append(f"<li><strong>{libelle}</strong> — {len(elements)} objet(s) :<ul>")
+        lignes.append(f"<li><strong>{esc(libelle)}</strong> — {len(elements)} objet(s) :<ul>")
         for e in elements[:MISSING_DISPLAY_LIMIT]:
-            lignes.append(f"<li>« {e['label']} » ({e['code']}) : {e['reason']}</li>")
+            lignes.append(f"<li>« {esc(e['label'])} » ({esc(e['code'])}) : {esc(e['reason'])}</li>")
         reste = len(elements) - min(len(elements), MISSING_DISPLAY_LIMIT)
         if reste:
             lignes.append(f"<li>… et {reste} autre(s), pour la même raison ou une raison voisine</li>")
@@ -935,11 +939,11 @@ def _missing_html(missing: dict) -> str:
         if not elements:
             continue
         visibles = elements[:MISSING_DISPLAY_LIMIT]
-        items = ", ".join(f"« {e['label']} » ({e['code']})" for e in visibles)
+        items = ", ".join(f"« {esc(e['label'])} » ({esc(e['code'])})" for e in visibles)
         reste = len(elements) - len(visibles)
         if reste:
             items += f", et {reste} autre(s)"
-        blocs.append(f"<li><strong>{libelle}</strong> ({len(elements)}) : {items}</li>")
+        blocs.append(f"<li><strong>{esc(libelle)}</strong> ({len(elements)}) : {items}</li>")
     if not blocs:
         return "<p>Tout ce que contient la base figure aussi dans le fichier.</p>"
     return (
@@ -1170,9 +1174,9 @@ class WizardStsImport(TransientModel):
         flux, school = _load(db, sts_file)
         mef_rows, subject_rows = _resolution_rows(db, flux)
         header = (
-            f"<p><strong>{flux.school_name or school.name}</strong> — RNE {flux.uai} — année "
-            f"scolaire {flux.school_year}-{flux.school_year + 1}.</p>"
-            f"<p>Les objets créés seront rattachés à l'établissement « {school.name} ».</p>"
+            f"<p><strong>{esc(flux.school_name or school.name)}</strong> — RNE {esc(flux.uai)} — année "
+            f"scolaire {esc(flux.school_year)}-{esc(flux.school_year + 1)}.</p>"
+            f"<p>Les objets créés seront rattachés à l'établissement « {esc(school.name)} ».</p>"
         )
         return {
             "header_html": header,
@@ -1212,15 +1216,15 @@ class WizardStsImport(TransientModel):
                 # Libellé propre : ici « créé » compte des gabarits MefService et « mis à jour »
                 # des Service pourvus en enseignants — pas la même chose que pour les autres types.
                 lignes.append(
-                    f"<li><strong>{libelle}</strong> : {compteurs[key]['created']} gabarit(s) MEF "
+                    f"<li><strong>{esc(libelle)}</strong> : {compteurs[key]['created']} gabarit(s) MEF "
                     f"créé(s), {compteurs[key]['updated']} service(s) pourvu(s) en enseignants</li>"
                 )
             else:
                 lignes.append(
-                    f"<li><strong>{libelle}</strong> : {compteurs[key]['created']} créé(s), "
+                    f"<li><strong>{esc(libelle)}</strong> : {compteurs[key]['created']} créé(s), "
                     f"{compteurs[key]['updated']} mis à jour</li>"
                 )
-        html = f"<p>Import terminé pour « {school.name} ».</p><ul>{''.join(lignes) or '<li>Aucun type sélectionné.</li>'}</ul>"
+        html = f"<p>Import terminé pour « {esc(school.name)} ».</p><ul>{''.join(lignes) or '<li>Aucun type sélectionné.</li>'}</ul>"
         if selection["services"]:
             html += (
                 "<p><strong>Services</strong> : les gabarits MEF créés au passage portent des "

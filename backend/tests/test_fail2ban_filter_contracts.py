@@ -12,6 +12,7 @@ pourrait dériver indépendamment du filtre réel) et les confronte à de vraies
 en appelant le code applicatif (`verify_master_password`, `login_local`) tel quel — pas une
 approximation du format, exactement le même `Formatter`/`Filter` que `main.py`.
 """
+import asyncio
 import configparser
 import io
 import logging
@@ -26,7 +27,9 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.core.config import settings
 from backend.app.core.log_context import DbContextFilter
 from backend.app.core import master_auth
-from backend.app.api.auth_endpoints import LocalLoginPayload, login_local
+from backend.app.api.auth_endpoints import (
+    LocalLoginPayload, PasswordResetRequestPayload, login_local, password_reset_request,
+)
 from backend.app.models.base import Base
 from backend.app.models import User, UserIdentityProvider
 from backend.tests.db_test_utils import make_test_engine
@@ -217,3 +220,52 @@ class TestLocalLoginFilterContract:
             )
 
         assert _lines(capture) == []
+
+
+class TestPasswordResetFilterContract:
+    """
+    deploy/fail2ban/klepsydrix-password-reset.conf — le risque couvert ici n'est pas l'intrusion
+    mais l'abus d'envoi (voir le filtre, et auth_endpoints.py::password_reset_request) : une rafale
+    de demandes fait classer le domaine expéditeur en indésirable, ce qui casse ensuite TOUS les
+    emails de l'instance, liens de réinitialisation légitimes compris.
+    """
+
+    def _demandes(self, capture):
+        """Ne retient que les lignes de DEMANDE : un envoi d'email en échec (SMTP fictif en test,
+        voir instance.yaml) journalise en plus, sans rapport avec ce filtre."""
+        return [line for line in _lines(capture) if "Demande de réinitialisation" in line]
+
+    def test_request_line_matches_failregex(self, db_session):
+        failregex, _ = _parse_filter("klepsydrix-password-reset.conf")
+
+        with _capture("backend.app.api.auth_endpoints") as capture:
+            asyncio.run(password_reset_request(
+                PasswordResetRequestPayload(identifier="inconnu@example.fr"),
+                _FakeRequest("203.0.113.42"),
+                db_session,
+            ))
+
+        lignes = self._demandes(capture)
+        assert len(lignes) == 1
+        assert _matches_one_of(lignes[0], failregex), f"ne matche aucune failregex : {lignes[0]!r}"
+
+    def test_an_unknown_identifier_is_logged_exactly_like_a_real_one(self, db_session, monkeypatch):
+        """Distinguer les deux dans le journal publierait la liste des identifiants valides à qui
+        lit ce fichier — exactement ce que la réponse HTTP générique s'attache à cacher."""
+        user = User.create(db_session, {"first_name": "A", "last_name": "Local", "email": "connu@example.fr"})
+        UserIdentityProvider.register_local_password(db_session, user.id, "connu@example.fr", "CorrectHorse8!")
+        db_session.commit()
+        # Aucun envoi réel : le SMTP de dev est fictif (voir instance.yaml), la tentative coûterait
+        # une résolution DNS et ajouterait une trace sans rapport avec ce que ce test vérifie.
+        async def _noop(*args, **kwargs):
+            return None
+        monkeypatch.setattr("backend.app.api.auth_endpoints.send_password_reset_email", _noop)
+
+        with _capture("backend.app.api.auth_endpoints") as capture:
+            asyncio.run(password_reset_request(PasswordResetRequestPayload(identifier="connu@example.fr"), _FakeRequest("203.0.113.42"), db_session))
+            asyncio.run(password_reset_request(PasswordResetRequestPayload(identifier="inconnu@example.fr"), _FakeRequest("203.0.113.42"), db_session))
+
+        connu, inconnu = self._demandes(capture)
+        # Horodatages retirés : seul le CONTENU du message doit être indiscernable.
+        message = lambda ligne: ligne.split("WARNING", 1)[1]
+        assert message(connu).replace("connu@example.fr", "X") == message(inconnu).replace("inconnu@example.fr", "X")

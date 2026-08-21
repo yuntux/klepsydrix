@@ -21,6 +21,13 @@ database:
   # database_prefix: klepsydrix_
 
 server:
+  # Origines autorisées à appeler l'API (CORS). ⚠️ "*" est REFUSÉ au démarrage (voir
+  # config.py::ServerConfig, architecture.md §24.A) : l'API étant montée avec allow_credentials
+  # (toute l'authentification est par cookie), Starlette renverrait dans ce cas l'ORIGINE APPELANTE
+  # au lieu de "*" — n'importe quel site pourrait alors lire l'API avec le cookie de session de
+  # l'utilisateur. Le schéma est obligatoire (le navigateur compare l'en-tête Origin tel quel).
+  # L'origine de l'application elle-même n'a pas à figurer ici : elle est reconnue d'office (voir
+  # core/csrf.py) — cette liste ne sert qu'aux origines TIERCES.
   allowed_origins:
     - http://localhost:3000
     - http://127.0.0.1:3000
@@ -45,9 +52,21 @@ server:
   # réel derrière le reverse proxy (§20.C), sans slash final.
   public_base_url: http://localhost:3000
 
+  # Plafond de taille d'un corps de requête, en mégaoctets (voir core/upload_limits.py) —
+  # s'applique à TOUT envoi : photo d'enseignant, fichier STS-web (transmis en base64 dans le corps
+  # JSON), et tout endpoint futur. Refusé en 413 avant même que le corps soit lu.
+  max_upload_mb: 25
+  # Dérogation pour la restauration d'une base (console d'administration) : une sauvegarde
+  # d'établissement pèse légitimement des centaines de mégaoctets, contrairement à tout le reste.
+  # Compter ~33 % de plus que la taille du fichier (encodage base64).
+  max_restore_upload_mb: 500
+
 # Signe les cookies de session (instance ET Authlib/OIDC, voir architecture.md) — une valeur de
 # démonstration existe déjà par défaut dans le code pour le dev, mais DOIT être surchargée en
-# production : quiconque connaît cette clé peut forger une session pour n'importe quel utilisateur.
+# production : quiconque connaît cette clé peut forger une session pour n'importe quel utilisateur,
+# y compris celle du mot de passe maître. Ce n'est plus un simple avertissement : l'application
+# REFUSE DE DÉMARRER si la valeur de démonstration est encore en place alors que
+# server.public_base_url désigne autre chose qu'un hôte local (voir core/startup_checks.py).
 secret_key: ${env:KLEPSYDRIX_SECRET_KEY}
 
 # Fournisseurs d'identité de l'instance (pas par base — voir architecture.md, "Architecture Multi-
@@ -134,5 +153,28 @@ auth:
   # (cookie klepsydrix_session, voir core/instance_session.py) expire et impose une reconnexion.
   # Chaque requête authentifiée valide fait glisser cette fenêtre (le cookie est réémis avec un
   # nouvel horodatage) — seule une période d'inactivité ininterrompue supérieure à cette valeur
-  # déclenche l'expiration. Défaut : 30 jours.
-  session_idle_timeout_minutes: 43200
+  # déclenche l'expiration. Défaut : 12 heures — ramené de 30 jours au lot sécurité (§24.C) : une
+  # session sans état serveur ne se révoque pas à distance (sauf changement de mot de passe, voir
+  # User.session_epoch), et une fenêtre d'un mois sur un poste partagé d'établissement était la plus
+  # grande exposition résiduelle de l'authentification.
+  session_idle_timeout_minutes: 720
+
+  # Limitation de débit applicative sur les points d'entrée d'authentification (connexion locale,
+  # mot de passe maître, demande de réinitialisation) — voir core/rate_limit.py. Nombre de
+  # tentatives RETENUES par fenêtre glissante et par clé (IP + identifiant visé) ; seuls les ÉCHECS
+  # comptent pour les connexions, de sorte qu'un utilisateur légitime ne s'auto-bloque jamais.
+  # ⚠️ Ce plancher ne REMPLACE pas fail2ban (deploy/fail2ban/), qui reste préférable et non
+  # optionnel en production : il agit plus tôt, au niveau réseau, et couvre toute la machine. Il
+  # garantit seulement qu'une instance où fail2ban n'est pas (ou mal) déployé n'est pas sans
+  # protection du tout — voir architecture.md §17.H pour l'historique de cette décision.
+  # 0 désactive complètement le mécanisme.
+  rate_limit_attempts: 10
+  rate_limit_window_minutes: 15
+
+  # Créer automatiquement un compte (sans aucun droit) pour une identité FÉDÉRÉE inconnue de la base
+  # qu'elle vient de désigner — voir core/database.py::current_db_user, architecture.md §24.C.
+  # FAUX par défaut : sur une instance qui héberge plusieurs établissements fédérés par le même
+  # fournisseur (OIDC académique), l'auto-création laisse n'importe quel porteur d'une identité
+  # valide faire apparaître une ligne `users` dans CHAQUE base, en changeant un simple en-tête HTTP.
+  # À passer à vrai sur une instance MONO-établissement fédérée, où c'est le comportement voulu.
+  auto_provision_users: false

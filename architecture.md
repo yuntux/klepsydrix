@@ -1977,9 +1977,15 @@ par le client de s'injecter dans un chemin de fichier ou une DSN construite par 
 (`build_database_url`, §3.C).
 
 Deux endpoints n'exigent PAS l'en-tête de base : `GET /` (healthcheck) et `GET /api/instance/
-databases` (`instance_endpoints.py`, liste les slugs découverts) — c'est la seule requête qui
-permette au frontend de proposer un choix de base *avant* qu'une base soit sélectionnée. Ces routes
-ne sont volontairement rattachées à aucun routeur portant `check_write_token`.
+my-databases` (`instance_endpoints.py`), qui alimente le sélecteur *avant* qu'une base soit
+sélectionnée. Ces routes ne sont volontairement rattachées à aucun routeur portant
+`check_write_token`.
+
+⚠️ **`GET /api/instance/databases` (liste brute, publique) a été SUPPRIMÉE** (lot sécurité, §24) :
+elle divulguait à n'importe quel anonyme la liste de tous les établissements hébergés sur
+l'instance. `my-databases` la remplace, **sous session**, et ne renvoie que les bases où l'identité
+connectée a réellement un compte (`instance_admin.py::databases_for_identity`). Plus aucune
+ressource non authentifiée ne divulgue cette liste.
 
 ### C. `SolverState` par base
 
@@ -2018,9 +2024,12 @@ existante (`urlState.ts`, arborescence de menus) inchangée, montés derrière u
 composant racine (`createApp(RouterView)`), pas un gabarit de chaîne compilé au runtime : ce build
 de Vue est *runtime-only* (voir `vite.config.ts`), un template compilé en JS au moment du build.
 
-`SelectDatabase.vue` (`frontend/src/pages/`) appelle `GET /api/instance/databases` en `fetch()`
+`SelectDatabase.vue` (`frontend/src/pages/`) appelle `GET /api/instance/my-databases` en `fetch()`
 direct (pas `apiFetch()` — c'est justement la page où aucune base n'est encore sélectionnée). Une
-seule base disponible : sélection automatique, l'utilisateur ne voit jamais l'écran. Le référent
+réponse `401` y renvoie vers `/login` : sans session, aucune liste n'est servie, et c'est le champ
+« base » du formulaire de connexion — saisi par l'utilisateur, qui connaît son établissement — qui
+porte l'information (§17.F, §24). Une seule base disponible : sélection automatique, l'utilisateur
+ne voit jamais l'écran. Le référent
 HTTP n'étant pas fiable (absent sur `pushState`, tronqué par les `Referrer-Policy` par défaut, non
 lisible en JS), la page de provenance est portée explicitement via `?next=<url encodée>`, à travers
 chaque redirection. `App.vue` redirige vers `/select-database` dès son montage si aucun cookie
@@ -2342,6 +2351,20 @@ s'établit avant tout choix de base, comme prévu initialement) ; seul le provid
 structurellement besoin, et c'est le formulaire lui-même qui la porte plutôt qu'une étape de
 sélection préalable dédiée.
 
+⚠️ **Conclusion trop large, corrigée au lot sécurité (§24)** : de cette tension on avait aussi
+déduit qu'il fallait une route PUBLIQUE listant toutes les bases de l'instance (`GET
+/api/instance/databases`), abandonnant l'intention initiale de ne pas exposer cette liste à un
+anonyme. Or la contrainte ne portait que sur le FORMULAIRE : la base y est un **champ de saisie
+libre**, que l'utilisateur remplit avec le nom de son établissement — qu'il connaît par ailleurs.
+Rien n'a jamais exigé de lui servir la liste des autres. La route publique a donc été supprimée au
+profit de `GET /api/instance/my-databases`, sous session et filtrée sur l'identité connectée ;
+l'intention de conception d'origine est ainsi rétablie sans rien retirer au raisonnement ci-dessus.
+
+Deuxième conséquence, celle-là restée implicite et bien plus grave (voir §24) : l'identité locale
+posée dans la session ne retenait QUE l'identifiant saisi, jamais la base dans laquelle le mot de
+passe avait été vérifié — elle valait donc comme identité d'INSTANCE. Corrigé par `db_slug`
+(`core/instance_session.py`).
+
 ### G. Réinitialisation de mot de passe (provider "local" uniquement)
 
 Deux entrées, un seul mécanisme sous-jacent : le self-service classique (`/password-reset/request`,
@@ -2400,7 +2423,7 @@ même message générique (`PasswordResetToken.consume` ne distingue jamais la r
 §16.F — la trace de l'échec SMTP attendu (config fictive de dev) était elle-même remplacée par une
 erreur de FORMATAGE de log, masquant le message qu'on cherchait justement à lire.
 
-### H. Journalisation de la connexion locale — protection anti-brute-force ENTIÈREMENT déléguée à fail2ban
+### H. Journalisation de la connexion locale — fail2ban en première ligne, plancher applicatif depuis le lot sécurité (§24)
 
 Contrairement au mot de passe maître (`core/master_auth.py`, voir §19.A), `login_local` (`api/
 auth_endpoints.py`) ne journalisait RIEN jusqu'ici — un compte local pouvait être brute-forcé sans
@@ -2434,14 +2457,28 @@ finale de l'utilisateur, qui l'emporte sur cette réponse initiale** :
   répond au risque de "dérive silencieuse" (un message de log modifié plus tard casse fail2ban sans
   qu'aucune erreur ne le signale).
 
-**Conséquence** : `login_local` et `verify_master_password` (§19.A) n'ont plus AUCUN verrouillage
-propre — `core/rate_limit.py` (le module `IpLockout` introduit puis retiré) a été supprimé. Chaque
-tentative reste évaluée normalement (401 sur mot de passe incorrect, jamais un 403 de verrouillage),
-quel que soit le nombre d'échecs déjà survenus — testé explicitement (`test_no_lockout_after_many_
-failed_attempts`, `test_successive_failed_attempts_are_all_logged_without_any_lockout`). Les filtres
-fail2ban (`deploy/fail2ban/klepsydrix-local-login.conf`, `klepsydrix-master-auth.conf`) et leurs
-jails assorties portent donc désormais la **totalité** de la protection anti-brute-force — **pas
-optionnel** pour une instance en production, documenté comme tel dans les deux fichiers.
+**Conséquence (jusqu'au lot sécurité)** : `login_local` et `verify_master_password` (§19.A) n'ont
+eu, pendant toute cette période, AUCUN verrouillage propre — `core/rate_limit.py` (le module
+`IpLockout` introduit puis retiré) avait été supprimé, et les filtres fail2ban portaient la
+**totalité** de la protection.
+
+⚠️ **REVENU DESSUS au lot sécurité (§24), après audit — décision de l'utilisateur, sur proposition
+argumentée.** Ce qui a fait changer d'avis n'est pas un contre-argument technique à ce qui précède
+(le raisonnement ci-dessus reste juste, et fail2ban reste préférable : il agit plus tôt et couvre
+toute la machine), mais le caractère **binaire** de la conclusion : *là où fail2ban n'est pas
+déployé, il ne restait rien du tout*. Or ces cas sont ordinaires et, surtout, INVISIBLES —
+conteneur sans accès aux journaux de l'hôte, instance de démonstration, hébergement sans main sur
+le pare-feu, ou fail2ban mal configuré qui ne trouve pas son fichier de log et échoue en silence.
+Un service sans anti-brute-force se comporte exactement comme un service protégé.
+
+La crainte d'origine (« un système applicatif dégradé peut faire croire qu'une protection existe
+déjà, et faire prendre fail2ban moins au sérieux ») est traitée par l'écrit plutôt que par
+l'absence : `core/rate_limit.py`, les deux filtres `.conf` et leurs jails d'exemple disent tous
+explicitement que le limiteur applicatif ne remplace pas fail2ban. `core/rate_limit.py` est donc
+réintroduit — fenêtre glissante en mémoire, quota par (IP + identifiant visé), **seuls les échecs
+comptés** pour les connexions — sur `login_local`, `verify_master_password` et, nouveauté,
+`password-reset/request` (voir plus bas). Les filtres fail2ban restent **non optionnels** en
+production, et le contrat de format ci-dessous reste vérifié en continu.
 
 **`backend/tests/test_fail2ban_filter_contracts.py`** — le garde-fou contre la dérive silencieuse
 demandé explicitement par l'utilisateur : lit les VRAIS fichiers `.conf` déployés (`configparser`,
@@ -2883,6 +2920,8 @@ leur protection du niveau routeur.
 
 État à la mise en place : 826 routes protégées par `current_db_user`, 7 par
 `require_instance_session`, 10 dispensées (authentification, `/`, `/api/instance/databases`).
+**Depuis le lot sécurité (§24) : 9 dispensées** — `/api/instance/databases` a été supprimée au
+profit de `my-databases`, qui exige une session.
 `GET /test-openapi` — vestige de debug qui exposait le schéma OpenAPI complet et les tracebacks —
 a été supprimé à cette occasion plutôt que marqué.
 
@@ -2995,13 +3034,13 @@ voie, normale et permanente, vers le statut super-admin (voir plus haut) :
   passe maître. `_ip_allowed`/`ipaddress` gèrent IPv4 et IPv6 de façon uniforme (une entrée IPv4 comparée
   à une adresse IPv6, ou l'inverse, renvoie simplement `False` — jamais d'exception) : `127.0.0.1`
   et `::1` peuvent coexister dans la même `ip_allowlist` sans risque.
-- ⚠️ **Aucun verrouillage anti-brute-force applicatif** — retiré délibérément après discussion
-  explicite avec l'utilisateur, voir §17.H pour le raisonnement complet (pourquoi un système
-  applicatif "dégradé" en plus de fail2ban serait plus dangereux qu'utile) : la protection contre le
-  brute-force est ENTIÈREMENT déléguée à `deploy/fail2ban/klepsydrix-master-auth.conf`, qui lit les
-  lignes `WARNING` ci-dessus — **pas optionnel** pour une instance en production. Un test dédié
-  (`backend/tests/test_fail2ban_filter_contracts.py`) garantit que le format de ces lignes reste
-  compatible avec ce filtre.
+- **Protection anti-brute-force à deux niveaux** depuis le lot sécurité (§24) : fail2ban
+  (`deploy/fail2ban/klepsydrix-master-auth.conf`, qui lit les lignes `WARNING` ci-dessus — **pas
+  optionnel** en production, un test dédié garantit que le format reste compatible) ET un plancher
+  applicatif (`core/rate_limit.py`). Ce point d'entrée le mérite plus que tout autre : un secret
+  PARTAGÉ qui ouvre la console d'administration de l'instance entière. L'historique de cette
+  décision — d'abord ajoutée, puis retirée, puis rétablie — est consigné en §17.H ; le seul
+  changement est le caractère binaire de l'ancienne conclusion, pas son raisonnement.
 - **`server.trusted_proxies`** (`config.py`, vide par défaut) : une fois le reverse proxy externe en
   place (§20.C), `request.client.host` devient l'IP DU PROXY, jamais celle du client réel —
   `ip_allowlist` filtrerait alors soit toujours à tort (IP publiques dedans, plus jamais vues),
@@ -3048,16 +3087,23 @@ TestPendingPairingPromotion`).
   logique JS bespoke (`AdminConsole.vue::downloadBackup` ouvre directement l'URL, le cookie de
   session httpOnly est envoyé automatiquement par le navigateur pour cette navigation same-origin).
 - **Restaurer** : "annule et remplace" — aussi destructif qu'une suppression, donc **même exigence
-  de confirmation par ressaisie exacte du nom de la base**, vérifiée côté serveur (`confirm` en
-  query param, comparé au `slug` — jamais une simple case à cocher côté client).
+  de confirmation par ressaisie exacte du nom de la base**, vérifiée côté serveur (`confirm`,
+  comparé au `slug` — jamais une simple case à cocher côté client). Le fichier arrive dans un
+  **corps JSON en base64** (convention des champs binaires du produit), plus en multipart : voir
+  §24 pour la raison (c'était la seule route de l'application ayant la forme d'une cible CSRF). Les
+  octets sont en outre confrontés à la signature du format attendu (`SQLite format 3` / `PGDMP`)
+  **avant** toute écriture — se tromper de fichier renvoie désormais une erreur claire au lieu de
+  détruire la base.
 - **Supprimer** : `db_registry.dispose(slug)` d'abord (ferme les connexions en cache), puis
   suppression physique (fichier SQLite, `DROP DATABASE` PostgreSQL). Même exigence de confirmation
   que restaurer.
 
 ### D. Routes (`api/instance_endpoints.py`) et IHM (`frontend/src/pages/AdminConsole.vue`, route `/admin`)
 
-`GET /api/instance/databases` reste la seule route publique (liste brute, pas de session requise —
-nécessaire pour le sélecteur de base, §16.D). Toutes les routes `/api/instance/admin/*` exigent une
+**Aucune route d'instance n'est publique** (depuis le lot sécurité, §24) : `GET
+/api/instance/my-databases` exige une session et filtre sur l'identité connectée ; l'ancienne
+`GET /api/instance/databases`, qui servait la liste brute à un anonyme, n'existe plus (§16.B).
+Toutes les routes `/api/instance/admin/*` exigent une
 session instance valide ; `POST`/`duplicate` exigent en plus `require_super_admin`, `backup`/
 `restore`/`DELETE` exigent `require_admin_of(slug)` (super-admin OU admin de CETTE base précise).
 IHM en une seule page (`AdminConsole.vue`, montée par le même routeur `vue-router` que `/login`/
@@ -3522,3 +3568,166 @@ port HTTPS implicite), à la place des valeurs de dev `localhost:3000`/`127.0.0.
   cron/systemd timer), pas automatique par défaut comme avec Caddy.
 
 **À reconsidérer** : au moment du premier déploiement réel hors machine de développement.
+
+---
+
+## 24. Lot Sécurité — Audit et Durcissement
+
+Chapitre issu d'un audit demandé explicitement (« Klepsydrix est-il sensible aux attaques CSRF ? et
+plus globalement quels sont les points faibles en termes de sécurité ? »), puis de sa mise en œuvre
+complète. Il consigne ce qui a été trouvé, ce qui a été changé, et — surtout — les décisions
+antérieures sur lesquelles ce lot revient, avec leur raison.
+
+### A. CSRF : de trois coïncidences à une règle
+
+**Verdict de l'audit** : l'application n'était pas exploitable en CSRF, mais par accumulation
+d'effets de bord, sans aucun mécanisme dédié (ni jeton, ni contrôle d'origine). Trois barrières,
+chacune héritée d'une autre décision :
+
+1. `SameSite=Lax` sur le cookie de session ;
+2. l'en-tête `X-Klepsydrix-Database`, obligatoire sur toutes les routes applicatives — un en-tête
+   personnalisé force un préflight CORS qu'une origine étrangère ne passe pas ;
+3. le corps JSON : FastAPI ne désérialise un corps que si `Content-Type: application/json`, type
+   non « simple » qui force lui aussi un préflight — un `<form>` HTML ne peut donc rien livrer.
+
+Aucune n'était testée en tant que protection, et chacune avait son angle mort — notamment
+`SameSite=Lax`, inopérant face à un attaquant « same-site » (autre sous-domaine du même domaine
+enregistrable) ou à un déploiement en HTTP clair.
+
+**`core/csrf.py::OriginCheckMiddleware`** transforme ces coïncidences en règle unique : sur toute
+méthode d'écriture, `Origin` (à défaut `Referer`) doit appartenir aux origines autorisées ou à
+l'origine de l'application elle-même. Absence des DEUX en-têtes = requête acceptée : ce n'est alors
+pas un navigateur (curl, script, sonde, `TestClient`), donc pas de cookie ambiant qu'un tiers
+pourrait faire jouer — refuser casserait tout l'outillage sans rien protéger. Testé par
+`tests/test_csrf.py`, qui fixe la frontière dans les deux sens.
+
+**La seule route réellement CSRF-able** était `POST /api/instance/admin/databases/{slug}/restore` :
+envoi multipart (type de contenu « simple », donc aucun préflight), `confirm` en paramètre d'URL,
+aucun en-tête personnalisé — un `<form>` sur un site tiers suffisait, et son effet est le plus
+destructif de l'application. Le contrôle `confirm != slug` n'y changeait rien : il protège d'une
+erreur humaine, pas d'un attaquant, qui recopie le slug (public à l'époque, cf. §24.C). Elle prend
+désormais un **corps JSON avec le fichier en base64**, convention déjà utilisée par tous les champs
+binaires du produit (`{filename, mime_type, data_base64}`). Effet de bord : plus aucun `UploadFile`
+dans le projet, `python-multipart` retiré des dépendances.
+
+### B. Ce qui n'était pas du CSRF, et qui était pire
+
+**Usurpation inter-établissements par le provider local.** La session ne retenait que
+`(provider_key="local", subject=<identifiant saisi>)` — jamais la base où le mot de passe avait été
+vérifié — tandis que `current_db_user` cherchait ce couple dans la base désignée par l'en-tête,
+choisi librement par l'appelant. Un admin de n'importe quelle base (droit `create` sur
+`user_identity_providers`, normal pour le groupe « Admin ») pouvait donc s'y créer un compte local
+portant l'identifiant d'un utilisateur d'une AUTRE base, s'y connecter, changer d'en-tête, et
+devenir cette personne avec tous ses droits. Le raisonnement était **déjà écrit** dans
+`config.py::SuperAdminPair` — mais sa conclusion n'avait été tirée que pour `super_admins`, pas pour
+les comptes ordinaires. Fermé par `InstanceSession.db_slug`, scellé dans le cookie signé.
+
+**Pré-appariement par email détournable.** Même cause : pour le provider local, `session.email` vaut
+l'identifiant saisi. La promotion d'une ligne `pending` (admin désigné à la création d'une base)
+n'accepte donc plus que les providers **fédérés**, dont l'email est vérifié par un tiers.
+
+**XSS stocké dans les rapports d'assistant.** Les champs `type: "html"` sont rendus via `innerHTML`
+(`GenericForm.vue`) et interpolaient sans échappement des libellés venus de la base — et, pour
+l'import STS-web, directement du fichier XML fourni. Un nom d'enseignant valant `<img src=x
+onerror=…>` exécutait du JavaScript dans la session de l'administrateur qui lance l'assistant.
+`core/html_text.py::esc` + `tests/test_wizard_html_escaping.py`, qui vérifie la propriété (aucune
+balise active ne ressort) plutôt que la présence de l'appel.
+
+**`secret_key` de démonstration.** Publique (elle est dans le dépôt) : la connaître suffisait à
+forger une session pour n'importe quelle identité, mot de passe maître compris. Le commentaire
+d'avertissement ne servait à rien tant que le serveur démarrait quand même — `core/startup_checks.py`
+**refuse désormais de démarrer** dès que `server.public_base_url` désigne autre chose qu'un hôte
+local. Le critère est volontairement déduit de la configuration existante plutôt que d'une variable
+d'environnement dédiée : un déploiement qui l'oublierait est exactement le cas à couvrir.
+
+**Joker CORS.** `CORSMiddleware` est monté avec `allow_credentials=True` (indispensable : toute
+l'authentification est par cookie). Dans cette combinaison, Starlette ne renvoie pas `*` mais
+**l'origine appelante** — un `allowed_origins: ["*"]` écrit pour « débloquer » un déploiement aurait
+donc annulé d'un coup les trois barrières de §24.A. Refusé par un validateur pydantic.
+
+### C. Ce que l'audit a fait remonter comme conclusions trop larges
+
+- **Liste publique des bases** : voir §17.F. La contrainte du provider local portait sur le
+  formulaire, pas sur l'existence d'une route publique. `GET /api/instance/databases` supprimée,
+  remplacée par `my-databases` sous session et filtrée sur l'identité.
+- **Auto-création d'utilisateurs** : `current_db_user` créait silencieusement un `User` dans toute
+  base dont on nommait le slug. Sain pour une instance mono-établissement fédérée, mais sur une
+  instance multi-établissements fédérée par le même OIDC académique, n'importe quel enseignant de
+  l'académie pouvait faire apparaître une ligne `users` dans CHAQUE base. Désormais
+  `auth.auto_provision_users`, **faux par défaut**, avec un refus structuré (`NOT_PROVISIONED`) que
+  le frontend traduit par un retour au sélecteur — plus utile à l'utilisateur qu'une application
+  vide.
+- **Anti-brute-force entièrement délégué à fail2ban** : voir §17.H pour l'historique complet de
+  l'aller-retour. Le raisonnement d'origine reste valable ; seule sa conclusion binaire est
+  corrigée.
+- **Sessions non révocables** : le cookie signé n'a aucun état serveur, donc un mot de passe changé
+  après une compromission laissait l'intrus connecté — le geste même censé couper l'accès ne coupait
+  rien. `User.session_epoch` (colonne privée, jamais exposée par l'API générique) est avancée par
+  toute pose de mot de passe et comparée au `logged_in_at` scellé dans le cookie. La session de
+  celui qui fait le changement est réémise dans la foulée : les autres navigateurs tombent, le sien
+  continue — sans quoi le parcours `must_change_password` deviendrait une impasse. Durée
+  d'inactivité par défaut ramenée de 30 jours à 12 heures.
+
+  ⚠️ **Seule nouveauté de schéma de ce lot, et donc seule action de déploiement.** Une base CRÉÉE
+  après ce lot porte la colonne d'office (`init_db.py::init_prod_data` appelle
+  `Base.metadata.create_all`, qui construit les tables depuis les modèles) — rien à modifier dans
+  `init_db.py` ni dans les seeds (`init_demo.py` insère `users` en SQL brut avec une liste de
+  colonnes explicite : `session_epoch` y reste `NULL`, ce qui est bien le sens voulu, « aucune
+  session révoquée »). Mais `create_all` fonctionne en `checkfirst` : il crée les tables MANQUANTES
+  et ignore en silence celles qui existent déjà — il ne compare jamais les colonnes et n'émet jamais
+  d'`ALTER`. Une base EXISTANTE ne se met donc pas à jour au démarrage, et l'absence de la colonne
+  ne se manifesterait qu'à la première requête, par une erreur SQL. En l'absence d'outil de
+  migration (choix assumé du projet), la mise à niveau est à jouer une fois par base de l'instance :
+
+  ```sql
+  ALTER TABLE users ADD COLUMN session_epoch TIMESTAMP;  -- DATETIME en SQLite
+  ```
+
+### D. Plafonds, formats, et le reste
+
+- **Aucune limite de taille n'existait nulle part** — ni photo d'enseignant, ni fichier STS-web, ni
+  restauration. Un « portrait » de 500 Mo était stocké en base64 dans la base (+33 %) et rechargé
+  en mémoire à chaque ouverture de la fiche. `core/upload_limits.py` : un middleware sur
+  `Content-Length` (avant lecture du corps, couvre tout endpoint présent et futur),
+  `server.max_upload_mb` / `max_restore_upload_mb`, un contrôle par champ pour le message
+  utilisateur, et un garde côté `BinaryFileField.vue` — ce dernier purement de confort, alimenté par
+  la valeur réelle du serveur (servie par `whoami`) plutôt que recopiée en dur.
+- **Restauration : contrôle du format avant écriture** (`SQLite format 3` / `PGDMP`). Ce n'est pas
+  une protection contre un attaquant (l'appelant est admin de la base) mais contre l'erreur la plus
+  banale et la plus coûteuse : se tromper de fichier, ce qui détruisait la base sans autre signal
+  qu'une application illisible à la requête suivante.
+- **XML durci** : `defusedxml` sur le flux STS-web. Pas de XXE en Python 3, mais l'expansion
+  d'entités internes (« billion laughs ») transforme quelques kilo-octets en gigaoctets de mémoire —
+  que le plafond de taille ne peut pas voir passer, puisqu'il mesure le fichier.
+- **En-têtes de sécurité** (`core/security_headers.py`), avec une **portée honnête** : cette
+  application sert une API, jamais la page HTML de l'IHM. La CSP qui protégerait l'IHM doit être
+  servie avec `index.html`, donc configurée là où il est servi (Vite en dev, reverse proxy ou
+  serveur de fichiers statiques en production). Ce qui est posé ici a un sens propre aux réponses
+  d'API : `nosniff`, `frame-ancestors 'none'`, `default-src 'none'` — sauf sur `/api/docs`, page
+  HTML réelle qui charge ses scripts depuis un CDN et que cette CSP rendrait blanche. **La
+  documentation interactive n'est pas masquée** : la proposition initiale de l'audit (la fermer)
+  a été écartée — aucune protection réelle, et c'est un outil de travail quotidien du projet.
+- **RPC générique** : les méthodes préfixées `_` ne sont plus appelables à distance. Le refus
+  précède le contrôle de droits — ce n'est pas une question d'habilitation mais de surface exposée.
+- **Mode système hors requête** (`tests/test_system_mode_sessions.py`) : pendant de
+  `assert_all_routes_scoped`, côté sessions ouvertes hors HTTP. N'interdit rien — exige que chacune
+  soit assumée par écrit, pour que la prochaine soit une décision et non un réflexe.
+- **`timetable.db` n'est plus versionnée** : base de démonstration, mais elle porte des empreintes de
+  mots de passe et sert de modèle mental à qui déploie. Elle se régénère par
+  `backend/.venv/bin/python -m backend.app.core.init_demo`.
+
+### E. Ce qui reste ouvert, sciemment
+
+- **Compteurs de limitation de débit en mémoire du process** : un redémarrage les remet à zéro, et
+  plusieurs process auraient chacun les leurs. Même limite que `SolverState` (§16.C), acceptable
+  pour la même raison — un process par déploiement — et un attaquant ne peut pas provoquer ce
+  redémarrage.
+- **`Content-Length` absent** (corps en `chunked`) : le middleware ne peut rien contrôler sans
+  consommer le flux. Le client de l'application ne l'emploie jamais, et un reverse proxy a ses
+  propres plafonds.
+- **La CSP de l'IHM** reste à poser au niveau du serveur qui sert `index.html` — hors de portée du
+  code Python, à traiter au premier déploiement réel, en même temps que le HTTPS.
+- **Le parcours OIDC n'est toujours pas vérifié contre un vrai fournisseur** (aucun disponible en
+  dev, voir §17.F) : les changements de ce lot qui le touchent — `db_slug` laissé à `None`,
+  promotion `pending` réservée aux fédérés, `auto_provision_users` — sont couverts par des tests
+  unitaires, pas par un aller-retour réel.

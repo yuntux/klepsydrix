@@ -8,12 +8,15 @@ attribuables), avec un rayon d'action large (créer/supprimer n'importe quelle b
 même prudence qu'un compte root cloud : identité fantôme jamais confondue avec un vrai utilisateur,
 journalisation systématique et bien visible, restriction IP optionnelle.
 
-⚠️ AUCUN verrouillage anti-brute-force applicatif ici (retiré délibérément — voir architecture.md
-§19.A pour la décision et son raisonnement complet) : la protection contre le brute-force est
-ENTIÈREMENT déléguée à fail2ban (`deploy/fail2ban/klepsydrix-master-auth.conf`), qui lit les lignes
-`WARNING` journalisées ci-dessous. Un test dédié (`backend/tests/test_fail2ban_filter_contracts.py`)
-vérifie que le format de ces lignes correspond bien au filtre fail2ban RÉELLEMENT déployé — sans ce
-test, un changement de message ici casserait fail2ban en silence.
+Protection anti-brute-force à DEUX niveaux, complémentaires (la délégation exclusive à fail2ban,
+décision antérieure documentée en §19.A, laissait ce point d'entrée sans aucune limite là où
+fail2ban n'était pas déployé — voir core/rate_limit.py pour le raisonnement du changement) :
+- fail2ban (`deploy/fail2ban/klepsydrix-master-auth.conf`) lit les lignes `WARNING` journalisées
+  ci-dessous et bannit au niveau réseau — toujours préférable, plus tôt dans la pile ;
+- `rate_limit.enforce` oppose un plancher applicatif qui suit le code partout où il tourne.
+Un test dédié (`backend/tests/test_fail2ban_filter_contracts.py`) vérifie que le format de ces
+lignes correspond bien au filtre fail2ban RÉELLEMENT déployé — sans ce test, un changement de
+message ici casserait fail2ban en silence.
 """
 import ipaddress
 import logging
@@ -23,6 +26,7 @@ from fastapi import HTTPException, Request
 
 from backend.app.core.config import settings
 from backend.app.core.client_ip import client_ip as _client_ip
+from backend.app.core import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,12 @@ def verify_master_password(request: Request, password: str) -> None:
     if not cfg.enabled:
         raise HTTPException(status_code=404)
 
+    # Plancher applicatif en complément de fail2ban — voir core/rate_limit.py pour le raisonnement
+    # complet et pourquoi la délégation exclusive à fail2ban ne suffisait pas. Ce point d'entrée le
+    # mérite plus que tout autre : un secret PARTAGÉ qui ouvre la console d'administration de
+    # l'instance entière.
+    rate_limit.enforce("login_master", ip, ip=ip)
+
     if not _ip_allowed(ip):
         logger.warning("Authentification maître refusée (IP hors liste autorisée) depuis %s", ip)
         raise HTTPException(status_code=403, detail="Accès refusé.")
@@ -78,6 +88,7 @@ def verify_master_password(request: Request, password: str) -> None:
     try:
         _password_hasher.verify(cfg.password_hash, password)
     except (VerifyMismatchError, InvalidHash):
+        rate_limit.record("login_master", ip)
         logger.warning("Échec d'authentification maître depuis %s", ip)
         raise HTTPException(status_code=401, detail="Mot de passe incorrect.")
 

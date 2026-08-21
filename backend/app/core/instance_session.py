@@ -42,6 +42,18 @@ def _max_age_seconds() -> int:
     return settings.auth.session_idle_timeout_minutes * 60
 
 
+def cookies_secure() -> bool:
+    """
+    Drapeau `Secure` de TOUS les cookies posés par l'application (session instance, base courante,
+    session Authlib — voir main.py) : déduit de `server.public_base_url` plutôt que configuré à
+    part, pour qu'il n'y ait rien de plus à penser au déploiement. En dev, `public_base_url` vaut
+    son défaut `http://localhost:3000` → False, comportement inchangé ; en production ce champ
+    porte déjà le vrai domaine en https (il sert à construire les liens de réinitialisation de mot
+    de passe, inutilisables sinon) → True, et le cookie de session cesse de circuler en clair.
+    """
+    return settings.server.public_base_url.lower().startswith("https://")
+
+
 @dataclass
 class InstanceSession:
     provider_key: str
@@ -57,6 +69,21 @@ class InstanceSession:
     # qui exercent une autre logique que le suivi de connexion) — le chemin réel passe toujours
     # explicitement par require_instance_session, qui la fixe/reporte lui-même.
     logged_in_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # Base dans laquelle l'identité a RÉELLEMENT été vérifiée — renseigné UNIQUEMENT pour le
+    # provider local (`login_local`), None pour OIDC et pour le mot de passe maître, qui
+    # s'authentifient au niveau instance, avant tout choix de base (voir architecture.md §17.F).
+    #
+    # ⚠️ Sans ce champ, une identité locale était une identité d'INSTANCE : le cookie ne portait
+    # que (provider_key="local", subject=identifiant saisi), et `database.py::current_db_user`
+    # allait rechercher ce couple dans la base désignée par l'en-tête X-Klepsydrix-Database, choisi
+    # librement par l'appelant. Un admin d'une base quelconque (droit `create` sur
+    # `user_identity_providers`, normal pour le groupe "Admin") pouvait donc s'y créer un compte
+    # local portant l'identifiant d'un utilisateur d'une AUTRE base, s'y connecter, puis changer
+    # d'en-tête pour devenir cet utilisateur-là, avec tous ses droits. C'est exactement le
+    # raisonnement déjà écrit pour `super_admins` (voir config.py::SuperAdminPair), dont la
+    # conclusion n'avait été tirée que pour les super-admins, pas pour les comptes ordinaires.
+    # Le cookie étant signé (itsdangerous), ce slug n'est pas falsifiable par le client.
+    db_slug: str | None = None
     # Connus au moment de la connexion (claims OIDC, ou None pour le provider local) — utilisés
     # UNIQUEMENT pour peupler un User nouvellement auto-créé sur une base qui ne le connaît pas
     # encore (voir database.py::current_db_user) ; jamais resynchronisés sur les requêtes suivantes.
@@ -68,27 +95,33 @@ class InstanceSession:
 def set_session_cookie(
     response: Response, provider_key: str, subject: str,
     first_name: str | None = None, last_name: str | None = None, email: str | None = None,
-    logged_in_at: datetime | None = None,
+    logged_in_at: datetime | None = None, db_slug: str | None = None,
 ) -> None:
     """
     `logged_in_at` : ne le passer QUE pour reporter une valeur déjà existante (réémission par
     glissement, voir require_instance_session) — laissé à None (défaut) partout ailleurs, un VRAI
     login (login_local, oidc_callback, login_master) fixe ainsi toujours l'instant présent.
+
+    `db_slug` : OBLIGATOIRE pour le provider local (voir InstanceSession.db_slug), interdit de fait
+    pour les autres (rien à y mettre — ils ne s'authentifient contre aucune base).
     """
     if logged_in_at is None:
         logged_in_at = datetime.now(timezone.utc)
     token = _serializer.dumps({
         "provider_key": provider_key, "subject": subject,
         "first_name": first_name, "last_name": last_name, "email": email,
-        "logged_in_at": logged_in_at.isoformat(),
+        "logged_in_at": logged_in_at.isoformat(), "db_slug": db_slug,
     })
     response.set_cookie(
         COOKIE_NAME, token, max_age=_max_age_seconds(), httponly=True, samesite="lax", path="/",
+        secure=cookies_secure(),
     )
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(COOKIE_NAME, path="/")
+    # Mêmes attributs qu'à la pose (samesite/secure) : un navigateur qui ne les retrouve pas peut
+    # considérer qu'il s'agit d'un AUTRE cookie et laisser l'original en place.
+    response.delete_cookie(COOKIE_NAME, path="/", samesite="lax", secure=cookies_secure())
 
 
 def require_instance_session(request: Request, response: Response) -> InstanceSession:
@@ -105,8 +138,17 @@ def require_instance_session(request: Request, response: Response) -> InstanceSe
     logged_in_at = datetime.fromisoformat(data["logged_in_at"]) if "logged_in_at" in data else issued_at
     session = InstanceSession(
         provider_key=data["provider_key"], subject=data["subject"], logged_in_at=logged_in_at,
+        db_slug=data.get("db_slug"),
         first_name=data.get("first_name"), last_name=data.get("last_name"), email=data.get("email"),
     )
+    # Cookie local émis AVANT l'introduction de `db_slug` : impossible de savoir dans quelle base
+    # le mot de passe avait été vérifié, donc impossible d'appliquer le contrôle de
+    # `current_db_user` — on refuse plutôt que de laisser passer (une reconnexion, une seule fois,
+    # au déploiement de cette version). Volontairement différent du repli permissif retenu pour
+    # `logged_in_at` : là-bas un champ manquant ne coûtait qu'une approximation d'horodatage, ici
+    # il rouvrirait exactement la faille que ce champ ferme.
+    if session.provider_key == "local" and session.db_slug is None:
+        raise HTTPException(status_code=401, detail={"code": "NOT_AUTHENTICATED"})
     # Fenêtre glissante, mais throttlée (voir docstring du module) : ne réémet le cookie que si le
     # jeton courant a plus de _REFRESH_THRESHOLD_SECONDS d'ancienneté. `logged_in_at` est reporté
     # TEL QUEL (jamais recalculé ici) — un glissement n'est pas une reconnexion.
@@ -115,6 +157,6 @@ def require_instance_session(request: Request, response: Response) -> InstanceSe
         set_session_cookie(
             response, provider_key=session.provider_key, subject=session.subject,
             first_name=session.first_name, last_name=session.last_name, email=session.email,
-            logged_in_at=session.logged_in_at,
+            logged_in_at=session.logged_in_at, db_slug=session.db_slug,
         )
     return session

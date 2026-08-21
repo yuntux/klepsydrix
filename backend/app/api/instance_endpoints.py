@@ -1,13 +1,22 @@
 """
 Endpoints de portée instance (pas de base résolue) — voir architecture.md §20, "Architecture de
-routage HTTP". `GET /databases` (liste brute) reste la seule route sans authentification requise,
-nécessaire pour que le front propose un choix de base avant même qu'une session existe. Le reste
-(`/admin/*`) est la console d'administration : super-admin (paire nommée ou mot de passe maître) ou
-admin d'une base précise (membre du groupe "Admin" DANS cette base).
+routage HTTP". **Aucune route de ce module n'est publique** : `GET /my-databases` alimente le
+sélecteur de base mais exige une session et ne renvoie que les bases où l'identité connectée a un
+compte ; `/admin/*` est la console d'administration : super-admin (paire nommée ou mot de passe
+maître) ou admin d'une base précise (membre du groupe "Admin" DANS cette base).
+
+⚠️ `GET /databases`, qui servait la liste brute de TOUS les établissements hébergés à n'importe
+quel anonyme, a été supprimée. Elle venait d'une contrainte réelle (§17.F : le mot de passe local
+vit dans une base précise, il faut donc avoir choisi la base avant de pouvoir s'authentifier) mais
+tirait une conclusion trop large : la contrainte ne portait que sur le FORMULAIRE de connexion, où
+la base est un champ saisi — l'utilisateur connaît son établissement.
 """
+import base64
+import binascii
 import logging
 import os
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from backend.app.core import db_registry, db_admin_ops
@@ -15,24 +24,25 @@ from backend.app.core.config import settings
 from backend.app.core.instance_session import InstanceSession, require_instance_session
 from backend.app.core.instance_admin import (
     require_super_admin, require_admin_of, is_super_admin, administrable_databases,
+    databases_for_identity,
 )
-from backend.app.core.route_guard import system_scoped
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/instance")
 
 
-@router.get("/databases")
-@system_scoped(
-    "Alimente le sélecteur de base, affiché AVANT toute session — ne peut donc rien exiger. "
-    "Contrepartie assumée : n'importe qui peut énumérer les slugs des établissements hébergés "
-    "sur l'instance (aucune autre donnée). Si cette énumération devient indésirable, la sortie "
-    "est de déplacer le sélecteur après authentification et de servir /admin/databases, qui "
-    "filtre déjà selon la session."
-)
-def list_databases():
-    return {"databases": sorted(db_registry.known_slugs())}
+@router.get("/my-databases")
+def list_my_databases(session: InstanceSession = Depends(require_instance_session)):
+    """
+    Bases où l'identité connectée a un compte — alimente le sélecteur (pages/SelectDatabase.vue).
+
+    Remplace `GET /databases`, SUPPRIMÉE : elle servait la liste brute de tous les établissements
+    hébergés à n'importe quel anonyme. Plus aucune ressource non authentifiée ne divulgue cette
+    liste ; le formulaire de connexion locale n'en a jamais eu besoin, la base y est un champ saisi
+    (voir core/instance_admin.py::databases_for_identity et architecture.md §16.D).
+    """
+    return {"databases": databases_for_identity(session)}
 
 
 @router.get("/admin/databases")
@@ -82,6 +92,9 @@ async def create_database(payload: CreateDatabasePayload, session: InstanceSessi
 
     from backend.app.models.user import User, UserIdentityProvider
     from backend.app.models.access import ResGroup
+    # MODE SYSTÈME assumé (aucun droit appliqué, voir models/base.py) : la base vient d'être créée,
+    # elle n'a encore aucun utilisateur — personne ne peut donc y avoir de droits, et c'est
+    # justement le premier compte que l'on écrit ici. Portée strictement limitée à ce bloc.
     db = db_registry.sessionmaker_for(physical_slug)()
     password_reset_email_sent = False
     try:
@@ -152,18 +165,46 @@ def _cleanup_tmp_file(path):
     return BackgroundTask(lambda: os.path.exists(path) and os.remove(path))
 
 
+class BinaryPayload(BaseModel):
+    """Champ binaire au format générique du produit — {filename, mime_type, data_base64}, voir
+    models/teacher.py::photo et wizard_sts_import.py::sts_file, même objet côté frontend
+    (components/widgets/BinaryFileField.vue)."""
+    filename: Optional[str] = None
+    mime_type: Optional[str] = None
+    data_base64: str
+
+
+class RestoreDatabasePayload(BaseModel):
+    confirm: str
+    file: BinaryPayload
+
+
 @router.post("/admin/databases/{slug}/restore")
-async def restore_database(slug: str, confirm: str, file: UploadFile, session: InstanceSession = Depends(require_admin_of)):
+def restore_database(slug: str, payload: RestoreDatabasePayload, session: InstanceSession = Depends(require_admin_of)):
     """
     "Annule et remplace" — aussi destructif qu'une suppression, donc même exigence de confirmation
     (voir architecture.md §20) : `confirm` doit correspondre EXACTEMENT au nom de la base, vérifié
     côté serveur (pas seulement une case à cocher côté client).
+
+    ⚠️ Corps **JSON** (fichier en base64), pas un envoi multipart — décision de sécurité, pas une
+    préférence de style. En multipart, cette route avait la forme exacte d'une cible CSRF : type de
+    contenu "simple" (donc aucun préflight CORS déclenché), `confirm` en paramètre d'URL, aucun
+    en-tête personnalisé requis — un simple `<form>` sur un site tiers suffisait à la déclencher
+    avec le cookie de session de la victime, et son effet est le plus destructif de l'application.
+    Le contrôle `confirm != slug` n'y changeait rien : il protège d'une erreur humaine, pas d'un
+    attaquant, qui recopie simplement le slug. En JSON, le navigateur impose un préflight qu'une
+    origine étrangère ne passe pas. Contrepartie assumée : ~33 % de volume en plus et le corps
+    entier en mémoire — d'où le plafond dédié `server.max_restore_upload_mb`
+    (core/upload_limits.py), qui n'est donc pas optionnel.
     """
     if not db_registry.is_known_slug(slug):
         raise HTTPException(status_code=404, detail="Base introuvable.")
-    if confirm != slug:
+    if payload.confirm != slug:
         raise HTTPException(status_code=400, detail="La confirmation ne correspond pas au nom de la base.")
-    content = await file.read()
+    try:
+        content = base64.b64decode(payload.file.data_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Fichier illisible (encodage base64 invalide).")
     db_admin_ops.restore_database(slug, content)
     return {"status": "success"}
 

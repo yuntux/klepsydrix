@@ -728,6 +728,11 @@ def _run_job(school_id, slug, kind, phases, db_session=None):
         slug = slug or db_registry.slug_for_engine(db.bind) or DEFAULT_DB_NAME
     else:
         slug = slug or DEFAULT_DB_NAME
+        # MODE SYSTÈME assumé : la résolution tourne dans un THREAD de fond, détaché de la requête
+        # qui l'a déclenchée (voir architecture.md §9.F) — il n'y a plus de session HTTP, donc plus
+        # d'utilisateur courant. Le solveur doit de toute façon voir TOUS les cours pour produire un
+        # emploi du temps cohérent : le restreindre aux droits du demandeur produirait une solution
+        # fausse, pas une solution filtrée. L'autorisation a eu lieu en amont, sur la route.
         db = db_registry.sessionmaker_for(slug)()
 
     SolverState.enqueue(slug, kind=kind, pipeline_total_steps=len(phases))

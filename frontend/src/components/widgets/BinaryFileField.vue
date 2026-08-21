@@ -20,6 +20,7 @@
 // se contente d'ajouter un aperçu au-dessus de ce même composant plutôt que de dupliquer la
 // logique Télécharger/Effacer/Parcourir.
 import { computed, ref } from 'vue';
+import { getMaxUploadMb } from '../../services/api';
 
 export interface BinaryValue {
   filename: string;
@@ -59,6 +60,16 @@ function onFileChange(e: Event) {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+  // Contrôle de CONFORT uniquement (voir backend/app/core/upload_limits.py) : la limite qui fait
+  // foi est celle du serveur, qui refuse le corps en 413 avant même de le lire. L'intérêt ici est
+  // de ne pas charger un fichier énorme en mémoire (readAsDataURL) pour rien, et de dire tout de
+  // suite ce qui ne va pas. Limite inconnue (whoami pas encore répondu) : on laisse passer.
+  const limitMb = getMaxUploadMb();
+  if (limitMb !== null && file.size > limitMb * 1024 * 1024) {
+    window.alert(`« ${file.name} » dépasse la taille maximale autorisée (${limitMb} Mo).`);
+    input.value = '';
+    return;
+  }
   const reader = new FileReader();
   reader.onload = () => {
     const result = reader.result as string;

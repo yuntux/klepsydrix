@@ -86,8 +86,35 @@ def duplicate_database(source_slug: str, new_slug: str):
         engine.dispose()
 
 
+# Octets de tête d'une sauvegarde valide, par backend — voir assert_restorable().
+_SQLITE_MAGIC = b"SQLite format 3\x00"     # en-tête du format de fichier SQLite (16 octets)
+_PG_DUMP_MAGIC = b"PGDMP"                  # archive pg_dump au format custom (-Fc), produite par _run_pg_dump
+
+
+def assert_restorable(uploaded_content: bytes) -> None:
+    """
+    Refuse tout ce qui n'a pas la tête d'une sauvegarde du backend courant. Lève `ValueError`
+    (traduite en 400 par core/error_handlers.py, convention du projet).
+
+    Ce n'est pas une protection contre un attaquant — l'appelant est déjà admin de la base — mais
+    contre l'erreur la plus banale et la plus coûteuse : se tromper de fichier. Sans ce contrôle,
+    les octets étaient écrits tels quels par-dessus la base ; l'échec ne se manifestait qu'à la
+    requête suivante, sur une base devenue illisible et déjà perdue.
+    """
+    if settings.database.backend == DatabaseBackend.SQLITE:
+        expected, label = _SQLITE_MAGIC, "un fichier SQLite"
+    else:
+        expected, label = _PG_DUMP_MAGIC, "une archive pg_dump (format custom)"
+    if not uploaded_content.startswith(expected):
+        raise ValueError(
+            f"Ce fichier n'est pas {label} : la restauration est refusée avant toute écriture. "
+            "Utilisez un fichier produit par le bouton « Sauvegarder » de cette console."
+        )
+
+
 def restore_database(slug: str, uploaded_content: bytes):
     """"Annule et remplace" — le contenu actuel de `slug` est intégralement perdu."""
+    assert_restorable(uploaded_content)
     db_registry.dispose(slug)
     if settings.database.backend == DatabaseBackend.SQLITE:
         target_path = db_registry._sqlite_directory() / f"{slug}.db"

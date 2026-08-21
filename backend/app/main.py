@@ -8,6 +8,11 @@ from backend.app.core.database import check_write_token, current_db_user
 from backend.app.core.log_context import attach_to_handlers, DbSlugContextMiddleware
 from backend.app.core.route_guard import assert_all_routes_scoped, system_scoped
 from backend.app.core.error_handlers import register_exception_handlers
+from backend.app.core.startup_checks import assert_safe_configuration
+from backend.app.core.csrf import OriginCheckMiddleware
+from backend.app.core.security_headers import SecurityHeadersMiddleware
+from backend.app.core.upload_limits import ContentLengthLimitMiddleware
+from backend.app.core.instance_session import cookies_secure
 
 # Logs applicatifs contextualisés par base (voir architecture.md, "Architecture de routage HTTP",
 # core/log_context.py::attach_to_handlers pour le détail du piège évité). Les logs d'accès uvicorn
@@ -31,6 +36,9 @@ async def lifespan(app: FastAPI):
     # ne sont nettoyées qu'à la première requête qui les résout (voir get_db/resolve_database).
     from backend.app.core.database import SessionLocal
     from backend.app.core.exclusive_mode import clear_exclusive_mode
+    # MODE SYSTÈME assumé : au démarrage, hors de toute requête, il n'existe aucun utilisateur
+    # courant à qui rapporter cette écriture — et c'est une donnée d'infrastructure (le verrou du
+    # mode exclusif), pas une donnée d'établissement.
     db = SessionLocal()
     try:
         clear_exclusive_mode(db)
@@ -42,6 +50,11 @@ async def lifespan(app: FastAPI):
     # elle répond en mode système avec toutes les données). Ici plutôt qu'au niveau module : les
     # include_router() ont déjà tous été exécutés à l'import, l'inventaire des routes est complet.
     assert_all_routes_scoped(app)
+
+    # Même esprit que la ligne ci-dessus, appliqué à la configuration plutôt qu'aux routes : une
+    # instance exposée avec la clé de signature de démonstration (ou sans https) ne doit pas
+    # démarrer en silence — voir core/startup_checks.py.
+    assert_safe_configuration()
 
     yield
 
@@ -77,7 +90,26 @@ app.add_middleware(
 # Session Starlette dédiée à Authlib (state/nonce OIDC, voir core/oidc.py) — un cookie distinct de
 # klepsydrix_session (notre propre session instance, voir core/instance_session.py) : celui-ci ne
 # sert qu'à sécuriser l'aller-retour vers le fournisseur d'identité, pas à authentifier l'usager.
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax")
+app.add_middleware(
+    SessionMiddleware, secret_key=settings.secret_key, same_site="lax",
+    # Même règle que nos propres cookies (voir instance_session.py::cookies_secure) : ce cookie
+    # porte le `state`/`nonce` OIDC, dont l'interception permettrait de rejouer l'aller-retour
+    # d'authentification.
+    https_only=cookies_secure(),
+)
+
+# Plafond de taille des corps de requête (voir core/upload_limits.py) — avant tout le reste : un
+# corps hors gabarit doit être refusé sans être lu.
+app.add_middleware(ContentLengthLimitMiddleware)
+
+# En-têtes de sécurité sur chaque réponse (voir core/security_headers.py — portée limitée aux
+# réponses d'API, la CSP qui protège l'IHM se configure là où index.html est servi, §20.C).
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Refuse toute méthode d'écriture provenant d'une origine inconnue (voir core/csrf.py) : rend
+# explicite et testable une protection anti-CSRF qui ne reposait jusque-là que sur la conjonction
+# de SameSite, du préflight imposé par X-Klepsydrix-Database et du corps JSON obligatoire.
+app.add_middleware(OriginCheckMiddleware)
 
 # Pose current_db_slug tôt, au niveau ASGI — voir core/log_context.py::DbSlugContextMiddleware pour
 # le pourquoi (un ContextVar posé dans une dépendance FastAPI synchrone ne se propage pas aux

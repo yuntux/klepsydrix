@@ -21,6 +21,7 @@ from backend.app.models.service import Service
 from backend.app.models.teacher import TeacherDiscipline
 from backend.app.models.wizard_sts_import import WizardStsImport
 from backend.tests.db_test_utils import make_test_engine
+from backend.app.core.html_text import esc
 
 test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
@@ -472,7 +473,9 @@ class TestCodesDejaPris:
         TeacherDiscipline.create(db_session, {"teacher_id": occupant.id, "discipline_id": discipline.id})
         res = _import(db_session)
         assert db_session.query(Teacher).filter(Teacher.epp_id == "8949").first() is None
-        assert "désigne déjà l'enseignant" in res["result_html"]
+        # Le rapport est du HTML rendu via innerHTML : toute valeur y est échappée (voir
+        # core/html_text.py), apostrophe française comprise — d'où la comparaison via esc().
+        assert esc("désigne déjà l'enseignant") in res["result_html"]
         assert "OCCUPANT" in res["result_html"]
 
 

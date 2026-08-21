@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 from backend.app.main import app
+from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.models.base import Base
 from backend.app.models.user import User, UserIdentityProvider
@@ -166,3 +167,98 @@ class TestPasswordChangeEndpoint:
         response = client.post("/api/auth/password/change", json={"current_password": "x", "new_password": "NewGood9!"})
         assert response.status_code == 401
         assert response.json()["detail"]["code"] == "NOT_AUTHENTICATED"
+
+
+class TestCookieSecurityAttributes:
+    """
+    Voir instance_session.py::cookies_secure — l'attribut `Secure` n'est pas configuré à part : il
+    se déduit de `server.public_base_url`, déjà obligatoire en production (liens de
+    réinitialisation par email). En développement (http://localhost) le comportement est inchangé.
+    """
+
+    def _login_response(self, client, db_session, identifier):
+        _make_local_user(db_session, identifier=identifier)
+        return client.post("/api/auth/login/local", json={"identifier": identifier, "password": "Correct8!"})
+
+    def _set_cookie_headers(self, response):
+        return [v for k, v in response.headers.multi_items() if k.lower() == "set-cookie"]
+
+    def test_no_secure_flag_on_a_local_deployment(self, db_session, client, monkeypatch):
+        monkeypatch.setattr(settings.server, "public_base_url", "http://localhost:3000")
+        response = self._login_response(client, db_session, "dev@example.com")
+        headers = self._set_cookie_headers(response)
+        assert headers and all("Secure" not in h for h in headers)
+
+    def test_secure_flag_when_served_over_https(self, db_session, client, monkeypatch):
+        monkeypatch.setattr(settings.server, "public_base_url", "https://klepsydrix.exemple.fr")
+        response = self._login_response(client, db_session, "prod@example.com")
+        headers = self._set_cookie_headers(response)
+        # Les DEUX cookies posés par login_local (session instance + base courante) sont concernés.
+        assert len(headers) == 2
+        assert all("Secure" in h for h in headers)
+
+    def test_logout_clears_the_cookie_with_matching_attributes(self, db_session, client, monkeypatch):
+        """Un navigateur qui ne retrouve pas les mêmes attributs peut considérer qu'il s'agit d'un
+        autre cookie et laisser l'original en place (voir clear_session_cookie)."""
+        monkeypatch.setattr(settings.server, "public_base_url", "https://klepsydrix.exemple.fr")
+        self._login_response(client, db_session, "bye@example.com")
+
+        response = client.post("/api/auth/logout")
+        headers = [h for h in self._set_cookie_headers(response) if h.startswith("klepsydrix_session=")]
+        assert headers and "Secure" in headers[0] and "samesite=lax" in headers[0].lower()
+
+
+class TestSessionRevocationOnPasswordChange:
+    """
+    Voir User.session_epoch et database.py::current_db_user. La session instance est un cookie
+    signé SANS état serveur : rien ne permettait de l'invalider avant son expiration. Changer son
+    mot de passe après une compromission laissait donc l'intrus connecté — le geste même qui doit
+    couper l'accès ne coupait rien.
+    """
+
+    def test_changing_the_password_logs_out_the_other_sessions(self, db_session):
+        _make_local_user(db_session, identifier="revoke@example.com")
+
+        autre_navigateur = TestClient(app)
+        autre_navigateur.post("/api/auth/login/local", json={"identifier": "revoke@example.com", "password": "Correct8!"})
+        assert autre_navigateur.get("/api/generic/users").status_code == 200
+
+        # Le mot de passe change ailleurs (autre poste, ou l'utilisateur qui réagit à un vol).
+        celui_qui_change = TestClient(app)
+        celui_qui_change.post("/api/auth/login/local", json={"identifier": "revoke@example.com", "password": "Correct8!"})
+        assert celui_qui_change.post(
+            "/api/auth/password/change",
+            json={"current_password": "Correct8!", "new_password": "NewGood9!"},
+        ).status_code == 200
+
+        # Le cookie de l'autre session est toujours cryptographiquement valide, et pourtant refusé.
+        refuse = autre_navigateur.get("/api/generic/users")
+        assert refuse.status_code == 401
+        assert refuse.json()["detail"]["code"] == "NOT_AUTHENTICATED"
+
+    def test_a_session_opened_after_the_change_keeps_working(self, db_session):
+        _make_local_user(db_session, identifier="after@example.com")
+        client = TestClient(app)
+        client.post("/api/auth/login/local", json={"identifier": "after@example.com", "password": "Correct8!"})
+        client.post("/api/auth/password/change", json={"current_password": "Correct8!", "new_password": "NewGood9!"})
+
+        nouvelle = TestClient(app)
+        nouvelle.post("/api/auth/login/local", json={"identifier": "after@example.com", "password": "NewGood9!"})
+
+        assert nouvelle.get("/api/generic/users").status_code == 200
+
+    def test_a_password_reset_by_email_revokes_sessions_too(self, db_session):
+        """Même geste, autre chemin : celui qu'emprunte précisément quelqu'un qui n'a plus la main
+        sur son compte (voir PasswordResetToken)."""
+        from backend.app.models.password_reset_token import PasswordResetToken
+
+        _, idp = _make_local_user(db_session, identifier="reset@example.com")
+        intrus = TestClient(app)
+        intrus.post("/api/auth/login/local", json={"identifier": "reset@example.com", "password": "Correct8!"})
+        assert intrus.get("/api/generic/users").status_code == 200
+
+        _, raw_token = PasswordResetToken.issue(db_session, idp.id, 60)
+        db_session.commit()
+        TestClient(app).post("/api/auth/password-reset/confirm", json={"token": raw_token, "new_password": "NewGood9!"})
+
+        assert intrus.get("/api/generic/users").status_code == 401

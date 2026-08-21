@@ -9,7 +9,11 @@ from backend.app.models.base import Base, constrains, exposed
 
 def _get_standard_duration_minutes() -> int:
     """STANDARD_TIMESLOT_DURATION dans une session dédiée — pour les contextes sans session déjà
-    ouverte (callback info={"step":...}, expression SQL de Timeslot.active ci-dessous)."""
+    ouverte (callback info={"step":...}, expression SQL de Timeslot.active ci-dessous).
+
+    MODE SYSTÈME assumé (aucun droit appliqué, voir models/base.py) : lit UN paramètre technique
+    d'affichage, identique pour tout le monde, depuis un contexte qui n'a structurellement pas
+    d'utilisateur courant. Aucune donnée d'établissement n'en sort."""
     from backend.app.core.database import SessionLocal
     from backend.app.models.system_setting import SystemSetting
     db = SessionLocal()

@@ -5,7 +5,7 @@ objet-personne (Teacher/NonTeachingStaff/Student/Parent, voir HasUserAccount ci-
 plusieurs `UserIdentityProvider` (une ligne par fournisseur d'identité utilisé pour se connecter).
 """
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHash
@@ -63,6 +63,18 @@ class User(Base):
     # l'identité" (UserIdentityProvider) : un compte OIDC n'a pas de mot de passe à invalider, la
     # seule coupure possible est ici, au niveau du User.
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=sa_true(), info={"label": "Actif"})
+    # Révocation des sessions DÉJÀ ouvertes (voir database.py::current_db_user). La session
+    # instance est un cookie signé sans état serveur (core/instance_session.py) : rien ne permettait
+    # de l'invalider avant son expiration — un mot de passe changé après une compromission laissait
+    # l'intrus connecté aussi longtemps qu'il restait actif. Toute session dont l'horodatage de
+    # connexion (`logged_in_at`, scellé dans le cookie) est ANTÉRIEUR à cette date est refusée.
+    # Avancée par set_local_password (voir UserIdentityProvider) — jamais lue par l'IHM, d'où
+    # `private` : elle ne doit ni être sérialisée ni être modifiable via l'API générique, sans quoi
+    # elle deviendrait une arme (déconnecter n'importe qui) entre les mains de tout compte ayant le
+    # droit d'écriture sur `users`.
+    session_epoch: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, info={"label": "Sessions invalidées avant", "private": True},
+    )
 
     identity_providers: Mapped[list["UserIdentityProvider"]] = relationship(
         "UserIdentityProvider", back_populates="user", cascade="all, delete-orphan",
@@ -204,6 +216,14 @@ class UserIdentityProvider(Base):
 
     def set_local_password(self, db: Session, password: str) -> "UserIdentityProvider":
         _validate_password_strength(password)
+        # Toute pose d'un nouveau mot de passe RÉVOQUE les sessions déjà ouvertes (voir
+        # User.session_epoch) : c'est le geste que fait quelqu'un qui pense s'être fait voler ses
+        # identifiants, et il serait vide de sens s'il laissait l'intrus connecté. Vaut pour les
+        # trois chemins (auto-service, lien reçu par email, changement connecté) — y compris celui
+        # de l'utilisateur lui-même, qui se retrouvera déconnecté de ses AUTRES navigateurs.
+        # ⚠️ DateTime naïve en base, toujours écrite en UTC (même convention que last_login_at,
+        # password_reset_token.py::_as_utc) : la comparaison côté database.py réattache tzinfo.
+        self.user.update(db, {"session_epoch": datetime.now(timezone.utc).replace(tzinfo=None)})
         # Purge systématique de must_change_password : toute pose effective d'un nouveau mot de
         # passe (auto-service, reset par email, ou ici) satisfait l'obligation, quel que soit le
         # chemin emprunté — voir la colonne ci-dessus pour le détail.

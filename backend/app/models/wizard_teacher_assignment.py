@@ -13,6 +13,7 @@ from backend.app.models.service import Service
 from backend.app.models.teacher import Teacher
 from backend.app.models.division import Division
 from backend.app.solver.teacher_assignment import compute_assignment_proposal
+from backend.app.core.html_text import esc
 
 
 def _division_label(service: Service) -> str:
@@ -48,7 +49,7 @@ def _render_proposal_rows(db: Session, proposals: list) -> list:
 def _render_warnings_html(warnings: list) -> str:
     if not warnings:
         return "<p>Aucun avertissement.</p>"
-    items = "".join(f"<li>{w['message']}</li>" for w in warnings)
+    items = "".join(f"<li>{esc(w['message'])}</li>" for w in warnings)
     return f"<p><strong>{len(warnings)} avertissement(s) :</strong></p><ul>{items}</ul>"
 
 

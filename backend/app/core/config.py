@@ -43,12 +43,51 @@ class ServerConfig(BaseModel):
     """Section `server:` — topologie réseau/déploiement (voir architecture.md §20.C)."""
     # Origines autorisées à appeler l'API (CORS) — voir architecture.md.
     allowed_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    @field_validator("allowed_origins")
+    @classmethod
+    def _forbid_wildcard_origin(cls, value: list[str]) -> list[str]:
+        """
+        `"*"` est REFUSÉ, pas seulement déconseillé. `CORSMiddleware` est monté avec
+        `allow_credentials=True` (main.py, indispensable : toute l'authentification repose sur un
+        cookie) ; or dans cette combinaison Starlette ne renvoie pas `Access-Control-Allow-Origin:
+        *` — il RENVOIE L'ORIGINE APPELANTE (`starlette/middleware/cors.py`, "If credentials are
+        allowed, then we must respond with the specific origin instead of '*'"). N'importe quel
+        site pourrait alors lire l'API avec le cookie de session de la victime : cela annulerait
+        d'un coup les trois protections anti-CSRF de l'application (SameSite, préflight sur
+        l'en-tête X-Klepsydrix-Database, corps JSON obligatoire — voir core/csrf.py).
+
+        Une origine sans schéma est refusée dans la foulée : le navigateur compare `Origin` octet
+        par octet, `klepsydrix.exemple.fr` ne correspondrait donc à rien et l'entrée ne ferait
+        qu'entretenir l'illusion d'être configurée.
+        """
+        for entry in value:
+            if entry.strip() == "*":
+                raise ValueError(
+                    "server.allowed_origins: '*' est refusé — combiné à allow_credentials, il "
+                    "autorise n'importe quel site à appeler l'API avec le cookie de session de "
+                    "l'utilisateur. Listez explicitement les origines de l'IHM."
+                )
+            if not entry.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"server.allowed_origins: « {entry} » doit inclure le schéma "
+                    f"(ex: https://{entry}) — le navigateur compare l'en-tête Origin tel quel."
+                )
+        return value
     # Adresses/CIDR des reverse proxies de confiance (voir core/master_auth.py::_client_ip) — vide
     # par défaut (aucun changement de comportement tant que non configuré explicitement). Une fois
     # un reverse proxy externe en place devant l'appli (§20.C), request.client.host devient l'IP DU
     # PROXY, jamais celle du client réel : sans cette liste, ip_allowlist (master_db_local_auth)
     # deviendrait inefficace (soit toujours refusé, soit toujours accepté selon ce qu'on y met).
     trusted_proxies: list[str] = []
+    # Plafond de taille d'un corps de requête, en mégaoctets (voir core/upload_limits.py) —
+    # s'applique à TOUT envoi : champs binaires génériques (photo d'enseignant, fichier STS-web,
+    # transmis en base64 dans le corps JSON) comme n'importe quel futur endpoint. 25 Mo couvre
+    # largement une photo ou un flux STS d'établissement.
+    max_upload_mb: int = 25
+    # Dérogation pour la restauration d'une base (api/instance_endpoints.py) : une sauvegarde
+    # d'établissement pèse légitimement des centaines de mégaoctets, contrairement à tout le reste.
+    max_restore_upload_mb: int = 500
     # URL absolue publique de CETTE instance (frontend) — nécessaire pour construire un lien
     # cliquable dans un email (une URL relative n'a aucun sens hors du navigateur), voir
     # core/mailer.py. Dev : le frontend Vite local ; prod : le nom de domaine réel derrière le
@@ -83,9 +122,26 @@ class AuthConfig(BaseModel):
     password_min_length: int = 8
     # Durée maximale d'INACTIVITÉ avant qu'une session instance (core/instance_session.py) expire —
     # pas une durée fixe depuis la connexion : chaque requête authentifiée valide fait glisser la
-    # fenêtre (voir instance_session.py::require_instance_session). Défaut conservé identique au
-    # comportement historique (30 jours), simplement réinterprété comme glissant plutôt que fixe.
-    session_idle_timeout_minutes: int = 60 * 24 * 30
+    # fenêtre (voir instance_session.py::require_instance_session).
+    # Ramené de 30 jours à 12 heures : une session sans état serveur ne peut pas être révoquée à
+    # distance autrement qu'en changeant le mot de passe (voir User.session_epoch), et une fenêtre
+    # d'un mois sur un poste partagé d'établissement (salle des professeurs, poste de vie scolaire)
+    # est la plus grande exposition résiduelle de l'authentification. 12 h couvre confortablement
+    # une journée de travail sans jamais enjamber la nuit.
+    session_idle_timeout_minutes: int = 60 * 12
+    # Limitation de débit applicative sur les points d'entrée d'authentification (voir
+    # core/rate_limit.py) : nombre de tentatives RETENUES par fenêtre glissante et par clé
+    # (IP + identifiant visé). 0 désactive complètement le mécanisme — à ne faire que si fail2ban
+    # est réellement déployé ET vérifié, puisqu'il ne resterait plus aucune limite applicative.
+    # Ne compte que les ÉCHECS pour les connexions : un utilisateur légitime ne s'auto-bloque pas.
+    rate_limit_attempts: int = 10
+    rate_limit_window_minutes: int = 15
+    # Créer automatiquement un compte (sans aucun droit) pour une identité FÉDÉRÉE inconnue de la
+    # base qu'elle vient de désigner — voir database.py::current_db_user. Faux par défaut : c'est
+    # l'administrateur de l'établissement qui déclare ses utilisateurs (ou le pré-appariement par
+    # email à la création de la base). À passer à vrai sur une instance mono-établissement fédérée,
+    # où tout porteur d'une identité valide du fournisseur est effectivement légitime.
+    auto_provision_users: bool = False
 
 
 class SuperAdminPair(BaseModel):
@@ -153,6 +209,11 @@ class IdentityProviderConfig(BaseModel):
     params: dict = {}
 
 
+# Valeur de démonstration de `secret_key` — publique (elle est dans le dépôt), donc inutilisable
+# ailleurs que sur un poste de développement : `core/startup_checks.py` refuse de démarrer avec
+# elle dès que `server.public_base_url` désigne autre chose qu'un hôte local.
+DEMO_SECRET_KEY = "klepsydrix-dev-secret-change-me"
+
 _ENV_PLACEHOLDER = re.compile(r"^\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
@@ -194,7 +255,9 @@ class Settings(BaseSettings):
     # Signe les cookies de session instance (itsdangerous, voir core/instance_session.py) — valeur
     # de démonstration ci-dessous, à surcharger IMPÉRATIVEMENT en production (${env:...}, voir
     # instance.example.yaml) : quiconque la connaît peut forger une session pour n'importe qui.
-    secret_key: str = "klepsydrix-dev-secret-change-me"
+    # Ce n'est plus seulement un avertissement : `core/startup_checks.py` REFUSE de démarrer si
+    # elle est encore là alors que `server.public_base_url` n'est pas un hôte local.
+    secret_key: str = DEMO_SECRET_KEY
 
     # Limite de temps pour le solveur Timefold en secondes
     SOLVER_TIME_LIMIT_SECONDS: int = 300
