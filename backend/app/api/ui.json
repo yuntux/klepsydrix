@@ -2214,6 +2214,15 @@
     "title": "Paramètres",
     "children": [
       {
+        "id": "omogen_settings_action",
+        "icon": "wrench",
+        "title": "Configurer OMOGEN",
+        "action": {
+          "resourceKey": "wizard_omogen_settings",
+          "actionId": "configure_omogen"
+        }
+      },
+      {
         "id": "grid_settings_action",
         "icon": "wrench",
         "title": "Grille horaire",

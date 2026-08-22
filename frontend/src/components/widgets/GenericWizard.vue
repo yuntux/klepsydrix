@@ -22,7 +22,7 @@
       :modelValue="draft"
       inline
       :submitLabel="currentStep.submitLabel"
-      :formConfig="{ deletable: false, fields: stepLayout }"
+      :formConfig="{ deletable: false, fields: stepLayout, editableForm: currentStep.editableForm }"
       @submit="onStepSubmit"
       @cancel="onCancel"
     >
@@ -95,6 +95,11 @@ interface WizardStep {
   // (loading + checkStatus) au bon moment, sans que ce composant générique n'ait besoin de
   // connaître la liste des wizards concernés.
   startsBackgroundJob?: boolean;
+  // Masque le bouton de soumission de cette étape (voir GenericForm.vue::isEditableForm, false
+  // uniquement sur cette valeur explicite) — pour une étape purement informative où seul le
+  // bouton Annuler, toujours affiché lui, a un sens (aucune action réelle à confirmer côté
+  // serveur, voir wizard_omogen_settings.py comme premier exemple).
+  editableForm?: boolean;
 }
 
 const props = defineProps<{

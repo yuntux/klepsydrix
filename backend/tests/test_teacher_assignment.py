@@ -27,6 +27,14 @@ test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
+def _weighting_id(db, value):
+    """Id de la ligne de référence portant cette valeur, créée au besoin (voir test_service.py,
+    même helper — RefWeightingCoefficient.weighting_coefficient est unique, create() planterait
+    sur une valeur déjà présente)."""
+    existing = db.query(RefWeightingCoefficient).filter(RefWeightingCoefficient.weighting_coefficient == value).first()
+    return existing.id if existing else RefWeightingCoefficient.create(db, {"weighting_coefficient": value}).id
+
+
 @pytest.fixture
 def db_session():
     Base.metadata.create_all(bind=test_engine)
@@ -389,8 +397,8 @@ class TestTeacherComputedDurations:
     def test_taught_raw_and_weighted_ignore_composed_parents(self, db_session):
         school, discipline, subject, ref_grade, mef, division, mef_division, mef_service, service = _base_setup(db_session)
         teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=120)
-        weighting_15 = RefWeightingCoefficient.search_or_create(db_session, 1.5).id
-        weighting_10 = RefWeightingCoefficient.search_or_create(db_session, 1.0).id
+        weighting_15 = _weighting_id(db_session, 1.5)
+        weighting_10 = _weighting_id(db_session, 1.0)
         Course.create(db_session, {
             "school_id": school.id, "subject_id": subject.id, "teacher_ids": [teacher.id],
             "duration_minutes": 60, "weighting_coefficient_id": weighting_15,
@@ -413,7 +421,7 @@ class TestTeacherComputedDurations:
         teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=90)
         Course.create(db_session, {
             "school_id": school.id, "subject_id": subject.id, "teacher_ids": [teacher.id],
-            "duration_minutes": 90, "weighting_coefficient_id": RefWeightingCoefficient.search_or_create(db_session, 1.0).id,
+            "duration_minutes": 90, "weighting_coefficient_id": _weighting_id(db_session, 1.0),
         })
         ref_are = RefAre.create(db_session, {"code": "ARE1", "name": "ARE Test"})
         TeacherAre.create(db_session, {"teacher_id": teacher.id, "ref_are_id": ref_are.id, "duration_minutes": 30})

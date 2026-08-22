@@ -30,74 +30,33 @@
                       <svg class="sub-chevron" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
                     </div>
                     <div class="sub-submenu" :class="{ open: isGroupOpen(l2.id) }" :style="{ maxHeight: isGroupOpen(l2.id) ? '800px' : '0' }">
-                      <div v-for="l3 in l2.children" :key="l3.id" 
-                           class="sub-submenu-item" 
-                           :class="{ active: activeLeafId === l3.id }" 
-                           role="button" tabindex="0"
-                           @click="selectLeaf(l3, l2, l1)" @keydown.enter="selectLeaf(l3, l2, l1)">
+                      <a v-for="l3 in l2.children" :key="l3.id"
+                           class="sub-submenu-item"
+                           :class="{ active: activeLeafId === l3.id }"
+                           :href="leafHref(l3, l2, l1)" tabindex="0"
+                           @click="onLeafClick($event, l3, l2, l1)" @keydown.enter="selectLeaf(l3, l2, l1)">
                         {{ l3.title }}
-                      </div>
+                      </a>
                     </div>
                   </template>
                   <!-- Level 2 as Leaf -->
                   <template v-else>
-                    <div class="submenu-item" :class="{ active: activeLeafId === l2.id }" role="button" tabindex="0" @click="selectLeaf(l2, l1, null)" @keydown.enter="selectLeaf(l2, l1, null)">
+                    <a class="submenu-item" :class="{ active: activeLeafId === l2.id }" :href="leafHref(l2, l1, null)" tabindex="0" @click="onLeafClick($event, l2, l1, null)" @keydown.enter="selectLeaf(l2, l1, null)">
                       {{ l2.title }}
-                    </div>
+                    </a>
                   </template>
                 </template>
               </div>
             </template>
             <!-- Level 1 as Leaf -->
             <template v-else>
-              <div class="nav-item" :class="{ active: activeLeafId === l1.id }" role="button" tabindex="0" @click="selectLeaf(l1, null, null)" @keydown.enter="selectLeaf(l1, null, null)">
+              <a class="nav-item" :class="{ active: activeLeafId === l1.id }" :href="leafHref(l1, null, null)" tabindex="0" @click="onLeafClick($event, l1, null, null)" @keydown.enter="selectLeaf(l1, null, null)">
                 <MenuIcon :name="l1.icon || 'calendar'" />
                 <span class="label">{{ l1.title }}</span>
                 <div class="tooltip-tip">{{ l1.title }}</div>
-              </div>
+              </a>
             </template>
           </template>
-        </div>
-
-        <div class="sidebar-footer">
-          <div class="nav-item" role="button" tabindex="0" @click="toggleTheme" @keydown.enter="toggleTheme">
-            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
-              {{ currentThemeIndex === 1 ? '🌙' : currentThemeIndex === 2 ? '⬛' : '☀️' }}
-            </div>
-            <span class="label">Changer de Thème</span>
-            <div class="tooltip-tip">Changer le thème</div>
-          </div>
-          <div class="nav-item" role="button" tabindex="0" @click="goToDatabaseSelection" @keydown.enter="goToDatabaseSelection" title="Changer de base de données">
-            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
-              🗄️
-            </div>
-            <span class="label">{{ currentDatabase || 'Base inconnue' }}</span>
-            <a
-              v-if="whoAmI?.is_admin"
-              href="/admin"
-              class="admin-link"
-              title="Console d'administration"
-              @click.stop
-            >⚙️</a>
-            <div class="tooltip-tip">Changer de base de données ({{ currentDatabase }})</div>
-          </div>
-          <a href="/password-change" class="nav-item" title="Changer mon mot de passe">
-            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
-              🔑
-            </div>
-            <span class="label">Changer mon mot de passe</span>
-            <div class="tooltip-tip">Changer mon mot de passe</div>
-          </a>
-          <div class="nav-item" role="button" tabindex="0" @click="logout" @keydown.enter="logout">
-            <div style="display:flex; align-items:center; justify-content:center; width: 18px; height: 18px; font-size: 14px; flex-shrink: 0;">
-              🚪
-            </div>
-            <div class="label-stack">
-              <span class="label">Se déconnecter</span>
-              <span v-if="whoAmI" class="label-sub">{{ whoAmI.display_name }}</span>
-            </div>
-            <div class="tooltip-tip">Se déconnecter{{ whoAmI ? ` (${whoAmI.display_name})` : '' }}</div>
-          </div>
         </div>
       </div>
     </div>
@@ -115,19 +74,21 @@
             <div class="mini-popup-item" style="font-weight:500;color:var(--text-primary);cursor:default;gap:4px">
               <span style="opacity:.4;font-size:10px">▸</span> {{ l2.title }}
             </div>
-            <div v-for="l3 in l2.children" :key="l3.id"
-                 class="mini-popup-item mini-popup-subitem" 
+            <a v-for="l3 in l2.children" :key="l3.id"
+                 class="mini-popup-item mini-popup-subitem"
                  :class="{ active: activeLeafId === l3.id }"
-                 @click="selectLeaf(l3, l2, activePopupNode)">
+                 :href="leafHref(l3, l2, activePopupNode)"
+                 @click="onLeafClick($event, l3, l2, activePopupNode)">
               {{ l3.title }}
-            </div>
+            </a>
           </template>
           <template v-else>
-            <div class="mini-popup-item" 
+            <a class="mini-popup-item"
                  :class="{ active: activeLeafId === l2.id }"
-                 @click="selectLeaf(l2, activePopupNode, null)">
+                 :href="leafHref(l2, activePopupNode, null)"
+                 @click="onLeafClick($event, l2, activePopupNode, null)">
               {{ l2.title }}
-            </div>
+            </a>
           </template>
         </template>
       </div>
@@ -144,6 +105,40 @@
             </span>
           </template>
         </span>
+
+        <!-- Actions globales (thème, base, utilisateur) — anciennement en bas de la sidebar
+             (.sidebar-footer), remontées ici pour rester visibles même sidebar repliée, et
+             volontairement compactes : seule une icône pour le thème, seul le nom pour
+             l'utilisateur (déconnexion/mot de passe regroupés dans son menu déroulant). -->
+        <div class="topbar-actions">
+          <button type="button" class="topbar-icon-btn" @click="toggleTheme" title="Changer le thème">
+            {{ currentThemeIndex === 1 ? '🌙' : currentThemeIndex === 2 ? '⬛' : '☀️' }}
+          </button>
+          <button
+            type="button"
+            class="topbar-db-btn"
+            @click="goToDatabaseSelection"
+            :title="`Changer de base de données (${currentDatabase})`"
+          >
+            <span class="topbar-icon">🗄️</span>
+            <span class="topbar-db-label">{{ currentDatabase || 'Base inconnue' }}</span>
+          </button>
+          <a v-if="whoAmI?.is_admin" href="/admin" class="topbar-icon-btn topbar-admin-link" title="Console d'administration">⚙️</a>
+          <div class="topbar-user-wrapper" ref="userMenuRef">
+            <button type="button" class="topbar-user-btn" @click="showUserMenu = !showUserMenu">
+              <span class="topbar-user-name">{{ whoAmI?.display_name || '…' }}</span>
+              <svg class="topbar-user-chevron" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div v-if="showUserMenu" class="topbar-user-menu">
+              <a href="/password-change" class="topbar-user-menu-item">
+                <span class="topbar-icon">🔑</span> Changer mon mot de passe
+              </a>
+              <button type="button" class="topbar-user-menu-item" @click="logout">
+                <span class="topbar-icon">🚪</span> Se déconnecter
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="content">
         <SplitPanel 
@@ -213,6 +208,11 @@ const currentDatabase = ref(getSelectedDatabase());
 // jamais bloquer le reste de l'IHM, `whoAmI` reste simplement `null` (les éléments qui en dépendent
 // ne s'affichent pas, comportement identique à avant l'ajout de cet appel).
 const whoAmI = ref<{ display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean } | null>(null);
+
+// Menu déroulant du bloc utilisateur (barre du haut) — déconnexion + changement de mot de passe,
+// voir onDocClick pour la fermeture au clic extérieur.
+const showUserMenu = ref(false);
+const userMenuRef = ref<HTMLElement | null>(null);
 
 function goToDatabaseSelection() {
   clearSelectedDatabase();
@@ -305,6 +305,30 @@ function isGroupOpen(id: string) {
   return openGroupIds.value.has(id);
 }
 
+// URL réelle d'une feuille (même construction que le pathIds émis par selectLeaf ci-dessous, voir
+// urlState.ts::buildUrl côté App.vue pour le format complet incluant l'état de liste — ici on ne
+// veut que le chemin, pas cet état transitoire) — pose un vrai `href` sur chaque entrée navigable
+// du menu pour que le clic droit du navigateur propose nativement "Ouvrir le lien dans un nouvel
+// onglet"/"Copier le lien". `undefined` pour une feuille "action" (wizard) : elle ne correspond à
+// aucune page réelle, un clic droit dessus ne doit rien proposer de plus qu'avant.
+function leafHref(leaf: NotebookNode, parent?: NotebookNode | null, grandParent?: NotebookNode | null): string | undefined {
+  if (leaf.action) return undefined;
+  const pathIds = [grandParent?.id, parent?.id, leaf.id].filter((id): id is string => !!id);
+  return '/' + pathIds.join('/');
+}
+
+// Gestionnaire de clic sur une feuille devenue un vrai <a href> (voir leafHref) : un clic gauche
+// simple continue de naviguer via l'état réactif interne (SPA, aucun rechargement de page) — seul
+// un Ctrl/Cmd/Maj+clic est laissé au navigateur (ouverture native en nouvel onglet/fenêtre). Le
+// clic milieu n'a besoin d'aucun traitement particulier : il déclenche `auxclick`, jamais `click`,
+// donc ce gestionnaire ne s'exécute même pas pour lui — le navigateur ouvre déjà nativement le
+// `href` dans un nouvel onglet.
+function onLeafClick(event: MouseEvent, leaf: NotebookNode, parent?: NotebookNode | null, grandParent?: NotebookNode | null) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+  event.preventDefault();
+  selectLeaf(leaf, parent, grandParent);
+}
+
 function selectLeaf(leaf: NotebookNode, parent?: NotebookNode | null, grandParent?: NotebookNode | null) {
   if (leaf.action) {
     // Ne touche ni activeLeafId ni activeLeafNode : le contenu déjà affiché reste tel quel
@@ -312,6 +336,20 @@ function selectLeaf(leaf: NotebookNode, parent?: NotebookNode | null, grandParen
     activePopupNode.value = null;
     emit('trigger-action', leaf.action);
     return;
+  }
+
+  // Replie toutes les branches de PREMIER NIVEAU (l1) qui ne sont pas celle de la feuille cliquée —
+  // sans jamais toucher aux ids de niveau 2 (openGroupIds est un Set PARTAGÉ entre les deux niveaux,
+  // voir toggleGroup/toggleSubGroup) : l'état "ouvert" qu'un utilisateur a déjà construit à
+  // l'intérieur d'une branche, même une autre que celle-ci, reste intact et réapparaît tel quel s'il
+  // y revient plus tard — seule la visibilité de la branche elle-même change, pas ce qu'elle
+  // contient.
+  const activeL1Id = grandParent?.id ?? parent?.id ?? leaf.id;
+  const l1Ids = new Set(config.value.map(n => n.id));
+  for (const id of openGroupIds.value) {
+    if (l1Ids.has(id) && id !== activeL1Id) {
+      openGroupIds.value.delete(id);
+    }
   }
 
   activeLeafId.value = leaf.id;
@@ -367,6 +405,9 @@ function onDocClick(e: Event) {
   const target = e.target as HTMLElement;
   if (!target.closest('.mini-popup') && !target.closest('.nav-group-header')) {
     activePopupNode.value = null;
+  }
+  if (!target.closest('.topbar-user-wrapper')) {
+    showUserMenu.value = false;
   }
 }
 
@@ -462,24 +503,17 @@ onUnmounted(() => {
 .sidebar-body::-webkit-scrollbar { width: 6px; }
 .sidebar-body::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
 
-.nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; color: var(--text-secondary); font-size: 14px; white-space: nowrap; position: relative; transition: background 0.12s; user-select: none; }
+/* .nav-item, .submenu-item, .sub-submenu-item et .mini-popup-item sont maintenant de vrais <a href>
+   (voir leafHref/onLeafClick, script) — sans cette ligne, ils hériteraient du soulignement/couleur
+   par défaut du navigateur pour un lien, jamais nécessaire ici puisque la couleur est déjà pilotée
+   explicitement par ces mêmes règles. */
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; color: var(--text-secondary); font-size: 14px; white-space: nowrap; position: relative; transition: background 0.12s; user-select: none; text-decoration: none; }
 .nav-item:hover { background: var(--bg-surface); color: var(--text-primary); }
 .nav-item.active { background: rgba(59, 130, 246, 0.1); color: var(--accent-primary); font-weight: 500; }
 .nav-item .label { flex: 1; }
 .sidebar.collapsed .nav-item .label { opacity: 0; width: 0; }
 .sidebar.collapsed .nav-item { padding: 10px; justify-content: center; }
 .sidebar.collapsed .nav-item.active::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; background: var(--accent-primary); border-radius: 0 3px 3px 0; }
-
-/* Bouton de déconnexion : nom+libellé sur deux lignes (voir architecture.md §19, ui_endpoints.py::whoami) */
-.label-stack { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-.label-stack .label { line-height: 1.25; }
-.label-sub { font-size: 11px; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar.collapsed .label-stack { opacity: 0; width: 0; }
-
-/* Lien vers la console d'administration, affiché uniquement pour un admin (voir §19) */
-.admin-link { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--text-muted); text-decoration: none; font-size: 12px; }
-.admin-link:hover { background: var(--bg-card); color: var(--accent-primary); }
-.sidebar.collapsed .admin-link { display: none; }
 
 .tooltip-tip { position: absolute; left: 60px; top: 50%; transform: translateY(-50%); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 4px 10px; font-size: 13px; color: var(--text-primary); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.12s; z-index: 300; box-shadow: var(--shadow-md); }
 .sidebar.collapsed .nav-item:hover .tooltip-tip { opacity: 1; }
@@ -502,7 +536,7 @@ onUnmounted(() => {
 .sidebar.collapsed .submenu { display: none !important; }
 
 /* ── NIVEAU 2 : SUBMENU-ITEM ── */
-.submenu-item { display: flex; align-items: center; padding: 8px 14px 8px 44px; cursor: pointer; color: var(--text-secondary); font-size: 13.5px; white-space: nowrap; transition: background 0.12s; position: relative; user-select: none; }
+.submenu-item { display: flex; align-items: center; padding: 8px 14px 8px 44px; cursor: pointer; color: var(--text-secondary); font-size: 13.5px; white-space: nowrap; transition: background 0.12s; position: relative; user-select: none; text-decoration: none; }
 .submenu-item:hover { background: var(--bg-surface); color: var(--text-primary); }
 .submenu-item.active { color: var(--accent-primary); font-weight: 500; background: rgba(59, 130, 246, 0.05); }
 .submenu-item::before { content: ''; position: absolute; left: 28px; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: currentColor; transform: translateY(-50%); opacity: 0.4; }
@@ -517,7 +551,7 @@ onUnmounted(() => {
 /* ── NIVEAU 3 : SUB-SUBMENU ── */
 .sub-submenu { overflow: hidden; transition: max-height 0.2s cubic-bezier(.4,0,.2,1); background: rgba(0, 0, 0, 0.04); }
 
-.sub-submenu-item { display: flex; align-items: center; padding: 7px 14px 7px 60px; cursor: pointer; color: var(--text-muted); font-size: 13px; white-space: nowrap; transition: background 0.1s; position: relative; }
+.sub-submenu-item { display: flex; align-items: center; padding: 7px 14px 7px 60px; cursor: pointer; color: var(--text-muted); font-size: 13px; white-space: nowrap; transition: background 0.1s; position: relative; text-decoration: none; }
 .sub-submenu-item:hover { background: var(--bg-surface); color: var(--text-primary); }
 .sub-submenu-item.active { color: var(--accent-primary); font-weight: 500; background: rgba(59, 130, 246, 0.08); }
 .sub-submenu-item::before { content: '–'; position: absolute; left: 44px; font-size: 10px; color: currentColor; opacity: 0.5; }
@@ -526,7 +560,7 @@ onUnmounted(() => {
 /* ── MINI POPUP (sidebar fermée) ── */
 .mini-popup { position: fixed; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 4px 0; z-index: 9999; min-width: 200px; }
 .mini-popup-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 7px 12px 5px; border-bottom: 1px solid var(--border-color); margin-bottom: 3px; }
-.mini-popup-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; color: var(--text-primary); font-size: 13px; white-space: nowrap; transition: background 0.1s; }
+.mini-popup-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; color: var(--text-primary); font-size: 13px; white-space: nowrap; transition: background 0.1s; text-decoration: none; }
 .mini-popup-item:hover { background: var(--bg-surface); }
 .mini-popup-item.active { color: var(--accent-primary); font-weight: 500; }
 .mini-popup-item::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.4; flex-shrink: 0; }
@@ -534,13 +568,62 @@ onUnmounted(() => {
 .mini-popup-subitem { padding-left: 22px; font-size: 12.5px; color: var(--text-secondary); }
 .mini-popup-subitem:hover { background: var(--bg-surface); color: var(--accent-primary); }
 
-/* ── FOOTER ── */
-.sidebar-footer { border-top: 1px solid var(--border-color); padding: 8px 0; flex-shrink: 0; }
-
 /* ── MAIN ── */
-.topbar { background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); height: 44px; display: flex; align-items: center; padding: 0 20px; flex-shrink: 0; }
+.topbar { background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; flex-shrink: 0; }
 .topbar-title { font-size: 15px; font-weight: 500; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
 .breadcrumb-segment { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); }
+
+/* ── ACTIONS GLOBALES (barre du haut) — thème, base de données, utilisateur ── */
+.topbar-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.topbar-icon { display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+
+.topbar-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-md);
+  color: var(--text-secondary); font-size: 14px; cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+.topbar-icon-btn:hover { background: var(--bg-surface); border-color: var(--border-color); }
+
+.topbar-db-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 10px; height: 30px;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-md);
+  color: var(--text-secondary); font-size: 12.5px; font-weight: 500; cursor: pointer;
+  white-space: nowrap; max-width: 160px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.topbar-db-btn:hover { background: var(--bg-surface); border-color: var(--border-color); }
+.topbar-db-label { overflow: hidden; text-overflow: ellipsis; }
+
+.topbar-user-wrapper { position: relative; }
+.topbar-user-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 10px; height: 30px;
+  background: transparent; border: 1px solid var(--border-color); border-radius: var(--radius-full);
+  color: var(--text-primary); font-size: 12.5px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; max-width: 160px;
+  transition: background 0.12s;
+}
+.topbar-user-btn:hover { background: var(--bg-surface); }
+.topbar-user-name { overflow: hidden; text-overflow: ellipsis; }
+.topbar-user-chevron { width: 12px; height: 12px; stroke: currentColor; flex-shrink: 0; opacity: 0.6; }
+
+.topbar-user-menu {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  min-width: 210px;
+  background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg); z-index: 300; padding: 4px; display: flex; flex-direction: column; gap: 2px;
+}
+.topbar-user-menu-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border: none; background: transparent; border-radius: var(--radius-sm);
+  color: var(--text-primary); font-size: 13px; text-align: left; text-decoration: none; cursor: pointer;
+  width: 100%;
+}
+.topbar-user-menu-item:hover { background: var(--bg-surface); }
 .breadcrumb-segment .icon { width: 16px; height: 16px; }
 .breadcrumb-last { color: var(--text-primary); font-weight: 600; }
 .breadcrumb-sep { color: var(--text-muted); font-size: 13px; opacity: 0.5; margin: 0 2px; }
