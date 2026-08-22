@@ -1405,6 +1405,55 @@ Un premier correctif (exclure ces champs du payload de soumission) a été écar
 
 **Ce que ça garantit** : un futur champ "pièce jointe" quelconque (PDF, tableur...) réutilise `type: "binary"` sans rien écrire de nouveau ; seul un besoin d'aperçu visuel spécifique justifierait un nouveau widget dans le registre, sur le modèle d'`ImageField.vue`.
 
+**Capture par la webcam (`WebcamCaptureModal.vue`)** — le widget `image` propose, à côté de
+« Parcourir… », un bouton **📷 Photo** qui ouvre la webcam et produit directement une **photo
+d'identité**, pas une capture brute à recadrer ensuite :
+
+- **Format** : 35 × 45 mm (norme ISO/IEC 19794-5, reprise pour les titres d'identité français et
+  européens), soit un ratio largeur/hauteur de 35/45 et une image de 350 × 450 px — 250 dpi à la
+  taille réelle, largement au-delà d'une impression de trombinoscope, pour quelques dizaines de Ko
+  de JPEG. Paramétrable sans code par `widgetParams` : `photoRatio` et `photoWidth`.
+- **Gabarit** : une ellipse de placement du visage, l'extérieur assombri par un masque SVG, et deux
+  repères marquant le sommet du crâne et le menton. Ces repères ne sont pas décoratifs : c'est la
+  hauteur du visage (32 à 36 mm sur 45) qui fait accepter ou refuser une photo au guichet, autant
+  que son centrage.
+- **Le cadre affiché EST la découpe** : la scène porte le ratio cible en CSS et la vidéo la remplit
+  en `cover`, ce qui est la traduction visuelle exacte de `computeCropRect` (plus grand rectangle au
+  bon ratio, centré). Les deux doivent le rester — sinon l'utilisateur cadre son visage sur un
+  repère qui ment. Cette géométrie est isolée dans `photoCrop.ts`, une fonction pure testée
+  (`photoCrop.test.ts`), précisément parce que c'est la seule partie qui puisse être fausse en
+  silence : un `<video>` ne se teste pas en jsdom.
+- **Aucun effet miroir**, ni au cadrage ni à la capture. L'inversion horizontale de l'aperçu est
+  pourtant l'usage courant (on se cadre plus naturellement en se voyant comme dans une glace), et
+  c'était le premier choix — retiré après essai réel : `drawImage` lit les pixels du flux et ignore
+  toute transformation CSS, la photo n'est donc jamais inversée. L'image « sautait » au moment du
+  déclenchement, ce que l'utilisateur lit comme un défaut plutôt que comme un choix. Cadrage et
+  résultat sont désormais identiques. ⚠️ Ne pas réintroduire le miroir sur la vidéo seule : une
+  photo d'identité inversée est non conforme, et tout texte à l'image y serait illisible.
+- **Contrôle avant validation** : la photo prise s'affiche, avec *Reprendre* / *Utiliser cette
+  photo*. Le flux est coupé dès la capture et à la fermeture — un flux laissé ouvert garde la webcam
+  allumée, témoin lumineux compris.
+- ⚠️ **`getUserMedia` exige un contexte sécurisé** (https, ou `localhost` en développement) : sur une
+  instance servie en http clair, le navigateur ne l'expose pas du tout. Le message d'erreur le dit
+  explicitement et renvoie vers « Parcourir… », plutôt que de laisser un bouton sans effet. Une
+  raison de plus de terminer le HTTPS en production (§20.C).
+
+**Aperçu au ratio réel de l'image stockée** — l'aperçu prend ses proportions de l'image chargée
+(`naturalWidth`/`naturalHeight`), pas d'un format supposé : une photo d'identité s'affiche en 35/45,
+une image panoramique en panoramique. Deux pièges, tous deux invisibles à la relecture et trouvés en
+mesurant la boîte rendue dans le navigateur :
+
+1. le conteneur est un flex en colonne, dont l'`align-items: stretch` par défaut impose sa pleine
+   largeur à l'image et écrase le `width: auto` (boîte au ratio 2,03 pour une image à 0,78) — d'où
+   `align-self: flex-start` ;
+2. une `height` fixe convient à une photo plus haute que large, mais donne une boîte au ratio 2,03
+   pour une image au ratio 4 dès que `max-width` s'applique — d'où **deux plafonds**
+   (`max-height`/`max-width`) et aucune dimension imposée.
+
+`object-fit: contain` reste en filet de sécurité : mieux vaut une bande vide qu'un visage rogné —
+mais il masquait justement le défaut, l'image n'étant jamais déformée, seulement flottante au milieu
+de sa boîte.
+
 ### R. Cascade entre Champs FK d'un Même Formulaire : Pré-remplissage (`@onchange` + session BDD) et Filtrage d'Options (`dynamicOptionsFilter`, à la Odoo)
 
 **Le besoin** : sur le formulaire Enseignant, saisir un code postal doit filtrer la liste déroulante des villes à celles qui le portent, et sélectionner une ville doit pré-remplir automatiquement le pays — deux besoins de cascade entre champs FK d'un même formulaire, jamais rencontrés jusqu'ici dans le moteur générique, et à traiter différemment : le premier filtre une **liste d'options**, le second pré-remplit une **valeur**.

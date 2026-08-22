@@ -64,7 +64,7 @@ flowchart TD
 
 - **Import descendant** (`sts_emp_<RNE>_<ANNEE>.xml`) : classes, groupes, enseignants, MEF...
   récupérés depuis STS-web via l'assistant d'import (voir
-  [chef_etablissement_doc.md §5.5](chef_etablissement_doc.md#55-import-sts-web)).
+  [chef_etablissement_doc.md §5.1](chef_etablissement_doc.md#51-importer-depuis-sts-web-recommandé)).
 - **Export montant** (`emp_sts_<RNE>_<ANNEE>.xml`) : groupes, affectations d'élèves et emploi du
   temps renvoyés vers STS-web.
 - Ces échanges sont des **fichiers XML transmis par l'utilisateur** (dépôt/téléchargement manuel
@@ -423,7 +423,7 @@ super-admin instance-wide).
 1. La personne se connecte **une première fois normalement**, via ce fournisseur, sur n'importe
    quelle base où elle a (ou obtient) un compte — son identité OIDC est alors enregistrée.
 2. Un admin de cette base consulte **Paramètres > Comptes & droits > Connexions**
-   (voir [chef_etablissement_doc.md §6.3](chef_etablissement_doc.md#63-comptes--droits)) et relève
+   (voir [chef_etablissement_doc.md §10.1](chef_etablissement_doc.md#101-comptes--droits)) et relève
    la valeur `external_subject` de la ligne correspondant à cette personne et à ce fournisseur.
 3. Ajouter la paire dans `instance.yaml` :
    ```yaml
