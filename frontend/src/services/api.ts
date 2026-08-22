@@ -168,7 +168,7 @@ export async function fetchMenus(): Promise<any> {
 
 // Identité de l'utilisateur connecté sur la base courante + statut admin (super-admin d'instance OU
 // membre du groupe "Admin" DANS cette base) — voir architecture.md §19, ui_endpoints.py::whoami.
-export async function fetchWhoAmI(): Promise<{ display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean; max_upload_mb: number }> {
+export async function fetchWhoAmI(): Promise<{ id: number; display_name: string; email: string | null; is_admin: boolean; must_change_password: boolean; max_upload_mb: number }> {
   const response = await apiFetch('/api/ui/whoami');
   if (!response.ok) {
     throw new Error("Erreur lors de la récupération de l'identité connectée");
@@ -176,6 +176,15 @@ export async function fetchWhoAmI(): Promise<{ display_name: string; email: stri
   const data = await response.json();
   setMaxUploadMb(data.max_upload_mb);
   return data;
+}
+
+// Wrapper partagé au niveau module : NotebooksTree.vue ET chaque GenericList.vue (icône poubelle
+// des filtres personnalisés, voir CustomFilter côté backend) ont besoin de cette identité — un seul
+// appel réseau pour toute la session plutôt qu'un par consommateur.
+let whoAmIPromise: ReturnType<typeof fetchWhoAmI> | null = null;
+export function fetchWhoAmICached() {
+  if (!whoAmIPromise) whoAmIPromise = fetchWhoAmI();
+  return whoAmIPromise;
 }
 
 // ==========================================

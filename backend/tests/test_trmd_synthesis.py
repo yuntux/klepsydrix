@@ -9,6 +9,7 @@ from backend.app.models import (
     School, Discipline, Subject, Mef, MefDivision, Division, Teacher, TeacherDiscipline,
     TeacherAra, RefAra, TeacherOtherSchool, RefExternalSchool, TeacherParticularMission,
     RefParticularMission, SystemSetting, Service, ServiceRepartition, RefGrade,
+    RefWeightingCoefficient,
 )
 from backend.app.models.mef import MefService
 from backend.app.models.trmd_synthesis import TrmdLine
@@ -16,6 +17,13 @@ from backend.tests.db_test_utils import make_test_engine
 
 test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+def _weighting_id(db, value):
+    """Id de la ligne de référence portant cette valeur, créée au besoin (voir test_service.py,
+    même helper — la conformité STS n'entre pas en jeu ici)."""
+    existing = db.query(RefWeightingCoefficient).filter(RefWeightingCoefficient.weighting_coefficient == value).first()
+    return existing.id if existing else RefWeightingCoefficient.create(db, {"weighting_coefficient": value}).id
 
 
 @pytest.fixture
@@ -52,7 +60,7 @@ def _make_teacher(db, school, code, discipline, discipline_minutes=1020, is_temp
 class TestTrmdLineNeeds:
     def test_need_raw_and_weighted_sum_service_repartitions_of_the_discipline(self, db_session):
         school, discipline, subject, mef, division, mef_division, mef_service, service = _base_setup(db_session)
-        service.update(db_session, {"weighting_coefficient": 1.5, "weekly_duration_full_class_minutes": 120})
+        service.update(db_session, {"weighting_coefficient_id": _weighting_id(db_session, 1.5), "weekly_duration_full_class_minutes": 120})
 
         lines = TrmdLine.read(db_session)
         line = next(l for l in lines if l.discipline_id == discipline.id)

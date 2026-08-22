@@ -7,18 +7,39 @@
  * mais impuissant invite à cliquer pour rien, et laisse croire à une panne plutôt qu'à une
  * situation attendue dont le message d'erreur explique déjà la sortie.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mount, DOMWrapper } from '@vue/test-utils';
 import WebcamCaptureModal from './WebcamCaptureModal.vue';
+
+// Chaque wrapper monté est démonté ici (voir fenetre() ci-dessous) : depuis que BaseModal.vue
+// téléporte vers <body>, un wrapper non démonté y laisserait son DOM traîner d'un test à l'autre —
+// `document.body` est partagé par toute la suite, contrairement à la racine détachée qu'utilisait
+// chaque wrapper avant l'introduction du Teleport.
+const wrappersOuverts: ReturnType<typeof mount>[] = [];
+afterEach(() => {
+  wrappersOuverts.splice(0).forEach(w => w.unmount());
+});
 
 /** Ouvre la fenêtre comme le fait le widget : montée fermée, puis ouverte (c'est ce passage qui
  * déclenche l'accès à la caméra). */
 async function ouvrir() {
   const w = mount(WebcamCaptureModal, { props: { modelValue: false } });
+  wrappersOuverts.push(w);
   await w.setProps({ modelValue: true });
   await new Promise(r => setTimeout(r, 0));   // laisse start() se dérouler
   await w.vm.$nextTick();
   return w;
+}
+
+/** BaseModal.vue téléporte son contenu vers <body> (voir son commentaire, ajouté pour ne plus être
+ * rogné par un ancêtre à bloc de confinement, ex: .generic-list-container en backdrop-filter) : le
+ * DOM de la fenêtre n'est donc plus un descendant de la racine montée par `mount()`, et
+ * `wrapper.find()` — qui ne cherche que dans CETTE racine — ne le trouve plus. `findAllComponents`
+ * n'est pas affecté (il suit les instances de composants Vue, pas la position réelle dans le DOM),
+ * d'où `libelles()` qui continue de fonctionner tel quel ; seules les recherches par sélecteur CSS
+ * brut sur le contenu de la fenêtre doivent repartir de `document.body`. */
+function fenetre() {
+  return new DOMWrapper(document.body);
 }
 
 function libelles(w: any) {
@@ -45,8 +66,8 @@ describe('WebcamCaptureModal — webcam hors de portée', () => {
   });
 
   it('explique que la connexion doit être sécurisée', async () => {
-    const w = await ouvrir();
-    expect(w.find('.capture-error').text()).toContain('sécurisée');
+    await ouvrir();
+    expect(fenetre().find('.capture-error').text()).toContain('sécurisée');
   });
 
   it('ne propose que le bouton Annuler', async () => {
@@ -55,9 +76,9 @@ describe('WebcamCaptureModal — webcam hors de portée', () => {
   });
 
   it('ne propose pas non plus la scène vidéo', async () => {
-    const w = await ouvrir();
+    await ouvrir();
     // v-show : l'élément existe mais reste masqué tant qu'il n'y a rien à filmer.
-    expect(w.find('.capture-stage').attributes('style')).toContain('display: none');
+    expect(fenetre().find('.capture-stage').attributes('style')).toContain('display: none');
   });
 
   it('signale un refus d\'autorisation autrement qu\'une absence de matériel', async () => {
@@ -67,7 +88,7 @@ describe('WebcamCaptureModal — webcam hors de portée', () => {
     });
     const w = await ouvrir();
 
-    expect(w.find('.capture-error').text()).toContain('refusé');
+    expect(fenetre().find('.capture-error').text()).toContain('refusé');
     expect(libelles(w)).toEqual(['Annuler']);
   });
 });
@@ -83,7 +104,7 @@ describe('WebcamCaptureModal — webcam disponible', () => {
   it('propose la capture, sans message d\'erreur', async () => {
     const w = await ouvrir();
 
-    expect(w.find('.capture-error').exists()).toBe(false);
+    expect(fenetre().find('.capture-error').exists()).toBe(false);
     expect(libelles(w)).toEqual(['Annuler', 'Prendre la photo']);
   });
 

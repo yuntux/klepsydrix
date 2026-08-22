@@ -14,6 +14,7 @@ from backend.app.models.base import Base
 from backend.app.models import (
     School, SystemSetting, Discipline, Subject, Mef, Division, Teacher, Modality,
     Holidays, WeekCalendar, Alternation, Timeslot, Course, Group, Partition, ClassPart,
+    RefElectionMethod, RefWeightingCoefficient,
 )
 from backend.app.models.mef import MefDivision
 from backend.app.models.teacher import TeacherDiscipline
@@ -29,6 +30,31 @@ test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
+def _seed_compliant(db, model, **vals):
+    """
+    Insère une ligne de référence CONFORME (`is_sts_compliant=True`) en contournant
+    StsComplianceMixin — exactement comme le fait le seed brut de init_db.py (un INSERT qui ne
+    passe pas par create(), voir receive_before_insert). L'API refuse explicitement ce booléen à
+    la création (voir StsComplianceMixin.create) : c'est le seul moyen de l'atteindre en test.
+    """
+    instance = model(**vals, is_sts_compliant=True)
+    instance._via_crud_mixin_create = True
+    db.add(instance)
+    db.flush()
+    return instance
+
+
+def _weighting_id(db, value):
+    """
+    Id de la ligne de référence portant cette valeur, créée au besoin — NON conforme par défaut
+    (`RefWeightingCoefficient.create`, l'API ordinaire), à la différence des six valeurs seedées
+    par la fixture ci-dessous. Utiliser `_seed_compliant` directement quand un test a précisément
+    besoin d'une valeur conforme inédite.
+    """
+    existing = db.query(RefWeightingCoefficient).filter(RefWeightingCoefficient.weighting_coefficient == value).first()
+    return existing.id if existing else RefWeightingCoefficient.create(db, {"weighting_coefficient": value}).id
+
+
 @pytest.fixture
 def db_session():
     Base.metadata.create_all(bind=test_engine)
@@ -36,7 +62,12 @@ def db_session():
     try:
         SystemSetting.create(db, {"key": "STANDARD_TIMESLOT_DURATION", "value": "30"})
         SystemSetting.create(db, {"key": "SCHOOL_YEAR", "value": "2026"})
-        Modality.create(db, {"code": "CG", "name": "COURS", "long_name": "COURS GENERAL"})
+        # CG (id=1) et 1.00/0.25/0.5/0.75/1.25/1.5 : mêmes valeurs, même ORDRE (donc mêmes id) que
+        # le seed réel de init_db.py — pour que les défauts de Course (modality_id=1,
+        # weighting_coefficient_id=1) tombent sur des lignes CONFORMES.
+        _seed_compliant(db, Modality, code="CG", name="COURS", long_name="COURS GENERAL")
+        for valeur in (1.00, 0.25, 0.5, 0.75, 1.25, 1.5):
+            _seed_compliant(db, RefWeightingCoefficient, weighting_coefficient=valeur)
         School.create(db, {
             "uai": "0750001A", "name": "Collège",
             "student_start_date": datetime.date(2026, 9, 2),
@@ -179,7 +210,8 @@ class TestExclusionsTroisNiveaux:
         """STS-web ignore les cours de pondération 0 : autant le dire avant plutôt que de laisser
         le cours disparaître en silence à l'arrivée."""
         ctx = _contexte(db_session)
-        ctx["course"].update(db_session, {"weighting_coefficient": 0})
+        zero_id = _weighting_id(db_session, 0)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": zero_id})
         assert ctx["course"].is_exported_to_sts is False
 
     def test_un_cours_exclu_n_est_ni_audite_ni_exporte(self, db_session):
@@ -192,31 +224,34 @@ class TestExclusionsTroisNiveaux:
 class TestPonderationParIntervenant:
     def test_repli_sur_la_ponderation_du_cours(self, db_session):
         ctx = _contexte(db_session)
-        ctx["course"].update(db_session, {"weighting_coefficient": 1.1})
-        assert ctx["course"].weighting_for(ctx["teacher"].id) == 1.1
+        id_1_25 = _weighting_id(db_session, 1.25)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": id_1_25})
+        assert ctx["course"].weighting_for(ctx["teacher"].id) == 1.25
         assert ctx["course"].has_heterogeneous_weighting is False
 
     def test_exception_par_intervenant(self, db_session):
         from backend.app.models.course_teacher import CourseTeacherWeighting
         ctx = _contexte(db_session)
+        id_1_25 = _weighting_id(db_session, 1.25)
         autre = Teacher.create(db_session, {"code": "T2", "last_name": "PETIT", "school_id": ctx["school"].id, "epp_id": "8950"})
         TeacherDiscipline.create(db_session, {"teacher_id": autre.id, "discipline_id": db_session.query(Discipline).first().id})
         ctx["course"].update(db_session, {"teacher_ids": [ctx["teacher"].id, autre.id], "is_co_teaching": True})
         CourseTeacherWeighting.create(db_session, {
-            "course_id": ctx["course"].id, "teacher_id": autre.id, "weighting_coefficient": 1.1,
+            "course_id": ctx["course"].id, "teacher_id": autre.id, "weighting_coefficient_id": id_1_25,
         })
-        assert ctx["course"].weighting_for(autre.id) == 1.1
+        assert ctx["course"].weighting_for(autre.id) == 1.25
         assert ctx["course"].weighting_for(ctx["teacher"].id) == 1.0
         assert ctx["course"].has_heterogeneous_weighting is True
 
     def test_heterogeneite_signalee_en_avertissement(self, db_session):
         from backend.app.models.course_teacher import CourseTeacherWeighting
         ctx = _contexte(db_session)
+        id_1_25 = _weighting_id(db_session, 1.25)
         autre = Teacher.create(db_session, {"code": "T2", "last_name": "PETIT", "school_id": ctx["school"].id, "epp_id": "8950"})
         TeacherDiscipline.create(db_session, {"teacher_id": autre.id, "discipline_id": db_session.query(Discipline).first().id})
         ctx["course"].update(db_session, {"teacher_ids": [ctx["teacher"].id, autre.id], "is_co_teaching": True})
         CourseTeacherWeighting.create(db_session, {
-            "course_id": ctx["course"].id, "teacher_id": autre.id, "weighting_coefficient": 1.1,
+            "course_id": ctx["course"].id, "teacher_id": autre.id, "weighting_coefficient_id": id_1_25,
         })
         anomalies = sts_audit.audit(db_session, ctx["school"])
         heterogene = [a for a in anomalies if a["code"] == "HETEROGENEOUS_WEIGHTING"]
@@ -226,11 +261,12 @@ class TestPonderationParIntervenant:
     def test_ponderer_un_enseignant_absent_du_cours_refuse(self, db_session):
         from backend.app.models.course_teacher import CourseTeacherWeighting
         ctx = _contexte(db_session)
+        id_1_25 = _weighting_id(db_session, 1.25)
         etranger = Teacher.create(db_session, {"code": "T9", "last_name": "AILLEURS", "school_id": ctx["school"].id})
         TeacherDiscipline.create(db_session, {"teacher_id": etranger.id, "discipline_id": db_session.query(Discipline).first().id})
         with pytest.raises(ValueError, match="n'intervient pas sur ce cours"):
             CourseTeacherWeighting.create(db_session, {
-                "course_id": ctx["course"].id, "teacher_id": etranger.id, "weighting_coefficient": 1.1,
+                "course_id": ctx["course"].id, "teacher_id": etranger.id, "weighting_coefficient_id": id_1_25,
             })
 
 
@@ -415,11 +451,12 @@ class TestWizard:
     def test_un_avertissement_laisse_passer(self, db_session):
         from backend.app.models.course_teacher import CourseTeacherWeighting
         ctx = _contexte(db_session)
+        id_1_25 = _weighting_id(db_session, 1.25)
         autre = Teacher.create(db_session, {"code": "T2", "last_name": "PETIT", "school_id": ctx["school"].id, "epp_id": "8950"})
         TeacherDiscipline.create(db_session, {"teacher_id": autre.id, "discipline_id": db_session.query(Discipline).first().id})
         ctx["course"].update(db_session, {"teacher_ids": [ctx["teacher"].id, autre.id], "is_co_teaching": True})
         CourseTeacherWeighting.create(db_session, {
-            "course_id": ctx["course"].id, "teacher_id": autre.id, "weighting_coefficient": 1.1,
+            "course_id": ctx["course"].id, "teacher_id": autre.id, "weighting_coefficient_id": id_1_25,
         })
         res = self._wizard().rpc_export(db_session, school_id=ctx["school"].id)
         assert res["export_file"]["data_base64"]
@@ -432,3 +469,133 @@ class TestWizard:
         ctx["course"].update(db_session, {"timeslot_id": None})
         with pytest.raises(ValueError, match="bloquante"):
             self._wizard().rpc_export(db_session, school_id=ctx["school"].id)
+
+
+class TestStsComplianceMixin:
+    """
+    `is_sts_compliant` — partagé par Modality, RefElectionMethod et RefWeightingCoefficient — ne
+    doit jamais être atteignable via l'API, ni à la création ni en modification, et une ligne
+    conforme ne doit jamais pouvoir être supprimée. Testé une seule fois sur Modality : les trois
+    modèles partagent le même mixin, sans logique propre à chacun.
+    """
+
+    def test_creation_refuse_is_sts_compliant_a_vrai(self, db_session):
+        with pytest.raises(ValueError, match="is_sts_compliant ne peut pas être fixé"):
+            Modality.create(db_session, {
+                "code": "XX", "name": "X", "long_name": "X", "is_sts_compliant": True,
+            })
+
+    def test_creation_accepte_labsence_ou_le_faux(self, db_session):
+        # Ni la clé absente, ni explicitement fausse, ne doivent être bloquées — seule une
+        # tentative de la faire passer à vrai l'est.
+        m1 = Modality.create(db_session, {"code": "X1", "name": "X1", "long_name": "X1"})
+        m2 = Modality.create(db_session, {"code": "X2", "name": "X2", "long_name": "X2", "is_sts_compliant": False})
+        assert m1.is_sts_compliant is False
+        assert m2.is_sts_compliant is False
+
+    def test_modification_refuse_un_changement_reel(self, db_session):
+        modalite = Modality.create(db_session, {"code": "X3", "name": "X3", "long_name": "X3"})
+        with pytest.raises(ValueError, match="jamais modifiable"):
+            modalite.update(db_session, {"is_sts_compliant": True})
+
+    def test_modification_accepte_une_valeur_identique(self, db_session):
+        """
+        Le piège que ce test verrouille : un formulaire réémet l'enregistrement complet à chaque
+        sauvegarde, y compris les champs en lecture seule non touchés — bloquer TOUTE présence de
+        la clé aurait rendu ces lignes de référence impossibles à modifier, ne serait-ce que pour
+        renommer un libellé.
+        """
+        modalite = Modality.create(db_session, {"code": "X4", "name": "X4", "long_name": "X4"})
+        modalite.update(db_session, {"name": "X4bis", "is_sts_compliant": False})
+        assert modalite.name == "X4bis"
+        assert modalite.is_sts_compliant is False
+
+    def test_conforme_ne_peut_pas_etre_supprimee(self, db_session):
+        conforme = _seed_compliant(db_session, Modality, code="X5", name="X5", long_name="X5")
+        with pytest.raises(ValueError, match="nomenclature officielle STS-web"):
+            conforme.delete(db_session)
+
+    def test_non_conforme_reste_supprimable(self, db_session):
+        modalite = Modality.create(db_session, {"code": "X6", "name": "X6", "long_name": "X6"})
+        assert modalite.delete(db_session) is True
+
+
+class TestNonConformiteNestPasUneExclusionVoulue:
+    """
+    Cœur de la correction demandée : un cours qui échoue sur un critère TECHNIQUE (pondération,
+    modalité, mode d'élection) sans avoir été explicitement exclu par l'utilisateur doit être
+    signalé par une anomalie BLOQUANTE — jamais disparaître de l'audit en silence, ce qui était le
+    comportement antérieur pour la pondération nulle.
+    """
+
+    def test_is_in_sts_scope_ignore_desormais_la_ponderation(self, db_session):
+        """is_in_sts_scope ne couvre plus que les trois exclusions délibérées : une pondération
+        nulle n'en fait plus partie, contrairement à avant cette correction."""
+        ctx = _contexte(db_session)
+        zero_id = _weighting_id(db_session, 0)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": zero_id})
+        assert ctx["course"].is_in_sts_scope is True
+        assert ctx["course"].is_exported_to_sts is False
+
+    def test_ponderation_nulle_non_exclue_est_bloquante(self, db_session):
+        ctx = _contexte(db_session)
+        zero_id = _weighting_id(db_session, 0)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": zero_id})
+        anomalies = sts_audit.audit(db_session, ctx["school"])
+        assert "COURSE_WEIGHTING_NOT_COMPLIANT" in _codes(anomalies)
+        assert sts_audit.has_blocking(anomalies)
+
+    def test_ponderation_nulle_mais_exclue_ne_dit_plus_rien(self, db_session):
+        """Une exclusion VOULUE (is_excluded_from_sts) reste silencieuse — c'est tout l'intérêt de
+        la distinguer d'un défaut technique non voulu."""
+        ctx = _contexte(db_session)
+        zero_id = _weighting_id(db_session, 0)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": zero_id, "is_excluded_from_sts": True})
+        assert sts_audit.audit(db_session, ctx["school"]) == []
+
+    def test_ponderation_hors_nomenclature_est_bloquante(self, db_session):
+        ctx = _contexte(db_session)
+        exotique_id = _weighting_id(db_session, 3.7)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": exotique_id})
+        anomalies = sts_audit.audit(db_session, ctx["school"])
+        fautif = [a for a in anomalies if a["code"] == "COURSE_WEIGHTING_NOT_COMPLIANT"]
+        assert fautif and "3.7" in fautif[0]["message"]
+        assert sts_audit.has_blocking(anomalies)
+
+    def test_modalite_non_conforme_est_bloquante(self, db_session):
+        ctx = _contexte(db_session)
+        modalite = Modality.create(db_session, {"code": "TD", "name": "TD", "long_name": "TRAVAUX DIRIGES"})
+        ctx["course"].update(db_session, {"modality_id": modalite.id})
+        anomalies = sts_audit.audit(db_session, ctx["school"])
+        fautif = [a for a in anomalies if a["code"] == "COURSE_MODALITY_NOT_COMPLIANT"]
+        assert fautif and "TD" in fautif[0]["message"]
+        assert sts_audit.has_blocking(anomalies)
+
+    def test_modalite_conforme_ne_dit_rien(self, db_session):
+        ctx = _contexte(db_session)
+        modalite = _seed_compliant(db_session, Modality, code="TD", name="TD", long_name="TRAVAUX DIRIGES")
+        ctx["course"].update(db_session, {"modality_id": modalite.id})
+        assert "COURSE_MODALITY_NOT_COMPLIANT" not in _codes(sts_audit.audit(db_session, ctx["school"]))
+
+    def test_mode_election_non_conforme_est_bloquant(self, db_session):
+        ctx = _contexte(db_session)
+        methode = RefElectionMethod.create(db_session, {"code": "S", "name": "TRONC COMM", "export_code": "TC"})
+        ctx["course"].update(db_session, {"election_method_id": methode.id})
+        anomalies = sts_audit.audit(db_session, ctx["school"])
+        fautif = [a for a in anomalies if a["code"] == "COURSE_ELECTION_METHOD_NOT_COMPLIANT"]
+        assert fautif and "S" in fautif[0]["message"]
+        assert sts_audit.has_blocking(anomalies)
+
+    def test_aucun_mode_election_ne_declenche_rien(self, db_session):
+        """election_method_id est facultatif : un cours qui n'en porte aucun n'a rien à
+        contrôler."""
+        ctx = _contexte(db_session)
+        assert ctx["course"].election_method_id is None
+        assert "COURSE_ELECTION_METHOD_NOT_COMPLIANT" not in _codes(sts_audit.audit(db_session, ctx["school"]))
+
+    def test_non_conformite_bloque_la_generation_du_fichier(self, db_session):
+        ctx = _contexte(db_session)
+        exotique_id = _weighting_id(db_session, 3.7)
+        ctx["course"].update(db_session, {"weighting_coefficient_id": exotique_id})
+        with pytest.raises(ValueError, match="bloquante"):
+            WizardStsExport(id=1).rpc_export(db_session, school_id=ctx["school"].id)

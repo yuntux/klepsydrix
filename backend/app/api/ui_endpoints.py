@@ -145,6 +145,7 @@ def whoami(
     ).first()
     from backend.app.core.config import settings
     return {
+        "id": user.id,
         "display_name": user.display_name,
         "email": user.email,
         "is_admin": is_super_admin(session) or "Admin" in group_names,

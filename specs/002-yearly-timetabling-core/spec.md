@@ -432,8 +432,8 @@ Le conteneur logique de cours — l'entité effectivement placée par le solveur
 *   `name` : Libellé du cours, saisi librement (Chaîne optionnelle, ex: "Pôle Sciences" pour un cours composé sans matière propre)
 *   `memo` : Texte libre (Chaîne optionnelle) pour les notes du planificateur
 *   `duration_minutes` : Durée du cours définie en amont du placement (Entier, exprimée en minutes, ex: `55` pour un cours standard d'une heure)
-*   `weighting_coefficient` : Coefficient de pondération (Réel, défaut `1.0`) — copié depuis `Service.weighting_coefficient` au moment de la génération (voir `wizard_course_generation.py`), reste à `1.0` pour un cours créé manuellement sans **Service** d'origine. `Course` n'a et ne doit pas avoir de lien de retour vivant vers **Service** (cohérent avec le reste de la génération, qui copie plutôt que référence).
-*   `weighted_duration_minutes` : `duration_minutes` × `weighting_coefficient`, calculé à la demande (non stocké). Consommé par `Teacher.hsa_duration_minutes` (voir 3. plus haut).
+*   `weighting_coefficient_id` : Clé étrangère vers **RefWeightingCoefficient** (Entier, défaut `1` = `1.00`), et non un flottant libre — voir plus bas « Nomenclatures fermées ». Recopiée telle quelle depuis `Service.weighting_coefficient_id` au moment de la génération (voir `wizard_course_generation.py`), reste au défaut pour un cours créé manuellement sans **Service** d'origine — aucune conversion, la FK voyage à l'identique. `Course` n'a et ne doit pas avoir de lien de retour vivant vers **Service** (cohérent avec le reste de la génération, qui copie plutôt que référence).
+*   `weighted_duration_minutes` : `duration_minutes` × la valeur pointée par `weighting_coefficient_id`, calculé à la demande (non stocké). Consommé par `Teacher.hsa_duration_minutes` (voir 3. plus haut).
 *   `is_composed` : Indicateur s'il s'agit d'un cours composé (Booléen, par défaut `False`)
 *   `is_co_teaching` : Indicateur si le cours est dispensé en co-enseignement (Booléen, par défaut `False`)
 *   `lock_structure` : Si vrai, verrouille l'ordre ou la répartition des cours enfants à l'intérieur du cours composé (Booléen, par défaut `False`)
@@ -662,7 +662,7 @@ Gabarit réglementaire d'enseignement lié à un MEF. Il sert de « patron » po
 *   `discipline_id` : Clé étrangère **obligatoire** vers la **Discipline** (Entier, relation N-à-1) — peut diverger du `discipline_id` par défaut de la matière, pour une déclaration budgétaire différente du rattachement pédagogique usuel, mais ne peut jamais être vide (voir « Discipline obligatoire partout » plus bas — le TRMD ne doit jamais gérer de ligne "Sans discipline"). Si omis à la création, dérivé automatiquement de `Subject.discipline_id`.
 *   `election_method_id` : Clé étrangère optionnelle vers une **ElectionMethod** (Entier, ex: classification réglementaire/export STSWEB)
 *   `student_count` : Effectif attendu par division (Entier). Sert de valeur par défaut copiée dans chaque `Service` généré ; n'est volontairement pas comparé par `is_synced_with_mef_service` sur `Service`, l'effectif réel divergeant naturellement d'une division à l'autre.
-*   `weighting_coefficient` : Pondération (Réel, ex: coefficient de type HSA/HP). Distinct de `Subject.pedagogic_weight`, qui sert lui à l'équilibrage de la grille par le solveur.
+*   `weighting_coefficient_id` : Clé étrangère vers **RefWeightingCoefficient** (Entier, défaut `1` = `1.00`) — pondération de type HSA/HP, et non un flottant libre (voir plus bas « Nomenclatures fermées »). Distinct de `Subject.pedagogic_weight`, qui sert lui à l'équilibrage de la grille par le solveur.
 *   `weekly_duration_full_class_minutes` : Durée hebdomadaire en classe entière, en minutes (Entier, affiché en heures côté IHM)
 *   `weekly_duration_reduced_minutes` : Durée hebdomadaire en effectif réduit, en minutes (Entier, mêmes règles)
 *   `weekly_duration_split_minutes` : Durée hebdomadaire en effectif dédoublé, en minutes (Entier, mêmes règles)
@@ -707,13 +707,13 @@ L'affectation réelle qui lie une structure (Division via **MefDivision**, ou **
 *   `ref_grade_id` : Niveau du MEFService d'origine (Entier, related field en lecture seule dérivé de `mef_service_id.ref_grade_id`, lui-même dérivé du MEF) — frontière de mutualisation de l'effectif réduit (voir « Mutualisation de l'effectif réduit » plus bas).
 *   `group_id` : Clé étrangère optionnelle vers un **Group** (Entier, relation N-à-1)
 *   `subject_id` : Clé étrangère vers la **Subject** enseignée (Entier, relation N-à-1). Copiée du MEFService à la génération, éditable ensuite.
-*   `discipline_id`, `election_method_id`, `student_count`, `weighting_coefficient`, `weekly_duration_full_class_minutes`, `weekly_duration_reduced_minutes`, `weekly_duration_split_minutes`, `total_weekly_duration_minutes` : mêmes définitions que sur **MEFService** (voir 4bis), copiées à la génération puis librement éditables. `discipline_id` obligatoire, comme sur MEFService.
+*   `discipline_id`, `election_method_id`, `student_count`, `weighting_coefficient_id`, `weekly_duration_full_class_minutes`, `weekly_duration_reduced_minutes`, `weekly_duration_split_minutes`, `total_weekly_duration_minutes` : mêmes définitions que sur **MEFService** (voir 4bis), copiées à la génération puis librement éditables. `discipline_id` obligatoire, comme sur MEFService.
 *   `reduced_group_student_count` : **N'est plus un champ propre au Service** — related field en lecture seule vers `mef_service_id.reduced_group_student_count` (Entier). Le nombre d'élèves en effectif réduit n'est modifiable QUE sur le MEFService, jamais localement sur un Service généré — élimine ce champ de toute divergence possible.
 *   `alignment_id` : Clé étrangère optionnelle vers un **Alignment** (Entier, relation N-à-1)
 *   `teachers_locked` : Verrouillage explicite pour l'algorithme d'affectation automatique des besoins aux professeurs (Booléen, défaut `False`, voir `architecture.md` §20) — quand `True`, l'algorithme n'écrit jamais dans `teacher_ids` pour cette ligne, qu'elle soit vide ou déjà pourvue (couvre aussi le verrouillage partiel d'un co-enseignement). Purement une consigne pour cet algorithme précis — n'empêche pas une édition manuelle de `teacher_ids` via l'IHM/l'API.
 *   *Relations (N-à-N)* : `teacher_ids` (Professeur(s) affecté(s) à ce service — plusieurs en cas de co-enseignement)
 *   *Relations (1-à-N)* : `repartitions` (Liste des **ServiceRepartition** décomposant ce service — voir ci-dessous)
-*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient`, `election_method_id` et les trois durées hebdomadaires du service à son `MEFService` d'origine (`reduced_group_student_count` en est exclu depuis qu'il n'est plus un champ mirroré mais une lecture directe — il ne peut plus diverger). La dérive n'est **jamais durable** : toute modification ultérieure du `MEFService` d'origine réécrase ces champs sur le service (voir 4bis, « Propagation forcée »), ce qui repasse l'indicateur à vrai.
+*   `is_synced_with_mef_service` : Indicateur de dérive (Booléen, propriété calculée non stockée). Compare `subject_id`, `discipline_id`, `weighting_coefficient_id`, `election_method_id` et les trois durées hebdomadaires du service à son `MEFService` d'origine (`reduced_group_student_count` en est exclu depuis qu'il n'est plus un champ mirroré mais une lecture directe — il ne peut plus diverger). La dérive n'est **jamais durable** : toute modification ultérieure du `MEFService` d'origine réécrase ces champs sur le service (voir 4bis, « Propagation forcée »), ce qui repasse l'indicateur à vrai.
 
 > **Contraintes d'intégrité de Service :**
 > - **Gabarit obligatoire :** `mef_service_id` doit toujours être renseigné — un `Service` sans `MEFService` d'origine n'est pas permis (voir aussi « L'IHM ne propose ni création ni suppression directe » ci-dessus).
@@ -732,7 +732,7 @@ Décompose un `Service` en occurrences de créneaux hebdomadaires, servant de pa
 *   `duration_minutes` : Durée de chaque occurrence (Entier, doit être un multiple exact du créneau standard de l'établissement — même validation que `Course.duration_minutes`)
 *   `periodicity` : Périodicité (Enum : `WEEKLY` chaque semaine, `BIWEEKLY` une semaine sur deux). Une ligne `BIWEEKLY` ne précise pas encore si l'occurrence tombera en semaine A ou B — ce choix se fait à la génération du `Course` (`week_type`).
 *   `raw_need_weekly_duration_minutes` : Besoin brut en heures-professeur hebdomadaires de cette ligne (Entier, calculé et stocké) = `occurrence_count × duration_minutes × (0.5 si BIWEEKLY sinon 1) × group_count`. Consommé par le TRMD (voir plus bas).
-*   `weighted_need_weekly_duration_minutes` : Besoin pondéré (Entier, calculé et stocké) = `raw_need_weekly_duration_minutes × Service.weighting_coefficient`.
+*   `weighted_need_weekly_duration_minutes` : Besoin pondéré (Entier, calculé et stocké) = `raw_need_weekly_duration_minutes × ` la valeur pointée par `Service.weighting_coefficient_id`.
 *   `shared_divisions` : Divisions avec lesquelles cette ligne (uniquement si `group_type=REDUCED`) mutualise son effectif réduit (Relation N-à-N, calculée et stockée, **jamais éditée manuellement** — voir « Mutualisation de l'effectif réduit »).
 *   `name` : Nom d'affichage calculé et stocké en base (Chaîne, ex: `2x1h(H)` ou `1x1h30(Q)`), recalculé automatiquement à chaque création/modification à partir de `occurrence_count`, de `duration_minutes` (converti en heures via l'utilitaire générique `minutes_to_hours` — heure non paddée, minutes omises si nombre exact d'heures) et de `periodicity` (`H` pour hebdomadaire, `Q` pour quinzaine)
 
@@ -1602,28 +1602,63 @@ alternances et la coquille des services le sont. Le fichier produit est donc **p
 construction**, et le wizard le dit en toutes lettres dans son encart bleu — comme pour l'import,
 la fonction est annoncée expérimentale et un `emp_sts` réel pseudonymisé est sollicité.
 
-#### Trois niveaux d'exclusion
+#### Trois niveaux d'exclusion — et une conformité qui n'est PAS une exclusion
 
 `is_excluded_from_sts` existe sur **`Subject`**, **`Division`** et **`Course`**. Aucun n'est
 redondant : ils répondent à trois gestes différents — exclure un enseignement, exclure une classe,
-exclure un cours.
+exclure un cours. Ce sont les **seules** exclusions *voulues* par l'utilisateur, et `Course.
+is_in_sts_scope` ne couvre plus qu'elles.
 
-`Course.is_in_sts_scope` combine les trois, plus la **pondération nulle** — STS-web ignore de toute
-façon les cours pondérés à zéro, autant le dire avant plutôt que de laisser le cours disparaître en
-silence à l'arrivée. `Course.is_exported_to_sts` y ajoute le verdict sur la quinzaine : un cours en
-`Q` ne part pas, faute d'alternance à déclarer.
+`Course.is_exported_to_sts` ajoute au périmètre quatre critères **techniques**, qu'aucun
+utilisateur n'a choisis : pondération non nulle et conforme à la nomenclature STS-web, modalité
+conforme, mode d'élection conforme (s'il est renseigné — le champ est facultatif), quinzaine
+tranchée (un cours en `Q` ne part pas, faute d'alternance à déclarer).
 
-Les deux propriétés sont distinctes pour une seule raison : l'audit doit pouvoir désigner les cours
-qui *devraient* partir mais qu'un `week_type` en `Q` retient. Sans cette distinction, ils
-sortiraient à la fois de l'export **et** de l'audit — donc sans que personne ne l'apprenne.
+> [!IMPORTANT]
+> **Un défaut technique n'est pas une exclusion voulue, et ne doit donc jamais être silencieux.**
+> C'est pour cette raison précise que `is_in_sts_scope` et `is_exported_to_sts` restent deux
+> propriétés distinctes : un cours qui échoue sur un des quatre critères techniques reste « en
+> périmètre » (`is_in_sts_scope` reste vrai), ce qui permet à `sts_audit.py` de le désigner par une
+> anomalie **bloquante** dédiée à chaque critère plutôt que de le laisser disparaître de l'export
+> sans qu'un mot ne le dise. Avant cette distinction, une pondération nulle non voulue disparaissait
+> ainsi en silence — exactement le défaut que cette séparation corrige.
 
-#### Pondération par intervenant
+#### Pondération, modalité, mode d'élection : trois nomenclatures fermées (`StsComplianceMixin`)
 
-`Course.weighting_coefficient` reste scalaire ; les exceptions vivent dans une table dédiée,
-**`CourseTeacherWeighting`** (`course_id`, `teacher_id`, `weighting_coefficient`, unicité du
-couple), et non dans une colonne sur `course_teachers` qui est une simple `Table()` écrite par le
-mécanisme générique des `_ids`. `Course.weighting_for(teacher_id)` est le **seul** point de
-lecture : la sienne si une exception est saisie, sinon celle du cours.
+`Course.weighting_coefficient_id`, `Course.modality_id` et `Course.election_method_id` pointent
+chacun vers une table de référence (`RefWeightingCoefficient`, `Modality`, `RefElectionMethod`)
+plutôt qu'une valeur libre — seul moyen de savoir si la valeur choisie appartient à la nomenclature
+STS-web (`is_sts_compliant`) ou n'est qu'une conviction locale de l'établissement, potentiellement
+rejetée à la remontée.
+
+Les trois tables partagent **`StsComplianceMixin`** (`backend/app/models/sts_compliance.py`) :
+- `is_sts_compliant` n'est **jamais** modifiable par l'API, ni à la création ni en édition — seul
+  un `INSERT` SQL brut (les seeds de `init_db.py`, qui ne passent pas par `create()`) peut le
+  poser à vrai. Une valeur identique à l'existante n'est pas un changement et passe silencieusement
+  (un formulaire réémet l'enregistrement complet à chaque sauvegarde, champs en lecture seule
+  compris) ; toute tentative de la faire *varier* est refusée.
+- Une ligne conforme (`is_sts_compliant=True`) ne se supprime **jamais**, qu'elle soit référencée
+  ou non. Une ligne non conforme reste une donnée ordinaire, protégée seulement si elle est
+  effectivement utilisée (`ondelete=RESTRICT` côté clé étrangère, comme `modality_id`).
+
+**Aucune conversion flottant → pointeur nulle part.** `MefService.weighting_coefficient_id` est la
+seule saisie ; `Service` le recopie tel quel à la génération (voir `Service.
+_MEF_SERVICE_MIRROR_FIELDS`), et `Course` le recopie à son tour depuis le `Service` d'origine (voir
+`wizard_course_generation.py`) — la FK voyage à l'identique sur toute la chaîne MefService → Service
+→ Course, jamais une valeur à retrouver ou créer après coup.
+
+La nomenclature seedée par `init_db.py` : `1.00`, `0.25`, `0.5`, `0.75`, `1.25`, `1.5` — toutes
+`is_sts_compliant=True`. `1.00` est seedée EN PREMIER pour que le défaut (`id=1`, partagé par
+`Course`/`CourseTeacherWeighting`/`MefService`/`Service`) y corresponde. De même pour
+`RefElectionMethod`, déplacée de `init_demo.py` vers `init_db.py` : c'est une nomenclature
+nationale, pas une donnée de démonstration.
+
+`Course.weighting_coefficient_id` a remplacé un flottant scalaire ; les exceptions par intervenant
+vivent dans une table dédiée, **`CourseTeacherWeighting`** (`course_id`, `teacher_id`,
+`weighting_coefficient_id`, unicité du couple), et non dans une colonne sur `course_teachers` qui
+est une simple `Table()` écrite par le mécanisme générique des `_ids`. `Course.weighting_for
+(teacher_id)` est le **seul** point de lecture : la sienne si une exception est saisie, sinon celle
+du cours.
 
 STS-web n'accepte qu'une pondération par service. Plutôt qu'un arbitrage silencieux,
 `has_heterogeneous_weighting` le signale en **avertissement** et l'export retient celle du cours.
@@ -1631,17 +1666,20 @@ STS-web n'accepte qu'une pondération par service. Plutôt qu'un arbitrage silen
 #### Audit préalable (`backend/app/core/sts_audit.py`)
 
 Module pur, deux sévérités : **bloquant** sur les anomalies structurelles (le fichier serait rejeté
-ou faux), **avertissement** sur les écarts de volume. Douze contrôles repris des trois logiciels
-comparés, dont : cours non placés, cours sans public, cours composés non décomposés,
-co-enseignement non déclaré, enseignants sans identifiant EPP **ou dont l'identifiant n'est pas
-numérique**, matières dont le code nomenclature est absent ou mal formé (six caractères, chiffres
-et majuscules), groupes à effectif nul, groupes sans division d'appartenance, classes sans MEF,
-alternance ne couvrant **aucune** semaine, quinzaines non tranchées. Les deux avertissements sont
-les pondérations hétérogènes et les services non consommés.
+ou faux), **avertissement** sur les écarts de volume. Quinze contrôles repris des trois logiciels
+comparés et de la conformité aux trois nomenclatures ci-dessus, dont : cours non placés, cours sans
+public, cours composés non décomposés, co-enseignement non déclaré, enseignants sans identifiant
+EPP **ou dont l'identifiant n'est pas numérique**, matières dont le code nomenclature est absent ou
+mal formé (six caractères, chiffres et majuscules), groupes à effectif nul, groupes sans division
+d'appartenance, classes sans MEF, alternance ne couvrant **aucune** semaine, quinzaines non
+tranchées, **pondération nulle ou hors nomenclature** (y compris par intervenant), **modalité non
+conforme**, **mode d'élection non conforme**. Les deux avertissements sont les pondérations
+hétérogènes et les services non consommés.
 
 Les contrôles de **format** (identifiant EPP numérique, code matière sur six caractères) sont dans
 l'audit et non à la sérialisation, pour une raison d'usage : l'audit sait dire *quel* enseignant ou
-*quelle* matière est en cause, là où un échec de validation ne parle que du document.
+*quelle* matière est en cause, là où un échec de validation ne parle que du document. Même logique
+pour les trois contrôles de conformité : la ligne d'audit nomme le cours et la valeur fautive.
 
 #### Génération du fichier (`backend/app/core/sts_export.py`)
 

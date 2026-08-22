@@ -3,7 +3,7 @@ import math
 import random
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
-from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey, Table, Enum, false as sa_false
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Table, Enum, false as sa_false
 from backend.app.models.base import Base, constrains, exposed, related_field
 
 service_teachers = Table(
@@ -88,7 +88,10 @@ class Service(Base):
     alignment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alignments.id", ondelete="SET NULL"), nullable=True, info={"label": "Alignement"})
 
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif", "min": 0, "max": 50})
-    weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
+    # Pointeur vers RefWeightingCoefficient, comme MefService.weighting_coefficient_id (voir sa
+    # docstring) — champ MIROIR (voir _MEF_SERVICE_MIRROR_FIELDS ci-dessous) : la FK est recopiée
+    # telle quelle depuis le gabarit, aucune conversion.
+    weighting_coefficient_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_weighting_coefficients.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Pondération", "resource": "ref_weighting_coefficients"})
     # Verrouillage explicite pour l'algorithme d'affectation automatique des professeurs (voir
     # backend/app/solver/teacher_assignment.py, teacher-assignment-proposal.md §4.5) : quand True,
     # l'algorithme n'écrit jamais dans Service.teachers pour cette ligne, qu'elle soit vide ou déjà
@@ -108,7 +111,7 @@ class Service(Base):
     # reduced_group_student_count n'en fait plus partie : c'est désormais un related_field (voir
     # plus bas), toujours lu en direct depuis mef_service, donc il ne peut plus diverger.
     _MEF_SERVICE_MIRROR_FIELDS = (
-        "subject_id", "discipline_id", "election_method_id", "weighting_coefficient",
+        "subject_id", "discipline_id", "election_method_id", "weighting_coefficient_id",
         "weekly_duration_full_class_minutes", "weekly_duration_reduced_minutes",
         "weekly_duration_split_minutes", "is_excluded_from_sts",
     )
@@ -133,6 +136,8 @@ class Service(Base):
     subject: Mapped[Optional["Subject"]] = relationship("Subject")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
     election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
+    # Nommée _ref, pas weighting_coefficient : voir Course.weighting_coefficient_ref.
+    weighting_coefficient_ref: Mapped[Optional["RefWeightingCoefficient"]] = relationship("RefWeightingCoefficient")
     alignment: Mapped[Optional["Alignment"]] = relationship("Alignment", back_populates="services")
     teachers: Mapped[list["Teacher"]] = relationship("Teacher", secondary=service_teachers, info={"label": "Enseignants"})
     # Pas de cascade="delete-orphan" ici : la suppression en cascade des ServiceRepartition est
@@ -656,7 +661,8 @@ class ServiceRepartition(Base):
            pool cross-service (_sync_reduced_pool), pas calculable depuis cette seule ligne.
         2. Calcule le besoin en heures-professeur à partir de ce group_count (désormais à jour) :
            occurrence_count (séances/élève/semaine) x duration_minutes x group_count, pondéré par
-           periodicity (une semaine sur deux = moitié) puis par Service.weighting_coefficient.
+           periodicity (une semaine sur deux = moitié) puis par la valeur de Service.
+           weighting_coefficient_ref.
 
         **Bug réel corrigé en les fusionnant** : CRUDMixin dispatche les @constrains() dans l'ordre
         alphabétique de dir(instance) (voir base.py) — avec ces deux calculs en méthodes séparées,
@@ -674,7 +680,8 @@ class ServiceRepartition(Base):
 
         periodicity_coeff = 0.5 if self.periodicity == RepartitionPeriodicity.BIWEEKLY else 1
         self.raw_need_weekly_duration_minutes = int(round(self.occurrence_count * self.duration_minutes * periodicity_coeff * self.group_count))
-        weighting_coefficient = self.service.weighting_coefficient if self.service else 1.0
+        ref = self.service.weighting_coefficient_ref if self.service else None
+        weighting_coefficient = ref.weighting_coefficient if ref else 1.0
         self.weighted_need_weekly_duration_minutes = int(round(self.raw_need_weekly_duration_minutes * weighting_coefficient))
 
     @classmethod

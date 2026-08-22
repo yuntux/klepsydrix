@@ -58,6 +58,7 @@ def audit(db: Session, school) -> list:
         _co_enseignement_non_declare, _enseignants_sans_epp, _matieres_sans_code_national,
         _groupes_sans_effectif, _groupes_sans_division, _classes_sans_mef,
         _alternances_manquantes, _quinzaines_non_tranchees,
+        _ponderations_non_conformes, _modalites_non_conformes, _modes_election_non_conformes,
         _ponderations_heterogenes, _services_non_consommes,
     ):
         anomalies.extend(controle(db, school))
@@ -71,9 +72,13 @@ def has_blocking(anomalies: list) -> bool:
 
 def _courses_a_remonter(db: Session, school) -> list:
     """
-    Cours de l'établissement effectivement destinés à la remontée. Les cours exclus (trois niveaux
-    de drapeaux plus la pondération nulle, voir Course.is_exported_to_sts) ne sont pas audités :
-    les signaler serait du bruit, puisqu'ils ne partiront pas.
+    Cours de l'établissement effectivement destinés à la remontée (voir Course.is_exported_to_sts :
+    exclusions délibérées, pondération/modalité/mode d'élection conformes, quinzaine tranchée).
+    Les cours qui échouent sur un critère TECHNIQUE plutôt qu'exclus par choix ne sont pas audités
+    ICI : les signaler comme « non placé », « sans public »… serait du bruit puisqu'ils ne
+    partiront de toute façon pas — chacun a son propre contrôle dédié, basé sur is_in_sts_scope
+    (voir _quinzaines_non_tranchees, _ponderations_non_conformes, _modalites_non_conformes,
+    _modes_election_non_conformes), pour que l'échec soit signalé et non silencieux.
     Les cours composés parents sont écartés : ce sont leurs enfants qui portent les séances.
     """
     from backend.app.models.course import Course
@@ -324,6 +329,103 @@ def _quinzaines_non_tranchees(db, school):
                   "courses", c.id, _libelle_cours(c))
         for c in fautifs[:MAX_PAR_CONTROLE]
     ] + _reste("COURSE_UNDECIDED_FORTNIGHT", BLOCKING, fautifs, "cours en quinzaine non tranchée")
+
+
+def _ref_non_conforme(ref) -> bool:
+    """Nulle ou hors nomenclature — voir RefWeightingCoefficient, docstring : zéro a un sens
+    officiel propre, distinct de « non conforme », mais reste tout aussi non remontable."""
+    return not ref or not ref.weighting_coefficient or not ref.is_sts_compliant
+
+
+def _ponderations_non_conformes(db, school):
+    """
+    Une pondération nulle, ou hors nomenclature STS-web (RefWeightingCoefficient.is_sts_compliant,
+    voir StsComplianceMixin), rend un cours non remontable — mais ce n'est PAS une exclusion voulue
+    par l'utilisateur (voir Course.is_in_sts_scope, qui ne couvre que les trois exclusions
+    explicites) : il ne faut donc pas la laisser faire disparaître le cours en silence, même si son
+    effet final est le même (le cours ne part pas). Même raisonnement que
+    _quinzaines_non_tranchees, appliqué ici à la pondération.
+
+    Couvre aussi les pondérations PAR INTERVENANT (CourseTeacherWeighting.weighting_coefficient_id) :
+    le cours y est tout autant « lié » qu'à la sienne propre, même si c'est en définitive celle du
+    cours que l'export retient (voir _ponderations_heterogenes) — la ligne reste une donnée fausse
+    tant qu'elle pointe vers une valeur non conforme, et mieux vaut le dire maintenant qu'après
+    qu'un changement d'intervenant principal l'ait fait remonter à la place de l'autre.
+    """
+    from backend.app.models.course import Course
+
+    def _fautif(c):
+        if _ref_non_conforme(c.weighting_coefficient_ref):
+            return True
+        return any(_ref_non_conforme(ligne.weighting_coefficient_ref) for ligne in c.teacher_weightings)
+
+    fautifs = [
+        c for c in db.query(Course).filter(Course.school_id == school.id).all()
+        if not c.is_composed and c.is_in_sts_scope and _fautif(c)
+    ]
+
+    def _message(c):
+        segments = []
+        ref = c.weighting_coefficient_ref
+        if not ref or not ref.weighting_coefficient:
+            segments.append("sa pondération est nulle : STS-web ne prend pas en compte les cours "
+                             "pondérés à zéro — si c'est voulu, excluez ce cours explicitement "
+                             "plutôt que de le laisser à zéro")
+        elif not ref.is_sts_compliant:
+            segments.append(f"sa pondération {ref.weighting_coefficient:g} n'appartient pas à la "
+                             f"nomenclature STS-web reconnue")
+        for ligne in c.teacher_weightings:
+            if _ref_non_conforme(ligne.weighting_coefficient_ref):
+                valeur = ligne.weighting_coefficient_ref.weighting_coefficient if ligne.weighting_coefficient_ref else None
+                segments.append(f"la pondération de {ligne.teacher.display_name if ligne.teacher else 'un intervenant'} "
+                                 f"({valeur if valeur is not None else 'nulle'}) n'appartient pas à la nomenclature")
+        return "Ce cours ne peut pas être remonté : " + " ; ".join(segments) + "."
+
+    return [
+        _anomalie("COURSE_WEIGHTING_NOT_COMPLIANT", BLOCKING, _message(c), "courses", c.id, _libelle_cours(c))
+        for c in fautifs[:MAX_PAR_CONTROLE]
+    ] + _reste("COURSE_WEIGHTING_NOT_COMPLIANT", BLOCKING, fautifs, "cours à pondération nulle ou non conforme")
+
+
+def _modalites_non_conformes(db, school):
+    """Une modalité hors nomenclature STS-web (Modality.is_sts_compliant) rend un cours non
+    remontable, sans être une exclusion voulue — même raisonnement que _ponderations_non_conformes."""
+    from backend.app.models.course import Course
+
+    fautifs = [
+        c for c in db.query(Course).filter(Course.school_id == school.id).all()
+        if not c.is_composed and c.is_in_sts_scope and c.modality is not None and not c.modality.is_sts_compliant
+    ]
+    return [
+        _anomalie("COURSE_MODALITY_NOT_COMPLIANT", BLOCKING,
+                  f"La modalité « {c.modality.code} » de ce cours n'appartient pas à la "
+                  f"nomenclature STS-web reconnue.",
+                  "courses", c.id, _libelle_cours(c))
+        for c in fautifs[:MAX_PAR_CONTROLE]
+    ] + _reste("COURSE_MODALITY_NOT_COMPLIANT", BLOCKING, fautifs, "cours à modalité non conforme")
+
+
+def _modes_election_non_conformes(db, school):
+    """
+    Un mode d'élection hors nomenclature STS-web (RefElectionMethod.is_sts_compliant) rend un
+    cours non remontable, sans être une exclusion voulue — même raisonnement que
+    _ponderations_non_conformes. Champ facultatif sur Course : un cours sans mode d'élection n'a
+    rien à contrôler ici.
+    """
+    from backend.app.models.course import Course
+
+    fautifs = [
+        c for c in db.query(Course).filter(Course.school_id == school.id).all()
+        if not c.is_composed and c.is_in_sts_scope
+        and c.election_method is not None and not c.election_method.is_sts_compliant
+    ]
+    return [
+        _anomalie("COURSE_ELECTION_METHOD_NOT_COMPLIANT", BLOCKING,
+                  f"Le mode d'élection « {c.election_method.code} » de ce cours n'appartient pas à "
+                  f"la nomenclature STS-web reconnue.",
+                  "courses", c.id, _libelle_cours(c))
+        for c in fautifs[:MAX_PAR_CONTROLE]
+    ] + _reste("COURSE_ELECTION_METHOD_NOT_COMPLIANT", BLOCKING, fautifs, "cours à mode d'élection non conforme")
 
 
 # --------------------------------------------------------------------------------------------

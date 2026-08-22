@@ -1,12 +1,57 @@
 <template>
   <div class="generic-list-container" ref="rootRef">
-    <!-- Barre d'actions de LISTE (voir architecture.md §22.D) — n'existe que pour les ressources
-         déclarant au moins une action "report" dans __actions__ : aucune ressource qui n'en
-         déclare pas ne voit ce bandeau apparaître, donc aucun changement d'aspect ailleurs. Un
-         bouton unique "Imprimer" (ReportPrintMenu) déroule la liste des rapports disponibles ;
-         chacun imprime la sélection courante si elle existe, sinon toute la liste accessible. -->
-    <div v-if="listActions.length" class="list-actions-bar">
+    <!-- Barre d'actions de LISTE (voir architecture.md §22.D) — TOUJOURS visible (contrairement à
+         avant, où elle n'existait que pour une ressource déclarant une action "report") : porte
+         désormais aussi le badge de sélection, "Regrouper par" et "Filtrer", remontés depuis la
+         barre de pagination du bas pour rester visibles sans avoir à faire défiler la table. Même
+         hauteur que .list-pagination (voir CSS) — les deux barres encadrent la table symétriquement. -->
+    <div class="list-actions-bar">
+      <div class="list-actions-left">
+        <span v-if="isMultiSelectAllowed && selectedIds.size > 0" class="toolbar-badge selection-badge">
+          {{ selectedIds.size }} sélectionné(s)
+          <button
+            v-if="canExtendSelectionToAllFiltered"
+            type="button"
+            class="select-all-link"
+            @click="selectAllFiltered"
+          >Tout sélectionner {{ filteredItems.length }}</button>
+        </span>
+        <GenericListGroupByPicker
+          v-if="listConfig?.showGroupByWidget !== false && !isTreeMode"
+          :modelValue="internalGroupBy"
+          :candidateFields="groupableFields"
+          @update:modelValue="internalGroupBy = $event"
+        />
+        <GenericListFilterPicker
+          :predefined-filters="listConfig?.predefinedFilters || []"
+          :custom-filters="customFilters"
+          :active-predefined-names="activePredefinedNames"
+          :active-custom-ids="activeCustomIds"
+          :current-user-id="currentUserId"
+          :has-custom-domain="adhocCustomDomain.length > 0"
+          @toggle-predefined="togglePredefinedFilter"
+          @toggle-custom="toggleCustomFilter"
+          @open-custom-builder="showCustomFilterModal = true"
+          @delete-custom-filter="deleteCustomFilter"
+          @clear-custom-domain="adhocCustomDomain = []"
+        />
+        <!-- Bascule Vue arbre / Vue liste (voir listConfig.treeBy) — seulement si le panneau
+             déclare treeBy ; masque le picker de regroupement pendant que l'arbre est actif
+             (les deux ne peuvent jamais être affichés en même temps, voir isTreeMode). -->
+        <button
+          v-if="listConfig?.treeBy"
+          type="button"
+          class="tree-mode-toggle-btn"
+          :class="{ active: isTreeMode }"
+          @click="treeModeEnabled = !treeModeEnabled"
+        >
+          {{ isTreeMode ? '🌳 Vue arbre' : '☰ Vue liste' }}
+        </button>
+      </div>
+      <!-- Bouton unique "Imprimer" (ReportPrintMenu) déroule la liste des rapports disponibles ;
+           chacun imprime la sélection courante si elle existe, sinon toute la liste accessible. -->
       <ReportPrintMenu
+        v-if="listActions.length"
         :actions="listActions"
         :resolve-ids="resolveListPrintIds"
         :badge="selectedIds.size || undefined"
@@ -145,43 +190,6 @@
             </template>
           </tr>
 
-          <!-- Ligne de filtrage / recherche spécifique par colonne -->
-          <tr class="filter-tr">
-            <td
-              v-if="isMultiSelectAllowed"
-              class="filter-td checkbox-filter-td"
-              :class="{ 'column-frozen': frozenColumnCount > 0 }"
-              :style="{ width: '40px', borderRight: '1px solid var(--border-color)', padding: '6px 4px', ...(frozenColumnCount > 0 ? { position: 'sticky', left: '0px' } : {}) }"
-            ></td>
-            <td
-              v-for="(col, index) in visibleColumns"
-              :key="'filter-' + col.key"
-              class="filter-td"
-              :class="{ 'column-frozen': frozenLeftStyle(index), 'column-frozen-last': isLastFrozenColumn(index) }"
-              :style="frozenLeftStyle(index)"
-            >
-              <!-- Pas de zone de saisie si isColumnFilterable renvoie false (voir
-                   FormField.filterable / ColumnConfig.filterable) — la cellule reste vide, la
-                   colonne du dessus garde son alignement. -->
-              <template v-if="isColumnFilterable(col.key)">
-                <!-- Si c'est un champ couleur, on propose le composant swatch -->
-                <color-swatch-picker
-                  v-if="getFieldDef(col.key)?.type === 'color'"
-                  :model-value="filters[col.key] || ''"
-                  @change="filters[col.key] = $event"
-                />
-                <input
-                  v-else
-                  type="text"
-                  :value="filters[col.key] || ''"
-                  @input="debouncedUpdateFilter(col.key, ($event.target as HTMLInputElement).value)"
-                  :placeholder="'Filtrer...'"
-                  class="filter-input"
-                />
-              </template>
-            </td>
-            <td class="filter-td actions-td"></td>
-          </tr>
         </thead>
         
         <tbody>
@@ -270,28 +278,7 @@
     <!-- Système de Pagination -->
     <div class="list-pagination">
       <div class="pagination-left">
-        <span class="toolbar-badge">{{ filteredItems.length }} éléments</span>
-        <span v-if="isMultiSelectAllowed && selectedIds.size > 0" class="toolbar-badge selection-badge">
-          {{ selectedIds.size }} sélectionné(s)
-        </span>
-        <!-- Bascule Vue arbre / Vue liste (voir listConfig.treeBy) — seulement si le panneau
-             déclare treeBy ; masque le picker de regroupement pendant que l'arbre est actif
-             (les deux ne peuvent jamais être affichés en même temps, voir isTreeMode). -->
-        <button
-          v-if="listConfig?.treeBy"
-          type="button"
-          class="tree-mode-toggle-btn"
-          :class="{ active: isTreeMode }"
-          @click="treeModeEnabled = !treeModeEnabled"
-        >
-          {{ isTreeMode ? '🌳 Vue arbre' : '☰ Vue liste' }}
-        </button>
-        <GenericListGroupByPicker
-          v-if="listConfig?.showGroupByWidget !== false && !isTreeMode"
-          :modelValue="internalGroupBy"
-          :candidateFields="groupableFields"
-          @update:modelValue="internalGroupBy = $event"
-        />
+        <span class="toolbar-badge">{{ displayedCount }} élément{{ displayedCount > 1 ? 's' : '' }} sur {{ filteredItems.length }}</span>
         <label class="per-page-selector">
           Afficher
           <select v-model="perPage" class="select-custom">
@@ -341,12 +328,20 @@
         </div>
       </div>
     </div>
+
+    <GenericListCustomFilterModal
+      v-model="showCustomFilterModal"
+      :resource="props.title"
+      :fields="props.fields || []"
+      :initial-domain="adhocCustomDomain"
+      @apply="onCustomFilterApplied"
+      @saved="onCustomFilterSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted, provide } from 'vue';
-import ColorSwatchPicker from './ColorSwatchPicker.vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted, provide } from 'vue';
 import DurationInput from './DurationInput.vue';
 import SearchableSelect from './SearchableSelect.vue';
 import SearchableMultiSelect from './SearchableMultiSelect.vue';
@@ -357,10 +352,13 @@ import ReportPrintMenu from './widgets/ReportPrintMenu.vue';
 import GenericListRow from './GenericListRow.vue';
 import GenericListGroupHeaderRow from './GenericListGroupHeaderRow.vue';
 import GenericListGroupByPicker from './GenericListGroupByPicker.vue';
+import GenericListFilterPicker from './GenericListFilterPicker.vue';
+import GenericListCustomFilterModal from './GenericListCustomFilterModal.vue';
 import { GENERIC_LIST_ROW_CONTEXT } from './genericListRowContext';
 import { GENERIC_LIST_GROUP_CONTEXT } from './genericListGroupContext';
 import { getWidgetForContext } from './widgets/registry';
 import { formatDurationMinutes } from '../utils/duration';
+import { evaluateDomain, type DomainNode } from '../utils/domain';
 import * as api from '../services/api';
 
 interface ColumnDef {
@@ -465,8 +463,14 @@ interface ListConfig {
   // sur cette valeur par défaut, jusqu'au prochain changement de groupBy.
   autoExpandLevel?: number;
   // Affiche le widget de sélection des champs de regroupement (voir GenericListGroupByPicker.vue),
-  // dans la barre de pagination, à droite du badge de sélection — true par défaut.
+  // dans la barre du haut, à côté du widget "Filtrer" — true par défaut.
   showGroupByWidget?: boolean;
+  // Filtres prédéfinis proposés dans le widget "Filtrer" (voir GenericListFilterPicker.vue), en plus
+  // des filtres personnalisés persistés (CustomFilter, backend/app/models/custom_filter.py) — propre
+  // au PANEL (pas seulement à la resource : deux panels peuvent partager un resourceKey avec des
+  // predefinedFilters différents). Domaine au format arbre ET/OU (voir utils/domain.ts, même
+  // notation Odoo que IrModelAccess.domain côté backend), limité aux champs directs de la ressource.
+  predefinedFilters?: Array<{ name: string; domain: DomainNode }>;
   columns?: Record<string, ColumnConfig>;
   // Émet `update-item` dès updateInline (chaque changement de cellule), au lieu d'attendre que le
   // focus quitte toute la ligne (voir onRowFocusOut) — défaut false, comportement de tout panneau
@@ -565,6 +569,17 @@ const props = defineProps<{
   // une seule fois dès que `items` se peuple pour cette ressource (voir watch dédié plus bas),
   // puis la sélection redevient un état purement interactif classique.
   initialSelectedIds?: Array<string | number>;
+  // Restauration du reste de l'état d'URL (domaine de filtre, regroupement, tri, pagination) — voir
+  // urlState.ts::UrlListState. Contrairement à initialSelectedIds, ne dépend d'aucune donnée déjà
+  // chargée : appliqué de façon synchrone dès le changement de ressource (voir watch dédié plus
+  // bas), pas gating sur `items`.
+  initialListState?: {
+    domain?: DomainNode;
+    groupBy?: string[];
+    sort?: { key: string; desc: boolean } | null;
+    perPage?: number | null;
+    page?: number | null;
+  };
 }>();
 
 const emit = defineEmits<{
@@ -582,6 +597,18 @@ const emit = defineEmits<{
   // sélection restaurée sur les Classes se retrouvait réappliquée en changeant d'onglet vers les
   // Enseignants).
   (e: 'initial-selection-applied'): void;
+  // Accusé de réception de initialListState — même raison d'être que initial-selection-applied
+  // ci-dessus, pour le domaine/regroupement/tri/pagination restaurés depuis l'URL.
+  (e: 'initial-list-state-applied'): void;
+  // Émis à chaque changement de domaine/regroupement/tri/pagination — App.vue les reflète dans
+  // l'URL (voir services/urlState.ts), même principe que selection-change pour les ids.
+  (e: 'list-state-change', state: {
+    domain: DomainNode;
+    groupBy: string[];
+    sort: { key: string; desc: boolean } | null;
+    perPage: number;
+    page: number;
+  }): void;
 }>();
 
 const isMultiSelectAllowed = computed(() => {
@@ -671,15 +698,6 @@ function isColumnSortable(key: string): boolean {
   if (colConf?.sortable === false) return false;
   if (colConf?.sortable === true) return true;
   return getFieldDef(key)?.sortable !== false;
-}
-
-// Filtrable par défaut ; false uniquement si explicitement déclaré, soit dans ce panneau
-// (listConfig.columns[key].filterable — prioritaire), soit côté backend (info={"filterable": False}).
-function isColumnFilterable(key: string): boolean {
-  const colConf = props.listConfig?.columns?.[key];
-  if (colConf?.filterable === false) return false;
-  if (colConf?.filterable === true) return true;
-  return getFieldDef(key)?.filterable !== false;
 }
 
 function isColumnRequired(key: string): boolean {
@@ -1201,22 +1219,95 @@ watch(() => props.items, (newItems) => {
 const currentPage = ref(1);
 const perPage = ref(30);
 
-// Filtres
-const filters = ref<Record<string, string>>({});
-let filterTimeout: any = null;
-function debouncedUpdateFilter(key: string, value: string) {
-  if (filterTimeout) clearTimeout(filterTimeout);
-  filterTimeout = setTimeout(() => {
-    filters.value[key] = value;
-  }, 300);
+// ==========================================
+// FILTRES (arbre ET/OU façon Odoo, voir GenericListFilterPicker.vue / utils/domain.ts)
+// ==========================================
+// Remplace l'ancienne recherche par colonne (une ligne de champs texte, filtrage substring) —
+// combine : (a) les filtres prédéfinis de ce panel (listConfig.predefinedFilters, statiques), (b)
+// les CustomFilter propres/partagés persistés (modèle backend, chargés par ressource), (c) un
+// éventuel filtre construit dans la popin mais volontairement non enregistré ("filtre personnalisé
+// actif"). (a)+(b) cochés se combinent en OU entre eux, puis en ET avec (c) — même hiérarchie que
+// la barre de recherche Odoo (facettes cochées = OU, combinées en ET avec le champ de recherche
+// libre).
+interface CustomFilterRecord {
+  id: number;
+  name: string;
+  domain: string | null;
+  is_shared: boolean;
+  is_auto_apply: boolean;
+  user_id: number;
 }
 
-watch(() => props.columns, () => {
-  filters.value = {};
-  props.columns.forEach(c => {
-    filters.value[c.key] = '';
-  });
-}, { immediate: true });
+const customFilters = ref<CustomFilterRecord[]>([]);
+const currentUserId = ref<number | null>(null);
+const activePredefinedNames = ref<Set<string>>(new Set());
+const activeCustomIds = ref<Set<number>>(new Set());
+const adhocCustomDomain = ref<DomainNode>([]);
+const showCustomFilterModal = ref(false);
+const hasAppliedAutoFilters = ref(false);
+
+api.fetchWhoAmICached().then(who => { currentUserId.value = who.id; }).catch(() => {});
+
+function togglePredefinedFilter(name: string) {
+  const next = new Set(activePredefinedNames.value);
+  if (next.has(name)) next.delete(name); else next.add(name);
+  activePredefinedNames.value = next;
+}
+
+function toggleCustomFilter(id: number) {
+  const next = new Set(activeCustomIds.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  activeCustomIds.value = next;
+}
+
+async function deleteCustomFilter(id: number) {
+  try {
+    await api.deleteGenericItem('custom_filters', id);
+    customFilters.value = customFilters.value.filter(f => f.id !== id);
+    const next = new Set(activeCustomIds.value);
+    next.delete(id);
+    activeCustomIds.value = next;
+  } catch (e: any) {
+    alert(e?.message || 'Échec de la suppression du filtre.');
+  }
+}
+
+function onCustomFilterApplied(domain: DomainNode) {
+  adhocCustomDomain.value = domain;
+}
+
+function onCustomFilterSaved(record: CustomFilterRecord) {
+  customFilters.value = [...customFilters.value, record];
+  // Le filtre enregistré devient LE filtre actif (coché), à la place du domaine ad hoc qui vient
+  // de produire le même résultat — sans ça, le widget afficherait deux indicateurs redondants
+  // ("Ma classe test" ET "Filtre personnalisé actif") pour un seul et même domaine.
+  activeCustomIds.value = new Set([...activeCustomIds.value, record.id]);
+  adhocCustomDomain.value = [];
+}
+
+function combineDomains(domains: DomainNode[], connector: '&' | '|'): DomainNode {
+  const nonEmpty = domains.filter(d => d && d.length > 0);
+  if (nonEmpty.length === 0) return [];
+  if (nonEmpty.length === 1) return nonEmpty[0];
+  return [...new Array(nonEmpty.length - 1).fill(connector), ...nonEmpty.flat()];
+}
+
+const activeDomain = computed<DomainNode>(() => {
+  const orTerms: DomainNode[] = [];
+  for (const f of props.listConfig?.predefinedFilters || []) {
+    if (activePredefinedNames.value.has(f.name)) orTerms.push(f.domain);
+  }
+  for (const f of customFilters.value) {
+    if (activeCustomIds.value.has(f.id) && f.domain) {
+      try {
+        orTerms.push(JSON.parse(f.domain));
+      } catch {
+        // Domaine corrompu en base : ignoré plutôt que de faire planter le filtrage de toute la liste.
+      }
+    }
+  }
+  return combineDomains([combineDomains(orTerms, '|'), adhocCustomDomain.value], '&');
+});
 
 // Tri
 const sortBy = ref<string | null>(null);
@@ -1237,21 +1328,84 @@ function toggleSort(key: string) {
   }
 }
 
+// Options valides du sélecteur "Afficher N par page" (voir template) — sert aussi à valider un
+// perPage restauré depuis l'URL (initialListState.perPage) : une valeur inconnue retombe sur 30
+// plutôt que de désynchroniser le <select> (voir watch ci-dessous).
+const PER_PAGE_OPTIONS = [10, 20, 30, 50, 100, 10000];
+
+// Empêche le watcher de reset de page (plus bas, sur activeDomain/perPage/internalGroupBy) d'écraser
+// la page restaurée pendant que le bloc ci-dessous assigne ces mêmes refs en une fois.
+const isApplyingInitialListState = ref(false);
+
+// Restauration depuis l'URL (voir App.vue::initialListState, urlState.ts::UrlListState) + chargement
+// des CustomFilter de cette ressource — un seul watcher pour garantir que la restauration (§1,
+// synchrone) s'applique AVANT que l'auto-application des filtres (§3) ne décide s'il reste quelque
+// chose à faire, plutôt que deux watchers dont l'ordre d'exécution relatif ne serait pas garanti.
+watch(() => props.title, async (resourceKey) => {
+  // 1. Restauration depuis l'URL — contrairement à initialSelectedIds (qui doit attendre `items`
+  // pour valider les ids), domain/groupBy/sort/perPage/page ne dépendent d'aucune donnée chargée.
+  isApplyingInitialListState.value = true;
+  const restored = props.initialListState;
+  activePredefinedNames.value = new Set();
+  activeCustomIds.value = new Set();
+  adhocCustomDomain.value = restored?.domain && restored.domain.length ? restored.domain : [];
+  internalGroupBy.value = restored?.groupBy && restored.groupBy.length
+    ? restored.groupBy.map(entry => parseGroupByEntry(entry)).filter((level): level is GroupByLevel => level !== null)
+    : [];
+  if (restored?.sort) {
+    sortBy.value = restored.sort.key;
+    sortDesc.value = restored.sort.desc;
+  } else {
+    sortBy.value = null;
+    sortDesc.value = false;
+  }
+  perPage.value = restored?.perPage && PER_PAGE_OPTIONS.includes(restored.perPage) ? restored.perPage : 30;
+  currentPage.value = restored?.page && restored.page >= 1 ? restored.page : 1;
+  emit('initial-list-state-applied');
+  // Laisse le watcher de reset de page (déclenché par les assignations ci-dessus) s'exécuter et se
+  // voir absorbé par le flag AVANT de le lever — sans ce tick, il s'exécuterait après coup (watchers
+  // Vue par défaut asynchrones/`flush: 'pre'`) et écraserait silencieusement `page` restauré.
+  await nextTick();
+  isApplyingInitialListState.value = false;
+
+  // 2. Filtres personnalisés (custom_filters) de cette ressource.
+  customFilters.value = [];
+  hasAppliedAutoFilters.value = false;
+  if (!resourceKey) return;
+  try {
+    const { items } = await api.fetchAllGenericItems('custom_filters', undefined, { resource: resourceKey });
+    customFilters.value = items as CustomFilterRecord[];
+  } catch {
+    customFilters.value = [];
+  }
+
+  // 3. Application automatique (CustomFilter.is_auto_apply) — seulement si l'URL n'a restauré aucun
+  // domaine ET que rien n'est déjà actif : l'URL prime toujours sur l'auto-application.
+  const urlProvidedDomain = !!(restored?.domain && restored.domain.length);
+  if (!urlProvidedDomain && !hasAppliedAutoFilters.value && activePredefinedNames.value.size === 0 && activeCustomIds.value.size === 0) {
+    hasAppliedAutoFilters.value = true;
+    const autoIds = customFilters.value.filter(f => f.is_auto_apply).map(f => f.id);
+    if (autoIds.length) activeCustomIds.value = new Set(autoIds);
+  }
+}, { immediate: true });
+
 // Filtrage et Tri
 const filteredItems = computed(() => {
-  let result = [...props.items];
+  let result: any[];
 
-  // 1. Filtrage
-  Object.keys(filters.value).forEach(key => {
-    const val = filters.value[key];
-    if (val) {
-      const lowerVal = val.toLowerCase();
-      result = result.filter(item => {
-        const displayVal = getDisplayValue(item, key);
-        return displayVal.toLowerCase().includes(lowerVal);
-      });
+  // 1. Filtrage (voir activeDomain ci-dessus) — un domaine malformé (URL bricolée à la main,
+  // conversion arbre<->préfixe en échec) ne doit jamais vider silencieusement toute la liste : on
+  // retombe sur l'ensemble non filtré plutôt que de laisser planter tout le composant.
+  if (activeDomain.value.length === 0) {
+    result = [...props.items];
+  } else {
+    try {
+      result = props.items.filter(item => evaluateDomain(item, activeDomain.value));
+    } catch (e) {
+      console.warn('Domaine de filtre invalide, filtrage ignoré.', e);
+      result = [...props.items];
     }
-  });
+  }
 
   // 2. Tri
   if (sortBy.value) {
@@ -1735,28 +1889,60 @@ const headerRows = computed<HeaderCell[][]>(() => {
   return rows;
 });
 
-// Multisélection (Actions groupées & Raccourcis EDT p.41) dépendantes de filteredItems
+// Multisélection (Actions groupées & Raccourcis EDT p.41) — la case à cocher d'en-tête ne porte que
+// sur ce qui est RÉELLEMENT affiché à l'écran (page courante en mode plat, feuilles dépliées de la
+// page de groupes/racines courante sinon — même ensemble que rangeSelectableItems, hors mode plat où
+// celui-ci reste sciemment filteredItems pour le shift-clic, une notion différente) : façon Odoo, la
+// case ne sélectionne que la page, un lien dédié (voir canExtendSelectionToAllFiltered) permet
+// d'étendre à tout l'ensemble filtré.
+const pageSelectableItems = computed(() => {
+  if (isGrouped.value) return visibleLeafRowsFlat.value;
+  if (isTreeMode.value) return treeOrderedItems.value;
+  return paginatedItems.value;
+});
+
+// Nombre de lignes réellement affichées (badge "X élément(s) sur Y", barre de pagination) —
+// pageSelectableItems, SAUF en mode virtuel (perPage "Tout", voir isVirtualMode) où
+// pageSelectableItems ne reflète que la fenêtre DOM rendue pour la performance (quelques dizaines
+// de lignes), jamais l'intégralité : "Tout" doit afficher le total filtré comme compte affiché,
+// pas la taille de cette fenêtre technique.
+const displayedCount = computed(() => (isVirtualMode.value ? filteredItems.value.length : pageSelectableItems.value.length));
+
 const isAllSelected = computed(() => {
-  if (filteredItems.value.length === 0) return false;
-  return filteredItems.value.every(item => selectedIds.value.has(item.id));
+  if (pageSelectableItems.value.length === 0) return false;
+  return pageSelectableItems.value.every(item => selectedIds.value.has(item.id));
 });
 
 const isSomeSelected = computed(() => {
-  if (filteredItems.value.length === 0) return false;
-  const numSelected = filteredItems.value.filter(item => selectedIds.value.has(item.id)).length;
-  return numSelected > 0 && numSelected < filteredItems.value.length;
+  if (pageSelectableItems.value.length === 0) return false;
+  const numSelected = pageSelectableItems.value.filter(item => selectedIds.value.has(item.id)).length;
+  return numSelected > 0 && numSelected < pageSelectableItems.value.length;
 });
 
 function toggleSelectAll(checked: boolean) {
   if (checked) {
-    filteredItems.value.forEach(item => {
+    pageSelectableItems.value.forEach(item => {
       selectedIds.value.add(item.id);
     });
   } else {
-    filteredItems.value.forEach(item => {
+    pageSelectableItems.value.forEach(item => {
       selectedIds.value.delete(item.id);
     });
   }
+}
+
+// "Tout sélectionner Y" (voir badge de sélection, barre du haut) : n'apparaît que si toute la page
+// courante est cochée ET qu'il reste au moins une ligne filtrée non encore sélectionnée (pas
+// seulement "hors de cette page" — sans quoi le lien resterait affiché même après avoir cliqué
+// dessus, une fois les autres pages déjà toutes sélectionnées une à une).
+const canExtendSelectionToAllFiltered = computed(() =>
+  isAllSelected.value && selectedIds.value.size < filteredItems.value.length
+);
+
+function selectAllFiltered() {
+  filteredItems.value.forEach(item => {
+    selectedIds.value.add(item.id);
+  });
 }
 
 function toggleSelectRow(item: any, checked: boolean) {
@@ -1863,9 +2049,27 @@ onUnmounted(() => {
 
 // Reset page on filter/limit/grouping changes — activer/désactiver/modifier le regroupement change
 // radicalement le dénominateur de pagination (pages de groupes vs pages de lignes), sans quoi
-// l'utilisateur peut atterrir sur une page vide hors bornes.
-watch([filters, perPage, internalGroupBy], () => {
+// l'utilisateur peut atterrir sur une page vide hors bornes. Absorbé pendant la restauration depuis
+// l'URL (voir isApplyingInitialListState) : sinon la page restaurée serait écrasée par ce reset.
+watch([activeDomain, perPage, internalGroupBy], () => {
+  if (isApplyingInitialListState.value) return;
   currentPage.value = 1;
+}, { deep: true });
+
+// Reflète domaine/regroupement/tri/pagination dans l'URL (voir App.vue::onListStateChange,
+// services/urlState.ts) — même principe que le watch(selectedIds) plus haut pour selection-change.
+// PAS absorbé par isApplyingInitialListState (contrairement au watcher de reset de page ci-dessus) :
+// l'émission doit au contraire refléter l'état qui vient d'être restauré (ou remis à défaut pour une
+// nouvelle ressource sans état à restaurer), exactement comme selection-change le fait déjà pour les
+// ids — Vue regroupe les assignations synchrones du bloc de restauration en un seul déclenchement.
+watch([activeDomain, internalGroupBy, sortBy, sortDesc, perPage, currentPage], () => {
+  emit('list-state-change', {
+    domain: activeDomain.value,
+    groupBy: internalGroupBy.value.map(level => level.granularity ? `${level.key}:${level.granularity}` : level.key),
+    sort: sortBy.value ? { key: sortBy.value, desc: sortDesc.value } : null,
+    perPage: perPage.value,
+    page: currentPage.value,
+  });
 }, { deep: true });
 
 // Redimensionnement de colonnes
@@ -1993,14 +2197,48 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
 
 <style scoped>
 /* Barre d'actions de liste — `flex-shrink: 0` pour ne jamais se faire comprimer par la table, qui
-   occupe le reste de la hauteur du conteneur flex. Absente du DOM tant qu'aucune action de portée
-   "list" n'est déclarée sur la ressource (voir le v-if), donc sans effet ailleurs. */
+   occupe le reste de la hauteur du conteneur flex. Toujours visible désormais (porte aussi le badge
+   de sélection, "Regrouper par" et "Filtrer" — voir GenericListFilterPicker.vue) ; même padding que
+   .list-pagination pour une hauteur identique entre les deux barres qui encadrent la table. */
 .list-actions-bar {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   flex-shrink: 0;
   gap: 8px;
-  padding: 8px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+}
+
+.list-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-all-link {
+  margin-left: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 700;
+  color: var(--accent-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ReportPrintMenu (widgets/ReportPrintMenu.vue) utilise le bouton .btn de base (padding 10px 18px,
+   voir assets/main.css) — sans cette réduction ciblée, lui seul dicterait une hauteur de barre bien
+   supérieure aux autres widgets compacts (Regrouper par/Filtrer, padding 4px 10px), empêchant
+   .list-actions-bar d'atteindre la même hauteur que .list-pagination malgré un padding identique.
+   Ciblage depuis le composant appelant plutôt qu'un nouveau prop size sur ReportPrintMenu : ce
+   composant n'a aujourd'hui aucune infrastructure de variantes de taille (pas de classe .btn-sm
+   côté assets/main.css), en ajouter une juste pour ce seul appel aurait été disproportionné. */
+.list-actions-bar .report-print-menu :deep(.btn) {
+  padding: 4px 12px;
+  font-size: 12px;
 }
 
 .generic-list-container {
@@ -2045,6 +2283,11 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
   border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 600;
+  /* "X élément(s) sur Y" (voir filteredItems.length) est plus long que l'ancien "X éléments" — sans
+     ceci, un flex item textuel se voit "blockifié" (voir spec CSS Display) dans .pagination-left
+     (display:flex) et peut se retrouver compressé sur 2 lignes par flex-shrink, gonflant la hauteur
+     de toute la barre au lieu de rester sur une seule ligne comme les badges voisins. */
+  white-space: nowrap;
 }
 
 .selection-badge {
@@ -2164,6 +2407,12 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
 }
 
 .header-th {
+  /* position: sticky établit déjà un bloc de confinement pour les descendants absolus (comme
+     position: relative, voir .resize-handle plus bas) — pas besoin des deux. Une redéclaration
+     `position: relative` traînait ici et écrasait silencieusement le sticky (même règle, propriété
+     répétée = la dernière gagne) : la ligne d'en-tête entière défilait avec le corps du tableau,
+     seule .actions-th (position: sticky propre, voir plus bas) restait visiblement figée en haut —
+     d'où l'icône de gestion des colonnes qui semblait "détachée" du reste de l'en-tête au scroll. */
   position: sticky;
   top: 0;
   background-color: var(--bg-surface);
@@ -2173,7 +2422,6 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
   font-size: 13px;
   font-weight: 600;
   padding: 8px 5px;
-  position: relative;
   user-select: none;
   /* box-shadow inset plutôt que border-right/border-bottom : sous border-collapse, une cellule à
      rowspan (colonne sans groupe, étirée sur toute la hauteur de l'en-tête) et une cellule à
@@ -2432,6 +2680,14 @@ provide(GENERIC_LIST_GROUP_CONTEXT, {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Span nu sans autre règle dédiée : "blockifié" (voir spec CSS Display) en tant qu'enfant direct de
+   .pagination-right (display:flex) et vulnérable au même repli sur 2 lignes que .toolbar-badge
+   ci-dessus dès que l'espace flex disponible se resserre — gonflait alors .list-pagination bien
+   au-delà de sa hauteur normale, empêchant la parité de hauteur voulue avec .list-actions-bar. */
+.pagination-info {
+  white-space: nowrap;
 }
 
 .pagination-buttons {

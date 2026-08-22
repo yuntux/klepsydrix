@@ -34,7 +34,15 @@
                 "id": "divisions_list",
                 "component": "GenericList",
                 "resourceKey": "divisions",
-                "width": "60%"
+                "width": "60%",
+                "listConfig": {
+                  "predefinedFilters": [
+                    {
+                      "name": "Exclues de la remontée STS",
+                      "domain": [["is_excluded_from_sts", "=", true]]
+                    }
+                  ]
+                }
               },
               {
                 "id": "divisions_form",
@@ -1285,7 +1293,7 @@
                     "is_co_teaching": {
                       "visibleByDefault": false
                     },
-                    "weighting_coefficient": {
+                    "weighting_coefficient_id": {
                       "visibleByDefault": false
                     },
                     "memo": {
@@ -1420,7 +1428,7 @@
                               "type": "group",
                               "col": 2,
                               "children": [
-                                "weighting_coefficient",
+                                "weighting_coefficient_id",
                                 "weighted_duration_minutes",
                                 "modality_id",
                                 "alternation_id",
@@ -1738,7 +1746,7 @@
                   "overrideLabel": "Durée totale",
                   "readOnly": true
                 },
-                "weighting_coefficient": {
+                "weighting_coefficient_id": {
                   "visibleByDefault": true,
                   "overrideLabel": "Pondération"
                 },
@@ -2575,6 +2583,23 @@
                       "hidden": true
                     }
                   }
+                }
+              }
+            ]
+          },
+          {
+            "id": "ref_weighting_coefficients_setting",
+            "icon": "box",
+            "title": "Pondérations",
+            "borderColor": "#6B7280",
+            "panels": [
+              {
+                "id": "ref_weighting_coefficients_list",
+                "component": "GenericList",
+                "resourceKey": "ref_weighting_coefficients",
+                "width": "100%",
+                "listConfig": {
+                  "editableInline": true
                 }
               }
             ]

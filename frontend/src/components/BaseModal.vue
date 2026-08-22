@@ -1,18 +1,25 @@
 <template>
-  <div v-if="modelValue" class="modal-overlay" @mousedown.self="closeOnOutside ? $emit('update:modelValue', false) : null">
-    <div class="modal-container glass-morphism" :style="{ maxWidth, width }">
-      <div class="modal-header">
-        <h3 class="modal-title">{{ title }}</h3>
-        <button class="btn-close" @click="$emit('update:modelValue', false)">&times;</button>
-      </div>
-      <div class="modal-body" :class="{ 'no-padding': noPadding }">
-        <slot></slot>
-      </div>
-      <div class="modal-footer" v-if="$slots.footer">
-        <slot name="footer"></slot>
+  <!-- Téléporté <body> : sans ça, un ancêtre établissant son propre bloc de confinement pour les
+       éléments `position: fixed` (transform, filter, backdrop-filter, contain…) — ex: .generic-
+       list-container (backdrop-filter: blur, voir GenericList.vue) — confine ce modal à SES propres
+       limites au lieu du plein viewport, malgré le `position: fixed` ci-dessous (bug constaté : la
+       popin "Filtre personnalisé" rognée par le panneau qui l'héberge). -->
+  <Teleport to="body">
+    <div v-if="modelValue" class="modal-overlay" @mousedown.self="closeOnOutside ? $emit('update:modelValue', false) : null">
+      <div class="modal-container glass-morphism" :style="{ maxWidth, width }">
+        <div class="modal-header">
+          <h3 class="modal-title">{{ title }}</h3>
+          <button class="btn-close" @click="$emit('update:modelValue', false)">&times;</button>
+        </div>
+        <div class="modal-body" :class="{ 'no-padding': noPadding }">
+          <slot></slot>
+        </div>
+        <div class="modal-footer" v-if="$slots.footer">
+          <slot name="footer"></slot>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

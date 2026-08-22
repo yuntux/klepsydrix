@@ -373,6 +373,7 @@ class TestWhoAmI:
         result = whoami(session=session, db=db_session, user=user)
 
         assert result == {
+            "id": user.id,
             "display_name": "A Dmin", "email": "a@example.fr", "is_admin": True,
             "must_change_password": False,
             # Plafond d'envoi servi à l'IHM par cette même route plutôt que recopié en dur

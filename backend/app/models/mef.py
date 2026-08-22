@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, false as sa_false
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, false as sa_false
 from sqlalchemy.orm import relationship, Session
 from backend.app.models.base import Base, constrains, exposed, related_field
 
@@ -36,7 +36,7 @@ class Mef(Base):
                     {"key": "discipline_id", "label": "Discipline", "resource": "disciplines", "editable": True},
                     {"key": "election_method_id", "label": "Modalité d'élection", "resource": "ref_election_methods", "editable": True},
                     {"key": "student_count", "label": "Effectif", "editable": True},
-                    {"key": "weighting_coefficient", "label": "Pondération", "editable": True},
+                    {"key": "weighting_coefficient_id", "label": "Pondération", "resource": "ref_weighting_coefficients", "editable": True},
                     {"key": "weekly_duration_full_class_minutes", "label": "Durée classe entière", "editable": True},
                     {"key": "weekly_duration_reduced_minutes", "label": "Durée effectif réduit", "editable": True},
                     {"key": "weekly_duration_split_minutes", "label": "Durée effectif dédoublé", "editable": True},
@@ -65,7 +65,12 @@ class MefService(Base):
     election_method_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_election_methods.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité d'élection"})
 
     student_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Effectif attendu par division", "min": 0, "max": 50})
-    weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
+    # Pointeur vers RefWeightingCoefficient plutôt qu'un flottant libre (voir Course.
+    # weighting_coefficient_id, même convention, StsComplianceMixin) : seule façon de savoir si la
+    # valeur appartient à la nomenclature STS-web. Défaut id=1 = 1.0, seedée en premier dans
+    # init_db.py. Recopiée telle quelle sur les Service générés (voir
+    # Service._MEF_SERVICE_MIRROR_FIELDS) : aucune conversion, la FK voyage à l'identique.
+    weighting_coefficient_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_weighting_coefficients.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Pondération", "resource": "ref_weighting_coefficients"})
 
     weekly_duration_full_class_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo classe entière (min)", "type": "duration", "durationIncludeZero": True})
     weekly_duration_reduced_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, info={"label": "Durée hebdo effectif réduit (min)", "type": "duration", "durationIncludeZero": True})
@@ -84,6 +89,9 @@ class MefService(Base):
     subject: Mapped[Optional["Subject"]] = relationship("Subject", back_populates="mef_services")
     discipline: Mapped[Optional["Discipline"]] = relationship("Discipline")
     election_method: Mapped[Optional["RefElectionMethod"]] = relationship("RefElectionMethod")
+    # Nommée _ref, pas weighting_coefficient : voir Course.weighting_coefficient_ref (la cible
+    # porte elle-même une colonne du même nom).
+    weighting_coefficient_ref: Mapped[Optional["RefWeightingCoefficient"]] = relationship("RefWeightingCoefficient")
     services: Mapped[list["Service"]] = relationship("Service", back_populates="mef_service", info={"label": "Services générés"})
 
     @exposed(info={"type": "duration", "readOnly": True})

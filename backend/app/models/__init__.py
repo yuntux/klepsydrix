@@ -2,6 +2,7 @@ from backend.app.models.base import Base
 from backend.app.models.user import User, UserIdentityProvider
 from backend.app.models.password_reset_token import PasswordResetToken
 from backend.app.models.access import ResGroup, IrModelAccess
+from backend.app.models.custom_filter import CustomFilter
 from backend.app.models.parent import Parent
 from backend.app.models.school import School
 from backend.app.models.discipline import Discipline
@@ -25,6 +26,7 @@ from backend.app.models.holidays import Holidays
 from backend.app.models.week_calendar import WeekCalendar
 from backend.app.models.alternation import Alternation
 from backend.app.models.modality import Modality
+from backend.app.models.ref_weighting_coefficient import RefWeightingCoefficient
 from backend.app.models.site import Site, SiteTravelTime
 from backend.app.models.timeslot import Timeslot
 from backend.app.models.grid_day_settings import GridDaySettings

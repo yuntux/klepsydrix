@@ -1,6 +1,6 @@
 from typing import Optional
 from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
-from sqlalchemy import Integer, Float, ForeignKey, UniqueConstraint
+from sqlalchemy import Integer, ForeignKey, UniqueConstraint
 from backend.app.models.base import Base, constrains
 
 
@@ -14,7 +14,7 @@ class CourseTeacherWeighting(Base):
     La pondération est en effet une propriété du **statut de l'enseignant**, pas du cours : deux
     professeurs sur la même heure de co-enseignement peuvent légitimement être pondérés 1,1 et 1
     selon leur situation au regard de la première chaire (décret n°2014-940). `Course.
-    weighting_coefficient` reste donc la valeur normale, et cette table ne porte que les
+    weighting_coefficient_id` reste donc la valeur normale, et cette table ne porte que les
     **exceptions** — un cours simple à un seul professeur n'y a aucune ligne.
 
     Table d'exception plutôt que colonne sur `course_teachers` : la table d'association est un
@@ -35,11 +35,15 @@ class CourseTeacherWeighting(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, info={"label": "Cours"})
     teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False, info={"label": "Enseignant"})
-    weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
+    # Même pointeur que Course.weighting_coefficient_id (voir sa docstring) : défaut id=1 = 1.0,
+    # ondelete=RESTRICT.
+    weighting_coefficient_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_weighting_coefficients.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Pondération", "resource": "ref_weighting_coefficients"})
 
     # Relations de navigation
     course: Mapped[Optional["Course"]] = relationship("Course", back_populates="teacher_weightings")
     teacher: Mapped[Optional["Teacher"]] = relationship("Teacher")
+    # Nommée _ref, pas weighting_coefficient : voir Course.weighting_coefficient_ref.
+    weighting_coefficient_ref: Mapped[Optional["RefWeightingCoefficient"]] = relationship("RefWeightingCoefficient")
 
     @constrains("teacher_id", "course_id")
     def _check_teacher_is_on_course(self, db: Session):

@@ -66,7 +66,7 @@ def _courses_from_alignment(db: Session, alignment: Alignment) -> list[dict]:
                 "division_ids": division_ids,
                 "duration_minutes": repartition.duration_minutes,
                 "week_type": _week_type_for(repartition.periodicity),
-                "weighting_coefficient": template_service.weighting_coefficient,
+                "weighting_coefficient_id": template_service.weighting_coefficient_id,
                 "is_excluded_from_sts": template_service.is_excluded_from_sts,
             })
     return vals_list
@@ -116,7 +116,7 @@ def _courses_from_group_service(db: Session, service: Service) -> list[dict]:
             "is_co_teaching": is_co_teaching,
             "duration_minutes": repartition.duration_minutes,
             "week_type": _week_type_for(repartition.periodicity),
-            "weighting_coefficient": service.weighting_coefficient,
+            "weighting_coefficient_id": service.weighting_coefficient_id,
             "is_excluded_from_sts": service.is_excluded_from_sts,
             "group_ids": [service.group_id],
         }
@@ -149,7 +149,7 @@ def _courses_from_service(db: Session, service: Service) -> list[dict]:
             "is_co_teaching": is_co_teaching,
             "duration_minutes": repartition.duration_minutes,
             "week_type": _week_type_for(repartition.periodicity),
-            "weighting_coefficient": service.weighting_coefficient,
+            "weighting_coefficient_id": service.weighting_coefficient_id,
             "is_excluded_from_sts": service.is_excluded_from_sts,
         }
 

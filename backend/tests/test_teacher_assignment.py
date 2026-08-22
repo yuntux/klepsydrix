@@ -12,6 +12,7 @@ from backend.app.models import (
 )
 from backend.app.models.mef import MefService
 from backend.app.models.course import Course
+from backend.app.models.ref_weighting_coefficient import RefWeightingCoefficient
 from backend.app.models.group import find_or_create_partition, find_or_create_group
 from backend.app.models.preference import ResourcePreference, PreferenceLevel
 from backend.app.models.timeslot import Timeslot
@@ -388,16 +389,18 @@ class TestTeacherComputedDurations:
     def test_taught_raw_and_weighted_ignore_composed_parents(self, db_session):
         school, discipline, subject, ref_grade, mef, division, mef_division, mef_service, service = _base_setup(db_session)
         teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=120)
+        weighting_15 = RefWeightingCoefficient.search_or_create(db_session, 1.5).id
+        weighting_10 = RefWeightingCoefficient.search_or_create(db_session, 1.0).id
         Course.create(db_session, {
             "school_id": school.id, "subject_id": subject.id, "teacher_ids": [teacher.id],
-            "duration_minutes": 60, "weighting_coefficient": 1.5,
+            "duration_minutes": 60, "weighting_coefficient_id": weighting_15,
         })
         parent = Course.create(db_session, {
             "school_id": school.id, "is_composed": True, "teacher_ids": [teacher.id], "duration_minutes": 990,
         })
         Course.create(db_session, {
             "school_id": school.id, "subject_id": subject.id, "parent_id": parent.id, "teacher_ids": [teacher.id],
-            "duration_minutes": 30, "weighting_coefficient": 1.0,
+            "duration_minutes": 30, "weighting_coefficient_id": weighting_10,
         })
 
         db_session.refresh(teacher)
@@ -410,7 +413,7 @@ class TestTeacherComputedDurations:
         teacher = _make_teacher(db_session, school, "T1", discipline, discipline_minutes=90)
         Course.create(db_session, {
             "school_id": school.id, "subject_id": subject.id, "teacher_ids": [teacher.id],
-            "duration_minutes": 90, "weighting_coefficient": 1.0,
+            "duration_minutes": 90, "weighting_coefficient_id": RefWeightingCoefficient.search_or_create(db_session, 1.0).id,
         })
         ref_are = RefAre.create(db_session, {"code": "ARE1", "name": "ARE Test"})
         TeacherAre.create(db_session, {"teacher_id": teacher.id, "ref_are_id": ref_are.id, "duration_minutes": 30})

@@ -272,12 +272,6 @@ class Course(Base):
     is_co_teaching: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Co-enseignement"})
     
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, info={"label": "Durée", "type": "duration"})
-    # Copié depuis Service.weighting_coefficient à la génération (voir wizard_course_generation.py)
-    # — jamais une FK vivante vers Service (Course n'en a et ne doit pas en avoir, cohérent avec le
-    # reste de la génération, qui copie plutôt que référence). Reste à 1.0 pour un cours créé
-    # manuellement, sans Service d'origine. Sert au calcul de weighted_duration_minutes ci-dessous,
-    # consommé par Teacher.hsa_duration_minutes (voir teacher-assignment-proposal.md §6).
-    weighting_coefficient: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, info={"label": "Pondération", "min": 0.0, "max": 5.0, "step": "0.05"})
     name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, info={"label": "Nom / Libellé", "placeholder": "ex: Cours de maths avancé"})
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True, info={"label": "Mémo / Note interne"})
     is_composed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, info={"label": "Cours composé"})
@@ -320,6 +314,18 @@ class Course(Base):
     # remonte en cours général. ondelete=RESTRICT : une modalité utilisée par un cours ne doit
     # pas pouvoir disparaître, la remontée STS en dépend.
     modality_id: Mapped[int] = mapped_column(Integer, ForeignKey("modalities.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Modalité"})
+    # Pointeur vers RefWeightingCoefficient plutôt qu'un flottant libre — seule façon de savoir si
+    # la valeur appartient à la nomenclature STS-web (RefWeightingCoefficient.is_sts_compliant,
+    # voir StsComplianceMixin) plutôt qu'une simple conviction locale. Même convention que
+    # modality_id : 1.00 est seedée EN PREMIER dans init_db.py pour que ce défaut (id=1) soit stable.
+    # Copiée telle quelle depuis Service.weighting_coefficient_id à la génération (voir
+    # wizard_course_generation.py) — jamais une FK vivante vers Service, cohérent avec le reste de
+    # la génération, qui copie plutôt que référence ; ni conversion ni recherche, la FK voyage à
+    # l'identique de MefService à Service puis à Course. Sert au calcul de
+    # weighted_duration_minutes ci-dessous, consommé par Teacher.hsa_duration_minutes (voir
+    # teacher-assignment-proposal.md §6). ondelete=RESTRICT : une pondération utilisée par un
+    # cours ne doit pas pouvoir disparaître.
+    weighting_coefficient_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_weighting_coefficients.id", ondelete="RESTRICT"), nullable=False, default=1, server_default="1", info={"label": "Pondération", "resource": "ref_weighting_coefficients"})
     # Alternance STS (calendrier nommé de semaines) — champ CALCULÉ ET STOCKÉ (§15.F), jamais
     # saisi : il découle du couple (week_type, périodes) du cours, voir _sync_alternation.
     # Le solveur l'ignore totalement : il raisonne sur week_type, jamais sur des semaines
@@ -347,6 +353,11 @@ class Course(Base):
     period_type: Mapped[Optional["PeriodType"]] = relationship("PeriodType")
     mission: Mapped[Optional["RefPacteMission"]] = relationship("RefPacteMission", back_populates="courses")
     modality: Mapped[Optional["Modality"]] = relationship("Modality", back_populates="courses")
+    # Nommée _ref et non weighting_coefficient : la cible porte elle-même une colonne
+    # weighting_coefficient (la valeur), un nom identique aurait masqué la valeur derrière l'objet
+    # — même raison que subject_relation ci-dessus, pas de collection inverse (voir School, retirée
+    # récemment pour la même raison : elle n'a aucun rôle métier, seule la FK porte le sens).
+    weighting_coefficient_ref: Mapped[Optional["RefWeightingCoefficient"]] = relationship("RefWeightingCoefficient")
     alternation: Mapped[Optional["Alternation"]] = relationship("Alternation", back_populates="courses")
     teacher_weightings: Mapped[list["CourseTeacherWeighting"]] = relationship(
         "CourseTeacherWeighting", back_populates="course", passive_deletes="all",
@@ -387,7 +398,8 @@ class Course(Base):
     @exposed(info={"label": "Durée pondérée", "type": "duration", "readOnly": True})
     @property
     def weighted_duration_minutes(self) -> int:
-        return round(self.duration_minutes * self.weighting_coefficient)
+        coefficient = self.weighting_coefficient_ref.weighting_coefficient if self.weighting_coefficient_ref else 1.0
+        return round(self.duration_minutes * coefficient)
 
     def _resolve_students(self) -> list:
         """
@@ -611,8 +623,8 @@ class Course(Base):
         """
         for ligne in self.teacher_weightings:
             if ligne.teacher_id == teacher_id:
-                return ligne.weighting_coefficient
-        return self.weighting_coefficient
+                return ligne.weighting_coefficient_ref.weighting_coefficient if ligne.weighting_coefficient_ref else 1.0
+        return self.weighting_coefficient_ref.weighting_coefficient if self.weighting_coefficient_ref else 1.0
 
     @exposed(info={"label": "Pondérations hétérogènes", "readOnly": True})
     @property
@@ -628,23 +640,24 @@ class Course(Base):
     @property
     def is_in_sts_scope(self) -> bool:
         """
-        Périmètre de la remontée : les **trois niveaux d'exclusion** — matière, classe,
-        service/cours — plus la pondération nulle. Aucun des trois n'est redondant : ils répondent
-        à trois gestes différents, exclure un enseignement, exclure une classe, exclure un cours.
+        Périmètre VOULU par l'utilisateur : les **trois niveaux d'exclusion délibérée** — matière,
+        classe, service/cours. Aucun des trois n'est redondant : ils répondent à trois gestes
+        différents, exclure un enseignement, exclure une classe, exclure un cours.
 
-        La pondération à zéro compte comme une exclusion parce que STS-web l'ignore de toute façon
-        (« STSWEB ne prend pas en compte les cours dont la pondération est à zéro ») : autant que
-        l'audit et l'export le disent avant, plutôt que de laisser le cours disparaître en silence
-        à l'arrivée.
+        Ne couvre RIEN d'autre — en particulier aucun critère technique (pondération nulle ou hors
+        nomenclature, modalité ou mode d'élection non conformes, quinzaine non tranchée). Un cours
+        qui échoue sur l'un de ces critères n'a pas été exclu par un choix de l'utilisateur : le
+        faire disparaître d'ici serait exactement l'écueil que ce champ existe pour éviter — voir
+        `is_exported_to_sts` pour le verdict complet, et `sts_audit.py` pour les anomalies
+        bloquantes dédiées à chacun de ces critères (`_ponderations_non_conformes`,
+        `_modalites_non_conformes`, `_modes_election_non_conformes`, `_quinzaines_non_tranchees`).
 
-        Le périmètre est séparé du verdict (`is_exported_to_sts`) pour une seule raison : l'audit a
-        besoin de désigner les cours qui *devraient* partir mais qu'un `week_type` en Q retient.
-        Sans cette distinction, ils sortiraient à la fois de l'export et de l'audit — donc sans
-        que personne ne l'apprenne.
+        Le périmètre reste séparé du verdict pour la même raison qu'avant l'introduction de ces
+        contrôles : l'audit a besoin de désigner les cours qui *devraient* partir mais qu'un
+        critère technique retient. Sans cette distinction, ils sortiraient à la fois de l'export et
+        de l'audit — donc sans que personne ne l'apprenne.
         """
         if self.is_excluded_from_sts:
-            return False
-        if not self.weighting_coefficient:
             return False
         if self.subject_relation is not None and self.subject_relation.is_excluded_from_sts:
             return False
@@ -658,12 +671,29 @@ class Course(Base):
         """
         Verdict final : ce cours part-il dans le fichier de remontée ?
 
-        C'est le périmètre ci-dessus, moins les cours en **Q**. Un cours en quinzaine non tranchée
-        est écarté pour une raison structurelle et non réglementaire : il n'a pas d'alternance
-        (voir `_sync_alternation`), et une séance sans `CODE_ALTERNANCE` est ignorée à la lecture.
-        Il n'y a pas de calendrier « une semaine sur deux, on ne sait pas laquelle » à écrire.
+        C'est le périmètre ci-dessus, moins quatre critères TECHNIQUES — aucun n'est un choix de
+        l'utilisateur, contrairement au périmètre :
+
+        - pondération nulle : STS-web ignore de toute façon les cours pondérés à zéro (« STSWEB ne
+          prend pas en compte les cours dont la pondération est à zéro ») ;
+        - pondération, modalité ou mode d'élection HORS NOMENCLATURE STS-web (voir
+          RefWeightingCoefficient/Modality/RefElectionMethod, StsComplianceMixin) ;
+        - quinzaine non tranchée (Q) : pas d'alternance (voir `_sync_alternation`), et une séance
+          sans `CODE_ALTERNANCE` est ignorée à la lecture — il n'y a pas de calendrier « une
+          semaine sur deux, on ne sait pas laquelle » à écrire.
+
+        Ces quatre critères ne sont PAS de simples conditions ici : chacun a son propre contrôle
+        d'audit bloquant (`sts_audit.py`), pour que l'échec soit signalé plutôt que silencieux.
         """
         if not self.is_in_sts_scope:
+            return False
+        if not self.weighting_coefficient_ref or not self.weighting_coefficient_ref.weighting_coefficient:
+            return False
+        if not self.weighting_coefficient_ref.is_sts_compliant:
+            return False
+        if self.modality is not None and not self.modality.is_sts_compliant:
+            return False
+        if self.election_method is not None and not self.election_method.is_sts_compliant:
             return False
         week_type = self.week_type.value if hasattr(self.week_type, 'value') else self.week_type
         return week_type != CourseWeekType.Q.value

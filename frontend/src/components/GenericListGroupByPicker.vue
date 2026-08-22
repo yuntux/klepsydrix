@@ -8,39 +8,41 @@
       <span v-if="modelValue.length > 0" class="groupby-count-badge">{{ modelValue.length }}</span>
     </button>
 
-    <div v-if="showPopover" class="groupby-popover glass-morphism">
-      <div class="groupby-popover-header">Regrouper par</div>
+    <Teleport to="body">
+      <div v-if="showPopover" class="groupby-popover glass-morphism" :style="dropdownStyle" ref="popoverRef">
+        <div class="groupby-popover-header">Regrouper par</div>
 
-      <div v-if="modelValue.length === 0" class="groupby-empty">Aucun regroupement actif.</div>
+        <div v-if="modelValue.length === 0" class="groupby-empty">Aucun regroupement actif.</div>
 
-      <div v-for="(level, index) in modelValue" :key="level.key" class="groupby-level-row">
-        <span class="groupby-level-order">{{ index + 1 }}</span>
-        <span class="groupby-level-label">{{ fieldLabel(level.key) }}</span>
-        <select
-          v-if="isDateField(level.key)"
-          class="groupby-granularity-select"
-          :value="level.granularity || 'day'"
-          @change="setGranularity(index, ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="day">Jour</option>
-          <option value="week">Semaine</option>
-          <option value="month">Mois</option>
-          <option value="quarter">Trimestre</option>
-          <option value="year">Année</option>
-        </select>
-        <button type="button" class="groupby-move-btn" :disabled="index === 0" @click="moveLevel(index, -1)" title="Monter">▲</button>
-        <button type="button" class="groupby-move-btn" :disabled="index === modelValue.length - 1" @click="moveLevel(index, 1)" title="Descendre">▼</button>
-        <button type="button" class="groupby-remove-btn" @click="removeLevel(index)" title="Retirer">✕</button>
+        <div v-for="(level, index) in modelValue" :key="level.key" class="groupby-level-row">
+          <span class="groupby-level-order">{{ index + 1 }}</span>
+          <span class="groupby-level-label">{{ fieldLabel(level.key) }}</span>
+          <select
+            v-if="isDateField(level.key)"
+            class="groupby-granularity-select"
+            :value="level.granularity || 'day'"
+            @change="setGranularity(index, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="day">Jour</option>
+            <option value="week">Semaine</option>
+            <option value="month">Mois</option>
+            <option value="quarter">Trimestre</option>
+            <option value="year">Année</option>
+          </select>
+          <button type="button" class="groupby-move-btn" :disabled="index === 0" @click="moveLevel(index, -1)" title="Monter">▲</button>
+          <button type="button" class="groupby-move-btn" :disabled="index === modelValue.length - 1" @click="moveLevel(index, 1)" title="Descendre">▼</button>
+          <button type="button" class="groupby-remove-btn" @click="removeLevel(index)" title="Retirer">✕</button>
+        </div>
+
+        <div class="groupby-add-row" v-if="availableFields.length">
+          <select v-model="selectedToAdd" class="groupby-add-select">
+            <option :value="null" disabled>-- Ajouter un champ --</option>
+            <option v-for="f in availableFields" :key="f.key" :value="f.key">{{ f.label }}</option>
+          </select>
+          <button type="button" class="groupby-add-btn" :disabled="!selectedToAdd" @click="addLevel">Ajouter</button>
+        </div>
       </div>
-
-      <div class="groupby-add-row" v-if="availableFields.length">
-        <select v-model="selectedToAdd" class="groupby-add-select">
-          <option :value="null" disabled>-- Ajouter un champ --</option>
-          <option v-for="f in availableFields" :key="f.key" :value="f.key">{{ f.label }}</option>
-        </select>
-        <button type="button" class="groupby-add-btn" :disabled="!selectedToAdd" @click="addLevel">Ajouter</button>
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -52,7 +54,13 @@
 // comportement de widgets/Many2ManyOrderedList.vue (liste ordonnée, ajout/retrait/réordonnancement)
 // mais pas son gabarit visuel (table pleine largeur, inadapté à une insertion dans la barre de
 // pagination) — un bouton compact ouvrant un popover.
+//
+// Popover téléporté <body> + positionné via Floating UI (voir useFloatingDropdown.ts, même patron
+// que widgets/ReportPrintMenu.vue) : GenericList.vue vit dans un panneau (SplitPanel) dont l'overflow
+// coupait le popover en `position: absolute` classique dès que le panneau n'était pas assez large —
+// un `position: fixed` calé sur l'ancre, hors du DOM du panneau, flotte au-dessus de tout le reste.
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useFloatingDropdown } from '../composables/useFloatingDropdown';
 
 interface GroupByLevel {
   key: string;
@@ -72,10 +80,18 @@ const emit = defineEmits<{
 
 const showPopover = ref(false);
 const wrapperRef = ref<HTMLElement | null>(null);
+const popoverRef = ref<HTMLElement | null>(null);
 const selectedToAdd = ref<string | null>(null);
+const { dropdownStyle } = useFloatingDropdown(wrapperRef, popoverRef, showPopover);
 
+// Le popover est téléporté hors de wrapperRef (voir SearchableMultiSelect.vue::handleClickOutside,
+// même raison) : un clic à l'intérieur doit être reconnu comme "dedans" même s'il n'est plus, dans
+// le DOM réel, un descendant de wrapperRef.
 function handleClickOutside(event: MouseEvent) {
-  if (wrapperRef.value && !wrapperRef.value.contains(event.target as Node)) {
+  const target = event.target as Node;
+  const insideWrapper = wrapperRef.value?.contains(target);
+  const insidePopover = popoverRef.value?.contains(target);
+  if (!insideWrapper && !insidePopover) {
     showPopover.value = false;
   }
 }
@@ -162,16 +178,16 @@ function setGranularity(index: number, granularity: string) {
   font-size: 11px;
 }
 
+/* position: fixed + top/left/width fournis par dropdownStyle (voir useFloatingDropdown) — la
+   largeur inline calée sur l'ancre (bouton compact, ~140px) est volontairement écrasée par
+   min-width ci-dessous, même patron que ReportPrintMenu.vue::report-print-dropdown. */
 .groupby-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: 300px;
+  min-width: 300px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 100;
+  z-index: 1000;
   padding: 12px;
 }
 

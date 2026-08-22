@@ -97,6 +97,7 @@
             :items="genericItems"
             :listConfig="accessAwareListConfig(panel)"
             :initial-selected-ids="urlSelectedIds"
+            :initial-list-state="urlListState"
             @add="onAddGeneric"
             @edit="onEditGeneric"
             @delete="onDeleteGeneric"
@@ -104,6 +105,8 @@
             @row-click="onRowClickGeneric"
             @selection-change="onSelectionChangeGeneric"
             @initial-selection-applied="urlSelectedIds = []"
+            @initial-list-state-applied="urlListState = undefined"
+            @list-state-change="onListStateChange"
           />
         </section>
 
@@ -201,8 +204,21 @@
       :title="impactModalTitle"
       :impactedCount="impactedSessionsCount"
       :impactedSessions="impactedSessions"
-      @confirm="onConfirmImpactDelete"
+      @confirm="onConfirmPendingDelete"
       @cancel="showImpactModal = false"
+    />
+
+    <!-- Confirmation de suppression générique (voir onDeleteGeneric) — remplace window.confirm(),
+         seule cette dialogue-ci et ImpactConfirmDialog ci-dessus alimentent pendingDeleteCallback,
+         d'où le même gestionnaire de confirmation partagé (onConfirmPendingDelete). -->
+    <ConfirmModal
+      :show="showDeleteConfirmModal"
+      title="Confirmer la suppression"
+      :message="deleteConfirmMessage"
+      confirm-label="Supprimer"
+      variant="danger"
+      @confirm="onConfirmPendingDelete"
+      @cancel="showDeleteConfirmModal = false; pendingDeleteCallback = null"
     />
 
     <!-- Fiche T (T020) -->
@@ -275,6 +291,7 @@ const PreferenceGrid = defineAsyncComponent(() => import('./components/Preferenc
 const PeriodTransitionManager = defineAsyncComponent(() => import('./components/PeriodTransitionManager.vue'));
 const GenericPivot = defineAsyncComponent(() => import('./components/GenericPivot.vue'));
 const ImpactConfirmDialog = defineAsyncComponent(() => import('./components/ImpactConfirmDialog.vue'));
+const ConfirmModal = defineAsyncComponent(() => import('./components/ConfirmModal.vue'));
 const CoursePopin = defineAsyncComponent(() => import('./components/CoursePopin.vue'));
 
 // États partagés
@@ -317,7 +334,7 @@ const solverPipelineTotalSteps = ref<number>(1);
 
 import { useGridStore } from './stores/grid';
 import { storeToRefs } from 'pinia';
-import { parseLocationPath, parseLocationIds, syncUrl } from './services/urlState';
+import { parseLocationPath, parseLocationListState, syncUrl, type UrlListState } from './services/urlState';
 const gridStore = useGridStore();
 const { autoTarget, layoutMode, placementAssistantActive, isDetailedView, selectedCourseIds } = storeToRefs(gridStore);
 
@@ -384,8 +401,36 @@ const activeLeaf = ref<any>(null);
 // se resynchronisent dessus. `currentPathIds` reflète au contraire le chemin RÉELLEMENT actif à
 // tout instant (mis à jour à chaque changement de feuille, voir onLeafChange) : c'est lui, avec
 // `selectedParentIds`, qui pilote l'écriture de l'URL (voir le watch plus bas).
+function readInitialUrlListState(): UrlListState {
+  return parseLocationListState();
+}
+let initialUrlListState = readInitialUrlListState();
 const urlPathIds = ref<string[]>(parseLocationPath());
-const urlSelectedIds = ref<Array<string | number>>(parseLocationIds());
+const urlSelectedIds = ref<Array<string | number>>(initialUrlListState.ids);
+// Reste de l'état d'URL (domaine de filtre, regroupement, tri, pagination) restauré au premier
+// chargement d'une generic list view — voir GenericList.vue::initialListState. Vidé (undefined)
+// après application (même principe que urlSelectedIds/initial-selection-applied) pour qu'un
+// changement de ressource suivant dans le même panneau reparte sur un état par défaut plutôt que de
+// réappliquer à tort un état périmé.
+const urlListState = ref<Omit<UrlListState, 'ids'> | undefined>({
+  domain: initialUrlListState.domain,
+  groupBy: initialUrlListState.groupBy,
+  sort: initialUrlListState.sort,
+  perPage: initialUrlListState.perPage,
+  page: initialUrlListState.page,
+});
+// État LIVE de la generic list view affichée (voir @list-state-change) — reflété en continu dans
+// l'URL par le watch plus bas, initialisé sur le MÊME état que urlListState ci-dessus pour que le
+// tout premier déclenchement du watch d'écriture d'URL (avant même la première émission réelle de
+// GenericList) ne réécrive pas l'URL avec des valeurs par défaut divergentes de ce qui vient d'être
+// restauré.
+const liveListState = ref<Omit<UrlListState, 'ids'>>({
+  domain: initialUrlListState.domain,
+  groupBy: initialUrlListState.groupBy,
+  sort: initialUrlListState.sort,
+  perPage: initialUrlListState.perPage ?? 30,
+  page: initialUrlListState.page ?? 1,
+});
 const currentPathIds = ref<string[]>([]);
 let lastSyncedPathKey: string | null = null;
 // Arme une garde d'un tick dans le watcher de synchronisation (voir plus bas) chaque fois qu'une
@@ -597,7 +642,12 @@ const showImpactModal = ref(false);
 const impactModalTitle = ref('');
 const impactedSessionsCount = ref(0);
 const impactedSessions = ref<any[]>([]);
+// Callback exécuté par onConfirmPendingDelete, quelle que soit la dialogue de confirmation qui l'a
+// posé (ImpactConfirmDialog pour une suppression à impact structurel, ConfirmModal pour le cas
+// simple — voir onDeleteGeneric) : un seul point d'exécution, deux présentations visuelles.
 const pendingDeleteCallback = ref<(() => Promise<void>) | null>(null);
+const showDeleteConfirmModal = ref(false);
+const deleteConfirmMessage = ref('');
 
 const modelToResourceType: Record<string, string> = {
   teachers: 'Teacher',
@@ -990,7 +1040,7 @@ const isAddingInline = ref(false);
 // transitoire, le déclenchement suivant (sélection réellement restaurée) écrit l'URL définitive
 // avec push:false (le chemin, lui, n'a pas changé entre les deux) ; si la restauration échoue
 // (ids invalides), l'URL est nettoyée au déclenchement suivant plutôt que de rester bloquée.
-watch([currentPathIds, selectedParentIds], ([pathIds, ids]) => {
+watch([currentPathIds, selectedParentIds, liveListState], ([pathIds, ids, listState]) => {
   if (!pathIds || pathIds.length === 0) return;
   const pathKey = pathIds.join('/');
   if (awaitingSelectionRestore) {
@@ -1000,8 +1050,16 @@ watch([currentPathIds, selectedParentIds], ([pathIds, ids]) => {
   }
   const push = pathKey !== lastSyncedPathKey;
   lastSyncedPathKey = pathKey;
-  syncUrl(pathIds, ids, { push });
+  syncUrl(pathIds, { ids, ...listState }, { push });
 }, { deep: true });
+
+// Reçoit l'état complet (domaine/regroupement/tri/pagination) de la generic list view affichée à
+// chaque changement — voir GenericList.vue::list-state-change. Alimente uniquement liveListState
+// (reflété dans l'URL par le watch ci-dessus) : urlListState, lui, ne sert qu'à la restauration
+// initiale et ne doit jamais être réécrit ici (voir @initial-list-state-applied côté template).
+function onListStateChange(state: Omit<UrlListState, 'ids'>) {
+  liveListState.value = state;
+}
 
 async function onAddGeneric() {
   formTitle.value = `Ajouter un élément`;
@@ -1339,26 +1397,31 @@ async function onDeleteGeneric(item: any) {
     }
   }
 
-  if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement cet élément ?`)) {
-    try {
-      await api.deleteGenericItem(activeAdminModel.value, item.id);
-      // Pas d'invalidateFkCache direct ici : le dispatch resource:mutated juste en dessous s'en
-      // charge déjà (voir la même remarque dans onSubmitGeneric plus haut).
-      showNotification('success', 'Ressource supprimée avec succès !');
-      showFormModal.value = false;
-      formModel.value = {};
-      loadGenericItems();
-      window.dispatchEvent(new CustomEvent('resource:mutated', { 
-        detail: { resource_name: activeAdminModel.value } 
-      }));
-    } catch (err: any) {
-      showNotification('error', err.message || 'Échec de la suppression de la ressource.');
-    }
-  }
+  // Cas sans impact structurel (ou modèle non concerné par la simulation ci-dessus) : confirmation
+  // générique (ConfirmModal.vue) plutôt que window.confirm() — voir onConfirmPendingDelete pour
+  // l'exécution réelle, posée en pendingDeleteCallback comme pour le cas à impact ci-dessus.
+  deleteConfirmMessage.value = `Voulez-vous vraiment supprimer « ${item.name || item.code || 'cet élément'} » ? Cette action est irréversible.`;
+  pendingDeleteCallback.value = async () => {
+    await api.deleteGenericItem(activeAdminModel.value, item.id);
+    // Pas d'invalidateFkCache direct ici : le dispatch resource:mutated juste en dessous s'en
+    // charge déjà (voir la même remarque dans onSubmitGeneric plus haut).
+    showNotification('success', 'Ressource supprimée avec succès !');
+    showFormModal.value = false;
+    formModel.value = {};
+    loadGenericItems();
+    window.dispatchEvent(new CustomEvent('resource:mutated', {
+      detail: { resource_name: activeAdminModel.value }
+    }));
+  };
+  showDeleteConfirmModal.value = true;
 }
 
-async function onConfirmImpactDelete() {
+// Partagé par ImpactConfirmDialog ET ConfirmModal (voir onDeleteGeneric ci-dessus) : les deux ne
+// font que poser pendingDeleteCallback et ouvrir leur propre modal, jamais les deux à la fois —
+// fermer les deux ici sans condition reste sans effet sur celle qui n'était pas ouverte.
+async function onConfirmPendingDelete() {
   showImpactModal.value = false;
+  showDeleteConfirmModal.value = false;
   if (pendingDeleteCallback.value) {
     try {
       await pendingDeleteCallback.value();
@@ -2226,7 +2289,9 @@ onMounted(async () => {
   // surveillent déjà ces refs en continu, aucun code de re-déclenchement supplémentaire ici.
   window.addEventListener('popstate', () => {
     urlPathIds.value = parseLocationPath();
-    urlSelectedIds.value = parseLocationIds();
+    const restored = readInitialUrlListState();
+    urlSelectedIds.value = restored.ids;
+    urlListState.value = { domain: restored.domain, groupBy: restored.groupBy, sort: restored.sort, perPage: restored.perPage, page: restored.page };
     awaitingSelectionRestore = urlSelectedIds.value.length > 0;
   });
 });

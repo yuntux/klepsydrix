@@ -89,12 +89,27 @@ SECURITY_SENSITIVE_TABLENAMES = {
 }
 
 
+# Domaine de lecture restreinte pour certains modèles, même au sein du groupe "Consultation" par
+# ailleurs en lecture totale sur tout le reste (voir seed_readonly_access) : custom_filters (voir
+# models/custom_filter.py) ne doit exposer à un consultant que SES filtres ou les filtres marqués
+# "partagé" par leur auteur, jamais les filtres privés d'un autre utilisateur. Reste néanmoins
+# perm_write=perm_create=perm_unlink=false comme tout le reste du groupe (aucun carve-out
+# d'écriture ici — la création/gestion de filtres personnels par un profil non-Admin nécessite un
+# groupe dédié configuré explicitement par l'administrateur de la base, via l'écran de droits
+# générique, comme pour n'importe quel autre modèle).
+READONLY_CUSTOM_DOMAINS = {
+    "custom_filters": json.dumps(["|", ["user_id", "=", "user.id"], ["is_shared", "=", True]]),
+}
+
+
 def seed_readonly_access(db: Session):
     """
     Groupe "Consultation" et droits de LECTURE SEULE sur tous les modèles, à l'exception de
     SECURITY_SENSITIVE_TABLENAMES ci-dessus — miroir de seed_admin_access (même parcours de
     découverte des modèles via _all_tablenames, mêmes conventions de seed en SQL brut), permissions
-    et exclusion différentes.
+    et exclusion différentes. Voir READONLY_CUSTOM_DOMAINS ci-dessus pour l'unique modèle dont la
+    lecture est en plus restreinte par un domaine (tous les autres restent domain=NULL, lecture
+    totale).
     """
     tablenames = _all_tablenames()
 
@@ -106,9 +121,9 @@ def seed_readonly_access(db: Session):
         if tablename in SECURITY_SENSITIVE_TABLENAMES:
             continue
         db.execute(text(
-            "INSERT INTO ir_model_access (model, group_id, perm_read, perm_write, perm_create, perm_unlink, is_system_generated) "
-            "VALUES (:model, :group_id, true, false, false, false, true)"
-        ), {"model": tablename, "group_id": readonly_group_id})
+            "INSERT INTO ir_model_access (model, group_id, perm_read, perm_write, perm_create, perm_unlink, domain, is_system_generated) "
+            "VALUES (:model, :group_id, true, false, false, false, :domain, true)"
+        ), {"model": tablename, "group_id": readonly_group_id, "domain": READONLY_CUSTOM_DOMAINS.get(tablename)})
     db.commit()
 
 
@@ -306,7 +321,8 @@ def init_prod_data(slug: str = None):
 
         # Modalités de cours (CODE_MOD_COURS du flux STS), issues de la Base Académique des
         # Nomenclatures : donnée de référence nationale, présente dans toute base de production
-        # au même titre que ref_grades.
+        # au même titre que ref_grades. is_sts_compliant=true pour les neuf : c'est un INSERT SQL
+        # brut, seul chemin qui puisse écrire true (voir StsComplianceMixin, jamais via l'API).
         # « CG » est inséré EN PREMIER à dessein : Course.modality_id vaut 1 par défaut, et c'est
         # la modalité par défaut d'un cours. Ne pas réordonner cette liste sans changer ce défaut.
         modalities_data = [
@@ -322,8 +338,36 @@ def init_prod_data(slug: str = None):
         ]
         for code, name, long_name in modalities_data:
             db.execute(
-                text("INSERT INTO modalities (code, name, long_name) VALUES (:code, :name, :long_name)"),
+                text("INSERT INTO modalities (code, name, long_name, is_sts_compliant) VALUES (:code, :name, :long_name, true)"),
                 {"code": code, "name": name, "long_name": long_name},
+            )
+
+        # Modalités d'élection (nomenclature nationale STSWEB) — même statut que modalities
+        # ci-dessus : donnée de référence nationale, seedée ici et non par init_demo.py (déplacée
+        # depuis init_demo.py, qui n'en gardait qu'une lecture par SELECT).
+        election_methods_data = [
+            ("F", "FACULTATIF", "MATIERE ENSEIGNEE OPTION FACULTATIVE"),
+            ("L", "AJOUT ACAD", "AJOUT ACADEMIQUE AU PROGRAMME"),
+            ("N", "OBL OU FAC", "MATIERE ENSEIGNEE OBLIG. OU FACULTATIVE"),
+            ("O", "OBLIGATOIR", "MATIERE ENSEIGNEE OPTION OBLIGATOIRE"),
+            ("R", "ENS.RELIG.", "ENSEIGNEMENT RELIGIEUX"),
+            ("S", "TRONC COMM", "MATIERE ENSEIGNEE EN TRONC COMMUN"),
+            ("X", "MESURE SPE", "MESURE SPECIFIQUE"),
+        ]
+        for code, short_label, long_label in election_methods_data:
+            db.execute(text(
+                "INSERT INTO ref_election_methods (code, name, export_code, is_sts_compliant) "
+                "VALUES (:code, :name, :export_code, true)"
+            ), {"code": code, "name": long_label, "export_code": short_label})
+
+        # Pondérations autorisées (voir RefWeightingCoefficient, docstring). 1.00 est insérée EN
+        # PREMIER à dessein : Course/CourseTeacherWeighting/MefService/Service.
+        # weighting_coefficient_id valent tous 1 par défaut, et doivent donc pointer vers 1.00.
+        weighting_coefficients_data = [1.00, 0.25, 0.5, 0.75, 1.25, 1.5]
+        for value in weighting_coefficients_data:
+            db.execute(
+                text("INSERT INTO ref_weighting_coefficients (weighting_coefficient, is_sts_compliant) VALUES (:value, true)"),
+                {"value": value},
             )
 
         db.commit()

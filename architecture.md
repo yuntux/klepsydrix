@@ -2017,6 +2017,42 @@ validate_against_schema(contenu)   # filet de sécurité, pas contrôle de saisi
 
 **Un nom inconnu ne s'écrit pas ; une présence incertaine se déclare facultative.** Le format est reconstitué par rétro-ingénierie, et les deux incertitudes ne se traitent pas pareil. Quand le **nom** de la balise est inconnu, elle reste en commentaire « MANQUE À PRIORI » dans le schéma et n'est ni déclarée ni écrite : lui inventer un nom serait pire que de se taire. Quand le nom est établi ailleurs et que seule sa **présence** est supposée, elle est déclarée `minOccurs="0"` et écrite — un élément facultatif jamais rencontré ne coûte rien, alors qu'un schéma fermé qui l'ignore ferait rejeter un fichier authentique qui le porterait.
 
+### AD. Nomenclature Fermée : un Champ Jamais Modifiable par l'API (`StsComplianceMixin`)
+
+**Le besoin** : trois tables de référence (`Modality`, `RefElectionMethod`, `RefWeightingCoefficient`) mélangent des lignes qui appartiennent à une nomenclature nationale (`is_sts_compliant=True`, seedées une fois pour toutes) et des lignes ajoutées librement par un établissement, non garanties acceptées à la remontée STS-web. Le booléen qui les distingue doit être **visible** (l'utilisateur doit comprendre pourquoi une ligne ne se supprime pas) mais **jamais modifiable** par l'API, dans aucun sens — sans quoi n'importe qui pourrait se déclarer conforme.
+
+**Pourquoi ce n'est pas un `@constrains` classique.** La tentation naturelle est un `@constrains('is_sts_compliant')` qui compare l'ancienne valeur à la nouvelle et refuse un changement réel. Le problème est un piège d'ordonnancement de `CRUDMixin` : `create()`/`update()` font déjà `db.flush()` **avant** d'exécuter la boucle des `@constrains()` (base.py) — au moment où la contrainte s'exécute, `self.is_sts_compliant` porte déjà la NOUVELLE valeur, flushée, et l'ancienne est perdue. Une vérification empirique confirme que `sqlalchemy.orm.attributes.get_history()` ne rattrape pas ce cas : après un `flush()`, l'historique d'un attribut réassigné à la MÊME valeur affiche `has_changes() == True` (SQLAlchemy suit l'appel à `setattr()`, pas une différence de valeur), rendant impossible de distinguer un renvoi inoffensif d'un vrai changement.
+
+**Le pattern retenu** : surcharger `create()`/`update()`/`delete()` **avant** l'appel à `super()`, exactement comme `HasUserAccount` (§17.A) — la valeur ancienne (`self.is_sts_compliant`) est encore intacte à ce moment-là.
+
+```python
+class StsComplianceMixin:
+    @classmethod
+    def create(cls, db, vals):
+        if vals.get("is_sts_compliant"):
+            raise ValueError("...")
+        return super().create(db, vals)
+
+    def update(self, db, vals):
+        # Lu AVANT super().update(), qui écraserait déjà self.is_sts_compliant.
+        if "is_sts_compliant" in vals and bool(vals["is_sts_compliant"]) != self.is_sts_compliant:
+            raise ValueError("...")
+        return super().update(db, vals)
+
+    def delete(self, db):
+        if self.is_sts_compliant:
+            raise ValueError("...")
+        return super().delete(db)
+```
+
+**Points clés** :
+- **Une valeur identique n'est pas un changement, et doit passer silencieusement.** Un `GenericForm`/`GenericList` réémet l'enregistrement complet à chaque sauvegarde, champs en lecture seule compris (voir `handleSubmit`, GenericForm.vue : `props.fields.forEach(field => submitPayload[key] = localModel.value[key])`) — bloquer toute PRÉSENCE de la clé rendrait ces lignes impossibles à modifier, ne serait-ce que pour renommer un libellé. D'où la comparaison de valeur (`update`) plutôt qu'un simple test de présence.
+- **Seul un `INSERT` SQL brut peut écrire `True`.** Les seeds de `init_db.py` (`db.execute(text("INSERT INTO ..."))`) ne passent jamais par `create()`, donc jamais par ce garde-fou — c'est le seul chemin qui échappe à `receive_before_insert`/`receive_before_update` (base.py), déjà établi ailleurs dans ce projet pour les booléens "système" (voir feedback mémorisé : les seeds bruts contournent les défauts Python).
+- **`ondelete=RESTRICT` protège l'usage, le mixin protège le statut.** Les deux sont indépendants et complémentaires : une ligne référencée par un `Course` ne se supprime pas (FK), une ligne conforme ne se supprime pas non plus **même non référencée** (mixin) — deux raisons distinctes de refuser.
+- **Testé une seule fois** (`TestStsComplianceMixin`, `test_sts_export.py`), sur un seul des trois modèles : les trois partagent le même mixin sans logique propre, un doublon des tests n'aurait rien vérifié de plus.
+
+**Quand l'employer** : dès qu'un booléen "certifié/officiel" doit rester visible en lecture mais totalement hors d'atteinte de l'API en écriture, sur une ou plusieurs tables. Pour un champ qu'il suffit de rendre `readOnly` côté UI sans garantie backend, `info={"readOnly": True}` seul suffit — ce mixin est réservé aux cas où la garantie doit tenir même contre un appel API direct.
+
 ## 16. Architecture Multi-Base et Routage HTTP
 
 Une même instance Klepsydrix peut héberger plusieurs bases indépendantes (une par établissement/

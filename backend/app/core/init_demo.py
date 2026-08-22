@@ -48,21 +48,9 @@ def seed_demo_data():
             d_id = db.execute(text("SELECT id FROM disciplines WHERE code = :code"), {"code": code}).scalar()
             discipline_ids[code] = d_id
 
-        # 2b. Modalités d'élection (nomenclature nationale STSWEB)
-        election_methods_data = [
-            ("F", "FACULTATIF", "MATIERE ENSEIGNEE OPTION FACULTATIVE"),
-            ("L", "AJOUT ACAD", "AJOUT ACADEMIQUE AU PROGRAMME"),
-            ("N", "OBL OU FAC", "MATIERE ENSEIGNEE OBLIG. OU FACULTATIVE"),
-            ("O", "OBLIGATOIR", "MATIERE ENSEIGNEE OPTION OBLIGATOIRE"),
-            ("R", "ENS.RELIG.", "ENSEIGNEMENT RELIGIEUX"),
-            ("S", "TRONC COMM", "MATIERE ENSEIGNEE EN TRONC COMMUN"),
-            ("X", "MESURE SPE", "MESURE SPECIFIQUE"),
-        ]
-        for code, short_label, long_label in election_methods_data:
-            db.execute(text(
-                "INSERT INTO ref_election_methods (code, name, export_code) VALUES (:code, :name, :export_code)"
-            ), {"code": code, "name": long_label, "export_code": short_label})
-        db.commit()
+        # 2b. Modalités d'élection : déjà seedées par init_prod_data() (nomenclature nationale
+        # STSWEB, voir init_db.py) — seule la lecture de "S" (tronc commun) reste ici, pour les
+        # MEF/services de démonstration qui s'en servent plus bas.
         election_method_s_id = db.execute(text("SELECT id FROM ref_election_methods WHERE code = 'S'")).scalar()
 
         # 3. Création des Budgets TRMD pour les deux écoles
@@ -371,10 +359,12 @@ def seed_demo_data():
         # 10b. Création de MefService (gabarit Maths), et propagation manuelle en Service opérationnel
         # pour 6ème A et 6ème B, alignés (même modèle de répartition : 2x1h hebdo + 1x30min dédoublé)
         maths_id = subject_ids["MATHS"]
+        # weighting_coefficient_id omis : son server_default (1 = ligne 1.00, voir init_db.py
+        # ::weighting_coefficients_data) s'applique, même valeur que l'ancien littéral 1.0.
         mef_service_6_id = db.execute(text(
-            "INSERT INTO mef_services (mef_id, subject_id, discipline_id, election_method_id, student_count, weighting_coefficient, "
+            "INSERT INTO mef_services (mef_id, subject_id, discipline_id, election_method_id, student_count, "
             "weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, weekly_duration_split_minutes, reduced_group_student_count) "
-            "VALUES (:mef_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, 14)"
+            "VALUES (:mef_id, :subject_id, :discipline_id, :election_method_id, 28, 120, 0, 30, 14)"
         ), {"mef_id": mef_6_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "election_method_id": election_method_s_id})
         db.commit()
         mef_service_6_id = db.execute(text("SELECT id FROM mef_services WHERE mef_id = :mef_id AND subject_id = :subject_id"), {"mef_id": mef_6_id, "subject_id": maths_id}).scalar()
@@ -388,11 +378,12 @@ def seed_demo_data():
             mef_division_id = db.execute(text(
                 "SELECT md.id FROM mef_divisions md JOIN divisions d ON d.id = md.division_id WHERE d.code = :code"
             ), {"code": code}).scalar()
+            # weighting_coefficient_id omis, comme ci-dessus : server_default = 1 = 1.00.
             db.execute(text(
                 "INSERT INTO services (mef_service_id, mef_division_id, subject_id, discipline_id, election_method_id, student_count, "
-                "weighting_coefficient, weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, "
+                "weekly_duration_full_class_minutes, weekly_duration_reduced_minutes, "
                 "weekly_duration_split_minutes, alignment_id, teachers_locked) "
-                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 1.0, 120, 0, 30, :alignment_id, 0)"
+                "VALUES (:mef_service_id, :mef_division_id, :subject_id, :discipline_id, :election_method_id, 28, 120, 0, 30, :alignment_id, 0)"
             ), {"mef_service_id": mef_service_6_id, "mef_division_id": mef_division_id, "subject_id": maths_id, "discipline_id": discipline_ids["L0100"], "election_method_id": election_method_s_id, "alignment_id": alignment_id})
             db.commit()
             service_id = db.execute(text("SELECT id FROM services WHERE mef_division_id = :mef_division_id"), {"mef_division_id": mef_division_id}).scalar()
@@ -405,7 +396,7 @@ def seed_demo_data():
         # parallèle) — raw_need_weekly_duration_minutes reflète le besoin en heures-PROFESSEUR
         # (30min x 2 groupes = 60min), distinct de weekly_duration_split_minutes (30min, le besoin
         # côté ÉLÈVE). raw/weighted_need calculés à la main (le seed contourne les @constrains,
-        # voir _compute_need_durations) : weighting_coefficient=1.0 pour ces deux services (défaut).
+        # voir _compute_need_durations) : pondération 1.00 pour ces deux services (défaut).
         for service_id in service_ids:
             db.execute(text(
                 "INSERT INTO service_repartitions (service_id, occurrence_count, duration_minutes, periodicity, group_type, group_count, raw_need_weekly_duration_minutes, weighted_need_weekly_duration_minutes, name) "
@@ -596,9 +587,11 @@ def seed_demo_data():
                 t_id = teacher_for_subject(subj_id, s_id, teacher_pool)
                 duration = 60
 
+                # weighting_coefficient_id omis : son server_default (1 = ligne 1.0, voir init_db.py
+                # ::ref_weighting_coefficients_data) s'applique, même valeur que l'ancien littéral 1.0.
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, :duration_minutes, 1.0, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "duration_minutes": duration,
@@ -661,9 +654,10 @@ def seed_demo_data():
             selected_rooms = random.sample(room_pool, 3) if len(room_pool) >= 3 else room_pool
 
             # 2. Cours complexe (Pôle Sciences) - sans matière (NULL)
+            # weighting_coefficient_id omis, comme ci-dessus : server_default = 1 = 1.0.
             db.execute(text(
-                "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, election_method_id, parent_timeslot_offset) "
-                "VALUES (NULL, 90, 1.0, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', :election_method_id, 0)"
+                "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, name, election_method_id, parent_timeslot_offset) "
+                "VALUES (NULL, 90, 1, 0, 'W', 0, 0, :school_id, 'Pôle Sciences', :election_method_id, 0)"
             ), {"school_id": s_id, "election_method_id": election_method_s_id})
             parent_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
             course_count += 1
@@ -684,9 +678,10 @@ def seed_demo_data():
                 g_id = div_groups[idx % len(div_groups)]
                 duration = 90
 
+                # weighting_coefficient_id omis, comme ci-dessus : server_default = 1 = 1.0.
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, :parent_id, :duration_minutes, 1.0, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
+                    "INSERT INTO courses (subject_id, parent_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, :parent_id, :duration_minutes, 0, 0, 'W', 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "parent_id": parent_id,
@@ -706,9 +701,10 @@ def seed_demo_data():
                 subj_id = subject_ids[s_code]
                 t_id = teacher_for_subject(subj_id, s_id, teacher_pool)
 
+                # weighting_coefficient_id omis, comme ci-dessus : server_default = 1 = 1.0.
                 db.execute(text(
-                    "INSERT INTO courses (subject_id, duration_minutes, weighting_coefficient, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
-                    "VALUES (:subject_id, 60, 1.0, 0, 0, :week_type, 0, 0, :school_id, :election_method_id, 0)"
+                    "INSERT INTO courses (subject_id, duration_minutes, is_composed, lock_structure, week_type, is_pinned, is_co_teaching, school_id, election_method_id, parent_timeslot_offset) "
+                    "VALUES (:subject_id, 60, 0, 0, :week_type, 0, 0, :school_id, :election_method_id, 0)"
                 ), {
                     "subject_id": subj_id,
                     "week_type": w_type,

@@ -8,7 +8,8 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.models.base import Base
 from backend.app.models import (
     School, Discipline, Subject, Mef, MefDivision, Division,
-    Group, Service, ServiceRepartition, Alignment, SystemSetting, RefGrade
+    Group, Service, ServiceRepartition, Alignment, SystemSetting, RefGrade,
+    RefWeightingCoefficient,
 )
 from backend.app.models.service import RepartitionPeriodicity, RepartitionGroupType
 from backend.app.core.time_utils import minutes_to_hours
@@ -16,6 +17,16 @@ from backend.tests.db_test_utils import make_test_engine
 
 test_engine = make_test_engine()
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+def _weighting_id(db, value):
+    """
+    Id de la ligne de référence portant cette valeur, créée au besoin — la conformité STS n'est pas
+    testée ici (voir test_sts_export.py pour ça), une ligne ordinaire suffit. `RefWeightingCoefficient
+    .weighting_coefficient` est unique : create() planterait sur une valeur déjà présente.
+    """
+    existing = db.query(RefWeightingCoefficient).filter(RefWeightingCoefficient.weighting_coefficient == value).first()
+    return existing.id if existing else RefWeightingCoefficient.create(db, {"weighting_coefficient": value}).id
 
 
 @pytest.fixture
@@ -228,7 +239,7 @@ class TestServiceSyncIndicator:
             "weekly_duration_full_class_minutes": 120,
             "weekly_duration_reduced_minutes": 0,
             "weekly_duration_split_minutes": 30,
-            "weighting_coefficient": 1.0,
+            "weighting_coefficient_id": _weighting_id(db_session, 1.0),
         })
         # mef_division existe déjà (via _base_fixtures) : la création du MefService a donc
         # déjà généré automatiquement le Service correspondant (voir MefService.create()).
@@ -238,15 +249,15 @@ class TestServiceSyncIndicator:
         ).one()
         assert service.is_synced_with_mef_service is True
 
-        service.update(db_session, {"weighting_coefficient": 1.1})
+        service.update(db_session, {"weighting_coefficient_id": _weighting_id(db_session, 1.1)})
         assert service.is_synced_with_mef_service is False
 
         # Modifier le gabarit réécrase les champs miroirs de TOUS ses services (y compris déjà
-        # divergés) : le service perd son ajustement local (weighting_coefficient revient à 1.0,
-        # la valeur du gabarit) et repasse synchronisé.
+        # divergés) : le service perd son ajustement local (weighting_coefficient_id revient à
+        # celui de 1.0, la valeur du gabarit) et repasse synchronisé.
         mef_service.update(db_session, {"weekly_duration_full_class_minutes": 150})
         assert service.weekly_duration_full_class_minutes == 150
-        assert service.weighting_coefficient == 1.0
+        assert service.weighting_coefficient_ref.weighting_coefficient == 1.0
         assert service.is_synced_with_mef_service is True
 
     def test_updating_mef_service_does_not_propagate_student_count(self, db_session):
@@ -462,9 +473,10 @@ class TestServiceWeeklyDurationSync:
 
     def test_raw_and_weighted_need_include_group_count(self, db_session):
         # raw_need = occurrence_count x duration_minutes x coeff_periodicite x group_count ;
-        # weighted_need = raw_need x weighting_coefficient (voir _compute_need_durations).
+        # weighted_need = raw_need x weighting_coefficient_ref.weighting_coefficient (voir
+        # _compute_need_durations).
         _, _, subject, mef, division, mef_division, mef_service, service = _base_fixtures(db_session)
-        service.update(db_session, {"weighting_coefficient": 1.5})
+        service.update(db_session, {"weighting_coefficient_id": _weighting_id(db_session, 1.5)})
         service.update(db_session, {"student_count": 50, "reduced_group_student_count": 15, "weekly_duration_reduced_minutes": 60})
 
         r = next(r for r in service.repartitions if r.group_type == RepartitionGroupType.REDUCED)
