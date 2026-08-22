@@ -3731,3 +3731,114 @@ donc annulé d'un coup les trois barrières de §24.A. Refusé par un validateur
   dev, voir §17.F) : les changements de ce lot qui le touchent — `db_slug` laissé à `None`,
   promotion `pending` réservée aux fédérés, `auto_provision_users` — sont couverts par des tests
   unitaires, pas par un aller-retour réel.
+
+---
+
+## 25. Champs d'Audit (`create_user_id`, `write_user_id`, `create_date`, `write_date`)
+
+Quatre colonnes portées par **tous** les modèles persistants, sur le modèle d'Odoo (`create_uid`,
+`write_uid`, `create_date`, `write_date`) : qui a créé un enregistrement, quand, qui l'a modifié en
+dernier, et quand.
+
+### A. Déclaration unique sur `Base`
+
+Elles sont déclarées une seule fois, en `declared_attr` sur `Base` (`models/base.py`), jamais
+recopiées dans les ~56 modèles : SQLAlchemy applique à chaque classe mappée les attributs déclarés
+sur sa base déclarative, en reconstruisant une colonne distincte par table — indispensable pour une
+`ForeignKey`, qui ne peut pas être partagée. Un modèle ajouté demain les aura sans que personne y
+pense.
+
+`create_user_id`/`write_user_id` référencent `users.id` en `ondelete="SET NULL"` : la suppression
+d'un compte ne doit ni être bloquée par les traces qu'il a laissées (`RESTRICT` rendrait tout
+utilisateur ayant créé une ligne indélébile), ni emporter ce qu'il a créé (`CASCADE`).
+
+⚠️ **Conséquence sur les relations existantes** : toute table porte désormais deux clés étrangères
+supplémentaires vers `users`. SQLAlchemy ne peut plus déduire seul la jointure de
+`Teacher.user`/`User.teacher`, `UserIdentityProvider.user`, etc. — elles déclarent maintenant un
+`foreign_keys` explicite. Sans lui, la configuration des mappers échoue au démarrage
+(`AmbiguousForeignKeysError`), et c'est tant mieux : l'ambiguïté est signalée, jamais tranchée au
+hasard.
+
+### B. Renseignées par le serveur, à chaque écriture
+
+`stamp_audit_fields` (`models/base.py`) écoute **`before_flush`**, un événement de SESSION — pas
+`before_insert`/`before_update`, qui sont des événements de MAPPER déclenchés une fois le plan de
+flush déjà calculé, où modifier une colonne n'est pas garanti d'être repris dans l'ordre SQL émis.
+`before_flush` s'exécute avant ce calcul, et c'est aussi le seul point qui donne accès à la
+`Session`, donc à `klepsydrix_user_id` (l'utilisateur courant, posé par `database.py::
+current_db_user` — le même drapeau ambiant que lit le moteur de droits, voir §18).
+
+Un événement plutôt que `CRUDMixin.create()`/`update()` : ces méthodes ne sont pas le seul chemin
+d'écriture (une modification par `setattr` sur un objet déjà chargé passe directement par le flush).
+L'événement les couvre toutes, sans dépendre de la discipline de chaque appelant.
+
+- À la création, les deux horodatages valent le même instant — ce qui permet de reconnaître un
+  enregistrement jamais modifié depuis.
+- À la mise à jour, seuls `write_*` avancent, et uniquement si l'objet a un changement net de
+  colonne (`is_modified(include_collections=False)`, même condition que le garde-fou
+  `receive_before_update`) : sans quoi un simple parcours de relation ferait avancer `write_date`.
+- **Écriture en mode système** (seed, import, tâche de fond, solveur — aucun utilisateur courant) :
+  les dates sont posées, les colonnes utilisateur restent nulles. C'est une information, pas un
+  trou : « écrit par le système » se distingue de « écrit par quelqu'un ».
+
+Elles ne sont jamais acceptées en entrée : `generic.py::make_pydantic_model` les exclut des schémas
+de création et de mise à jour (exactement comme `id`), et le stamp les réécrit de toute façon après
+l'appelant. Une valeur fournie par un client est donc sans effet, ce qui est vérifié
+(`tests/test_audit_fields.py`).
+
+### C. Affichage : masqués d'office, affichables sur demande
+
+`id` et ces quatre champs forment les **champs techniques** (`App.vue::TECHNICAL_FIELD_KEYS`,
+aligné sur `AUDIT_COLUMNS`). Ils existent sur toutes les ressources mais n'ont d'intérêt que
+ponctuellement (audit, support, débogage) : les afficher d'office ajouterait cinq colonnes de bruit
+à chaque liste et cinq champs à chaque formulaire. Ils sont donc écartés de la génération
+automatique — et réintroduits dès qu'une vue les nomme **explicitement** dans `listConfig.columns`
+ou `formConfig.fields` (`ui.json`) :
+
+```json
+"listConfig": { "columns": {
+  "code": { "visibleByDefault": true },
+  "create_user_id": { "visibleByDefault": true, "overrideLabel": "Créé par" },
+  "write_date": { "visibleByDefault": true }
+}}
+```
+
+Auparavant, `id` était écarté **sans recours** : l'écrire dans la configuration d'une vue ne
+produisait rien, en silence. C'est désormais un vrai point d'extension, pour `id` comme pour les
+champs d'audit.
+
+Trois détails d'implémentation, tous imposés par le fait que ces champs n'existent que dans le
+schéma de LECTURE (`_ReadPayload`) :
+
+1. `getFormFieldsConfig` va les y chercher, alors que la boucle principale lit `_CreatePayload`.
+2. `loadFkOptionsForModel` ajoute leur ressource cible (`users`) aux options à charger — sans quoi
+   le widget de relation afficherait « Aucun » alors que la valeur existe.
+3. Les métadonnées de champ sont collectées sur **tous** les panneaux de l'onglet : elles sont
+   portées par la ressource, pas par le panneau — une colonne réclamée par la liste doit être
+   résolue même quand c'est le formulaire voisin qui consomme cette configuration.
+
+Ils sont toujours en **lecture seule**. Côté liste, `isColumnReadOnly` retombait déjà sur le
+`readOnly` déclaré par le backend ; côté formulaire, ce repli n'existait pas — `GenericForm.vue` ne
+regardait que le `readOnly` posé par la vue. Corrigé au passage : les deux vues se comportent
+désormais pareil, ce qui vaut aussi pour les autres champs déclarés `info={"readOnly": True}`.
+
+### D. Déploiement — quatre colonnes par table sur une base existante
+
+Même mécanique qu'au §24.C pour `users.session_epoch`, à plus grande échelle : une base créée après
+ce lot les porte d'office (`create_all` construit les tables depuis les modèles), une base
+**existante** non — `create_all` fonctionne en `checkfirst`, crée les tables manquantes et ignore en
+silence celles qui existent déjà, sans jamais comparer les colonnes. Sur la base de développement,
+cela représentait 400 `ALTER TABLE` (4 colonnes × 100 tables), joués par un script de balayage
+plutôt qu'à la main :
+
+```sql
+ALTER TABLE "<table>" ADD COLUMN create_user_id INTEGER;
+ALTER TABLE "<table>" ADD COLUMN write_user_id  INTEGER;
+ALTER TABLE "<table>" ADD COLUMN create_date    DATETIME;   -- TIMESTAMP en PostgreSQL
+ALTER TABLE "<table>" ADD COLUMN write_date     DATETIME;
+```
+
+C'est le volume de cette opération, plus que sa difficulté, qui plaide pour l'adoption d'Alembic
+avant le premier déploiement réel (voir §23) : tant que toutes les bases sont régénérables, s'en
+passer reste tenable ; dès qu'une base contient l'emploi du temps réel d'un établissement, jouer 400
+`ALTER` à la main sur N établissements est le genre d'opération dont une erreur ne se voit qu'après.

@@ -34,7 +34,7 @@ class Student(HasUserAccount, Base):
     tutor: Mapped[Optional["Teacher"]] = relationship("Teacher", foreign_keys=[tutor_id])
     parent1: Mapped[Optional["Parent"]] = relationship("Parent", foreign_keys=[parent1_id])
     parent2: Mapped[Optional["Parent"]] = relationship("Parent", foreign_keys=[parent2_id])
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="student")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="student", foreign_keys=[user_id])
     class_parts: Mapped[list["ClassPart"]] = relationship("ClassPart", secondary=student_class_parts, back_populates="students", info={"label": "Parties de classe"})
     specialty_choices: Mapped[list["StudentSpecialtyChoice"]] = relationship(
         "StudentSpecialtyChoice", back_populates="student", passive_deletes="all", order_by="StudentSpecialtyChoice.rank",

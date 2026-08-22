@@ -446,7 +446,7 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: fieldLabel(original),
         required: original.required === true,
         requiredExpr: original.requiredExpr,
-        disabled: false,
+        disabled: original.readOnly === true,
         readOnlyExpr: original.readOnlyExpr,
         invisibleExpr: original.invisibleExpr,
         widget: original.widget,
@@ -469,7 +469,11 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: resolveLabel(elem.overrideLabel !== undefined ? elem.overrideLabel : elem.label, fieldLabel(original)),
         required: elem.required === true || original.required === true,
         requiredExpr: typeof elem.required === 'string' ? elem.required : (typeof elem.requiredExpr === 'string' ? elem.requiredExpr : original.requiredExpr),
-        disabled: elem.readOnly === true,
+        // `original.readOnly` : readOnly STATIQUE déclaré côté backend (info={"readOnly": True},
+        // ex. les champs d'audit de models/base.py) — jusqu'ici le formulaire ne regardait que le
+        // readOnly posé par la vue, alors que la liste, elle, retombait déjà sur celui du champ
+        // (voir GenericList.vue::isColumnReadOnly). Les deux vues se comportent désormais pareil.
+        disabled: elem.readOnly === true || original.readOnly === true,
         readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : (typeof elem.readOnlyExpr === 'string' ? elem.readOnlyExpr : original.readOnlyExpr),
         invisibleExpr: typeof elem.invisibleExpr === 'string' ? elem.invisibleExpr : original.invisibleExpr,
         widget: elem.widget || original.widget,
@@ -490,7 +494,11 @@ function parseLayoutElement(elem: any): LayoutElement | null {
         label: resolveLabel(elem.overrideLabel !== undefined ? elem.overrideLabel : elem.label, fieldLabel(original)),
         required: elem.required === true || original.required === true,
         requiredExpr: typeof elem.required === 'string' ? elem.required : (typeof elem.requiredExpr === 'string' ? elem.requiredExpr : original.requiredExpr),
-        disabled: elem.readOnly === true,
+        // `original.readOnly` : readOnly STATIQUE déclaré côté backend (info={"readOnly": True},
+        // ex. les champs d'audit de models/base.py) — jusqu'ici le formulaire ne regardait que le
+        // readOnly posé par la vue, alors que la liste, elle, retombait déjà sur celui du champ
+        // (voir GenericList.vue::isColumnReadOnly). Les deux vues se comportent désormais pareil.
+        disabled: elem.readOnly === true || original.readOnly === true,
         readOnlyExpr: typeof elem.readOnly === 'string' ? elem.readOnly : (typeof elem.readOnlyExpr === 'string' ? elem.readOnlyExpr : original.readOnlyExpr),
         invisibleExpr: typeof elem.invisibleExpr === 'string' ? elem.invisibleExpr : original.invisibleExpr,
         widget: elem.widget || original.widget,

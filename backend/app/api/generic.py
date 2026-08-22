@@ -8,7 +8,7 @@ import inspect
 from pydantic import BaseModel
 
 from backend.app.core.database import get_db
-from backend.app.models.base import Base
+from backend.app.models.base import AUDIT_COLUMNS, Base
 import backend.app.models as models_package
 
 # Découverte et import dynamique de tous les modèles dans backend.app.models
@@ -142,6 +142,13 @@ def make_pydantic_model(model, all_optional=False, include_id=False):
 
     for column in model.__table__.columns:
         if column.name == "id":
+            continue
+        if column.name in AUDIT_COLUMNS and not include_id:
+            # Champs d'audit (voir models/base.py) : présents dans le schéma de LECTURE — une vue
+            # peut les afficher si elle les nomme explicitement — mais absents des schémas de
+            # création et de mise à jour, exactement comme `id`. Ils ne sont pas « en lecture seule
+            # par convention » : l'API n'offre tout simplement aucun moyen de les fixer, et
+            # `stamp_audit_fields` les réécrit de toute façon à chaque flush.
             continue
         if (column.info or {}).get("private"):
             # Jamais exposée par l'API générique — ni lue (voir sqla_to_dict) ni acceptée en

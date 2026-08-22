@@ -30,7 +30,7 @@ class NonTeachingStaff(HasUserAccount, Base):
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, info={"label": "Établissement"})
     user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, unique=True, info={"label": "Compte utilisateur"})
 
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="non_teaching_staff")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="non_teaching_staff", foreign_keys=[user_id])
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_non_teaching_staffs", back_populates="non_teaching_staffs", passive_deletes="all", info={"label": "Cours"})
 
     @property

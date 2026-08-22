@@ -1,8 +1,9 @@
 import logging
-from sqlalchemy.orm import DeclarativeBase, Session
-from sqlalchemy import select, func
+from typing import Optional
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, declared_attr, mapped_column
+from sqlalchemy import DateTime, ForeignKey, select, func
 from sqlalchemy.ext.hybrid import hybrid_property
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -825,8 +826,58 @@ class CRUDMixin:
             raise e
 
 # Base déclarative commune pour tous les modèles SQLAlchemy
+# Champs d'audit portés par TOUS les modèles (voir Base ci-dessous) — même rôle qu'`id` du point de
+# vue des vues génériques : présents partout, jamais affichés d'office, affichables si la
+# configuration de la vue les nomme explicitement (voir generic.py::TECHNICAL_COLUMNS et
+# App.vue::TECHNICAL_FIELD_KEYS, qui doivent rester alignés sur cette liste).
+AUDIT_COLUMNS = ("create_user_id", "write_user_id", "create_date", "write_date")
+
+
 class Base(DeclarativeBase, CRUDMixin):
-    pass
+    """
+    Base déclarative de tous les modèles persistants — et, depuis le lot « champs d'audit »,
+    porteuse de quatre colonnes communes à TOUTES les tables (façon Odoo : `create_uid`,
+    `write_uid`, `create_date`, `write_date`).
+
+    Déclarées ici plutôt que recopiées dans chacun des ~56 modèles : SQLAlchemy applique à chaque
+    classe mappée les `declared_attr` portés par sa base déclarative (« augmenting the base »), en
+    reconstruisant une colonne distincte par table — indispensable pour une `ForeignKey`, qui ne
+    peut pas être partagée entre plusieurs tables.
+
+    Elles ne sont JAMAIS renseignées par l'appelant : `stamp_audit_fields` (plus bas, sur
+    l'événement `before_flush`) les écrase à chaque écriture, et l'API générique ne les accepte pas
+    en entrée (voir generic.py). C'est ce qui en fait une trace fiable plutôt qu'une valeur
+    déclarative de plus.
+    """
+
+    @declared_attr
+    def create_user_id(cls) -> Mapped[Optional[int]]:
+        # ondelete="SET NULL" : la suppression d'un compte ne doit ni être bloquée par les traces
+        # qu'il a laissées (RESTRICT rendrait indélébile tout utilisateur ayant créé une ligne), ni
+        # emporter les données qu'il a créées (CASCADE serait catastrophique). Nullable pour la
+        # même raison, et parce qu'une écriture en mode système (import, seed, tâche de fond) n'a
+        # légitimement aucun utilisateur à désigner.
+        return mapped_column(
+            ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+            info={"label": "Créé par", "readOnly": True},
+        )
+
+    @declared_attr
+    def write_user_id(cls) -> Mapped[Optional[int]]:
+        return mapped_column(
+            ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+            info={"label": "Dernière modification par", "readOnly": True},
+        )
+
+    @declared_attr
+    def create_date(cls) -> Mapped[Optional[datetime]]:
+        return mapped_column(DateTime, nullable=True, info={"label": "Créé le", "readOnly": True})
+
+    @declared_attr
+    def write_date(cls) -> Mapped[Optional[datetime]]:
+        return mapped_column(
+            DateTime, nullable=True, info={"label": "Dernière modification le", "readOnly": True},
+        )
 
 def exposed(attr=None, *, info=None):
     """
@@ -977,4 +1028,53 @@ def receive_before_update(mapper, connection, target):
 def receive_before_delete(mapper, connection, target):
     if not getattr(target, '_via_crud_mixin_delete', False):
         raise RuntimeError(f"Suppression directe interdite pour {target.__class__.__name__}. Utilisez la méthode delete() de CRUDMixin.")
+
+
+@event.listens_for(Session, 'before_flush')
+def stamp_audit_fields(session, flush_context, instances):
+    """
+    Renseigne les quatre champs d'audit (voir Base) à chaque écriture — création comme mise à jour.
+
+    **Pourquoi `before_flush` (événement de SESSION) et non `before_insert`/`before_update`
+    (événements de MAPPER, juste au-dessus)** : ces derniers se déclenchent une fois le plan de
+    flush déjà calculé, où modifier une colonne n'est pas garanti d'être repris dans l'ordre SQL
+    émis. `before_flush` s'exécute AVANT ce calcul : une valeur posée ici fait partie de l'INSERT ou
+    de l'UPDATE comme n'importe quelle autre. C'est aussi le seul endroit qui donne accès à la
+    `Session`, donc à `klepsydrix_user_id` — l'utilisateur courant, posé par
+    `database.py::current_db_user` (même drapeau ambiant que celui lu par le moteur de droits).
+
+    **Pourquoi un événement plutôt que `CRUDMixin.create()`/`update()`** : ces méthodes ne sont pas
+    le seul chemin d'écriture. Une modification faite par `setattr` sur un objet déjà chargé (ce
+    que font plusieurs méthodes métier, cf. `_sync_parent_week_type`) passe directement par le
+    flush ; l'événement les couvre toutes, sans dépendre de la discipline de chaque appelant.
+
+    Écriture en mode système (aucun utilisateur courant : seed, import, tâche de fond, solveur) :
+    les dates sont posées, les colonnes utilisateur restent nulles. C'est une information, pas un
+    trou — « écrit par le système » se distingue ainsi de « écrit par quelqu'un ».
+
+    Horodatage en **UTC**, dans une colonne `DateTime` naïve — même convention que le reste du
+    projet (voir password_reset_token.py::_as_utc, qui documente le piège : une valeur écrite avec
+    `tzinfo=utc` revient naïve à la lecture, il faut donc réattacher le fuseau avant toute
+    comparaison à un datetime « aware »).
+    """
+    now = datetime.now(timezone.utc)
+    user_id = getattr(session, "klepsydrix_user_id", None)
+
+    for obj in session.new:
+        if not isinstance(obj, Base):
+            continue
+        obj.create_date = now
+        obj.write_date = now
+        obj.create_user_id = user_id
+        obj.write_user_id = user_id
+
+    for obj in session.dirty:
+        # `is_modified(include_collections=False)` : même condition que le garde-fou
+        # `receive_before_update` ci-dessus — un objet marqué « sale » sans changement net de
+        # colonne (fréquent après un simple parcours de relation) ne doit pas voir sa date de
+        # modification avancer, sans quoi `write_date` ne voudrait plus rien dire.
+        if not isinstance(obj, Base) or not session.is_modified(obj, include_collections=False):
+            continue
+        obj.write_date = now
+        obj.write_user_id = user_id
 

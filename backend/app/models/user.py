@@ -78,6 +78,11 @@ class User(Base):
 
     identity_providers: Mapped[list["UserIdentityProvider"]] = relationship(
         "UserIdentityProvider", back_populates="user", cascade="all, delete-orphan",
+        foreign_keys="UserIdentityProvider.user_id",
+        # foreign_keys explicite : depuis l'ajout des champs d'audit (voir base.py), TOUTE table
+        # porte deux FK supplémentaires vers `users` (create_user_id/write_user_id). SQLAlchemy ne
+        # peut donc plus déduire seul la jointure — l'ambiguïté est levée ici, jamais résolue par
+        # hasard.
         info={"label": "Fournisseurs d'identité"},
     )
     groups: Mapped[list["ResGroup"]] = relationship("ResGroup", secondary="res_group_users", back_populates="users", info={"label": "Groupes"})
@@ -86,10 +91,11 @@ class User(Base):
     # correspond à ce User", utilisé notamment par les valeurs magiques de domaine (voir
     # core/access_control.py, ex: "user.teacher.id"). uselist=False : au plus un objet-personne par
     # User (garanti par HasUserAccount._check_user_not_already_linked).
-    teacher: Mapped[Optional["Teacher"]] = relationship("Teacher", back_populates="user", uselist=False, viewonly=True)
-    non_teaching_staff: Mapped[Optional["NonTeachingStaff"]] = relationship("NonTeachingStaff", back_populates="user", uselist=False, viewonly=True)
-    student: Mapped[Optional["Student"]] = relationship("Student", back_populates="user", uselist=False, viewonly=True)
-    parent: Mapped[Optional["Parent"]] = relationship("Parent", back_populates="user", uselist=False, viewonly=True)
+    # foreign_keys explicite sur les quatre : voir identity_providers ci-dessus (champs d'audit).
+    teacher: Mapped[Optional["Teacher"]] = relationship("Teacher", back_populates="user", uselist=False, viewonly=True, foreign_keys="Teacher.user_id")
+    non_teaching_staff: Mapped[Optional["NonTeachingStaff"]] = relationship("NonTeachingStaff", back_populates="user", uselist=False, viewonly=True, foreign_keys="NonTeachingStaff.user_id")
+    student: Mapped[Optional["Student"]] = relationship("Student", back_populates="user", uselist=False, viewonly=True, foreign_keys="Student.user_id")
+    parent: Mapped[Optional["Parent"]] = relationship("Parent", back_populates="user", uselist=False, viewonly=True, foreign_keys="Parent.user_id")
 
     @property
     def display_name(self) -> str:
@@ -165,7 +171,7 @@ class UserIdentityProvider(Base):
         info={"label": "Doit changer son mot de passe à la prochaine connexion"},
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="identity_providers")
+    user: Mapped["User"] = relationship("User", back_populates="identity_providers", foreign_keys=[user_id])
 
     @property
     def display_name(self) -> str:

@@ -128,7 +128,7 @@ class Teacher(HasUserAccount, Base):
     service_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_service_modes.id", ondelete="SET NULL"), nullable=True, info={"label": "Modalité de service"})
 
     # Relations de navigation
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="teacher")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="teacher", foreign_keys=[user_id])
     school: Mapped[Optional["School"]] = relationship("School")
     courses: Mapped[list["Course"]] = relationship("Course", secondary="course_teachers", back_populates="teachers", passive_deletes="all", info={"label": "Cours"})
     # Noter que l'association avec les sessions se fait via session_teachers (Many-to-Many)

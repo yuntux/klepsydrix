@@ -75,7 +75,7 @@
             v-else
             :title="panel.resourceKey || ''"
             :columns="detailColumnsConfig"
-            :fields="getFormFieldsConfig(panel.resourceKey)"
+            :fields="getFormFieldsConfig(panel.resourceKey, panel)"
             :items="detailListItems"
             :listConfig="accessAwareListConfig(panel)"
             @add="onAddDetailGeneric"
@@ -135,7 +135,7 @@
           <GenericForm
             v-else
             :title="inlineFormTitle"
-            :fields="getFormFieldsConfig(panel.resourceKey)"
+            :fields="getFormFieldsConfig(panel.resourceKey, panel)"
             v-model="formModel"
             :inline="true"
             :formConfig="accessAwareFormConfig(panel)"
@@ -828,6 +828,55 @@ async function invalidateFkCache(resourceName: string) {
   await refreshFkOptionsForResource(resourceName);
 }
 
+// ==========================================
+// CHAMPS TECHNIQUES (voir backend/app/models/base.py — AUDIT_COLUMNS)
+// ==========================================
+// `id` et les quatre champs d'audit existent sur toutes les ressources, mais n'ont d'intérêt que
+// ponctuellement (audit, support, débogage) : les afficher d'office ajouterait cinq colonnes de
+// bruit à chaque liste et cinq champs à chaque formulaire. Ils sont donc écartés de la génération
+// automatique — et RÉINTRODUITS dès qu'une vue les nomme explicitement dans `listConfig.columns`
+// ou `formConfig.fields` (ui.json). Auparavant `id` était écarté sans recours : l'écrire dans la
+// configuration d'une vue ne produisait rien, en silence.
+const TECHNICAL_FIELD_KEYS = new Set(['id', 'create_user_id', 'write_user_id', 'create_date', 'write_date']);
+
+// Clés réellement demandées par la configuration d'une vue. Les colonnes sont un objet
+// {clé: config} ; les champs de formulaire, un arbre (groupes, onglets, pages) dont les feuilles
+// sont soit une chaîne, soit un objet à `key` — d'où le parcours récursif.
+function collectConfiguredKeys(node: any, into = new Set<string>()): Set<string> {
+  if (!node) return into;
+  if (typeof node === 'string') {
+    into.add(node);
+    return into;
+  }
+  if (Array.isArray(node)) {
+    node.forEach(child => collectConfiguredKeys(child, into));
+    return into;
+  }
+  if (typeof node === 'object') {
+    if (typeof node.key === 'string') into.add(node.key);
+    ['children', 'pages', 'fields', 'elements'].forEach(prop => {
+      if (node[prop]) collectConfiguredKeys(node[prop], into);
+    });
+  }
+  return into;
+}
+
+// `panels` : un panneau, ou l'ensemble des panneaux d'un onglet — les métadonnées de champ sont
+// portées par la RESSOURCE, pas par le panneau : un champ technique réclamé par la liste doit être
+// résolu même quand c'est le formulaire voisin qui consomme cette configuration (sans quoi la
+// colonne s'afficherait sans son libellé ni son caractère non modifiable).
+function configuredColumnKeys(panels: any): Set<string> {
+  const list = Array.isArray(panels) ? panels : [panels];
+  return new Set(list.flatMap((p: any) => Object.keys(p?.listConfig?.columns || {})));
+}
+
+function configuredFieldKeys(panels: any): Set<string> {
+  const list = Array.isArray(panels) ? panels : [panels];
+  const keys = new Set<string>();
+  list.forEach((p: any) => collectConfiguredKeys(p?.formConfig?.fields, keys));
+  return keys;
+}
+
 function fkOptions(resourceName: string): Array<{ value: any; label: string }> {
   return fkOptionsCache.value[resourceName]?.items || [];
 };
@@ -851,6 +900,21 @@ async function loadFkOptionsForModel(model: string) {
       resourcesToFetch.add(resourceName);
     }
   }
+
+  // Relations portées par les champs TECHNIQUES réclamés par la feuille courante
+  // (create_user_id/write_user_id -> users) : absentes du schéma de création, qui ne les accepte
+  // pas en entrée — sans cette passe, le widget afficherait « Aucun » alors que la valeur existe.
+  const requestedTechnical = new Set([
+    ...configuredFieldKeys(activeLeaf.value?.panels),
+    ...configuredColumnKeys(activeLeaf.value?.panels),
+  ]);
+  const readSchema = openApiSpec.value.components?.schemas?.[`${model}_ReadPayload`];
+  requestedTechnical.forEach(key => {
+    if (!TECHNICAL_FIELD_KEYS.has(key)) return;
+    const prop = readSchema?.properties?.[key];
+    const resource = prop?.resource || (prop?.anyOf || []).find((o: any) => o.resource)?.resource;
+    if (resource) resourcesToFetch.add(resource);
+  });
 
   if (resourcesToFetch.size > 0) {
     await Promise.all(Array.from(resourcesToFetch).map(refreshFkOptionsForResource));
@@ -1295,7 +1359,9 @@ function measureTextWidth(text: string): number {
 }
 
 // Configurations dynamiques de colonnes pour GenericList
-function buildColumnsConfig(model: string, items: any[]) {
+// `requestedKeys` : clés explicitement nommées par le panneau (voir TECHNICAL_FIELD_KEYS) — seules
+// celles-là ramènent un champ technique dans la liste des candidats.
+function buildColumnsConfig(model: string, items: any[], requestedKeys: Set<string> = new Set()) {
   // --- GÉNÉRATION DYNAMIQUE VIA OPENAPI (LOW-CODE) ---
   if (openApiSpec.value && openApiSpec.value.components && openApiSpec.value.components.schemas) {
     const schemaName = `${model}_ReadPayload`;
@@ -1304,7 +1370,10 @@ function buildColumnsConfig(model: string, items: any[]) {
     if (schema && schema.properties) {
       const dynamicColumns = [];
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
-        if (key === 'id' || key === 'display_name' || prop.hidden === true) continue; // On masque l'ID technique, display_name et les champs de support (info={"hidden": True})
+        // display_name et les champs de support (info={"hidden": True}) ne sont jamais des colonnes.
+        // Les champs techniques (id, audit) ne le sont que si la vue les demande explicitement.
+        if (key === 'display_name' || prop.hidden === true) continue;
+        if (TECHNICAL_FIELD_KEYS.has(key) && !requestedKeys.has(key)) continue;
 
         let colWidth = prop.list_width;
         if (!colWidth && prop.widget === 'relation_browser') {
@@ -1389,7 +1458,11 @@ function buildColumnsConfig(model: string, items: any[]) {
   return [];
 }
 
-const columnsConfig = computed(() => buildColumnsConfig(activeAdminModel.value, genericItems.value));
+const columnsConfig = computed(() => buildColumnsConfig(
+  activeAdminModel.value,
+  genericItems.value,
+  configuredColumnKeys(activeLeaf.value?.panels?.find((p: any) => p.component === 'GenericList' && p.role !== 'detail')),
+));
 
 // --- Panneau "détail" : une seconde GenericList indépendante dans le même onglet, filtrée par
 // la sélection courante du panneau "maître" (ex: Services par classe -> Divisions | Services).
@@ -1403,7 +1476,7 @@ function getDetailPanel() {
 const detailColumnsConfig = computed(() => {
   const detailPanel = getDetailPanel();
   if (!detailPanel) return [];
-  return buildColumnsConfig(detailPanel.resourceKey, detailListItems.value);
+  return buildColumnsConfig(detailPanel.resourceKey, detailListItems.value, configuredColumnKeys(detailPanel));
 });
 
 async function loadDetailListItems() {
@@ -1471,7 +1544,7 @@ async function onAddDetailGeneric() {
 
   // Valeurs par défaut : OpenAPI (statiques) puis serveur (dynamiques, voir default_get).
   const newItem: Record<string, any> = {};
-  getFormFieldsConfig(detailPanel.resourceKey).forEach((field: any) => {
+  getFormFieldsConfig(detailPanel.resourceKey, detailPanel).forEach((field: any) => {
     if (field.default !== undefined) {
       newItem[field.key] = field.default;
     }
@@ -1545,8 +1618,12 @@ function accessAwareFormConfig(panel: any) {
 }
 
 // Configurations dynamiques de champs pour GenericForm
-function getFormFieldsConfig(resourceKey?: string) {
+// `panel` : le panneau qui consomme ces champs — sert uniquement à savoir quels champs TECHNIQUES
+// il réclame explicitement (voir TECHNICAL_FIELD_KEYS). Les clés sont cherchées dans les deux
+// configurations possibles, un même panneau pouvant être une liste (colonnes) ou un formulaire.
+function getFormFieldsConfig(resourceKey?: string, panel?: any) {
   const model = resourceKey || activeAdminModel.value;
+  const requestedKeys = new Set([...configuredFieldKeys(panel), ...configuredColumnKeys(panel)]);
   const schoolOptions = schoolsList.value.map(s => ({ value: s.id, label: s.name }));
   const periodTypeOptions = periodTypesList.value.map(pt => ({ value: pt.id, label: pt.name || pt.label }));
 
@@ -1588,7 +1665,7 @@ function getFormFieldsConfig(resourceKey?: string) {
 
     const schema = openApiSpec.value.components.schemas[schemaName];
     if (schema && schema.properties) {
-      const dynamicFields = [];
+      const dynamicFields: any[] = [];
       const requiredFields = schema.required || [];
       for (const [key, prop] of Object.entries<any>(schema.properties)) {
         if (key === 'id' || key === 'display_name' || prop.hidden === true) continue; // On masque l'ID, display_name et les champs de support (info={"hidden": True}) dans le formulaire
@@ -1681,6 +1758,37 @@ function getFormFieldsConfig(resourceKey?: string) {
           durationIncludeZero: prop.durationIncludeZero === true
         });
       }
+      // Champs techniques explicitement demandés (voir TECHNICAL_FIELD_KEYS) : lus dans le schéma
+      // de LECTURE, le seul qui les porte — l'API n'accepte de les recevoir ni en création ni en
+      // mise à jour (voir generic.py::make_pydantic_model), et ils sont donc absents du schéma
+      // utilisé ci-dessus. Toujours en lecture seule : ce sont des traces, pas des saisies.
+      const readSchema = openApiSpec.value.components.schemas[`${model}_ReadPayload`];
+      requestedKeys.forEach(key => {
+        if (!TECHNICAL_FIELD_KEYS.has(key)) return;
+        if (dynamicFields.some((f: any) => f.key === key)) return;
+        const prop = readSchema?.properties?.[key];
+        if (!prop) return;
+        const isDate = prop.format === 'date-time'
+          || (prop.anyOf || []).some((o: any) => o.format === 'date-time');
+        const technicalResource = prop.resource || (prop.anyOf || []).find((o: any) => o.resource)?.resource;
+        dynamicFields.push({
+          key,
+          label: prop.title || key,
+          // Une date-heure s'affiche telle quelle (type 'text') : c'est déjà la convention des
+          // autres horodatages du produit (ex. last_login_at) — aucun widget « datetime » n'existe,
+          // et en inventer un pour un champ en lecture seule serait disproportionné.
+          // Une clé étrangère est un 'select' alimenté par fkOptions(), exactement comme n'importe
+          // quelle autre relation de la boucle ci-dessus : sans ses options, le widget afficherait
+          // « Aucun » alors que la valeur existe.
+          type: technicalResource ? 'select' : (isDate ? 'text' : 'number'),
+          resource: technicalResource,
+          options: technicalResource ? fkOptions(technicalResource) : undefined,
+          readOnly: true,
+          nullable: true,
+          sortable: true,
+          filterable: true,
+        });
+      });
       return dynamicFields;
     }
   }
@@ -1690,7 +1798,8 @@ function getFormFieldsConfig(resourceKey?: string) {
 }
 
 const formFieldsConfig = computed(() => {
-  return getFormFieldsConfig();
+  // Tous les panneaux de l'onglet : la liste et le formulaire partagent ces métadonnées de champ.
+  return getFormFieldsConfig(undefined, activeLeaf.value?.panels);
 });
 
 const constraintTranslations: Record<string, string> = {

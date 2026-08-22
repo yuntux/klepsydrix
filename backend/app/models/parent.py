@@ -19,7 +19,7 @@ class Parent(HasUserAccount, Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, unique=True, info={"label": "Compte utilisateur"}
     )
 
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="parent")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="parent", foreign_keys=[user_id])
 
     @property
     def display_name(self) -> str:
