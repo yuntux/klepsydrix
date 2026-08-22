@@ -1454,6 +1454,41 @@ mesurant la boîte rendue dans le navigateur :
 mais il masquait justement le défaut, l'image n'étant jamais déformée, seulement flottante au milieu
 de sa boîte.
 
+### R bis. Feuille « liste + formulaire » : sélection d'une ligne et sort du formulaire après création
+
+Deux défauts distincts, découverts par l'usage sur la fiche Enseignant et qui se combinaient en un
+symptôme unique et très déroutant : *« j'ouvre une fiche, je modifie un champ, j'enregistre, on me
+dit que c'est réussi, mes champs se vident, et rien n'a été enregistré »*. En réalité un
+enregistrement **était** créé — un nouveau, à chaque fois.
+
+**1. `disableEditModal` empêchait aussi le remplissage du formulaire.** Le drapeau (`ui.json`,
+`listConfig`) veut dire « ne pas OUVRIR LA POPIN d'édition au clic sur une ligne ». Il était lu dans
+`App.vue::onSelectionChangeGeneric` comme « ne rien faire du tout » : sur une feuille liste +
+formulaire (enseignants, classes, salles…), sélectionner une ligne laissait le formulaire **vierge**.
+Le formulaire vierge signifie « nouvel enregistrement » : « Enregistrer » CRÉAIT donc, au lieu de
+mettre à jour la fiche qu'on croyait modifier. La condition tient compte du mode inline
+(`isInlineMode.value || !isEditModalDisabled.value`) — sans risque de popin intempestive,
+`onEditGeneric` ne l'ouvrant lui-même que hors mode inline.
+
+⚠️ **Le défaut était intermittent**, ce qui l'a rendu difficile à cerner : le `computed`
+`isEditModalDisabled` retombe sur `false` tant qu'`activeLeaf` n'est pas résolu. Quand la liste
+gagnait la course contre le chargement des menus, la sélection restaurée depuis l'URL remplissait
+correctement le formulaire — le comportement CORRECT n'arrivait que par accident, et un rechargement
+suffisait à changer le résultat.
+
+**2. Après une création, le formulaire était vidé.** `onSubmitGeneric` traitait la création comme
+si elle avait toujours lieu dans une popin (fermer, vider, sortir du mode édition). En mode inline,
+l'utilisateur voyait une notification de succès ET tous ses champs disparaître — ce qui se lit comme
+un échec — et le clic suivant sur « Enregistrer » aurait créé un SECOND enregistrement. La fiche
+reste désormais sur l'enregistrement créé et passe en modification, symétriquement à la branche
+« mise à jour », en repartant de la réponse du serveur (jamais du payload soumis : la création
+calcule des valeurs par défaut et des champs dérivés que seule cette réponse porte).
+
+**Ce que ça dit du reste du code** : ces deux branches sont écrites pour le cas « popin », et le mode
+inline y est traité en exception. Toute évolution de `onSubmitGeneric`/`onSelectionChangeGeneric`
+doit se demander explicitement ce que devient le formulaire inline — c'est là que se logent les
+régressions silencieuses, aucune erreur n'étant levée quand il reste simplement vide.
+
 ### R. Cascade entre Champs FK d'un Même Formulaire : Pré-remplissage (`@onchange` + session BDD) et Filtrage d'Options (`dynamicOptionsFilter`, à la Odoo)
 
 **Le besoin** : sur le formulaire Enseignant, saisir un code postal doit filtrer la liste déroulante des villes à celles qui le portent, et sélectionner une ville doit pré-remplir automatiquement le pays — deux besoins de cascade entre champs FK d'un même formulaire, jamais rencontrés jusqu'ici dans le moteur générique, et à traiter différemment : le premier filtre une **liste d'options**, le second pré-remplit une **valeur**.

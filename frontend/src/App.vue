@@ -1098,7 +1098,19 @@ async function onSelectionChangeGeneric(ids: any[]) {
           formModel.value = {};
           isEditing.value = false;
         }
-      } else if (!isEditModalDisabled.value) {
+      } else if (isInlineMode.value || !isEditModalDisabled.value) {
+        // `isInlineMode.value ||` : `disableEditModal` (ui.json) veut dire « ne pas OUVRIR LA POPIN
+        // d'édition au clic sur une ligne » — pas « ne pas charger l'enregistrement ». Sur une
+        // feuille liste + formulaire (le cas de la plupart des fiches : enseignants, classes…), la
+        // sélection restait sans effet sur le formulaire, qui demeurait vierge : « Enregistrer »
+        // CRÉAIT alors un nouvel enregistrement au lieu de mettre à jour celui qu'on croyait
+        // modifier. Aucun risque de popin intempestive ici, `onEditGeneric` ne l'ouvre lui-même que
+        // hors mode inline (voir sa dernière ligne).
+        //
+        // Le défaut était intermittent, donc particulièrement trompeur : tant que `activeLeaf`
+        // n'était pas encore résolu au moment où la sélection remontait (course entre le chargement
+        // des menus et celui de la liste), le `computed` retombait sur `false` et le formulaire se
+        // remplissait — le comportement correct arrivait par accident.
         onEditGeneric(item);
       }
     }
@@ -1212,10 +1224,25 @@ async function onSubmitGeneric(value: Record<string, any>) {
 
       // Full reload on creation since there might be server-generated fields or ordering changes
       await loadGenericItems();
-      
+
       showFormModal.value = false;
-      formModel.value = {};
-      isEditing.value = false;
+      if (isInlineMode.value) {
+        // La fiche reste sur l'enregistrement qu'on vient de créer, et passe en modification —
+        // symétrique de la branche « mise à jour » ci-dessus. Auparavant le formulaire était vidé :
+        // l'utilisateur voyait une notification de succès ET tous ses champs disparaître, ce qui se
+        // lit comme un échec (« rien n'a été enregistré »), et le clic suivant sur « Enregistrer »
+        // aurait créé un SECOND enregistrement. On repart de la réponse du serveur, jamais du
+        // payload soumis : la création calcule des valeurs par défaut et des champs dérivés que
+        // seule cette réponse porte.
+        formModel.value = { ...created };
+        selectedParentIds.value = created?.id ? [created.id] : [];
+        isEditing.value = true;
+      } else {
+        // Hors mode inline, la création se fait dans une popin : la refermer suffit, la liste
+        // rechargée juste au-dessus montre déjà le nouvel enregistrement.
+        formModel.value = {};
+        isEditing.value = false;
+      }
     }
     window.dispatchEvent(new CustomEvent('resource:mutated', { 
       detail: { resource_name: targetResource || activeAdminModel.value } 
