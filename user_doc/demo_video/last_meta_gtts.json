@@ -1,0 +1,16 @@
+{
+  "video_path": "/home/ubuntu/klepsydrix/user_doc/demo_video/temp_video/page@d19408e2c2805789a662da67673c8969.webm",
+  "timestamps": {
+    "01_intro": 1.014315128326416,
+    "02_import_siecle": 9.55028486251831,
+    "03_services_trmd": 22.100508451461792,
+    "04_teacher_constraints": 37.86799764633179,
+    "05_generate_courses": 50.06737160682678,
+    "06_placement_auto": 57.333184242248535,
+    "07_room_assignment": 66.8111732006073,
+    "08_heatmap_dragdrop": 81.30497765541077,
+    "09_optimize": 92.45055818557739,
+    "10_export_siecle": 110.96262049674988,
+    "11_overview_outro": 141.97000551223755
+  }
+}
