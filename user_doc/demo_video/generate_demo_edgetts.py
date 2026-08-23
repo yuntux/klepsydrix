@@ -1,30 +1,41 @@
 """
-Script d'automatisation de démonstration vidéo - Projet Klepsydrix (V2 — voix gTTS)
+Script d'automatisation de démonstration vidéo - Projet Klepsydrix (V3 — voix edge-tts)
 
-Variante de generate_demo.py qui remplace le clonage vocal F5-TTS par gTTS (Google Translate
-TTS). Les deux scripts sont indépendants et coexistent : generate_demo.py (V1, voix clonée
-"Bernard" via F5-TTS + checkpoint RASPIAUDIO) reste la référence qualité ; ce script (V2) est
-une alternative rapide et légère, sans clonage vocal.
+Troisième variante de generate_demo.py, après V1 (F5-TTS, clonage vocal "Bernard") et V2
+(gTTS, voix Google générique). Les trois scripts sont indépendants et coexistent dans ce dossier.
 
-Pourquoi cette V2 : la génération F5-TTS s'est révélée à la fois très lente (~230 minutes pour
-les 11 segments sur ce CPU sans GPU) ET de qualité inégale (mots avalés, liaisons parasites,
-anglicismes — "Timefold", "open source" — et même "Klepsydrix" prononcés à la française n'importe
-comment). gTTS n'offre PAS de voix clonée (une seule voix générique par langue, pas de "Bernard"),
-mais génère en 1 à 2 secondes par segment et s'est montré nettement plus fiable sur la
-prononciation lors d'un test à l'oreille (voir conversation) : c'est un compromis rapidité/fiabilité
-contre naturel de la voix, pas un remplacement strictement supérieur.
+Pourquoi cette V3 : gTTS (V2) s'est révélé rapide et fiable sur la prononciation, mais la voix
+manque de "peps" — elle est monocorde (aucun contrôle de prosodie côté API, un défaut structurel
+qu'accélérer le débit ne corrige pas vraiment). edge-tts utilise les voix neuronales Microsoft
+Azure (mêmes voix que le service payant Azure Speech, via l'endpoint gratuit non officiel de la
+fonction "Lire à voix haute" d'Edge) : nettement plus naturelles et expressives, et surtout un
+vrai réglage de débit/hauteur NATIF (paramètres `rate`/`pitch` de edge_tts.Communicate), sans
+bidouille ffmpeg comme pour gTTS.
 
-Le texte des segments (script_segments) est VOLONTAIREMENT identique à generate_demo.py, pour
-permettre une comparaison à l'oreille équitable entre les deux moteurs sur le même contenu. Si
-gTTS mérite lui aussi le respelling phonétique de "Klepsydrix"/"Timefold" (voir conversation),
-appliquez le même correctif aux deux scripts plutôt qu'à un seul.
+Choix de voix testés à l'oreille (voir conversation) :
+- fr-FR-HenriNeural (homme, génération "Neural" standard) : rendu saccadé, écarté.
+- fr-FR-RemyMultilingualNeural (homme, génération "Multilingual" plus récente) : validé, RETENU.
+- fr-FR-VivienneMultilingualNeural (femme, même génération) : validée aussi, bonne alternative —
+  changez juste EDGE_TTS_VOICE ci-dessous pour basculer.
+Autres voix FR disponibles (régionales) : fr-BE-CharlineNeural/GerardNeural (Belgique),
+fr-CA-SylvieNeural/AntoineNeural/JeanNeural/ThierryNeural (Québec),
+fr-CH-ArianeNeural/FabriceNeural (Suisse) — lister avec `edge-tts --list-voices`.
+
+Quota : edge-tts n'a pas de quota officiel publié (ce n'est pas un produit facturé, contrairement
+à Azure Speech Service qui utilise les mêmes voix) mais pas de garantie de service non plus —
+usage intensif/en rafale déconseillé (throttling possible). Notre usage (11 segments courts,
+générés ponctuellement) est très en dessous de tout seuil réaliste.
+
+Le texte des segments (script_segments) est VOLONTAIREMENT identique à generate_demo.py et
+generate_demo_gtts.py, pour permettre une comparaison à l'oreille équitable entre les trois
+moteurs sur le même contenu.
 
 Ce script permet de générer une vidéo de démonstration en combinant :
-1. Narration audio (gTTS, gratuit, rapide, voix française générique — pas de clonage).
+1. Narration audio (edge-tts, gratuit, rapide, voix neuronale Azure — pas de clonage).
 2. Capture vidéo automatisée (Playwright), pilotant le frontend Klepsydrix (Vue + Vite)
    connecté au backend FastAPI, sur la base de démonstration seedée par
-   backend/app/core/init_demo.py — IDENTIQUE à generate_demo.py (même parcours, mêmes
-   sélecteurs), seule la phase Audio diffère.
+   backend/app/core/init_demo.py — IDENTIQUE à generate_demo.py et generate_demo_gtts.py (même
+   parcours, mêmes sélecteurs), seule la phase Audio diffère.
 3. Montage automatique (MoviePy)
 
 INSTALLATION DES DEPENDANCES :
@@ -32,37 +43,35 @@ INSTALLATION DES DEPENDANCES :
 # Dépendances système : ffmpeg (requis par MoviePy), polices DejaVu (page de garde)
 sudo apt update && sudo apt install -y python3-pip python3-venv ffmpeg fonts-dejavu-core
 
-# Dépendances Python — beaucoup plus légères que la V1 F5-TTS (pas de torch, pas de modèle à
-# télécharger, quelques centaines de Ko en tout pour gTTS) :
-pip install --no-cache-dir playwright moviepy gTTS pillow requests --break-system-packages
+# Dépendances Python — léger (edge-tts + son client aiohttp, pas de modèle à télécharger) :
+pip install --no-cache-dir playwright moviepy edge-tts pillow requests --break-system-packages
 
 # Navigateur Chromium pour Playwright + ses dépendances système
 playwright install --with-deps chromium
 
-# gTTS a besoin d'un accès réseau sortant vers translate.google.com (endpoint non officiel,
-# gratuit mais non garanti dans le temps par Google) — pas de clé API requise.
+# edge-tts a besoin d'un accès réseau sortant (endpoint non officiel Microsoft) — pas de clé API.
 
 
 EXECUTION DU SCRIPT :
 ---------------------
 # Pré-requis : backend + frontend démarrés (./start_services.sh start) et base de démo seedée
-python3 generate_demo_gtts.py
+python3 generate_demo_edgetts.py
 
 # Mode montage seul (réutilise la dernière capture vidéo de CE script, ne relance pas Playwright)
-python3 generate_demo_gtts.py --assemble-only
+python3 generate_demo_edgetts.py --assemble-only
 
-Note : ce script utilise son propre fichier d'état (last_meta_gtts.json) et son propre préfixe de
-sortie (DEMO_KLEPSYDRIX_GTTS_*.mp4), distincts de ceux de generate_demo.py — les deux scripts
-peuvent tourner dans le même dossier sans se marcher dessus. Le cache audio (temp_audio/) est
-partagé mais sans collision : les fichiers gTTS sont en .mp3, ceux de F5-TTS en .wav.
+Note : ce script utilise son propre fichier d'état (last_meta_edgetts.json) et son propre préfixe
+de sortie (DEMO_KLEPSYDRIX_EDGETTS_*.mp4), distincts de ceux de generate_demo.py/generate_demo_gtts.py.
+Le cache audio (temp_audio/) est partagé mais sans collision : chaque variante tague ses fichiers
+("_edgetts_", "_gtts_") et ne nettoie QUE les siens — voir le commentaire dans generate_audio().
 
 
 STRUCTURE DU SCRIPT :
 --------------------
 - CONFIGURATION : URL locale du frontend Klepsydrix, identifiants du compte de démo
-  (mêmes conventions que frontend/scripts/doc-screenshots/lib.mjs), réglages gTTS.
-- AUDIO : Génération des segments MP3 à partir du dictionnaire 'script_segments' via gTTS
-          (appel réseau à Google, ~1-2s par segment, aucun modèle local).
+  (mêmes conventions que frontend/scripts/doc-screenshots/lib.mjs), réglages edge-tts.
+- AUDIO : Génération des segments MP3 à partir du dictionnaire 'script_segments' via edge-tts
+          (appel réseau à Microsoft, moins d'1s par segment, aucun modèle local).
 - CAPTURE : identique à generate_demo.py (voir ce fichier pour le détail du parcours et
   l'historique des correctifs Playwright — fermeture des modales, arrêt du solveur, etc.).
 - MONTAGE :
@@ -139,24 +148,47 @@ APP_SETTINGS = {
     ],
 }
 
-# --- CONFIGURATION gTTS (Google Translate TTS — gratuit, rapide, voix générique non clonée) ---
-# Pas de clé API, pas de modèle local. Nécessite juste un accès réseau sortant vers Google.
-GTTS_LANG = "fr"
-GTTS_SLOW = False
-# gTTS n'a aucun réglage de vitesse/ton au-delà de `slow` (qui ne fait QUE ralentir) — pas de
-# paramètre "plus rapide" ni "plus énergique" côté API. On accélère donc en post-traitement avec
-# le filtre ffmpeg `atempo`, qui préserve la hauteur de voix (contrairement à un simple
-# rééchantillonnage, qui accélérerait ET remonterait le pitch façon "chipmunk"). >1.0 = plus
-# rapide ; une voix plus rapide se perçoit aussi comme plus énergique/"pep" sans autre changement.
-# Rester dans [0.5, 2.0] : au-delà, `atempo` doit être chaîné plusieurs fois (non géré ici).
-GTTS_SPEED_FACTOR = 1.25
+# --- CONFIGURATION edge-tts (voix neuronales Microsoft Azure, gratuit, non officiel) ---
+# Pas de clé API, pas de modèle local. Nécessite un accès réseau sortant.
+#
+# Ce que edge-tts expose et que gTTS n'a PAS (raison de fond : edge-tts donne accès aux mêmes
+# voix neuronales que le service payant Azure Speech, via un point d'accès gratuit non officiel,
+# alors que gTTS s'appuie sur le moteur TTS basique de Google Traduction — pas le Cloud
+# Text-to-Speech premium de Google) :
+#
+# Déjà utilisés ci-dessous :
+#   - voice  : un vrai choix parmi ~300+ voix neuronales nommées (13 en français : Remy, Vivienne,
+#              Henri, Denise...), chacune avec son propre timbre/prosodie. gTTS n'a qu'UNE SEULE
+#              voix par langue (lang="fr"), aucun choix possible.
+#   - rate   : réglage natif du débit ("+15%", "-10%"), pitch préservé, géré côté service Microsoft.
+#              gTTS n'a que slow=True/False : un booléen qui ralentit, jamais qui accélère, aucune
+#              granularité (d'où le bricolage ffmpeg `atempo` nécessaire côté generate_demo_gtts.py
+#              pour accélérer sans changer la hauteur de voix).
+#   - pitch  : décalage de hauteur ("+5Hz", "-10Hz"). Laissé à +0Hz ici, mais utilisable pour
+#              changer le caractère de la voix. gTTS n'a rien d'équivalent.
+#
+# Disponibles mais PAS utilisés pour l'instant (pistes pour plus tard) :
+#   - volume            : même principe que rate/pitch ("+20%", "-10%"), documenté dans l'API.
+#   - communicate.stream() au lieu de .save() : renvoie des événements WordBoundary (début, durée
+#                          de chaque mot prononcé) — permettrait de générer des sous-titres
+#                          synchronisés automatiquement sur la vidéo. Aucun équivalent chez gTTS.
+#   - edge_tts.list_voices() / `edge-tts --list-voices` : catalogue interrogeable (langue, genre,
+#                          catégorie) — utilisé une fois en exploration pour lister les 13 voix FR,
+#                          pas appelé depuis ce script. gTTS n'a qu'une liste fixe de codes langue.
+#
+# Voix retenue après comparaison à l'oreille (voir docstring) — homme, génération "Multilingual"
+# récente, jugée fluide (contrairement à fr-FR-HenriNeural, plus ancienne, saccadée).
+EDGE_TTS_VOICE = "fr-FR-RemyMultilingualNeural"
+# Alternative validée : "fr-FR-VivienneMultilingualNeural" (femme, même génération).
+EDGE_TTS_RATE = "+0%"
+EDGE_TTS_PITCH = "+0Hz"
 
 # --- SEGMENTS DE VOIX OFF (script de la démo) ---
-# IDENTIQUE à generate_demo.py (voir docstring en tête de fichier : comparaison à l'oreille sur
-# le même texte). La connexion (compte de démo) n'a pas de segment narré dédié : elle est
-# effectuée silencieusement pendant 01_intro, qui est de toute façon recouvert par la page de
-# garde au montage (voir assemble()) — ce qui s'affiche à l'écran pendant ce segment n'apparaît
-# jamais dans la vidéo finale.
+# IDENTIQUE à generate_demo.py et generate_demo_gtts.py (voir docstring en tête de fichier :
+# comparaison à l'oreille sur le même texte). La connexion (compte de démo) n'a pas de segment
+# narré dédié : elle est effectuée silencieusement pendant 01_intro, qui est de toute façon
+# recouvert par la page de garde au montage (voir assemble()) — ce qui s'affiche à l'écran pendant
+# ce segment n'apparaît jamais dans la vidéo finale.
 script_segments = [
     {
         "id": "01_intro",
@@ -244,44 +276,31 @@ def wait_for_service(service_config):
     return False
 
 
-def _speed_up_mp3(path, factor):
-    """Accélère un mp3 EN PLACE via le filtre ffmpeg `atempo` (préserve la hauteur de voix,
-    contrairement à un rééchantillonnage naïf). No-op si factor == 1.0."""
-    if factor == 1.0:
-        return
-    tmp_path = path.with_suffix(".tmp.mp3")
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(path), "-filter:a", f"atempo={factor}", "-vn", str(tmp_path)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
-    )
-    tmp_path.replace(path)
-
-
-# --- AUDIO (gTTS, Google Translate TTS — gratuit, rapide, voix générique non clonée) ---
-def generate_audio():
-    print(f"🎙️ Phase Audio gTTS (Google Translate TTS, vitesse x{GTTS_SPEED_FACTOR})...")
+# --- AUDIO (edge-tts, voix neuronales Microsoft Azure — gratuit, non officiel, pas de clonage) ---
+async def generate_audio():
+    print(f"🎙️ Phase Audio edge-tts (voix {EDGE_TTS_VOICE}, rate {EDGE_TTS_RATE}, pitch {EDGE_TTS_PITCH})...")
     try:
-        from gtts import gTTS
+        import edge_tts
     except Exception as e:
-        print(f"  ❌ Erreur import gTTS : {e}")
-        print("     -> pip install gTTS")
+        print(f"  ❌ Erreur import edge-tts : {e}")
+        print("     -> pip install edge-tts")
         return {s['id']: 5.0 for s in script_segments}, {}
 
     durations = {}
     paths_map = {}
     for segment in script_segments:
-        # Le facteur de vitesse fait partie du hash : le changer invalide le cache et régénère,
-        # comme un changement de texte.
-        cache_key = f"{segment['text']}|{GTTS_SPEED_FACTOR}"
+        # Voix/rate/pitch font partie du hash : en changer invalide le cache et régénère, comme
+        # un changement de texte.
+        cache_key = f"{segment['text']}|{EDGE_TTS_VOICE}|{EDGE_TTS_RATE}|{EDGE_TTS_PITCH}"
         text_hash = hashlib.md5(cache_key.encode()).hexdigest()
-        # Tag "_gtts_" dans le nom de fichier ET dans le glob de nettoyage : temp_audio/ est
-        # partagé avec les autres variantes du script (F5-TTS en .wav, pas de risque ; mais
-        # edge-tts produit aussi des .mp3 — sans ce tag, le nettoyage ci-dessous supprimerait
-        # les fichiers audio de l'autre moteur au lieu des seuls siens).
-        path = AUDIO_DIR / f"{segment['id']}_gtts_{text_hash}.mp3"
+        # Tag "_edgetts_" dans le nom de fichier ET dans le glob de nettoyage : temp_audio/ est
+        # partagé avec generate_demo_gtts.py, qui produit aussi des .mp3 — sans ce tag, le
+        # nettoyage ci-dessous supprimerait les fichiers audio de l'autre moteur au lieu des
+        # seuls siens (piège déjà rencontré et corrigé côté gTTS pour la même raison).
+        path = AUDIO_DIR / f"{segment['id']}_edgetts_{text_hash}.mp3"
 
-        # Nettoyage des anciens fichiers gTTS pour cet ID si le texte ou la vitesse a changé
-        for old_file in AUDIO_DIR.glob(f"{segment['id']}_gtts_*.mp3"):
+        # Nettoyage des anciens fichiers edge-tts pour cet ID si le texte/voix/réglage a changé
+        for old_file in AUDIO_DIR.glob(f"{segment['id']}_edgetts_*.mp3"):
             if old_file.name != path.name:
                 old_file.unlink()
 
@@ -296,18 +315,19 @@ def generate_audio():
             except Exception:
                 pass
 
-        print(f"  🎙️ Génération {segment['id']} (nouveau texte/vitesse détecté)...")
+        print(f"  🎙️ Génération {segment['id']} (nouveau texte/réglage détecté)...")
         try:
-            tts = gTTS(text=segment['text'], lang=GTTS_LANG, slow=GTTS_SLOW)
-            tts.save(str(path))
-            _speed_up_mp3(path, GTTS_SPEED_FACTOR)
+            communicate = edge_tts.Communicate(
+                segment['text'], voice=EDGE_TTS_VOICE, rate=EDGE_TTS_RATE, pitch=EDGE_TTS_PITCH,
+            )
+            await communicate.save(str(path))
             clip = mp.AudioFileClip(str(path))
             durations[segment['id']] = clip.duration
             clip.close()
             paths_map[segment['id']] = path
             print(f"    -> OK ({durations[segment['id']]:.1f}s)")
         except Exception as e:
-            print(f"    ❌ Échec (vérifier l'accès réseau à translate.google.com) : {e}")
+            print(f"    ❌ Échec (vérifier l'accès réseau, endpoint Microsoft non officiel) : {e}")
             durations[segment['id']] = 5.0
     return durations, paths_map
 
@@ -981,7 +1001,7 @@ def create_title_card(duration):
     draw.text((footer_x, footer_y), footer_text, fill=(120, 120, 120), font=footer_font)
 
     # Sauvegarder l'image
-    title_card_path = AUDIO_DIR / "title_card_gtts.png"
+    title_card_path = AUDIO_DIR / "title_card_edgetts.png"
     title_img.save(title_card_path)
     print(f"  ✅ Page de garde générée avec PIL ({W}x{H})")
 
@@ -1046,7 +1066,7 @@ def assemble(video_path, durations, audio_paths, timestamps):
         else:
             video = video_with_audio
 
-    out_name = f"DEMO_KLEPSYDRIX_GTTS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    out_name = f"DEMO_KLEPSYDRIX_EDGETTS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     out = BASE_DIR / out_name
     print(f"💾 Génération de {out}...")
     video.write_videofile(str(out), codec="libx264", audio_codec="aac", fps=24)
@@ -1058,20 +1078,20 @@ async def main():
     print("⏱️  Démarrage du script...")
 
     assemble_only = "--assemble-only" in sys.argv
-    # Fichier d'état séparé de generate_demo.py (V1) : les deux scripts peuvent tourner dans le
-    # même dossier sans se marcher dessus.
-    meta_path = BASE_DIR / "last_meta_gtts.json"
+    # Fichier d'état séparé des autres variantes (V1/V2) : les trois scripts peuvent tourner dans
+    # le même dossier sans se marcher dessus.
+    meta_path = BASE_DIR / "last_meta_edgetts.json"
 
     if not assemble_only:
         for svc in APP_SETTINGS["services"]:
             if not wait_for_service(svc):
                 return
 
-    durations, audio_paths = generate_audio()
+    durations, audio_paths = await generate_audio()
 
     if assemble_only:
         if not meta_path.exists():
-            print("  ❌ Aucun fichier 'last_meta_gtts.json' trouvé. Lancez une capture complète d'abord.")
+            print("  ❌ Aucun fichier 'last_meta_edgetts.json' trouvé. Lancez une capture complète d'abord.")
             return
 
         print("⚡ Mode Montage Seul activé. Réutilisation de la dernière capture...")
