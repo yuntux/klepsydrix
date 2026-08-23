@@ -143,6 +143,13 @@ APP_SETTINGS = {
 # Pas de clé API, pas de modèle local. Nécessite juste un accès réseau sortant vers Google.
 GTTS_LANG = "fr"
 GTTS_SLOW = False
+# gTTS n'a aucun réglage de vitesse/ton au-delà de `slow` (qui ne fait QUE ralentir) — pas de
+# paramètre "plus rapide" ni "plus énergique" côté API. On accélère donc en post-traitement avec
+# le filtre ffmpeg `atempo`, qui préserve la hauteur de voix (contrairement à un simple
+# rééchantillonnage, qui accélérerait ET remonterait le pitch façon "chipmunk"). >1.0 = plus
+# rapide ; une voix plus rapide se perçoit aussi comme plus énergique/"pep" sans autre changement.
+# Rester dans [0.5, 2.0] : au-delà, `atempo` doit être chaîné plusieurs fois (non géré ici).
+GTTS_SPEED_FACTOR = 1.25
 
 # --- SEGMENTS DE VOIX OFF (script de la démo) ---
 # IDENTIQUE à generate_demo.py (voir docstring en tête de fichier : comparaison à l'oreille sur
@@ -237,9 +244,22 @@ def wait_for_service(service_config):
     return False
 
 
+def _speed_up_mp3(path, factor):
+    """Accélère un mp3 EN PLACE via le filtre ffmpeg `atempo` (préserve la hauteur de voix,
+    contrairement à un rééchantillonnage naïf). No-op si factor == 1.0."""
+    if factor == 1.0:
+        return
+    tmp_path = path.with_suffix(".tmp.mp3")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(path), "-filter:a", f"atempo={factor}", "-vn", str(tmp_path)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
+    )
+    tmp_path.replace(path)
+
+
 # --- AUDIO (gTTS, Google Translate TTS — gratuit, rapide, voix générique non clonée) ---
 def generate_audio():
-    print("🎙️ Phase Audio gTTS (Google Translate TTS)...")
+    print(f"🎙️ Phase Audio gTTS (Google Translate TTS, vitesse x{GTTS_SPEED_FACTOR})...")
     try:
         from gtts import gTTS
     except Exception as e:
@@ -250,10 +270,13 @@ def generate_audio():
     durations = {}
     paths_map = {}
     for segment in script_segments:
-        text_hash = hashlib.md5(segment['text'].encode()).hexdigest()
+        # Le facteur de vitesse fait partie du hash : le changer invalide le cache et régénère,
+        # comme un changement de texte.
+        cache_key = f"{segment['text']}|{GTTS_SPEED_FACTOR}"
+        text_hash = hashlib.md5(cache_key.encode()).hexdigest()
         path = AUDIO_DIR / f"{segment['id']}_{text_hash}.mp3"
 
-        # Nettoyage des anciens fichiers pour cet ID si le texte a changé
+        # Nettoyage des anciens fichiers pour cet ID si le texte ou la vitesse a changé
         for old_file in AUDIO_DIR.glob(f"{segment['id']}_*.mp3"):
             if old_file.name != path.name:
                 old_file.unlink()
@@ -269,10 +292,11 @@ def generate_audio():
             except Exception:
                 pass
 
-        print(f"  🎙️ Génération {segment['id']} (nouveau texte détecté)...")
+        print(f"  🎙️ Génération {segment['id']} (nouveau texte/vitesse détecté)...")
         try:
             tts = gTTS(text=segment['text'], lang=GTTS_LANG, slow=GTTS_SLOW)
             tts.save(str(path))
+            _speed_up_mp3(path, GTTS_SPEED_FACTOR)
             clip = mp.AudioFileClip(str(path))
             durations[segment['id']] = clip.duration
             clip.close()

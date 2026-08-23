@@ -1,16 +1,16 @@
 {
-  "video_path": "/home/ubuntu/klepsydrix/user_doc/demo_video/temp_video/page@d19408e2c2805789a662da67673c8969.webm",
+  "video_path": "/home/ubuntu/klepsydrix/user_doc/demo_video/temp_video/page@b27857c63a926877f9454c716e3057de.webm",
   "timestamps": {
-    "01_intro": 1.014315128326416,
-    "02_import_siecle": 9.55028486251831,
-    "03_services_trmd": 22.100508451461792,
-    "04_teacher_constraints": 37.86799764633179,
-    "05_generate_courses": 50.06737160682678,
-    "06_placement_auto": 57.333184242248535,
-    "07_room_assignment": 66.8111732006073,
-    "08_heatmap_dragdrop": 81.30497765541077,
-    "09_optimize": 92.45055818557739,
-    "10_export_siecle": 110.96262049674988,
-    "11_overview_outro": 141.97000551223755
+    "01_intro": 0.7191505432128906,
+    "02_import_siecle": 7.881889343261719,
+    "03_services_trmd": 18.234073162078857,
+    "04_teacher_constraints": 31.180588006973267,
+    "05_generate_courses": 41.19739556312561,
+    "06_placement_auto": 47.938570499420166,
+    "07_room_assignment": 56.838417530059814,
+    "08_heatmap_dragdrop": 68.65213418006897,
+    "09_optimize": 77.81989526748657,
+    "10_export_siecle": 96.12102937698364,
+    "11_overview_outro": 127.10785603523254
   }
 }
