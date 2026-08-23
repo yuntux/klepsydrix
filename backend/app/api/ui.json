@@ -2162,6 +2162,27 @@
         ]
       },
       {
+        "id": "student_grouping_constraints_setting",
+        "icon": "users",
+        "title": "Élèves à regrouper / séparer",
+        "borderColor": "#10B981",
+        "layout": "VERTICAL",
+        "panels": [
+          {
+            "id": "student_grouping_constraints_list",
+            "component": "GenericList",
+            "resourceKey": "student_grouping_constraints",
+            "width": "60%"
+          },
+          {
+            "id": "student_grouping_constraints_form",
+            "component": "GenericForm",
+            "resourceKey": "student_grouping_constraints",
+            "width": "40%"
+          }
+        ]
+      },
+      {
         "id": "generate_courses_action",
         "icon": "wrench",
         "title": "Générer les cours",
@@ -2186,6 +2207,15 @@
         "action": {
           "resourceKey": "wizard_specialty_group_generations",
           "actionId": "generate_specialty_groups"
+        }
+      },
+      {
+        "id": "assign_students_to_classes_action",
+        "icon": "wrench",
+        "title": "Affectation des élèves aux classes",
+        "action": {
+          "resourceKey": "wizard_student_class_assignments",
+          "actionId": "assign_students_to_classes"
         }
       },
       {

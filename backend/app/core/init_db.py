@@ -260,6 +260,20 @@ def init_prod_data(slug: str = None):
         for code, name in ref_legal_guardians_data:
             db.execute(text("INSERT INTO ref_legal_guardians (code, name) VALUES (:code, :name)"), {"code": code, "name": name})
 
+        # Dispositifs d'accompagnement personnalisé — nomenclature fermée et connue de
+        # l'Éducation nationale (PPRE/PAP/PPS/PAI/ULIS), même statut que ref_regimes ci-dessus,
+        # utilisée comme critère par le wizard d'affectation aux classes (voir
+        # wizard_student_class_assignment.py).
+        ref_accompaniment_project_types_data = [
+            ("PPRE", "Programme Personnalisé de Réussite Éducative"),
+            ("PAP", "Plan d'Accompagnement Personnalisé"),
+            ("PPS", "Projet Personnalisé de Scolarisation"),
+            ("PAI", "Projet d'Accueil Individualisé"),
+            ("ULIS", "Unité Localisée pour l'Inclusion Scolaire"),
+        ]
+        for code, name in ref_accompaniment_project_types_data:
+            db.execute(text("INSERT INTO ref_accompaniment_project_types (code, name) VALUES (:code, :name)"), {"code": code, "name": name})
+
         ref_degrees_data = [
             "CAP, BEP",
             "Baccalauréat, BP",

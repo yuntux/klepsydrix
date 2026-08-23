@@ -4,7 +4,7 @@ from sqlalchemy import Integer, String, Boolean, Date, ForeignKey, Enum, false a
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm import Session
 from backend.app.models.gender import Gender, gender_field_info
-from backend.app.models.base import Base, constrains
+from backend.app.models.base import Base, constrains, exposed
 from backend.app.models.user import HasUserAccount
 
 
@@ -42,6 +42,19 @@ class Student(HasUserAccount, Base):
 
     doublement: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false(), info={"label": "Redoublant"})
     regime_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_regimes.id", ondelete="SET NULL"), nullable=True, info={"label": "Régime"})
+
+    # Critères de répartition pour le wizard « Affectation des élèves aux classes » (Pré-rentrée,
+    # voir wizard_student_class_assignment.py) — non renseigné (NULL) tant qu'aucune évaluation
+    # n'a été saisie, plutôt qu'une valeur sentinelle dans le domaine 1-10.
+    attendance_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={
+        "label": "Assiduité", "help": "1 = très absentéiste, 10 = jamais absent.", "min": 1, "max": 10, "step": "1",
+    })
+    academic_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={
+        "label": "Résultats scolaires", "help": "1 = résultats faibles, 10 = excellents résultats.", "min": 1, "max": 10, "step": "1",
+    })
+    behavior_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, info={
+        "label": "Comportement", "help": "1 = comportement difficile, 10 = comportement exemplaire.", "min": 1, "max": 10, "step": "1",
+    })
 
     # Scolarité : DATE_ENTREE/DATE_SORTIE/CODE_MOTIF_SORTIE. `exit_reason_id` n'a de sens que si une
     # sortie est actée (readOnlyExpr côté IHM) — voir _check_exit_date_after_entry_date.
@@ -117,6 +130,24 @@ class Student(HasUserAccount, Base):
             },
         },
     )
+    accompaniment_projects: Mapped[list["StudentAccompanimentProject"]] = relationship(
+        "StudentAccompanimentProject", back_populates="student", passive_deletes="all", order_by="StudentAccompanimentProject.start_date",
+        info={
+            "label": "Projets d'accompagnement",
+            "widget": "many2many_ordered_list",
+            "widgetParams": {
+                "pickResource": "ref_accompaniment_project_types",
+                "pickField": "project_type_id",
+                "parentField": "student_id",
+                "columns": [
+                    {"key": "project_type_id", "label": "Dispositif", "editable": True},
+                    {"key": "start_date", "label": "Date de début", "editable": True},
+                    {"key": "end_date", "label": "Date de fin", "editable": True},
+                    {"key": "notes", "label": "Notes", "editable": True},
+                ],
+            },
+        },
+    )
     # Côté élève : liste éditable des responsables rattachés (remplace les anciens parent1_id/
     # parent2_id, plafonnés à deux — voir StudentParentLink). Côté parent (Parent.student_links),
     # la même table est exposée en lecture seule : un responsable ne se rattache pas lui-même à un
@@ -159,9 +190,36 @@ class Student(HasUserAccount, Base):
         if self.entry_date and self.exit_date and self.exit_date < self.entry_date:
             raise ValueError("La date de sortie doit être postérieure ou égale à la date d'entrée.")
 
+    @constrains("attendance_score", "academic_score", "behavior_score")
+    def _check_scores_within_range(self, db: Session):
+        for field, label in (
+            ("attendance_score", "Assiduité"), ("academic_score", "Résultats scolaires"), ("behavior_score", "Comportement"),
+        ):
+            value = getattr(self, field)
+            if value is not None and not (1 <= value <= 10):
+                raise ValueError(f"Le score « {label} » doit être compris entre 1 et 10 (ou vide si non évalué).")
+
     @property
     def display_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
+
+    @exposed
+    @property
+    def criterion_city_id(self) -> Optional[int]:
+        """
+        Ville utilisée comme critère de répartition par le wizard d'affectation aux classes :
+        celle du responsable légal 1, à défaut du responsable légal 2, à défaut du premier
+        responsable rattaché — jamais stockée, calculée à la demande depuis les responsables déjà
+        liés (voir StudentParentLink.legal_guardian, RefLegalGuardian : codes SIECLE RESP_LEGAL
+        "1"/"2"/"0"=Autre).
+        """
+        def rank(link: "StudentParentLink") -> int:
+            code = link.legal_guardian.code if link.legal_guardian else None
+            return {"1": 0, "2": 1}.get(code, 2)
+        for link in sorted(self.parent_links, key=rank):
+            if link.parent and link.parent.address_city_id:
+                return link.parent.address_city_id
+        return None
 
 
 class StudentSpecialtyChoice(Base):
@@ -216,6 +274,32 @@ class StudentSpecialtyChoice(Base):
         ).first()
         if duplicate:
             raise ValueError("Cet élève a déjà un vœu pour cette spécialité.")
+
+
+class StudentAccompanimentProject(Base):
+    """
+    Dispositif d'accompagnement personnalisé d'un élève (PPRE, PAP, PPS, PAI, ULIS...) — utilisé
+    comme critère de répartition par le wizard d'affectation aux classes (Pré-rentrée), au même
+    titre que les scores d'assiduité/résultats/comportement. Un élève suivi par plusieurs
+    dispositifs à la fois est représenté par plusieurs lignes, pas par un champ multi-valué —
+    même logique que StudentSpecialtyChoice ci-dessus.
+    """
+    __tablename__ = "student_accompaniment_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    student_id: Mapped[int] = mapped_column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, info={"label": "Élève"})
+    project_type_id: Mapped[int] = mapped_column(Integer, ForeignKey("ref_accompaniment_project_types.id", ondelete="RESTRICT"), nullable=False, info={"label": "Dispositif"})
+    start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de début"})
+    end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, info={"label": "Date de fin"})
+    notes: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, info={"label": "Notes"})
+
+    student: Mapped["Student"] = relationship("Student", back_populates="accompaniment_projects")
+    project_type: Mapped["RefAccompanimentProjectType"] = relationship("RefAccompanimentProjectType")
+
+    @constrains()
+    def _check_end_date_after_start_date(self, db: Session):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("La date de fin doit être postérieure ou égale à la date de début.")
 
 
 class StudentParentLink(Base):

@@ -1,8 +1,12 @@
 """
 Script d'automatisation de démonstration vidéo - Projet Klepsydrix
 
-Ce script permet de générer une vidéo de démonstration (1 à 2 minutes) en combinant :
-1. Narration audio (Kokoro TTS, local et gratuit)
+Ce script permet de générer une vidéo de démonstration (environ 2min50-3min15 avec les 11
+segments actuels — le format "1 à 2 minutes" visé au départ a été dépassé au fil des demandes
+d'enrichissement du contenu) en combinant :
+1. Narration audio (F5-TTS, clonage vocal local à partir d'une voix de référence, voir
+   user_doc/demo_video/voice_ref/) — a remplacé Kokoro ONNX, dont la voix française sonnait
+   trop artificielle (voix ff_siwis entraînée sur moins de 11h de français).
 2. Capture vidéo automatisée (Playwright), pilotant le frontend Klepsydrix (Vue + Vite)
    connecté au backend FastAPI, sur la base de démonstration seedée par
    backend/app/core/init_demo.py
@@ -37,11 +41,19 @@ INSTALLATION DES DEPENDANCES :
 # Dépendances système : ffmpeg (requis par MoviePy), polices DejaVu (page de garde)
 sudo apt update && sudo apt install -y python3-pip python3-venv ffmpeg fonts-dejavu-core
 
-# Dépendances Python (kokoro-onnx: TTS local léger, aucune dépendance Cython)
-pip install playwright moviepy kokoro-onnx soundfile pillow requests --break-system-packages
+# Dépendances Python. ATTENTION : torch par défaut sur PyPI peut résoudre vers une build CUDA
+# (plusieurs Go de paquets nvidia-* inutiles sans GPU) — installer torch CPU-only d'abord :
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install --no-cache-dir playwright moviepy f5-tts huggingface_hub soundfile pillow requests --break-system-packages
 
 # Navigateur Chromium pour Playwright + ses dépendances système
 playwright install --with-deps chromium
+
+# Voix de référence + checkpoint F5-TTS français : voir user_doc/demo_video/voice_ref/README.md
+# pour la provenance de la voix (LibriVox, domaine public). Le checkpoint RASPIAUDIO
+# (~1,35 Go, téléchargé automatiquement au premier lancement dans ~/.cache/huggingface) est sous
+# licence CC-BY-NC-4.0 : USAGE NON COMMERCIAL UNIQUEMENT. Si la vidéo générée a un usage
+# commercial, il faut soit obtenir une licence, soit utiliser un autre checkpoint/moteur.
 
 
 EXECUTION DU SCRIPT :
@@ -57,16 +69,22 @@ python3 generate_demo.py --assemble-only
 STRUCTURE DU SCRIPT :
 --------------------
 - CONFIGURATION : URL locale du frontend Klepsydrix, identifiants du compte de démo
-  (mêmes conventions que frontend/scripts/doc-screenshots/lib.mjs), réglages Kokoro.
-- AUDIO : Génération des segments WAV à partir du dictionnaire 'script_segments'
-          via Kokoro (aucune clé API, aucun quota).
+  (mêmes conventions que frontend/scripts/doc-screenshots/lib.mjs), réglages F5-TTS.
+- AUDIO : Génération des segments WAV à partir du dictionnaire 'script_segments' via F5-TTS
+          (clonage zero-shot de la voix de référence user_doc/demo_video/voice_ref/bernard_ref.wav,
+          checkpoint français RASPIAUDIO/F5-French-MixedSpeakers-reduced). Lent sur CPU (environ
+          5-6 minutes par segment, donc plus d'une heure pour les 11 segments à la première
+          génération) — mis en cache par la suite (hash du texte), comme avec Kokoro.
 - CAPTURE :
     - Injection d'un curseur rouge (JS) pour la visibilité des clics.
     - SyncNarrator : Classe assurant que l'audio et la vidéo restent synchronisés.
     - open_tree_path : portage Python de frontend/scripts/doc-screenshots/lib.mjs::openTreePath,
       pour naviguer dans l'arborescence de gauche (NotebooksTree.vue) par libellés affichés.
-    - Logique métier : Parcours utilisateur automatisé dans Klepsydrix (connexion, grille EDT,
-      classes, enseignants, cours, TRMD, comptes & droits).
+    - Logique métier : Parcours utilisateur automatisé dans Klepsydrix (connexion silencieuse,
+      import STS-web/SIECLE, services prévisionnels + alignement + TRMD, contraintes enseignants,
+      génération automatique des cours/groupes, placement automatique, attribution des salles,
+      heatmap + glisser-déposer manuel, optimisation, export SIECLE, vue d'ensemble). Voir
+      script_segments pour le détail exact de chaque étape.
 - MONTAGE :
     - create_title_card : Génère une slide d'intro.
     - assemble : Assemble les clips et mixe l'audio en respectant les timestamps réels.
@@ -133,44 +151,73 @@ APP_SETTINGS = {
     ],
 }
 
-# --- CONFIGURATION KOKORO ONNX (TTS local, gratuit) ---
-KOKORO_LANG = "fr-fr"        # Langue : "en-us", "en-gb", "fr-fr"...
-KOKORO_VOICE = "ff_siwis"    # Voix : "ff_siwis" (FR-FR), "am_adam" (EN-US), "af_bella" (EN-US)...
-KOKORO_SAMPLE_RATE = 24000
+# --- CONFIGURATION F5-TTS (clonage vocal local) ---
+# Architecture d'origine du modèle, PAS "F5TTS_v1_Base" : le checkpoint RASPIAUDIO a été
+# entraîné dessus. Les deux configs ont les mêmes dimensions de tenseurs (1024/22/16) donc le
+# chargement ne lève aucune erreur avec la mauvaise archi, mais des détails internes diffèrent
+# (text_mask_padding, pe_attn_head) -> audio généré incompréhensible sans lever d'exception.
+F5TTS_MODEL = "F5TTS_Base"
+# Licence CC-BY-NC-4.0 (non-commercial) — voir INSTALLATION DES DEPENDANCES ci-dessus.
+F5TTS_REPO_ID = "RASPIAUDIO/F5-French-MixedSpeakers-reduced"
+F5TTS_CKPT_FILENAME = "model_last_reduced.pt"
+F5TTS_VOCAB_FILENAME = "vocab.txt"
+F5TTS_SEED = 42  # fixe, pour des générations reproductibles (changer si un artefact de liaison
+                 # apparaît sur un segment : re-générer ce segment avec un autre seed suffit
+                 # généralement, pas besoin de tout relancer).
+
+VOICE_REF_DIR = BASE_DIR / "voice_ref"
+VOICE_REF_AUDIO = VOICE_REF_DIR / "bernard_ref.wav"
+VOICE_REF_TEXT_FILE = VOICE_REF_DIR / "bernard_ref.txt"
 
 # --- SEGMENTS DE VOIX OFF (script de la démo) ---
+# La connexion (compte de démo) n'a plus de segment narré dédié : elle est effectuée
+# silencieusement pendant 01_intro, qui est de toute façon recouvert par la page de garde
+# au montage (voir assemble()) — ce qui s'affiche à l'écran pendant ce segment n'apparaît
+# jamais dans la vidéo finale.
 script_segments = [
     {
         "id": "01_intro",
-        "text": "Découvrez Klepsydrix, une plateforme web pour construire l'emploi du temps annuel d'un établissement scolaire, des classes et des équipes enseignantes jusqu'à la grille finale, tenue à jour au fil des évolutions."
+        "text": "Klepsydrix construit l'emploi du temps annuel d'un établissement, de la pré-rentrée jusqu'à la grille finale."
     },
     {
-        "id": "02_login",
-        "text": "Tout commence par une connexion simple et sécurisée. Chaque établissement travaille dans sa propre base, si bien que les données restent totalement séparées d'un établissement à l'autre."
+        "id": "02_import_siecle",
+        "text": "Tout part de vos données STS-web et SIECLE : professeurs, matières, classes, élèves, responsables sont importés pour initialiser la base de données."
     },
     {
-        "id": "03_timetable_grid",
-        "text": "L'écran d'accueil, c'est la grille de l'emploi du temps elle-même, avec les cours restant à placer listés sur le côté, prêts à être positionnés."
+        "id": "03_services_trmd",
+        "text": "Chaque service prévisionnel — classe, matière, professeur — peut être aligné entre classes ; le TRMD synthétise ensuite les besoins par discipline face aux moyens professeurs disponibles."
     },
     {
-        "id": "04_divisions",
-        "text": "Dans Emploi du temps, la rubrique Classes liste toutes les divisions de l'établissement, avec leur effectif et leur découpage en groupes."
+        "id": "04_teacher_constraints",
+        "text": "L'utilisateur peut saisir les indisponibilités et préférences de créneaux de chaque enseignant dans une grille dédiée — même logique pour les classes et les autres ressources."
     },
     {
-        "id": "05_preferences",
-        "text": "Chaque classe porte aussi ses propres vœux et contraintes, comme des créneaux libres préférés, que le moteur de calcul prend en compte pour construire l'emploi du temps."
+        "id": "05_generate_courses",
+        "text": "Les cours et les groupes de spécialité sont ensuite générés automatiquement à partir de ces données."
     },
     {
-        "id": "06_teachers_courses",
-        "text": "La liste des enseignants réunit chaque professeur avec ses matières, tandis que la liste des cours affiche chaque service : matière, classe, volume horaire et enseignant."
+        "id": "06_placement_auto",
+        "text": "Le placement des cours est confié à Timefold, un moteur open source de résolution de contraintes, puissant et éprouvé."
     },
     {
-        "id": "07_trmd",
-        "text": "Avant même la rentrée, la synthèse TRMD permet aux équipes de direction de vérifier que les heures d'enseignement sont bien réparties entre matières et personnels."
+        "id": "07_room_assignment",
+        "text": "Chaque cours peut être restreint à un groupe de salles ; Klepsydrix attribue ensuite la salle précise selon les préférences des professeurs et des classes, la disponibilité, en minimisant les déplacements."
     },
     {
-        "id": "08_accounts_outro",
-        "text": "Et dans les paramètres, l'établissement gère les comptes utilisateurs et les droits d'accès de toute l'équipe. Klepsydrix : l'emploi du temps annuel, en toute simplicité."
+        "id": "08_heatmap_dragdrop",
+        "text": "La carte de chaleur montre le score de chaque créneau ; et à tout moment, un cours peut être ajusté ou replacé à la main, d'un simple glisser-déposer."
+    },
+    {
+        "id": "09_optimize",
+        "text": "Un algorithme permet d'optimiser l'ensemble de l'emploi du temps afin de limiter les trous tout en maximisant les préférences facultatives."
+    },
+    {
+        "id": "10_export_siecle",
+        "text": "Une fois les groupes stabilisés, le rattachement élèves-groupes repart vers SIECLE en un clic."
+    },
+    {
+        "id": "11_overview_outro",
+        "text": "L'emploi du temps complet reste visible et modifiable à tout moment : Klepsydrix, l'emploi du temps annuel, piloté de bout en bout."
     },
 ]
 
@@ -214,22 +261,30 @@ def wait_for_service(service_config):
     return False
 
 
-# --- AUDIO (Kokoro ONNX, local, gratuit) ---
+# --- AUDIO (F5-TTS, clonage vocal local à partir de voice_ref/) ---
 def generate_audio():
-    print("🎙️ Phase Audio Kokoro ONNX (local, gratuit, sans clé API)...")
+    print("🎙️ Phase Audio F5-TTS (clonage vocal, voix FR RASPIAUDIO)...")
     try:
-        from kokoro_onnx import Kokoro
+        from huggingface_hub import hf_hub_download
+        from f5_tts.api import F5TTS
         import soundfile as sf
-        kokoro = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
     except Exception as e:
-        print(f"  ❌ Erreur import Kokoro ONNX : {e}")
-        print("     -> pip install kokoro-onnx soundfile")
-        print("     -> wget https://github.com/thewhitetulip/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx")
-        print("     -> wget https://github.com/thewhitetulip/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin")
+        print(f"  ❌ Erreur import F5-TTS : {e}")
+        print("     -> pip install f5-tts huggingface_hub soundfile")
         return {s['id']: 5.0 for s in script_segments}, {}
+
+    if not VOICE_REF_AUDIO.exists() or not VOICE_REF_TEXT_FILE.exists():
+        print(f"  ❌ Voix de référence introuvable : {VOICE_REF_AUDIO}")
+        print(f"     -> voir {VOICE_REF_DIR / 'README.md'} pour la reconstituer")
+        return {s['id']: 5.0 for s in script_segments}, {}
+    ref_text = VOICE_REF_TEXT_FILE.read_text(encoding="utf-8").strip()
 
     durations = {}
     paths_map = {}
+
+    # Si tous les segments sont déjà en cache, on évite de charger le modèle (téléchargement +
+    # init coûteux) pour rien.
+    pending = []
     for segment in script_segments:
         text_hash = hashlib.md5(segment['text'].encode()).hexdigest()
         path = AUDIO_DIR / f"{segment['id']}_{text_hash}.wav"
@@ -248,12 +303,29 @@ def generate_audio():
                 continue
             except Exception:
                 pass
+        pending.append((segment, path))
 
-        print(f"  🎙️ Génération {segment['id']} (nouveau texte détecté)")
+    if not pending:
+        return durations, paths_map
+
+    print(f"  ⏳ Chargement du modèle F5-TTS ({F5TTS_REPO_ID}, architecture {F5TTS_MODEL})...")
+    ckpt = hf_hub_download(F5TTS_REPO_ID, F5TTS_CKPT_FILENAME)
+    vocab = hf_hub_download(F5TTS_REPO_ID, F5TTS_VOCAB_FILENAME)
+    f5tts = F5TTS(model=F5TTS_MODEL, ckpt_file=ckpt, vocab_file=vocab, device="cpu")
+    print("  ✅ Modèle chargé.")
+
+    for segment, path in pending:
+        print(f"  🎙️ Génération {segment['id']} (nouveau texte détecté, ~5-6 min sur CPU)...")
         try:
-            samples, sample_rate = kokoro.create(segment['text'], voice=KOKORO_VOICE, lang=KOKORO_LANG)
-            sf.write(str(path), samples, sample_rate)
-            durations[segment['id']] = len(samples) / sample_rate
+            f5tts.infer(
+                ref_file=str(VOICE_REF_AUDIO),
+                ref_text=ref_text,
+                gen_text=segment['text'],
+                file_wave=str(path),
+                seed=F5TTS_SEED,
+            )
+            info = sf.info(str(path))
+            durations[segment['id']] = info.frames / info.samplerate
             paths_map[segment['id']] = path
             print(f"    -> OK ({durations[segment['id']]:.1f}s)")
         except Exception as e:
@@ -454,20 +526,11 @@ async def capture(durations):
 
             # --- 01. Intro ---
             # Ce segment est recouvert par la page de garde au montage (voir assemble()) :
-            # ce qui se passe ici à l'écran n'apparaît jamais dans la vidéo finale.
+            # ce qui se passe ici à l'écran n'apparaît jamais dans la vidéo finale. C'est donc
+            # ici, silencieusement, qu'on effectue la connexion (compte de démonstration).
             await narrator.start("01_intro")
-            await asyncio.sleep(1)
-            await narrator.end(padding=1.5)
-
-            # --- 02. Connexion (compte de démonstration) ---
-            await narrator.start("02_login")
-            print("🎬 Connexion à Klepsydrix")
+            print("🎬 Connexion à Klepsydrix (silencieux, recouvert par la page de garde)")
             try:
-                card = page.locator(".login-card")
-                if await card.count() > 0:
-                    await move_cursor_to_locator(page, card)
-                await asyncio.sleep(0.8)
-
                 # Authentification réelle (API), mêmes conventions que
                 # frontend/scripts/doc-screenshots/lib.mjs::loginAsDemo — plus fiable qu'une
                 # saisie simulée dans le formulaire pour un script non-interactif.
@@ -485,70 +548,42 @@ async def capture(durations):
                 print("  ✅ Connecté, arrivée sur l'écran principal")
             except Exception as e:
                 print(f"  ⚠️  Connexion : {e}")
-            await narrator.end(padding=1.0)
+            await narrator.end(padding=1.5)
 
-            # --- 03. Grille de l'emploi du temps (écran d'accueil) ---
-            await narrator.start("03_timetable_grid")
-            print("🎬 Grille de l'emploi du temps (écran d'accueil)")
+            # --- 02. Import STS-web / SIECLE ---
+            await narrator.start("02_import_siecle")
+            print("🎬 Pré-rentrée — Importer un flux STS-web")
             try:
-                await page.wait_for_selector("text=Cours à planifier", timeout=20000)
-                print("  ✅ Grille et panneau 'Cours à planifier' visibles")
+                await open_tree_path(page, ["Pré-rentrée", "Importer un flux STS-web"])
+                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                print("  ✅ Wizard d'import STS-web affiché")
+                await asyncio.sleep(2.5)
             except Exception as e:
-                print(f"  ⚠️  Panneau 'Cours à planifier' non détecté : {e}")
-            await asyncio.sleep(2)
+                print(f"  ⚠️  Import STS-web : {e}")
+            finally:
+                try:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
             await narrator.end(padding=1.0)
 
-            # --- 04. Classes : liste des divisions ---
-            await narrator.start("04_divisions")
-            print("🎬 Classes — Liste")
+            # --- 03. Services par classe (+ alignement) puis TRMD ---
+            await narrator.start("03_services_trmd")
+            print("🎬 Pré-rentrée — Services par classe, puis TRMD")
             try:
-                await open_tree_path(page, ["Emploi du temps", "Classes", "Liste"])
-                print("  ✅ Liste des classes affichée")
-                await asyncio.sleep(1.8)
-            except Exception as e:
-                print(f"  ⚠️  Classes > Liste : {e}")
-            await narrator.end(padding=1.0)
-
-            # --- 05. Classes : vœux et contraintes ---
-            await narrator.start("05_preferences")
-            print("🎬 Classes — Vœux et contraintes")
-            try:
-                await open_tree_path(page, ["Emploi du temps", "Classes", "Vœux et contraintes"])
+                await open_tree_path(page, ["Pré-rentrée", "Services par classe"])
                 await asyncio.sleep(0.8)
-
-                # Sélectionne une classe concrète (6A, comme dans le jeu de démo) pour montrer
-                # un vrai panneau de contraintes plutôt que l'état vide "Sélectionnez un élément".
-                row_6a = page.get_by_text("6A", exact=True).first
-                if await row_6a.count() > 0:
-                    await move_cursor_to_locator(page, row_6a)
-                    await page.evaluate("window.clickCursor()")
-                    await row_6a.click()
-                    print("  ✅ Classe 6A sélectionnée, préférences visibles")
+                # Sélectionne la première classe du panneau maître pour peupler le détail
+                # (même logique que la sélection "6A" utilisée ailleurs).
+                first_division_row = page.locator(".generic-list-row, tr, [class*='list-row']").first
+                if await first_division_row.count() > 0:
+                    await move_cursor_to_locator(page, first_division_row)
+                    await first_division_row.click()
+                print("  ✅ Services de la classe affichés")
                 await asyncio.sleep(1.5)
             except Exception as e:
-                print(f"  ⚠️  Vœux et contraintes : {e}")
-            await narrator.end(padding=1.0)
-
-            # --- 06. Enseignants puis Cours ---
-            await narrator.start("06_teachers_courses")
-            print("🎬 Enseignants — Liste, puis Cours — Liste")
-            try:
-                await open_tree_path(page, ["Emploi du temps", "Enseignants", "Liste"])
-                print("  ✅ Liste des enseignants affichée")
-                await asyncio.sleep(1.5)
-            except Exception as e:
-                print(f"  ⚠️  Enseignants > Liste : {e}")
-            try:
-                await open_tree_path(page, ["Emploi du temps", "Cours", "Liste"])
-                print("  ✅ Liste des cours affichée")
-                await asyncio.sleep(1.5)
-            except Exception as e:
-                print(f"  ⚠️  Cours > Liste : {e}")
-            await narrator.end(padding=1.0)
-
-            # --- 07. Pré-rentrée : synthèse TRMD ---
-            await narrator.start("07_trmd")
-            print("🎬 Pré-rentrée — Synthèse TRMD")
+                print(f"  ⚠️  Services par classe : {e}")
             try:
                 await open_tree_path(page, ["Pré-rentrée", "TRMD"])
                 print("  ✅ Synthèse TRMD affichée")
@@ -557,15 +592,162 @@ async def capture(durations):
                 print(f"  ⚠️  TRMD : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 08. Comptes & droits, puis Outro ---
-            await narrator.start("08_accounts_outro")
-            print("🎬 Paramètres — Comptes & droits — Utilisateurs")
+            # --- 04. Enseignants : vœux et contraintes ---
+            await narrator.start("04_teacher_constraints")
+            print("🎬 Enseignants — Vœux et contraintes")
             try:
-                await open_tree_path(page, ["Paramètres", "Comptes & droits", "Utilisateurs"])
-                print("  ✅ Liste des utilisateurs affichée")
+                await open_tree_path(page, ["Emploi du temps", "Enseignants", "Vœux et contraintes"])
+                await asyncio.sleep(0.8)
+                # Sélectionne le premier enseignant du panneau maître pour afficher sa grille
+                # de préférences (PreferenceGrid) plutôt que l'état vide.
+                first_teacher_row = page.locator(".generic-list-row, tr, [class*='list-row']").first
+                if await first_teacher_row.count() > 0:
+                    await move_cursor_to_locator(page, first_teacher_row)
+                    await first_teacher_row.click()
+                    print("  ✅ Grille de préférences d'un enseignant affichée")
                 await asyncio.sleep(1.8)
             except Exception as e:
-                print(f"  ⚠️  Comptes & droits : {e}")
+                print(f"  ⚠️  Vœux et contraintes (enseignants) : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 05. Génération automatique des cours et groupes ---
+            await narrator.start("05_generate_courses")
+            print("🎬 Pré-rentrée — Générer les cours, puis les groupes de spécialité")
+            try:
+                await open_tree_path(page, ["Pré-rentrée", "Générer les cours"])
+                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                await asyncio.sleep(1.5)
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.3)
+                print("  ✅ Wizard 'Générer les cours' affiché")
+            except Exception as e:
+                print(f"  ⚠️  Générer les cours : {e}")
+            try:
+                await open_tree_path(page, ["Pré-rentrée", "Générer les groupes de spécialité"])
+                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                await asyncio.sleep(1.5)
+                print("  ✅ Wizard 'Générer les groupes de spécialité' affiché")
+            except Exception as e:
+                print(f"  ⚠️  Générer les groupes de spécialité : {e}")
+            finally:
+                try:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+            await narrator.end(padding=1.0)
+
+            # --- 06. Placement automatique (Timefold) ---
+            await narrator.start("06_placement_auto")
+            print("🎬 Emploi du temps — Placement automatique (Timefold)")
+            try:
+                await open_tree_path(page, ["Emploi du temps", "Placement automatique"])
+                await page.wait_for_selector(".solver-overlay-fullscreen", timeout=10000)
+                print("  ✅ Overlay du solveur Timefold visible (placement)")
+                await asyncio.sleep(3)
+            except Exception as e:
+                print(f"  ⚠️  Placement automatique : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 07. Groupe de salles sur un cours, puis attribution automatique ---
+            await narrator.start("07_room_assignment")
+            print("🎬 Fiche cours (groupe de salles), puis Attribuer les salles")
+            try:
+                first_course_card = page.locator(".course-card").first
+                if await first_course_card.count() > 0:
+                    await move_cursor_to_locator(page, first_course_card)
+                    await first_course_card.dblclick()
+                    await page.wait_for_selector("text=Salles", timeout=5000)
+                    print("  ✅ Fiche cours ouverte, section Salles visible")
+                    await asyncio.sleep(1.5)
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.3)
+            except Exception as e:
+                print(f"  ⚠️  Fiche cours (Salles) : {e}")
+            try:
+                await open_tree_path(page, ["Emploi du temps", "Attribuer les salles"])
+                await page.wait_for_selector(".solver-overlay-fullscreen", timeout=10000)
+                print("  ✅ Overlay du solveur Timefold visible (salles)")
+                await asyncio.sleep(3)
+            except Exception as e:
+                print(f"  ⚠️  Attribuer les salles : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 08. Placement assisté (heatmap) + ajustement manuel (drag & drop) ---
+            await narrator.start("08_heatmap_dragdrop")
+            print("🎬 Placement assisté (heatmap) puis glisser-déposer d'un cours")
+            try:
+                heatmap_toggle = page.get_by_text("Placement assisté", exact=False).first
+                if await heatmap_toggle.count() > 0:
+                    await move_cursor_to_locator(page, heatmap_toggle)
+                    await heatmap_toggle.click()
+                    await asyncio.sleep(0.5)
+                course_card = page.locator(".course-card").first
+                if await course_card.count() > 0:
+                    await move_cursor_to_locator(page, course_card)
+                    await course_card.click()
+                    await page.wait_for_selector(".heatmap-overlay", timeout=5000)
+                    print("  ✅ Carte de chaleur affichée")
+                await asyncio.sleep(1.8)
+            except Exception as e:
+                print(f"  ⚠️  Heatmap : {e}")
+            try:
+                source = page.locator(".course-card").first
+                target = page.locator(".heatmap-overlay, [class*='grid-cell']").first
+                if await source.count() > 0 and await target.count() > 0:
+                    await source.drag_to(target)
+                    print("  ✅ Cours déplacé par glisser-déposer")
+                await asyncio.sleep(1.2)
+            except Exception as e:
+                print(f"  ⚠️  Glisser-déposer : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 09. Optimiser l'emploi du temps ---
+            await narrator.start("09_optimize")
+            print("🎬 Emploi du temps — Optimiser l'emploi du temps (Timefold)")
+            try:
+                await open_tree_path(page, ["Emploi du temps", "Optimiser l'emploi du temps"])
+                await page.wait_for_selector(".solver-overlay-fullscreen", timeout=10000)
+                print("  ✅ Overlay du solveur Timefold visible (optimisation)")
+                await asyncio.sleep(3)
+            except Exception as e:
+                print(f"  ⚠️  Optimiser l'emploi du temps : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 10. Export du rattachement élèves/groupes vers SIECLE ---
+            await narrator.start("10_export_siecle")
+            print("🎬 Pré-rentrée — Exporter le rattachement élèves/groupes vers SIECLE")
+            try:
+                await open_tree_path(page, ["Pré-rentrée", "Exporter le rattachement élèves/groupes vers SIECLE"])
+                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                print("  ✅ Wizard d'export SIECLE affiché")
+                await asyncio.sleep(2.5)
+            except Exception as e:
+                print(f"  ⚠️  Export SIECLE : {e}")
+            finally:
+                try:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+            await narrator.end(padding=1.0)
+
+            # --- 11. Vue d'ensemble de la grille finale, puis Outro ---
+            await narrator.start("11_overview_outro")
+            print("🎬 Vue d'ensemble de la grille de l'emploi du temps")
+            try:
+                await page.evaluate("window.scrollTo(0, 0)")
+                await asyncio.sleep(0.5)
+                grid = page.locator(".grid-container, [id*='gantt'], [class*='timetable-grid']").first
+                if await grid.count() > 0:
+                    await page.evaluate(
+                        "document.querySelector('.grid-container, [id*=gantt], [class*=timetable-grid]')"
+                        " && document.querySelector('.grid-container, [id*=gantt], [class*=timetable-grid]').scrollBy(200, 0)"
+                    )
+                print("  ✅ Vue d'ensemble affichée")
+                await asyncio.sleep(2)
+            except Exception as e:
+                print(f"  ⚠️  Vue d'ensemble : {e}")
             await narrator.end(padding=1.5)
 
         except Exception as e:
