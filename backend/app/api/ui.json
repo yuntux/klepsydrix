@@ -2207,6 +2207,15 @@
         }
       },
       {
+        "id": "eleves_export_action",
+        "icon": "wrench",
+        "title": "Exporter le rattachement élèves/groupes vers SIECLE",
+        "action": {
+          "resourceKey": "wizard_eleves_exports",
+          "actionId": "export_eleves_flux"
+        }
+      },
+      {
         "id": "sts_export_action",
         "icon": "wrench",
         "title": "Remonter vers STS-web",

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Schéma du fichier <UAJ>_ELEGROUPE_<AAAAMMJJ>.xml produit par
+  backend/app/core/eleves_export.py — sens montant, Klepsydrix -> SIECLE, racine IMPORT_ELEVES.
+
+  Reconstitué à partir du format que GEPI (logiciel libre) produit lui-même pour être réimporté
+  dans SIECLE (voir le dossier d'analyse XML_STS_SCONET/xsd_et_norme/ExportGroupesSconet.xsd,
+  qui documente ce format et ses sources). Le Ministère de l'Éducation Nationale ne publie pas
+  les spécifications officielles de ce format.
+
+  DEUX ÉCARTS ASSUMÉS par rapport au comportement observé de GEPI, documentés ici :
+  - CODE_GROUPE porte le code structurel SIECLE réel du groupe (Group.name, le même code que
+    celui remonté vers STS-web), et non un identifiant interne à la base — GEPI, lui, écrit la
+    clé primaire de sa propre table `groupes`, ce qui oblige à un remappage manuel côté SIECLE.
+  - DATE_DEBUT_GROUPE porte la date réelle du rattachement (StudentClassPartLink.begin_date) —
+    GEPI, lui, écrit systématiquement la date de début d'année de l'établissement, quelle que
+    soit la date réelle d'affectation au groupe.
+  DATE_FIN_GROUPE reste la date de fin d'année de l'établissement dans les deux cas : seuls les
+  rattachements ACTIFS sont exportés (voir eleves_export.py), leur date de fin réelle n'est par
+  construction pas encore connue.
+
+  Statut : reconstruction, à corriger si les spécifications officielles ou un retour de SIECLE
+  contredisent une hypothèse ci-dessous.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+
+  <xs:simpleType name="VersionType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="1.3"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="UAJType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9A-Z]{8}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DateFRType">
+    <xs:annotation>
+      <xs:documentation>JJ/MM/AAAA — DATE_IMPORT uniquement, à ne pas confondre avec les dates ISO ci-dessous.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DateISOType">
+    <xs:restriction base="xs:date"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="EleveIDType">
+    <xs:annotation>
+      <xs:documentation>Student.siecle_id — l'ELEVE_ID SIECLE conservé depuis le dernier import descendant (voir wizard_eleves_import.py).</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{1,}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CodeGroupeType">
+    <xs:annotation>
+      <xs:documentation>Group.name — le code structurel SIECLE/STS réel du groupe, 8 caractères maximum (voir sts_naming.py).</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="8"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="IMPORT_ELEVES">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="PARAMETRES" type="ParametresType"/>
+        <xs:element name="DONNEES" type="DonneesType"/>
+      </xs:sequence>
+      <xs:attribute name="VERSION" type="VersionType" use="required"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="ParametresType">
+    <xs:sequence>
+      <xs:element name="UAJ" type="UAJType"/>
+      <xs:element name="ANNEE_SCOLAIRE" type="xs:gYear"/>
+      <xs:element name="DATE_IMPORT" type="DateFRType"/>
+      <xs:element name="NUM_ENVOI" type="xs:positiveInteger">
+        <xs:annotation>
+          <xs:documentation>SystemSetting SIECLE_GROUP_EXPORT_SEQ, incrémenté à chaque export réellement généré.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="LOGICIEL" type="xs:string" fixed="KLEPSYDRIX"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DonneesType">
+    <xs:sequence>
+      <xs:element name="ELEVES" type="ElevesType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ElevesType">
+    <xs:sequence>
+      <!-- minOccurs=0 : un établissement sans élève exportable (aucun élève encore importé
+           depuis SIECLE, ou tous laissés de côté) produit un fichier valide mais vide, plutôt
+           que d'empêcher toute génération. -->
+      <xs:element name="ELEVE" type="ElevesEleveType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ElevesEleveType">
+    <xs:sequence>
+      <xs:element name="ELEVE_ID" type="EleveIDType"/>
+      <xs:element name="NOM" type="xs:string"/>
+      <xs:element name="PRENOM" type="xs:string"/>
+      <xs:element name="DATE_NAISS" type="DateISOType"/>
+      <xs:element name="GROUPES" type="GroupesType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="GroupesType">
+    <xs:sequence>
+      <xs:element name="GROUPE" type="GroupeType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="GroupeType">
+    <xs:sequence>
+      <xs:element name="CODE_GROUPE" type="CodeGroupeType"/>
+      <xs:element name="DATE_DEBUT_GROUPE" type="DateISOType"/>
+      <xs:element name="DATE_FIN_GROUPE" type="DateISOType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+</xs:schema>

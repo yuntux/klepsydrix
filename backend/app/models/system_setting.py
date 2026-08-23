@@ -23,6 +23,7 @@ class SystemSettingKey(str, enum.Enum):
     GROUP_NAME_NUMBER_FORMAT = "GROUP_NAME_NUMBER_FORMAT"
     MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT = "MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT"
     SCHOOL_YEAR = "SCHOOL_YEAR"
+    SIECLE_GROUP_EXPORT_SEQ = "SIECLE_GROUP_EXPORT_SEQ"
 
 SETTING_LABELS = {
     SystemSettingKey.STANDARD_TIMESLOT_DURATION: "[Grille horaire] : durée minimale d'un créneau (en minutes)",
@@ -40,6 +41,7 @@ SETTING_LABELS = {
     SystemSettingKey.GROUP_NAME_NUMBER_FORMAT: "[Nommage groupe] : type numérotation",
     SystemSettingKey.MUTUALIZE_REDUCED_GROUPS_WITHOUT_ALIGNMENT: "Mutualiser les groupes à effectif réduit même sans alignement formel",
     SystemSettingKey.SCHOOL_YEAR: "Année scolaire (millésime de septembre)",
+    SystemSettingKey.SIECLE_GROUP_EXPORT_SEQ: "[Export SIECLE] : numéro du dernier envoi élèves/groupes (NUM_ENVOI)",
 }
 
 # Options de la liste déroulante FIRST_DAY_OF_THE_WEEK — 1=lundi ... 7=dimanche, même convention
@@ -70,11 +72,12 @@ class SystemSetting(Base):
         # une expression PAR LIGNE plutôt qu'un `required` statique qui s'appliquerait à toutes.
         "requiredExpr": "['STANDARD_TIMESLOT_DURATION', 'FIRST_DAY_OF_THE_WEEK', 'SCHOOL_YEAR'].includes(model.key)",
         # PUBLIC_DISPLAY_HOURS_BY_SEQUENCE est un JSON généré par wizard_grid_settings.rpc_apply
-        # (voir _render_display_rows) : jamais éditable à la main depuis la vue générique
-        # "Paramètres système", uniquement via le wizard « Grille horaire ». Restriction UI
-        # (readOnlyExpr, comme toute colonne — voir architecture.md §15.E) : l'API générique reste
-        # fonctionnelle pour l'admin/les scripts, seule l'IHM guide vers le bon flux.
-        "readOnlyExpr": "model.key === 'PUBLIC_DISPLAY_HOURS_BY_SEQUENCE'",
+        # (voir _render_display_rows), SIECLE_GROUP_EXPORT_SEQ un compteur géré par
+        # wizard_eleves_export.rpc_export (voir SystemSetting.increment_siecle_group_export_seq) :
+        # ni l'un ni l'autre n'est éditable à la main depuis la vue générique "Paramètres système".
+        # Restriction UI (readOnlyExpr, comme toute colonne — voir architecture.md §15.E) : l'API
+        # générique reste fonctionnelle pour l'admin/les scripts, seule l'IHM guide vers le bon flux.
+        "readOnlyExpr": "['PUBLIC_DISPLAY_HOURS_BY_SEQUENCE', 'SIECLE_GROUP_EXPORT_SEQ'].includes(model.key)",
     })
 
     @classmethod
@@ -97,6 +100,29 @@ class SystemSetting(Base):
         if not value or not str(value).isdigit():
             raise ValueError("Le paramètre système SCHOOL_YEAR est manquant ou invalide.")
         return int(value)
+
+    @classmethod
+    def get_siecle_group_export_seq(cls, db) -> int:
+        """Valeur ACTUELLE du compteur NUM_ENVOI (dernier envoi effectué), 0 si aucun export
+        élèves/groupes vers SIECLE n'a encore été généré."""
+        setting = db.query(cls).filter(cls.key == SystemSettingKey.SIECLE_GROUP_EXPORT_SEQ.value).first()
+        return int(setting.value) if setting and setting.value and setting.value.isdigit() else 0
+
+    @classmethod
+    def increment_siecle_group_export_seq(cls, db) -> int:
+        """
+        Incrémente et persiste le compteur, renvoie le NUM_ENVOI à écrire dans le fichier qui
+        vient d'être généré. Appelé une seule fois, au moment de l'écriture réelle du fichier
+        (wizard_eleves_export.rpc_export) — jamais à la prévisualisation, sous peine de brûler des
+        numéros pour des exports jamais réellement transmis.
+        """
+        suivant = cls.get_siecle_group_export_seq(db) + 1
+        setting = db.query(cls).filter(cls.key == SystemSettingKey.SIECLE_GROUP_EXPORT_SEQ.value).first()
+        if setting:
+            setting.update(db, {"value": str(suivant)})
+        else:
+            cls.create(db, {"key": SystemSettingKey.SIECLE_GROUP_EXPORT_SEQ.value, "value": str(suivant)})
+        return suivant
 
     # Paramètres sans lesquels l'application ne sait plus fonctionner : suppression interdite.
     _UNDELETABLE_KEYS = (
