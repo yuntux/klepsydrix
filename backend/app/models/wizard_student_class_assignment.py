@@ -161,6 +161,8 @@ def _compute_class_assignment_plan(db: Session, ref_grade_id: int, criteria_raw:
     cohérents (même calcul, jamais deux logiques qui pourraient diverger — voir
     wizard_specialty_group_generation.py, même principe).
     """
+    if not ref_grade_id:
+        raise ValueError("Veuillez sélectionner un niveau avant de prévisualiser.")
     ref_grade = db.get(RefGrade, ref_grade_id)
     if not ref_grade:
         raise ValueError("Niveau introuvable.")

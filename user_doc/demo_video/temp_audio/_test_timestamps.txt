@@ -1,0 +1,12 @@
+/home/ubuntu/klepsydrix/user_doc/demo_video/temp_video/page@85a71532dd0cafd055b19b9ce2280959.webm
+01_intro 0.42
+02_import_siecle 6.01
+03_services_trmd 11.07
+04_teacher_constraints 19.15
+05_generate_courses 24.79
+06_placement_auto 31.59
+07_room_assignment 38.86
+08_heatmap_dragdrop 48.88
+09_optimize 80.73
+10_export_siecle 112.39
+11_overview_outro 117.41

@@ -125,6 +125,14 @@ DEMO_DB = "timetable"
 DEMO_IDENTIFIER = "demo@klepsydrix.fr"
 DEMO_PASSWORD = "Demo1234!"
 
+# Résolution de la capture Playwright (viewport, voir capture()) ET de la page de garde
+# (create_title_card) : DOIVENT être identiques. MoviePy ne réconcilie pas silencieusement deux
+# résolutions différentes lors de la concaténation — un décalage ici a produit un encodage corrompu
+# (flash/strobe sur toute la vidéo montée, alors que la capture brute était propre) avant que ce
+# soit repéré et corrigé.
+VIDEO_WIDTH = 1440
+VIDEO_HEIGHT = 900
+
 # --- CONFIGURATION DE L'APPLICATION (page de garde) ---
 APP_SETTINGS = {
     "title": "Klepsydrix",
@@ -410,6 +418,64 @@ async def move_cursor_to_locator(page, locator):
         pass
 
 
+async def close_modal(page):
+    """Ferme une modale/popin ouverte. BaseModal.vue (wizards) N'A PAS de handler Escape — appuyer
+    sur Echap est un no-op qui laisse la modale ouverte et bloque tous les clics suivants (piège
+    découvert en testant ce script : une modale restée ouverte après 02_import_siecle a fait
+    échouer les 8 segments suivants en timeout). Seuls un clic sur .btn-close (BaseModal, CoursePopin)
+    ou en dehors de la modale la ferment. .btn-close est réutilisé tel quel dans les deux contextes,
+    donc cibler la première instance visible suffit (une seule modale/popin ouverte à la fois)."""
+    try:
+        btn = page.locator(".btn-close").first
+        if await btn.count() > 0:
+            await btn.click(timeout=3000)
+            await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+
+async def stop_solver_if_running(page, timeout=2000, wait_gone_timeout=25000):
+    """Arrête un calcul Timefold encore en cours (bouton 'Arrêter le calcul' de
+    SolverProgressOverlay.vue). Sans ça, l'overlay plein écran reste affiché tant que le solveur
+    tourne et bloque tous les clics des segments suivants (piège découvert en testant ce script :
+    le solve d'optimisation, plus long, était encore actif quand le segment suivant a tenté de
+    naviguer dans le menu — timeout 30s). close_modal() ne suffit pas ici : cet overlay n'a pas de
+    .btn-close, seulement ce bouton dédié.
+
+    L'arrêt est ASYNCHRONE côté backend (endpoint POST /api/timetable/stop, message "Résolution
+    annulée" mais `terminate_early()` de Timefold met un moment à réellement s'arrêter — piège
+    découvert lui aussi en testant : un clic sur "Arrêter le calcul" suivi d'une pause fixe de
+    0.5s ne suffit pas, l'overlay reste affiché et bloque le segment suivant, voire fuit jusqu'à
+    la PROCHAINE exécution du script si le processus se termine avant que le solve ait fini de
+    s'arrêter côté serveur). On attend donc la disparition réelle de l'overlay plutôt qu'une pause
+    fixe."""
+    try:
+        overlay = page.locator(".solver-overlay-fullscreen")
+        if await overlay.count() > 0:
+            stop_btn = page.get_by_text("Arrêter le calcul", exact=False).first
+            if await stop_btn.count() > 0:
+                await stop_btn.click(timeout=timeout)
+            await overlay.wait_for(state="detached", timeout=wait_gone_timeout)
+    except Exception:
+        pass
+
+
+async def submit_wizard_step(page, timeout=3000):
+    """Clique le bouton de soumission de l'étape courante d'un GenericWizard (GenericForm.vue,
+    bouton primary type=submit dans .form-actions ; réutilisé tel quel par le wizard). Best-effort
+    seulement : si l'étape a des champs obligatoires non pré-remplis, le clic peut échouer côté
+    validation front sans lever d'exception Playwright — dans ce cas la modale reste simplement
+    affichée, ce qui est un repli visuel acceptable pour la démo. Retourne True si un clic a eu lieu."""
+    try:
+        btn = page.locator(".generic-wizard .form-actions button[type='submit']").first
+        if await btn.count() > 0:
+            await btn.click(timeout=timeout)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def open_tree_path(page, titles, animate=True):
     """Portage Python de frontend/scripts/doc-screenshots/lib.mjs::openTreePath.
 
@@ -461,8 +527,8 @@ async def capture(durations):
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
             record_video_dir=str(VIDEO_DIR),
-            viewport={'width': 1440, 'height': 900},
-            record_video_size={'width': 1440, 'height': 900}
+            viewport={'width': VIDEO_WIDTH, 'height': VIDEO_HEIGHT},
+            record_video_size={'width': VIDEO_WIDTH, 'height': VIDEO_HEIGHT}
         )
         page = await context.new_page()
         await install_cursor(page)
@@ -555,17 +621,15 @@ async def capture(durations):
             print("🎬 Pré-rentrée — Importer un flux STS-web")
             try:
                 await open_tree_path(page, ["Pré-rentrée", "Importer un flux STS-web"])
-                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
                 print("  ✅ Wizard d'import STS-web affiché")
                 await asyncio.sleep(2.5)
             except Exception as e:
                 print(f"  ⚠️  Import STS-web : {e}")
             finally:
-                try:
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.3)
-                except Exception:
-                    pass
+                # Fermeture systématique : une modale restée ouverte bloque tous les clics
+                # des segments suivants (voir close_modal).
+                await close_modal(page)
             await narrator.end(padding=1.0)
 
             # --- 03. Services par classe (+ alignement) puis TRMD ---
@@ -615,26 +679,22 @@ async def capture(durations):
             print("🎬 Pré-rentrée — Générer les cours, puis les groupes de spécialité")
             try:
                 await open_tree_path(page, ["Pré-rentrée", "Générer les cours"])
-                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
                 await asyncio.sleep(1.5)
-                await page.keyboard.press("Escape")
-                await asyncio.sleep(0.3)
                 print("  ✅ Wizard 'Générer les cours' affiché")
             except Exception as e:
                 print(f"  ⚠️  Générer les cours : {e}")
+            finally:
+                await close_modal(page)
             try:
                 await open_tree_path(page, ["Pré-rentrée", "Générer les groupes de spécialité"])
-                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
                 await asyncio.sleep(1.5)
                 print("  ✅ Wizard 'Générer les groupes de spécialité' affiché")
             except Exception as e:
                 print(f"  ⚠️  Générer les groupes de spécialité : {e}")
             finally:
-                try:
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.3)
-                except Exception:
-                    pass
+                await close_modal(page)
             await narrator.end(padding=1.0)
 
             # --- 06. Placement automatique (Timefold) ---
@@ -642,57 +702,94 @@ async def capture(durations):
             print("🎬 Emploi du temps — Placement automatique (Timefold)")
             try:
                 await open_tree_path(page, ["Emploi du temps", "Placement automatique"])
-                await page.wait_for_selector(".solver-overlay-fullscreen", timeout=10000)
-                print("  ✅ Overlay du solveur Timefold visible (placement)")
-                await asyncio.sleep(3)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
+                # Best-effort : tente de soumettre l'étape courante pour déclencher le calcul.
+                # Peut échouer silencieusement si des champs obligatoires ne sont pas pré-remplis
+                # (voir submit_wizard_step) — dans ce cas on montre simplement le wizard de config.
+                await submit_wizard_step(page)
+                try:
+                    await page.wait_for_selector(".solver-overlay-fullscreen", timeout=12000)
+                    print("  ✅ Overlay du solveur Timefold visible (placement)")
+                    await asyncio.sleep(3)
+                except Exception:
+                    print("  ⚠️  Overlay solveur non atteint, wizard de config affiché à la place")
+                    await asyncio.sleep(1.5)
             except Exception as e:
                 print(f"  ⚠️  Placement automatique : {e}")
+            finally:
+                await stop_solver_if_running(page)
+                await close_modal(page)
             await narrator.end(padding=1.0)
 
             # --- 07. Groupe de salles sur un cours, puis attribution automatique ---
             await narrator.start("07_room_assignment")
             print("🎬 Fiche cours (groupe de salles), puis Attribuer les salles")
             try:
-                first_course_card = page.locator(".course-card").first
+                # Retour explicite sur la grille EDT (écran d'accueil) : depuis l'étape 4, on est
+                # resté sur "Enseignants > Vœux et contraintes", qui n'a pas de .placed-course — les
+                # étapes 5-6 (actions de menu) ne changent pas la page affichée derrière leur wizard.
+                await page.goto(BASE_URL, wait_until="load", timeout=15000)
+                await page.wait_for_selector(".sidebar", timeout=10000)
+            except Exception as e:
+                print(f"  ⚠️  Retour à la grille : {e}")
+            try:
+                first_course_card = page.locator(".placed-course").first
                 if await first_course_card.count() > 0:
                     await move_cursor_to_locator(page, first_course_card)
                     await first_course_card.dblclick()
-                    await page.wait_for_selector("text=Salles", timeout=5000)
+                    await page.wait_for_selector("text=Salles", timeout=8000)
                     print("  ✅ Fiche cours ouverte, section Salles visible")
                     await asyncio.sleep(1.5)
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.3)
             except Exception as e:
                 print(f"  ⚠️  Fiche cours (Salles) : {e}")
+            finally:
+                await close_modal(page)
             try:
                 await open_tree_path(page, ["Emploi du temps", "Attribuer les salles"])
-                await page.wait_for_selector(".solver-overlay-fullscreen", timeout=10000)
-                print("  ✅ Overlay du solveur Timefold visible (salles)")
-                await asyncio.sleep(3)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
+                await submit_wizard_step(page)
+                try:
+                    await page.wait_for_selector(".solver-overlay-fullscreen", timeout=12000)
+                    print("  ✅ Overlay du solveur Timefold visible (salles)")
+                    await asyncio.sleep(3)
+                except Exception:
+                    print("  ⚠️  Overlay solveur non atteint, wizard de config affiché à la place")
+                    await asyncio.sleep(1.5)
             except Exception as e:
                 print(f"  ⚠️  Attribuer les salles : {e}")
+            finally:
+                await stop_solver_if_running(page)
+                await close_modal(page)
             await narrator.end(padding=1.0)
 
             # --- 08. Placement assisté (heatmap) + ajustement manuel (drag & drop) ---
             await narrator.start("08_heatmap_dragdrop")
             print("🎬 Placement assisté (heatmap) puis glisser-déposer d'un cours")
             try:
-                heatmap_toggle = page.get_by_text("Placement assisté", exact=False).first
-                if await heatmap_toggle.count() > 0:
-                    await move_cursor_to_locator(page, heatmap_toggle)
-                    await heatmap_toggle.click()
+                # Le <label>Placement assisté :</label> n'est pas cliquable pour basculer le
+                # switch (piège découvert en testant : le clic "réussissait" sans lever d'erreur
+                # mais le toggle restait sur "Désactivé"). BaseToggle.vue expose un span
+                # .toggle-label-right (texte "Activé") qui force explicitement l'état ON — plus
+                # fiable qu'un clic sur la checkbox elle-même, qui aurait juste basculé l'état
+                # courant (pas idempotent).
+                filter_item = page.locator(".filter-item", has_text="Placement assisté")
+                heatmap_toggle_on = filter_item.locator(".toggle-label-right").first
+                if await heatmap_toggle_on.count() > 0:
+                    await move_cursor_to_locator(page, heatmap_toggle_on)
+                    await heatmap_toggle_on.click()
+                    print("  ✅ Toggle 'Placement assisté' activé")
                     await asyncio.sleep(0.5)
-                course_card = page.locator(".course-card").first
+                course_card = page.locator(".placed-course").first
                 if await course_card.count() > 0:
                     await move_cursor_to_locator(page, course_card)
                     await course_card.click()
-                    await page.wait_for_selector(".heatmap-overlay", timeout=5000)
+                    await page.wait_for_selector(".heatmap-overlay", timeout=8000)
                     print("  ✅ Carte de chaleur affichée")
                 await asyncio.sleep(1.8)
             except Exception as e:
                 print(f"  ⚠️  Heatmap : {e}")
             try:
-                source = page.locator(".course-card").first
+                source = page.locator(".placed-course").first
                 target = page.locator(".heatmap-overlay, [class*='grid-cell']").first
                 if await source.count() > 0 and await target.count() > 0:
                     await source.drag_to(target)
@@ -707,11 +804,20 @@ async def capture(durations):
             print("🎬 Emploi du temps — Optimiser l'emploi du temps (Timefold)")
             try:
                 await open_tree_path(page, ["Emploi du temps", "Optimiser l'emploi du temps"])
-                await page.wait_for_selector(".solver-overlay-fullscreen", timeout=10000)
-                print("  ✅ Overlay du solveur Timefold visible (optimisation)")
-                await asyncio.sleep(3)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
+                await submit_wizard_step(page)
+                try:
+                    await page.wait_for_selector(".solver-overlay-fullscreen", timeout=12000)
+                    print("  ✅ Overlay du solveur Timefold visible (optimisation)")
+                    await asyncio.sleep(3)
+                except Exception:
+                    print("  ⚠️  Overlay solveur non atteint, wizard de config affiché à la place")
+                    await asyncio.sleep(1.5)
             except Exception as e:
                 print(f"  ⚠️  Optimiser l'emploi du temps : {e}")
+            finally:
+                await stop_solver_if_running(page)
+                await close_modal(page)
             await narrator.end(padding=1.0)
 
             # --- 10. Export du rattachement élèves/groupes vers SIECLE ---
@@ -719,17 +825,13 @@ async def capture(durations):
             print("🎬 Pré-rentrée — Exporter le rattachement élèves/groupes vers SIECLE")
             try:
                 await open_tree_path(page, ["Pré-rentrée", "Exporter le rattachement élèves/groupes vers SIECLE"])
-                await page.wait_for_selector(".generic-wizard", timeout=8000)
+                await page.wait_for_selector(".generic-wizard", timeout=15000)
                 print("  ✅ Wizard d'export SIECLE affiché")
                 await asyncio.sleep(2.5)
             except Exception as e:
                 print(f"  ⚠️  Export SIECLE : {e}")
             finally:
-                try:
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.3)
-                except Exception:
-                    pass
+                await close_modal(page)
             await narrator.end(padding=1.0)
 
             # --- 11. Vue d'ensemble de la grille finale, puis Outro ---
@@ -791,59 +893,74 @@ def create_logo_image(size=200):
 
 
 def create_title_card(duration):
-    """Génère la page de garde complète avec PIL + MoviePy."""
+    """Génère la page de garde complète avec PIL + MoviePy, à la résolution EXACTE de la capture
+    (VIDEO_WIDTH x VIDEO_HEIGHT) — voir le commentaire sur ces constantes : une page de garde à une
+    résolution différente de la capture a produit un montage visuellement corrompu (flash/strobe)
+    une fois concaténée par MoviePy, alors que chaque clip pris séparément était propre."""
     print(f"🎨 Création de la page de garde ({duration:.1f}s)...")
 
-    # Créer une image PIL complète (1920x1080)
-    title_img = Image.new('RGB', (1920, 1080), color=APP_SETTINGS["bg_color"])
+    W, H = VIDEO_WIDTH, VIDEO_HEIGHT
+    # Mise à l'échelle de la mise en page (conçue à l'origine pour un canevas 1920x1080) au ratio
+    # de la largeur réelle, plutôt que des coordonnées en dur — reste correct si VIDEO_WIDTH change.
+    scale = W / 1920
+
+    title_img = Image.new('RGB', (W, H), color=APP_SETTINGS["bg_color"])
     draw = ImageDraw.Draw(title_img)
 
-    # Charger les polices (utiliser DejaVuSans-Bold qui ressemble à Inter)
-    try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 140)
-    except:
+    def scaled_font(path, fallback_path, base_size):
+        size = max(8, round(base_size * scale))
         try:
-            title_font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 140)
-        except:
-            title_font = ImageFont.load_default()
+            return ImageFont.truetype(path, size)
+        except Exception:
+            try:
+                return ImageFont.truetype(fallback_path, size)
+            except Exception:
+                return ImageFont.load_default()
 
-    try:
-        subtitle_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 44)
-    except:
-        subtitle_font = ImageFont.load_default()
-
-    try:
-        footer_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf", 34)
-    except:
-        footer_font = ImageFont.load_default()
+    title_font = scaled_font(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        140,
+    )
+    subtitle_font = scaled_font(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        44,
+    )
+    footer_font = scaled_font(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+        34,
+    )
 
     # 1. Logo (créé avec PIL, puis inséré comme image)
-    logo_img = create_logo_image(size=220)
-    title_img.paste(logo_img, (250, 280), logo_img)
+    logo_size = round(220 * scale)
+    logo_img = create_logo_image(size=logo_size)
+    logo_x, logo_y = round(250 * scale), round(280 * scale)
+    title_img.paste(logo_img, (logo_x, logo_y), logo_img)
 
     # 2. Titre principal "Klepsydrix"
     title_text = APP_SETTINGS["title"]
-    title_x = 550
-    title_y = 300
+    title_x, title_y = round(550 * scale), round(300 * scale)
     draw.text((title_x, title_y), title_text, fill=(24, 32, 43), font=title_font)
 
     # 3. Sous-titre (multi-ligne)
     subtitle_text = APP_SETTINGS["subtitle"]
     subtitle_lines = subtitle_text.split('\n')
-    line_height = 50
-    subtitle_y = 550
+    line_height = round(50 * scale)
+    subtitle_y = round(550 * scale)
     for line in subtitle_lines:
         line_bbox = draw.textbbox((0, 0), line, font=subtitle_font)
         line_width = line_bbox[2] - line_bbox[0]
-        line_x = (1920 - line_width) // 2
+        line_x = (W - line_width) // 2
         draw.text((line_x, subtitle_y), line, fill=(80, 80, 80), font=subtitle_font)
         subtitle_y += line_height
 
     # 4. Barre accent (couleur de la marque)
-    bar_width = 1000
-    bar_x = (1920 - bar_width) // 2
-    bar_y = 780
-    bar_height = 8
+    bar_width = round(1000 * scale)
+    bar_x = (W - bar_width) // 2
+    bar_y = round(780 * scale)
+    bar_height = max(2, round(8 * scale))
     draw.rectangle(
         [(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)],
         fill=APP_SETTINGS["accent_color"]
@@ -853,14 +970,14 @@ def create_title_card(duration):
     footer_text = APP_SETTINGS["footer_tagline"]
     footer_bbox = draw.textbbox((0, 0), footer_text, font=footer_font)
     footer_width = footer_bbox[2] - footer_bbox[0]
-    footer_x = (1920 - footer_width) // 2
-    footer_y = 850
+    footer_x = (W - footer_width) // 2
+    footer_y = round(850 * scale)
     draw.text((footer_x, footer_y), footer_text, fill=(120, 120, 120), font=footer_font)
 
     # Sauvegarder l'image
     title_card_path = AUDIO_DIR / "title_card.png"
     title_img.save(title_card_path)
-    print(f"  ✅ Page de garde générée avec PIL")
+    print(f"  ✅ Page de garde générée avec PIL ({W}x{H})")
 
     # Créer le clip vidéo à partir de l'image
     return mp.ImageClip(str(title_card_path)).with_duration(duration)
