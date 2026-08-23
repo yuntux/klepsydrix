@@ -33,9 +33,13 @@ async function run() {
     await page.goto(BASE_URL);
     await page.waitForSelector('.sidebar', { timeout: 15000 });
 
-    // --- Visualiseur (grille EDT), écran d'accueil par défaut ---
-    await page.waitForSelector('text=Visualiseur', { timeout: 15000 }).catch(() => {});
-    await capture(page, { docFile: DOC_FILE, id: 'timetable-grid', caption: "Grille de l'emploi du temps", subdir: SUBDIR, waitMs: 800 });
+    // --- Visualiseur (grille EDT), écran d'accueil par défaut. De nombreux composants (grille,
+    // filtres, panneau "Cours à planifier") sont chargés en lazy et prennent plus que quelques
+    // centaines de ms à apparaître sur un contexte de navigateur tout neuf — on attend un élément
+    // réellement présent dans la grille rendue plutôt qu'un délai fixe trop court (observé : grille
+    // capturée vide malgré des données bien chargées, uniquement un problème de timing du script).
+    await page.waitForSelector('text=Cours à planifier', { timeout: 20000 }).catch(() => {});
+    await capture(page, { docFile: DOC_FILE, id: 'timetable-grid', caption: "Grille de l'emploi du temps", subdir: SUBDIR, waitMs: 1000 });
 
     // --- Classes > Liste ---
     await openTreePath(page, ['Emploi du temps', 'Classes', 'Liste']);

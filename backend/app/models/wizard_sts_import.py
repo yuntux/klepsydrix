@@ -45,6 +45,7 @@ import unicodedata
 from sqlalchemy.orm import Session
 
 from backend.app.core.sts_flux import parse, StsFluxError
+from backend.app.core.ref_lookup import find_or_create_ref as _find_or_create_ref
 from backend.app.models.base import TransientModel, requires_access
 from backend.app.models.discipline import Discipline
 from backend.app.models.gender import GENDER_FROM_STS
@@ -459,24 +460,6 @@ def _parse_date(valeur: str):
         return _date(int(annee), int(mois), int(jour))
     except (ValueError, TypeError):
         return None
-
-
-def _find_or_create_ref(db: Session, model, code: str, name: str = None):
-    """
-    Appariement d'un référentiel sur son `code`, avec création de la ligne si le code est inconnu.
-
-    Employé pour les nomenclatures que le flux désigne par un code sans que Klepsydrix en
-    connaisse la liste exhaustive : grade, fonction, académie. Perdre l'information parce qu'un
-    code n'est pas seedé serait pire que d'ajouter une ligne au référentiel — et l'utilisateur
-    peut toujours en corriger le libellé après coup.
-    """
-    code = (code or "").strip()
-    if not code:
-        return None
-    existant = db.query(model).filter(model.code == code).first()
-    if existant:
-        return existant.id
-    return model.create(db, {"code": code[:20], "name": (name or code)[:100]}).id
 
 
 def _apply_school(db: Session, flux, school: School) -> int:

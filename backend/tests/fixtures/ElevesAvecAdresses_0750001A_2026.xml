@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FICHIER XML EXEMPLE CONSTRUIT - NE PAS UTILISER COMME RÉFÉRENCE OFFICIELLE
+
+  Ce fichier XML a été construit à partir d'une analyse des scripts d'importation de données GEPI
+  (Gestion Écoles de Proximité Informatisée) trouvés sur Internet. Le Ministère de l'Éducation Nationale
+  ne publie pas publiquement les spécifications officielles des formats d'échange XML (SCONET/SIECLE, STS-web, EDT).
+
+  Merci à l'équipe de développement de GEPI pour leurs scripts d'importation détaillés.
+
+  IMPORTANT : Ce fichier est un EXEMPLE CONSTRUIT basé sur:
+  - L'analyse du code source GEPI (scripts d'importation PHP)
+  - Des exemples de fichiers XML réels
+  - La documentation implicite du code
+
+  Ces fichiers seront amenés à être COMPLÉTÉS ou CORRIGÉS en cas de:
+  - Découverte de champs manquants
+  - Évolutions des formats officiels
+  - Corrections d'erreurs d'interprétation
+
+  Statut: DRAFT - À titre informatif uniquement
+-->
+<BEE_ELEVES>
+  <PARAMETRES>
+    <UAJ>0750001A</UAJ>
+    <ANNEE_SCOLAIRE>2026</ANNEE_SCOLAIRE>
+    <DATE_EXPORT>19/05/2026</DATE_EXPORT>
+    <HORODATAGE>19/05/2026 08:30:00</HORODATAGE>
+  </PARAMETRES>
+  <DONNEES>
+    <STRUCTURES>
+      <STRUCTURES_ELEVE ELEVE_ID="10001">
+        <STRUCTURE>
+          <CODE_STRUCTURE>6E1</CODE_STRUCTURE>
+          <TYPE_STRUCTURE>D</TYPE_STRUCTURE>
+        </STRUCTURE>
+        <STRUCTURE>
+          <CODE_STRUCTURE>6LV1.ALL</CODE_STRUCTURE>
+          <TYPE_STRUCTURE>G</TYPE_STRUCTURE>
+        </STRUCTURE>
+      </STRUCTURES_ELEVE>
+      <STRUCTURES_ELEVE ELEVE_ID="10002">
+        <STRUCTURE>
+          <CODE_STRUCTURE>6E1</CODE_STRUCTURE>
+          <TYPE_STRUCTURE>D</TYPE_STRUCTURE>
+        </STRUCTURE>
+        <STRUCTURE>
+          <CODE_STRUCTURE>6LV1.ANG</CODE_STRUCTURE>
+          <TYPE_STRUCTURE>G</TYPE_STRUCTURE>
+        </STRUCTURE>
+      </STRUCTURES_ELEVE>
+    </STRUCTURES>
+    <ELEVES>
+      <ELEVE ELEVE_ID="10001">
+        <ID_NATIONAL>1234567890X</ID_NATIONAL>
+        <INE_BEA>1234567890X</INE_BEA>
+        <ELENOET>2026001</ELENOET>
+        <NOM>MARTIN</NOM>
+        <NOM_USAGE>MARTIN</NOM_USAGE>
+        <NOM_DE_FAMILLE>MARTIN</NOM_DE_FAMILLE>
+        <PRENOM>Jean</PRENOM>
+        <DATE_NAISS>15/04/2015</DATE_NAISS>
+        <DOUBLEMENT>0</DOUBLEMENT>
+        <DATE_ENTREE>01/09/2026</DATE_ENTREE>
+        <CODE_REGIME>DP</CODE_REGIME>
+        <CODE_MOTIF_SORTIE></CODE_MOTIF_SORTIE>
+        <CODE_SEXE>1</CODE_SEXE>
+        <CODE_COMMUNE_INSEE_NAISS>75101</CODE_COMMUNE_INSEE_NAISS>
+        <CODE_MEF>10010012110</CODE_MEF>
+        <SCOLARITE_AN_DERNIER>
+          <CODE_STRUCTURE>CM2</CODE_STRUCTURE>
+          <CODE_RNE>0759999Z</CODE_RNE>
+          <SIGLE>EPPU</SIGLE>
+          <DENOM_PRINC>ECOLE ELEMENTAIRE PUBLIQUE</DENOM_PRINC>
+          <DENOM_COMPL>CENTRE</DENOM_COMPL>
+          <LIGNE1_ADRESSE>12 RUE DES ECOLES</LIGNE1_ADRESSE>
+          <LIGNE2_ADRESSE></LIGNE2_ADRESSE>
+          <LIGNE3_ADRESSE></LIGNE3_ADRESSE>
+          <LIGNE4_ADRESSE></LIGNE4_ADRESSE>
+          <BOITE_POSTALE></BOITE_POSTALE>
+          <MEL>ecole.centre@ac-paris.fr</MEL>
+          <TELEPHONE>0102030405</TELEPHONE>
+          <CODE_COMMUNE_INSEE>75101</CODE_COMMUNE_INSEE>
+        </SCOLARITE_AN_DERNIER>
+      </ELEVE>
+      <ELEVE ELEVE_ID="10002">
+        <ID_NATIONAL>9876543210Y</ID_NATIONAL>
+        <INE_BEA>9876543210Y</INE_BEA>
+        <ELENOET>2026002</ELENOET>
+        <NOM>DUBOIS</NOM>
+        <NOM_USAGE>DUBOIS</NOM_USAGE>
+        <NOM_DE_FAMILLE>DUBOIS</NOM_DE_FAMILLE>
+        <PRENOM>Sophie</PRENOM>
+        <DATE_NAISS>22/09/2015</DATE_NAISS>
+        <DOUBLEMENT>0</DOUBLEMENT>
+        <DATE_ENTREE>01/09/2026</DATE_ENTREE>
+        <CODE_REGIME>DP</CODE_REGIME>
+        <CODE_MOTIF_SORTIE></CODE_MOTIF_SORTIE>
+        <CODE_SEXE>2</CODE_SEXE>
+        <CODE_COMMUNE_INSEE_NAISS>75102</CODE_COMMUNE_INSEE_NAISS>
+        <CODE_MEF>10010012110</CODE_MEF>
+        <SCOLARITE_AN_DERNIER>
+          <CODE_STRUCTURE>CM2</CODE_STRUCTURE>
+          <CODE_RNE>0759999Z</CODE_RNE>
+          <SIGLE>EPPU</SIGLE>
+          <DENOM_PRINC>ECOLE ELEMENTAIRE PUBLIQUE</DENOM_PRINC>
+          <DENOM_COMPL>CENTRE</DENOM_COMPL>
+          <LIGNE1_ADRESSE>12 RUE DES ECOLES</LIGNE1_ADRESSE>
+          <LIGNE2_ADRESSE></LIGNE2_ADRESSE>
+          <LIGNE3_ADRESSE></LIGNE3_ADRESSE>
+          <LIGNE4_ADRESSE></LIGNE4_ADRESSE>
+          <BOITE_POSTALE></BOITE_POSTALE>
+          <MEL>ecole.centre@ac-paris.fr</MEL>
+          <TELEPHONE>0102030405</TELEPHONE>
+          <CODE_COMMUNE_INSEE>75101</CODE_COMMUNE_INSEE>
+        </SCOLARITE_AN_DERNIER>
+      </ELEVE>
+    </ELEVES>
+    <OPTIONS>
+      <OPTION ELEVE_ID="10001" ELENOET="2026001">
+        <OPTIONS_ELEVE>
+          <NUM_OPTION>1</NUM_OPTION>
+          <CODE_MODALITE_ELECT>O</CODE_MODALITE_ELECT>
+          <CODE_MATIERE>030101</CODE_MATIERE>
+        </OPTIONS_ELEVE>
+      </OPTION>
+      <OPTION ELEVE_ID="10002" ELENOET="2026002">
+        <OPTIONS_ELEVE>
+          <NUM_OPTION>1</NUM_OPTION>
+          <CODE_MODALITE_ELECT>O</CODE_MODALITE_ELECT>
+          <CODE_MATIERE>030201</CODE_MATIERE>
+        </OPTIONS_ELEVE>
+      </OPTION>
+    </OPTIONS>
+  </DONNEES>
+</BEE_ELEVES>

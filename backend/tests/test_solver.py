@@ -772,29 +772,33 @@ def test_student_and_link_constraints(db_session: Session):
 
     db_session.commit()
 
-    # 2. Création d'élèves pour tester les contraintes
+    # 2. Création d'élèves pour tester les contraintes. L'appartenance à une partie de classe passe
+    # désormais par StudentClassPartLink (historique daté), plus par Student.class_part_ids — voir
+    # student.py.
+    from datetime import date as _date
+    from backend.app.models.student import StudentClassPartLink
+
     # Élève valide : appartient à cp1_a et cp2_a
     student1 = Student.create(db_session, {
         "first_name": "Jean",
         "last_name": "Dupont",
         "division_id": d_id,
         "mef_id": mef.id,
-        "class_part_ids": [cp1_a_id, cp2_a_id]
     })
     assert student1.id is not None
     student1_id = student1.id
+    StudentClassPartLink.create(db_session, {"student_id": student1_id, "class_part_id": cp1_a_id, "begin_date": _date(2026, 9, 2)})
+    StudentClassPartLink.create(db_session, {"student_id": student1_id, "class_part_id": cp2_a_id, "begin_date": _date(2026, 9, 2)})
 
     db_session.commit()
 
     # Élève invalide : appartient à cp1_a et cp1_b (même partition -> interdit)
+    invalide = Student.create(db_session, {
+        "first_name": "Invalide", "last_name": "SamePart", "division_id": d_id, "mef_id": mef.id,
+    })
+    StudentClassPartLink.create(db_session, {"student_id": invalide.id, "class_part_id": cp1_a_id, "begin_date": _date(2026, 9, 2)})
     with pytest.raises(ValueError, match="same partition|m.me partition"):
-        Student.create(db_session, {
-            "first_name": "Invalide",
-            "last_name": "SamePart",
-            "division_id": d_id,
-            "mef_id": mef.id,
-            "class_part_ids": [cp1_a_id, cp1_b_id]
-        })
+        StudentClassPartLink.create(db_session, {"student_id": invalide.id, "class_part_id": cp1_b_id, "begin_date": _date(2026, 9, 2)})
 
     db_session.commit()
 
@@ -804,14 +808,11 @@ def test_student_and_link_constraints(db_session: Session):
     cp_d2 = ClassPart.create(db_session, {"division_id": d2.id, "partition_id": p2_d2.id, "name": "Part D2"})
     db_session.commit()
 
+    wrong_div = Student.create(db_session, {
+        "first_name": "Invalide", "last_name": "WrongDiv", "division_id": d_id, "mef_id": mef.id,
+    })
     with pytest.raises(ValueError, match="depend d'une autre division|another division"):
-        Student.create(db_session, {
-            "first_name": "Invalide",
-            "last_name": "WrongDiv",
-            "division_id": d_id,
-            "mef_id": mef.id,
-            "class_part_ids": [cp_d2.id]
-        })
+        StudentClassPartLink.create(db_session, {"student_id": wrong_div.id, "class_part_id": cp_d2.id, "begin_date": _date(2026, 9, 2)})
 
     db_session.commit()
 

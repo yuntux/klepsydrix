@@ -18,7 +18,7 @@ from backend.app.models.division import Division
 from backend.app.models.material import Material
 from backend.app.models.ref_election_method import RefElectionMethod
 from backend.app.models.group import Partition, ClassPart, ClassPartLink, Group
-from backend.app.models.student import Student, StudentSpecialtyChoice
+from backend.app.models.student import Student, StudentSpecialtyChoice, StudentParentLink, StudentClassPartLink
 from backend.app.models.specialty_group_config import SpecialtyGroupConfig
 from backend.app.models.period import Period
 from backend.app.models.period_type import PeriodType
@@ -46,6 +46,11 @@ from backend.app.models.ref_pacte_mission import RefPacteMission
 from backend.app.models.ref_external_school import RefExternalSchool
 from backend.app.models.ref_title import RefTitle
 from backend.app.models.ref_country import RefCountry
+from backend.app.models.ref_exit_reason import RefExitReason
+from backend.app.models.ref_regime import RefRegime
+from backend.app.models.ref_relative_link import RefRelativeLink
+from backend.app.models.ref_legal_guardian import RefLegalGuardian
+from backend.app.models.ref_job import RefJob
 from backend.app.models.ref_degree import RefDegree
 from backend.app.models.ref_administrative_group import RefAdministrativeGroup
 from backend.app.models.ref_level import RefLevel

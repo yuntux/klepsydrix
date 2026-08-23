@@ -165,7 +165,7 @@
 
                   <!-- Sélecteur de colonnes (déplacé dans l'en-tête Action) -->
                   <div class="column-selector-wrapper" :ref="(el) => { dropdownRef = el as HTMLElement | null }">
-                    <button class="btn-icon-only-flat" @click.stop="toggleDropdown" title="Gérer les colonnes">
+                    <button type="button" class="btn-icon-only-flat" @click.stop="toggleDropdown" title="Gérer les colonnes">
                       <svg xmlns="http://www.w3.org/2000/svg" class="icon-columns-settings" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                       </svg>
@@ -275,8 +275,11 @@
       </table>
     </div>
 
-    <!-- Système de Pagination -->
-    <div class="list-pagination">
+    <!-- Système de Pagination — masqué si listConfig.enableFrontEndPagination === false (voir son
+         commentaire dans l'interface ListConfig) : perPage est alors forcé à 10000 ("Tout"), donc
+         cette barre n'aurait plus rien à piloter (pas de page à naviguer, pas de taille de page à
+         choisir). -->
+    <div v-if="listConfig?.enableFrontEndPagination !== false" class="list-pagination">
       <div class="pagination-left">
         <span class="toolbar-badge">{{ displayedCount }} élément{{ displayedCount > 1 ? 's' : '' }} sur {{ filteredItems.length }}</span>
         <label class="per-page-selector">
@@ -287,12 +290,12 @@
             <option :value="30">30</option>
             <option :value="50">50</option>
             <option :value="100">100</option>
-            <option :value="10000">Tout</option>
+            <option :value="PAGINATION_ALL">Tout</option>
           </select>
           par page
         </label>
       </div>
-      <div class="pagination-right" v-if="perPage !== 10000">
+      <div class="pagination-right" v-if="!isUnlimitedPerPage">
         <span class="pagination-info">
           Page {{ currentPage }} sur {{ totalPages }}
         </span>
@@ -471,6 +474,14 @@ interface ListConfig {
   // predefinedFilters différents). Domaine au format arbre ET/OU (voir utils/domain.ts, même
   // notation Odoo que IrModelAccess.domain côté backend), limité aux champs directs de la ressource.
   predefinedFilters?: Array<{ name: string; domain: DomainNode }>;
+  // true par défaut : pagination classique, avec sa barre dédiée en bas (nombre par page, "Page X
+  // sur Y", navigation). `false` force la ressource entière sur une seule "page" — même mécanisme
+  // que l'option "Tout" du sélecteur "Afficher N par page" (voir isVirtualMode : fenêtrage DOM
+  // virtuel, pas un vrai rendu de milliers de lignes à la fois) — et masque toute la barre du bas,
+  // devenue sans objet (plus de page à naviguer, plus de taille de page à choisir). Pensé pour un
+  // panneau qui n'a de toute façon jamais assez de lignes pour justifier une pagination (ex: une
+  // liste de préférences bornée par nature), où cette barre ne ferait qu'occuper de la place.
+  enableFrontEndPagination?: boolean;
   columns?: Record<string, ColumnConfig>;
   // Émet `update-item` dès updateInline (chaque changement de cellule), au lieu d'attendre que le
   // focus quitte toute la ligne (voir onRowFocusOut) — défaut false, comportement de tout panneau
@@ -1215,9 +1226,18 @@ watch(() => props.items, (newItems) => {
   }
 }, { immediate: true });
 
-// Pagination
+// Pagination — PAGINATION_ALL est un SENTINEL de position dans le sélecteur "Afficher N par page"
+// ("Tout"), jamais une taille de page réelle : chaque endroit qui pagine sur perPage doit d'abord
+// tester isUnlimitedPerPage et renvoyer l'ensemble COMPLET, non tronqué, sans jamais s'en servir
+// comme borne de .slice()/Math.min() — une ressource peut légitimement dépasser cette valeur (voir
+// totalPages/paginatedItems/pagedTreeRootRows/pagedGroupTree plus bas, qui suivent tous cette règle).
+// listConfig.enableFrontEndPagination === false force ce sentinel dès l'initialisation ; voir aussi
+// la restauration depuis l'URL plus bas (watch sur props.title), qui doit appliquer la même
+// contrainte plutôt que de laisser un perPage restauré la contourner.
+const PAGINATION_ALL = 10000;
 const currentPage = ref(1);
-const perPage = ref(30);
+const perPage = ref(props.listConfig?.enableFrontEndPagination === false ? PAGINATION_ALL : 30);
+const isUnlimitedPerPage = computed(() => perPage.value === PAGINATION_ALL);
 
 // ==========================================
 // FILTRES (arbre ET/OU façon Odoo, voir GenericListFilterPicker.vue / utils/domain.ts)
@@ -1331,7 +1351,7 @@ function toggleSort(key: string) {
 // Options valides du sélecteur "Afficher N par page" (voir template) — sert aussi à valider un
 // perPage restauré depuis l'URL (initialListState.perPage) : une valeur inconnue retombe sur 30
 // plutôt que de désynchroniser le <select> (voir watch ci-dessous).
-const PER_PAGE_OPTIONS = [10, 20, 30, 50, 100, 10000];
+const PER_PAGE_OPTIONS = [10, 20, 30, 50, 100, PAGINATION_ALL];
 
 // Empêche le watcher de reset de page (plus bas, sur activeDomain/perPage/internalGroupBy) d'écraser
 // la page restaurée pendant que le bloc ci-dessous assigne ces mêmes refs en une fois.
@@ -1359,7 +1379,9 @@ watch(() => props.title, async (resourceKey) => {
     sortBy.value = null;
     sortDesc.value = false;
   }
-  perPage.value = restored?.perPage && PER_PAGE_OPTIONS.includes(restored.perPage) ? restored.perPage : 30;
+  perPage.value = props.listConfig?.enableFrontEndPagination === false
+    ? PAGINATION_ALL
+    : (restored?.perPage && PER_PAGE_OPTIONS.includes(restored.perPage) ? restored.perPage : 30);
   currentPage.value = restored?.page && restored.page >= 1 ? restored.page : 1;
   emit('initial-list-state-applied');
   // Laisse le watcher de reset de page (déclenché par les assignations ci-dessus) s'exécuter et se
@@ -1639,7 +1661,7 @@ const rootRef = ref<HTMLElement | null>(null);
 // plus petit que le nombre de lignes brutes) — le fenêtrage virtuel, conçu pour une liste PLATE de
 // nombreuses lignes, ne s'applique donc jamais en mode groupé (voir pagedGroupTree). Limitation v1
 // assumée : aucune virtualisation À L'INTÉRIEUR d'un groupe déplié, même très grand.
-const isVirtualMode = computed(() => perPage.value === 10000 && !isGrouped.value && !isTreeMode.value);
+const isVirtualMode = computed(() => isUnlimitedPerPage.value && !isGrouped.value && !isTreeMode.value);
 const rowHeight = 44; // Hauteur estimée d'une ligne
 const overscan = 10; // Nombre de lignes pré-rendues hors écran
 
@@ -1678,11 +1700,11 @@ const virtualPaddingBottom = computed(() => {
 
 const totalPages = computed(() => {
   if (isGrouped.value) {
-    if (perPage.value === 10000) return 1;
+    if (isUnlimitedPerPage.value) return 1;
     return Math.ceil(groupTree.value.length / perPage.value) || 1;
   }
   if (isTreeMode.value) {
-    if (perPage.value === 10000) return 1;
+    if (isUnlimitedPerPage.value) return 1;
     return Math.ceil(treeRootRows.value.length / perPage.value) || 1;
   }
   if (isVirtualMode.value) return 1;
@@ -1701,7 +1723,7 @@ const paginatedItems = computed(() => {
 // (même principe que pagedGroupTree pour le regroupement) — un enfant déplié d'une racine de la
 // page courante ne se retrouve donc jamais coupé sur la page suivante.
 const pagedTreeRootRows = computed(() => {
-  if (perPage.value === 10000) return treeRootRows.value;
+  if (isUnlimitedPerPage.value) return treeRootRows.value;
   const start = (currentPage.value - 1) * perPage.value;
   return treeRootRows.value.slice(start, start + perPage.value);
 });
@@ -1727,7 +1749,7 @@ const displayedItems = computed(() => (isTreeMode.value ? treeOrderedItems.value
 // appliqué à groupTree plutôt qu'à filteredItems. perPage === 10000 ("Tout") : tous les groupes de
 // premier niveau sur une page unique (voir isVirtualMode ci-dessus, jamais actif en mode groupé).
 const pagedGroupTree = computed<GroupNode[]>(() => {
-  if (perPage.value === 10000) return groupTree.value;
+  if (isUnlimitedPerPage.value) return groupTree.value;
   const start = (currentPage.value - 1) * perPage.value;
   return groupTree.value.slice(start, start + perPage.value);
 });

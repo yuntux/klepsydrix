@@ -2053,6 +2053,16 @@ class StsComplianceMixin:
 
 **Quand l'employer** : dès qu'un booléen "certifié/officiel" doit rester visible en lecture mais totalement hors d'atteinte de l'API en écriture, sur une ou plusieurs tables. Pour un champ qu'il suffit de rendre `readOnly` côté UI sans garantie backend, `info={"readOnly": True}` seul suffit — ce mixin est réservé aux cas où la garantie doit tenir même contre un appel API direct.
 
+### AE. Désactiver la Pagination (`listConfig.enableFrontEndPagination`, `GenericList.vue`)
+
+**Le besoin** : certains panneaux (ex: une liste de préférences bornée par nature, jamais assez longue pour justifier de naviguer par pages) n'ont aucun intérêt à afficher une barre de pagination — elle n'occuperait que de la place pour un contrôle sans objet.
+
+**Déclaration** : `listConfig.enableFrontEndPagination?: boolean` (défaut `true`, non-breaking pour tout panneau existant). À `false` :
+- `perPage` est forcé au sentinel `PAGINATION_ALL` dès l'initialisation du composant, et à chaque restauration depuis l'URL (un `perPage` restauré ne peut pas contourner ce forçage) — c'est la MÊME position que "Tout" dans le sélecteur "Afficher N par page".
+- La barre du bas (`.list-pagination` — badge d'éléments, sélecteur de taille de page, navigation de page) est entièrement masquée (`v-if`), devenue sans objet : plus de page à naviguer, plus de taille de page à choisir.
+
+**`PAGINATION_ALL` est un sentinel de POSITION dans le sélecteur, jamais une taille de page réelle.** C'est le piège corrigé à l'introduction de ce paramètre : plusieurs endroits de `GenericList.vue` qui paginent (`totalPages`, `paginatedItems`, `pagedTreeRootRows` en mode arbre, `pagedGroupTree` en mode groupé) comparaient déjà `perPage.value === 10000` en dur pour détecter "Tout" et court-circuiter vers l'ensemble COMPLET (non tronqué) — correct par construction, mais fragile : un magic number répété à plusieurs endroits, sans garantie qu'un futur point de pagination s'en souvienne. Centralisé désormais dans une constante nommée (`PAGINATION_ALL = 10000`) et un computed dédié (`isUnlimitedPerPage`), pour qu'il n'existe plus qu'UN SEUL endroit à faire confiance — et pour que la règle soit explicite : quelle que soit la taille réelle de la ressource (bien au-delà de 10000 lignes y compris), "Tout"/`enableFrontEndPagination: false` affiche l'intégralité du jeu filtré, jamais tronqué à cette valeur. La performance sur un très grand jeu plat (non groupé, non arbre) reste assurée par le rendu virtuel (voir section C ci-dessus, `isVirtualMode`), pas par une troncature.
+
 ## 16. Architecture Multi-Base et Routage HTTP
 
 Une même instance Klepsydrix peut héberger plusieurs bases indépendantes (une par établissement/

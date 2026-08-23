@@ -114,6 +114,12 @@ const listConfig = computed(() => ({
   // la ligne éditée. Toujours forcé à true, jamais un passe-plat de widgetParams.listConfig (aucune
   // raison de le désactiver pour CE widget).
   immediateInlineUpdate: true,
+  // Toujours forcé à false, jamais un passe-plat non plus : un list_preview est un brouillon entier
+  // déjà en mémoire (pas de fetch paginé côté serveur, voir le commentaire d'en-tête), typiquement
+  // court (une étape de wizard à relire/corriger avant validation) — une barre de pagination n'y a
+  // aucun rôle, seulement le loisir de cacher des lignes que l'utilisateur doit justement TOUTES
+  // voir d'un coup avant de confirmer.
+  enableFrontEndPagination: false,
   // Seule autre exception au passe-plat : le contrat générique `disabled` de tout widget de champ,
   // sans rapport avec la configuration propre à cette ressource — une vue désactivée ne doit
   // jamais autoriser d'interaction, quel que soit ce que widgetParams.listConfig déclare par

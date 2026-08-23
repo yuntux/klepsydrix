@@ -11,6 +11,11 @@ class RefCity(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, info={"label": "Ville"})
     country_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ref_countries.id", ondelete="RESTRICT"), nullable=True, info={"label": "Pays"})
     zip_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, info={"label": "Code postal"})
+    # Code officiel INSEE de la commune (SIECLE `CODE_COMMUNE_INSEE`/`CODE_COMMUNE_INSEE_NAISS`) :
+    # une codification distincte du code postal, une commune pouvant avoir plusieurs codes postaux
+    # et inversement. Sert de clé d'appariement pour la commune de naissance, alors que le code
+    # postal + le nom servent de clé pour l'adresse (voir School._apply_school et RefCity ci-dessous).
+    insee_code: Mapped[Optional[str]] = mapped_column(String(5), nullable=True, info={"label": "Code INSEE"})
 
     # Relations de navigation
     country: Mapped[Optional["RefCountry"]] = relationship("RefCountry")

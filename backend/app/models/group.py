@@ -99,7 +99,33 @@ class ClassPart(Base):
     partition: Mapped[Optional["Partition"]] = relationship("Partition", back_populates="class_parts")
     subject: Mapped[Optional["Subject"]] = relationship("Subject")
     groups: Mapped[list["Group"]] = relationship("Group", secondary=group_class_parts, back_populates="class_parts", info={"label": "Groupes"})
-    students: Mapped[list["Student"]] = relationship("Student", secondary="student_class_parts", back_populates="class_parts", passive_deletes="all", info={"label": "Élèves"})
+    # Élèves ACTUELLEMENT inscrits (lien ouvert, end_date NULL) — MÊME nom et forme que l'ancien
+    # Many-to-Many `student_class_parts` (voir Student.class_parts pour la justification complète :
+    # c'est le chemin `class_parts.students.user_id` qu'utilise le moteur de droits).
+    students: Mapped[list["Student"]] = relationship(
+        "Student",
+        secondary="student_class_part_links",
+        primaryjoin="and_(ClassPart.id == StudentClassPartLink.class_part_id, StudentClassPartLink.end_date.is_(None))",
+        secondaryjoin="StudentClassPartLink.student_id == Student.id",
+        viewonly=True,
+        info={"label": "Élèves", "readOnly": True},
+    )
+    # Historique complet et éditable (voir StudentClassPartLink) — depuis CETTE fiche pour un usage
+    # administratif ponctuel (l'édition courante reste Student.class_part_links, côté élève).
+    student_links: Mapped[list["StudentClassPartLink"]] = relationship(
+        "StudentClassPartLink", back_populates="class_part", passive_deletes="all",
+        info={
+            "label": "Élèves (historique)", "readOnly": True, "widget": "list_preview",
+            "widgetParams": {
+                "columns": [
+                    {"key": "student_id", "label": "Élève"},
+                    {"key": "begin_date", "label": "Date de début"},
+                    {"key": "end_date", "label": "Date de fin"},
+                ],
+                "listConfig": {"editableInline": False, "disableAdd": True, "disableDelete": True, "allowMultiSelect": False},
+            },
+        },
+    )
 
     @property
     def display_name(self) -> str:
@@ -236,17 +262,20 @@ class ClassPartLink(Base):
 
     def delete(self, db: Session):
         from sqlalchemy import select
-        from backend.app.models.student import student_class_parts
-        # 1. Vérifier s'il y a des élèves communs entre les deux parties
-        stmt_a = select(student_class_parts.c.student_id).filter(student_class_parts.c.class_part_id == self.class_part_a_id)
-        stmt_b = select(student_class_parts.c.student_id).filter(student_class_parts.c.class_part_id == self.class_part_b_id)
-        
+        from backend.app.models.student import StudentClassPartLink
+        # 1. Vérifier s'il y a des élèves communs (rattachement ACTUEL, end_date NULL) entre les
+        # deux parties — un élève qui les a fréquentées toutes les deux à des moments distincts
+        # (lien clos) ne fait pas obstacle à la suppression.
+        active = StudentClassPartLink.end_date.is_(None)
+        stmt_a = select(StudentClassPartLink.student_id).filter(StudentClassPartLink.class_part_id == self.class_part_a_id, active)
+        stmt_b = select(StudentClassPartLink.student_id).filter(StudentClassPartLink.class_part_id == self.class_part_b_id, active)
+
         common_students = db.execute(
-            select(student_class_parts.c.student_id)
-            .filter(student_class_parts.c.student_id.in_(stmt_a))
-            .filter(student_class_parts.c.student_id.in_(stmt_b))
+            select(StudentClassPartLink.student_id)
+            .filter(StudentClassPartLink.student_id.in_(stmt_a))
+            .filter(StudentClassPartLink.student_id.in_(stmt_b))
         ).scalars().all()
-        
+
         if common_students:
             raise ValueError("Impossible de supprimer ce lien d'incompatibilité car des élèves appartiennent simultanément aux deux parties de classe.")
             

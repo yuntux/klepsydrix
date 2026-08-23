@@ -57,23 +57,35 @@ def _make_student(db, division, mef, first_name="A", last_name="B"):
 
 
 class TestStudentSpecialtyChoice:
-    def test_rejects_non_specialty_subject(self, db_session):
+    def test_allows_non_specialty_subject_without_counting_toward_limit(self, db_session):
+        """
+        Depuis l'import SIECLE des options élève (OPTIONS_ELEVE), StudentSpecialtyChoice porte
+        aussi bien une LV2 de collège ou une option facultative qu'une spécialité de lycée — voir
+        student.py. Seules les matières is_specialty=True sont plafonnées par
+        RefGrade.specialty_choice_limit ; une matière ordinaire ne consomme pas ce quota et ne
+        doit jamais être rejetée pour cette raison.
+        """
         discipline = Discipline.create(db_session, {"code": "GEN", "name": "Général"})
         subject = Subject.create(db_session, {"code": "EPS", "code_nomenclature": "N_EPS", "short_name": "EPS", "name": "EPS", "discipline_id": discipline.id, "is_specialty": False})
         _, _, mef, div_a, _ = _make_1ere_scaffold(db_session)
         student = _make_student(db_session, div_a, mef)
 
-        with pytest.raises(ValueError, match="Matière de Spécialité"):
-            StudentSpecialtyChoice.create(db_session, {"student_id": student.id, "subject_id": subject.id, "rank": 1})
+        choice = StudentSpecialtyChoice.create(db_session, {"student_id": student.id, "subject_id": subject.id, "rank": 1})
+        assert choice.subject_id == subject.id
 
-    def test_rejects_rank_above_grade_limit(self, db_session):
+    def test_rejects_specialty_choice_beyond_grade_limit(self, db_session):
+        """Le plafond compte les matières is_specialty=True déjà rattachées à l'élève, pas le rang
+        de la ligne en cours de création (voir _check_specialty_count_within_grade_limit)."""
         discipline = Discipline.create(db_session, {"code": "GEN", "name": "Général"})
-        subject = _make_specialty_subject(db_session, discipline, "MATH")
         _, _, mef, div_a, _ = _make_1ere_scaffold(db_session, limit=3)
         student = _make_student(db_session, div_a, mef)
+        for i in range(3):
+            subject = _make_specialty_subject(db_session, discipline, f"MATH{i}")
+            StudentSpecialtyChoice.create(db_session, {"student_id": student.id, "subject_id": subject.id, "rank": i + 1})
 
+        matiere_en_trop = _make_specialty_subject(db_session, discipline, "MATH3")
         with pytest.raises(ValueError, match="plafond"):
-            StudentSpecialtyChoice.create(db_session, {"student_id": student.id, "subject_id": subject.id, "rank": 4})
+            StudentSpecialtyChoice.create(db_session, {"student_id": student.id, "subject_id": matiere_en_trop.id, "rank": 4})
 
     def test_rejects_when_grade_has_no_limit_configured(self, db_session):
         discipline = Discipline.create(db_session, {"code": "GEN", "name": "Général"})

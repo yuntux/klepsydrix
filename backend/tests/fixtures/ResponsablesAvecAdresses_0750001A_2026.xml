@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FICHIER XML EXEMPLE CONSTRUIT - NE PAS UTILISER COMME RÉFÉRENCE OFFICIELLE
+
+  Ce fichier XML a été construit à partir d'une analyse des scripts d'importation de données GEPI
+  (Gestion Écoles de Proximité Informatisée) trouvés sur Internet. Le Ministère de l'Éducation Nationale
+  ne publie pas publiquement les spécifications officielles des formats d'échange XML (SCONET/SIECLE, STS-web, EDT).
+
+  Merci à l'équipe de développement de GEPI pour leurs scripts d'importation détaillés.
+
+  IMPORTANT : Ce fichier est un EXEMPLE CONSTRUIT basé sur:
+  - L'analyse du code source GEPI (scripts d'importation PHP)
+  - Des exemples de fichiers XML réels
+  - La documentation implicite du code
+
+  Ces fichiers seront amenés à être COMPLÉTÉS ou CORRIGÉS en cas de:
+  - Découverte de champs manquants
+  - Évolutions des formats officiels
+  - Corrections d'erreurs d'interprétation
+
+  Statut: DRAFT - À titre informatif uniquement
+-->
+<BEE_RESPONSABLES>
+  <PARAMETRES>
+    <UAJ>0750001A</UAJ>
+    <ANNEE_SCOLAIRE>2026</ANNEE_SCOLAIRE>
+    <DATE_EXPORT>19/05/2026</DATE_EXPORT>
+    <HORODATAGE>19/05/2026 08:30:00</HORODATAGE>
+  </PARAMETRES>
+  <DONNEES>
+    <PERSONNES>
+      <PERSONNE PERSONNE_ID="50001">
+        <NOM>MARTIN</NOM>
+        <NOM_USAGE>MARTIN</NOM_USAGE>
+        <NOM_DE_FAMILLE>MARTIN</NOM_DE_FAMILLE>
+        <PRENOM>Pierre</PRENOM>
+        <LC_CIVILITE>M.</LC_CIVILITE>
+        <TEL_PERSONNEL>0199887766</TEL_PERSONNEL>
+        <TEL_PORTABLE>0699887766</TEL_PORTABLE>
+        <TEL_PROFESSIONNEL>0122334455</TEL_PROFESSIONNEL>
+        <MEL>pierre.martin@email.com</MEL>
+        <ACCEPTE_SMS>1</ACCEPTE_SMS>
+        <ADRESSE_ID>20001</ADRESSE_ID>
+        <CODE_PROFESSION>42</CODE_PROFESSION>
+        <COMMUNICATION_ADRESSE>1</COMMUNICATION_ADRESSE>
+      </PERSONNE>
+      <PERSONNE PERSONNE_ID="50002">
+        <NOM>DUBOIS</NOM>
+        <NOM_USAGE>DUBOIS</NOM_USAGE>
+        <NOM_DE_FAMILLE>DUBOIS</NOM_DE_FAMILLE>
+        <PRENOM>Marie</PRENOM>
+        <LC_CIVILITE>MME</LC_CIVILITE>
+        <TEL_PERSONNEL>0188776655</TEL_PERSONNEL>
+        <TEL_PORTABLE>0688776655</TEL_PORTABLE>
+        <TEL_PROFESSIONNEL></TEL_PROFESSIONNEL>
+        <MEL>marie.dubois@email.com</MEL>
+        <ACCEPTE_SMS>1</ACCEPTE_SMS>
+        <ADRESSE_ID>20002</ADRESSE_ID>
+        <CODE_PROFESSION>51</CODE_PROFESSION>
+        <COMMUNICATION_ADRESSE>1</COMMUNICATION_ADRESSE>
+      </PERSONNE>
+    </PERSONNES>
+    <RESPONSABLES>
+      <RESPONSABLE>
+        <ELEVE_ID>10001</ELEVE_ID>
+        <PERSONNE_ID>50001</PERSONNE_ID>
+        <RESP_LEGAL>1</RESP_LEGAL>
+        <CODE_PARENTE>10</CODE_PARENTE>
+        <NIVEAU_RESPONSABILITE>1</NIVEAU_RESPONSABILITE>
+        <PAIE_FRAIS_SCOLAIRES>1</PAIE_FRAIS_SCOLAIRES>
+        <PERS_PAIMENT>1</PERS_PAIMENT>
+        <PERS_CONTACT>1</PERS_CONTACT>
+      </RESPONSABLE>
+      <RESPONSABLE>
+        <ELEVE_ID>10002</ELEVE_ID>
+        <PERSONNE_ID>50002</PERSONNE_ID>
+        <RESP_LEGAL>1</RESP_LEGAL>
+        <CODE_PARENTE>10</CODE_PARENTE>
+        <NIVEAU_RESPONSABILITE>1</NIVEAU_RESPONSABILITE>
+        <PAIE_FRAIS_SCOLAIRES>1</PAIE_FRAIS_SCOLAIRES>
+        <PERS_PAIMENT>1</PERS_PAIMENT>
+        <PERS_CONTACT>1</PERS_CONTACT>
+      </RESPONSABLE>
+    </RESPONSABLES>
+    <ADRESSES>
+      <ADRESSE ADRESSE_ID="20001">
+        <LIGNE1_ADRESSE>45 RUE DE RIVOLI</LIGNE1_ADRESSE>
+        <LIGNE2_ADRESSE></LIGNE2_ADRESSE>
+        <LIGNE3_ADRESSE></LIGNE3_ADRESSE>
+        <LIGNE4_ADRESSE></LIGNE4_ADRESSE>
+        <CODE_POSTAL>75001</CODE_POSTAL>
+        <LL_PAYS>FRANCE</LL_PAYS>
+        <CODE_DEPARTEMENT>75</CODE_DEPARTEMENT>
+        <LIBELLE_POSTAL>PARIS</LIBELLE_POSTAL>
+        <COMMUNE_ETRANGERE></COMMUNE_ETRANGERE>
+      </ADRESSE>
+      <ADRESSE ADRESSE_ID="20002">
+        <LIGNE1_ADRESSE>18 AVENUE DE LA REPUBLIQUE</LIGNE1_ADRESSE>
+        <LIGNE2_ADRESSE>BATIMENT B</LIGNE2_ADRESSE>
+        <LIGNE3_ADRESSE>APPARTEMENT 12</LIGNE3_ADRESSE>
+        <LIGNE4_ADRESSE></LIGNE4_ADRESSE>
+        <CODE_POSTAL>75011</CODE_POSTAL>
+        <LL_PAYS>FRANCE</LL_PAYS>
+        <CODE_DEPARTEMENT>75</CODE_DEPARTEMENT>
+        <LIBELLE_POSTAL>PARIS</LIBELLE_POSTAL>
+        <COMMUNE_ETRANGERE></COMMUNE_ETRANGERE>
+      </ADRESSE>
+    </ADRESSES>
+  </DONNEES>
+</BEE_RESPONSABLES>

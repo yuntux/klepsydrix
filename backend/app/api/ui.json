@@ -2198,6 +2198,15 @@
         }
       },
       {
+        "id": "eleves_import_action",
+        "icon": "wrench",
+        "title": "Importer les élèves et responsables",
+        "action": {
+          "resourceKey": "wizard_eleves_imports",
+          "actionId": "import_eleves_flux"
+        }
+      },
+      {
         "id": "sts_export_action",
         "icon": "wrench",
         "title": "Remonter vers STS-web",

@@ -9,6 +9,7 @@ from backend.app.models.base import Base
 from backend.app.models import (
     School, Teacher, NonTeachingStaff, Student, Parent, User, UserIdentityProvider,
     Division, Mef, MefDivision, RefGrade, SystemSetting, Course, Subject, Discipline,
+    StudentParentLink,
 )
 from backend.tests.db_test_utils import make_test_engine
 
@@ -111,19 +112,22 @@ class TestHasUserAccountSync:
 
 
 class TestParentAndStudentLinks:
-    def test_student_can_reference_two_parents(self, db_session):
-        parent1 = Parent.create(db_session, {"first_name": "Alice", "last_name": "Martin", "phone": "0600000001"})
-        parent2 = Parent.create(db_session, {"first_name": "Bob", "last_name": "Martin", "phone": "0600000002"})
-        student = _make_student(db_session, parent1_id=parent1.id, parent2_id=parent2.id)
-        assert student.parent1.first_name == "Alice"
-        assert student.parent2.first_name == "Bob"
+    def test_student_can_reference_several_parents(self, db_session):
+        parent1 = Parent.create(db_session, {"first_name": "Alice", "last_name": "Martin", "mobile_phone": "0600000001"})
+        parent2 = Parent.create(db_session, {"first_name": "Bob", "last_name": "Martin", "mobile_phone": "0600000002"})
+        student = _make_student(db_session)
+        StudentParentLink.create(db_session, {"student_id": student.id, "parent_id": parent1.id})
+        StudentParentLink.create(db_session, {"student_id": student.id, "parent_id": parent2.id})
+        db_session.refresh(student)
+        assert {link.parent.first_name for link in student.parent_links} == {"Alice", "Bob"}
 
-    def test_deleting_parent_sets_student_parent_field_to_null(self, db_session):
+    def test_deleting_parent_removes_the_link(self, db_session):
         parent1 = Parent.create(db_session, {"first_name": "Alice", "last_name": "Martin"})
-        student = _make_student(db_session, parent1_id=parent1.id)
+        student = _make_student(db_session)
+        StudentParentLink.create(db_session, {"student_id": student.id, "parent_id": parent1.id})
         parent1.delete(db_session)
         db_session.refresh(student)
-        assert student.parent1_id is None
+        assert student.parent_links == []
 
 
 class TestUserIdentityProviderPrivateField:

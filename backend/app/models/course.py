@@ -425,6 +425,9 @@ class Course(Base):
             return []
         conditions = []
         if class_part_ids:
+            # Student.class_parts est un viewonly filtré sur le rattachement ACTUEL (end_date NULL,
+            # voir StudentClassPartLink) : un élève qui a quitté la partie de classe ne remonte pas
+            # dans le roster du cours.
             conditions.append(Student.class_parts.any(ClassPart.id.in_(class_part_ids)))
         if division_ids:
             conditions.append(Student.division_id.in_(division_ids))

@@ -237,11 +237,28 @@ def init_prod_data(slug: str = None):
 
         # Tables de référence RH (fiche enseignant) — simples listes en texte libre. ref_country,
         # ref_inspector, ref_ara, ref_are, ref_particular_mission, ref_pacte_mission,
-        # ref_external_school, ref_city sont volontairement créées vides (aucune valeur de seed
-        # demandée) : seules les tables ci-dessous ont un contenu initial connu.
-        ref_titles_data = ["Monsieur", "Madame"]
-        for name in ref_titles_data:
-            db.execute(text("INSERT INTO ref_titles (name) VALUES (:name)"), {"name": name})
+        # ref_external_school, ref_city, ref_exit_reasons, ref_relative_links, ref_jobs sont
+        # volontairement créées vides (aucune valeur de seed demandée, nomenclature non fermée
+        # complétée par les imports SIECLE) : seules les tables ci-dessous ont un contenu initial
+        # connu.
+        # code : valeur attendue de PERSONNE/LC_CIVILITE (ResponsablesAvecAdresses), qui n'a aucune
+        # énumération fermée côté SIECLE — les deux lignes ci-dessous sont celles qui reviennent
+        # dans les exemples connus, pas une liste exhaustive.
+        ref_titles_data = [("Monsieur", "M."), ("Madame", "MME")]
+        for name, code in ref_titles_data:
+            db.execute(text("INSERT INTO ref_titles (name, code) VALUES (:name, :code)"), {"name": name, "code": code})
+
+        # code : valeur attendue d'ELEVE/CODE_REGIME (ElevesAvecAdresses). Nomenclature fermée et
+        # connue (DP/DI/EX), contrairement à ref_exit_reasons/ref_relative_links/ref_jobs ci-dessus.
+        ref_regimes_data = [("DP", "Demi-pensionnaire"), ("DI", "Interne"), ("EX", "Externe")]
+        for code, name in ref_regimes_data:
+            db.execute(text("INSERT INTO ref_regimes (code, name) VALUES (:code, :name)"), {"code": code, "name": name})
+
+        # code : valeur attendue de RESPONSABLE/RESP_LEGAL (ResponsablesAvecAdresses). Nomenclature
+        # fermée et connue (0/1/2).
+        ref_legal_guardians_data = [("0", "Autre"), ("1", "Responsable légal 1"), ("2", "Responsable légal 2")]
+        for code, name in ref_legal_guardians_data:
+            db.execute(text("INSERT INTO ref_legal_guardians (code, name) VALUES (:code, :name)"), {"code": code, "name": name})
 
         ref_degrees_data = [
             "CAP, BEP",

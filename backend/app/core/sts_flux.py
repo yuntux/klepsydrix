@@ -25,6 +25,8 @@ from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
 from xml.etree.ElementTree import ParseError
 
+from backend.app.core.xml_text import text as _text, first_label as _first_label
+
 STS_ROOT_TAG = "STS_EDT"
 # Racine du fichier montant. On la reconnaît uniquement pour produire un message utile : c'est
 # l'erreur que GEPI signale explicitement à ses utilisateurs, donc elle est courante.
@@ -66,23 +68,6 @@ class StsFlux:
             "groups": len(self.groups),
             "programmes": len(self.programmes),
         }
-
-
-def _text(node, tag: str):
-    child = node.find(tag)
-    if child is None or child.text is None:
-        return None
-    value = child.text.strip()
-    return value or None
-
-
-def _first_label(node, *tags):
-    """Premier libellé renseigné, dans l'ordre de préférence donné."""
-    for tag in tags:
-        value = _text(node, tag)
-        if value:
-            return value
-    return None
 
 
 def parse(content: bytes) -> StsFlux:
